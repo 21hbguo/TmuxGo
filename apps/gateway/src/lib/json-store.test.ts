@@ -1,10 +1,11 @@
 import '../test-env.js'
 import assert from 'node:assert/strict'
-import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises'
+import { spawn, spawnSync } from 'node:child_process'
+import { chmod, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import test from 'node:test'
-import { JsonStore, JsonStoreCorruptionError } from './json-store.js'
+import { JsonStore, JsonStoreCorruptionError, JsonStoreLockError } from './json-store.js'
 
 interface Item {
   id: string
@@ -144,4 +145,106 @@ test('write failure leaves the previous file and backup recoverable', async (t) 
   const backup = JSON.parse(await readFile(`${file}.bak`, 'utf8')) as { items: Item[] }
   assert.ok(backup.items.length >= 1)
   assert.equal(backup.items[0].id, 'a')
+})
+
+// 独立 Node 进程跑同一路径 update()：无锁时 read-modify-write 互相覆盖丢写，
+// 有锁时全部落盘。worker 脚本写到共享 tmpdir，经 --import tsx 加载 .ts 源码
+async function runStoreWorker(dir: string, file: string, tag: string, count: number) {
+  const helper = path.join(dir, `worker-${tag}.mjs`)
+  const storeUrl = new URL('./json-store.ts', import.meta.url).href
+  await writeFile(
+    helper,
+    `const { JsonStore } = await import(${JSON.stringify(storeUrl)})\n` +
+      `const store = new JsonStore(${JSON.stringify(file)}, { key: 'items', normalize: (i) => (Array.isArray(i) ? i : []) })\n` +
+      `for (let i = 0; i < ${count}; i++) await store.update((items) => ({ items: [...items, { id: '${tag}-' + i }], result: null }))\n`,
+  )
+  const child = spawn(process.execPath, ['--import', 'tsx', helper], {
+    stdio: ['ignore', 'ignore', 'pipe'],
+    // --import tsx 按 cwd 解析依赖：固定仓库根（本文件上溯四级）
+    cwd: new URL('../../../../', import.meta.url).pathname,
+  })
+  let stderr = ''
+  child.stderr.on('data', (chunk: Buffer) => (stderr += chunk))
+  const code = await new Promise<number | null>((resolve) => child.on('exit', resolve))
+  assert.equal(code, 0, `worker ${tag} failed: ${stderr}`)
+}
+
+test('serializes concurrent read-modify-write across independent processes', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-store-'))
+  const file = path.join(dir, 'items.json')
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const perWorker = 10
+  await Promise.all([runStoreWorker(dir, file, 'a', perWorker), runStoreWorker(dir, file, 'b', perWorker)])
+  const store = makeStore(dir)
+  const items = await store.read()
+  assert.equal(items.length, perWorker * 2)
+  assert.equal(new Set(items.map((item) => item.id)).size, perWorker * 2)
+  // 锁文件不残留
+  await assert.rejects(stat(`${file}.lock`))
+})
+
+test('rejects expectedVersion conflict without clobbering and releases the lock', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-store-'))
+  const file = path.join(dir, 'items.json')
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const normalize = (input: unknown) => (Array.isArray(input) ? (input as Item[]) : [])
+  const v1 = new JsonStore<Item>(file, { key: 'items', expectedVersion: 1, normalize })
+  await v1.write([{ id: 'v1' }])
+  // 异版本进程/实例读到声明版本不符的文件 → 损坏语义拒绝，绝不静默覆盖
+  const v2 = new JsonStore<Item>(file, { key: 'items', expectedVersion: 2, normalize })
+  await assert.rejects(
+    v2.update((items) => ({ items, result: null })),
+    JsonStoreCorruptionError,
+  )
+  assert.deepEqual(await v1.read(), [{ id: 'v1' }])
+  // 失败路径 finally 归还锁：同路径后续写入立即正常
+  await assert.rejects(stat(`${file}.lock`))
+  await v1.update((items) => ({ items: [...items, { id: 'v2' }], result: null }))
+  assert.deepEqual(await v1.read(), [{ id: 'v1' }, { id: 'v2' }])
+})
+
+test('reclaims a stale lock left by a dead holder', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-store-'))
+  const file = path.join(dir, 'items.json')
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  // 持有者 pid 已退出（spawnSync 返回即死）：锁新鲜也可立即回收
+  const dead = spawnSync(process.execPath, ['-e', ''])
+  await writeFile(`${file}.lock`, JSON.stringify({ pid: dead.pid, token: 'ghost', createdAt: Date.now() }))
+  const store = makeStore(dir)
+  await store.write([{ id: 'a' }])
+  assert.deepEqual(await store.read(), [{ id: 'a' }])
+})
+
+test('reclaims a lock whose mtime exceeded the stale threshold', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-store-'))
+  const file = path.join(dir, 'items.json')
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  // pid 仍活但 mtime 远超阈值（如 holder 卡死/时钟回拨场景）→ 按 stale 回收
+  await writeFile(`${file}.lock`, JSON.stringify({ pid: process.pid, token: 'old', createdAt: Date.now() }))
+  await utimes(`${file}.lock`, new Date(0), new Date(0))
+  const store = makeStore(dir)
+  await store.write([{ id: 'b' }])
+  assert.deepEqual(await store.read(), [{ id: 'b' }])
+})
+
+test('times out on a live held lock, other paths unblock, writes succeed after release', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-store-'))
+  const file = path.join(dir, 'items.json')
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const options = {
+    key: 'items',
+    normalize: (input: unknown) => (Array.isArray(input) ? (input as Item[]) : []),
+    lockTimeoutMs: 300,
+    lockStaleMs: 60_000,
+  }
+  // 活 pid + 新鲜 mtime → 非 stale，等待方只能在超时后报可解释错误
+  await writeFile(`${file}.lock`, JSON.stringify({ pid: process.pid, token: 'held', createdAt: Date.now() }))
+  const store = new JsonStore<Item>(file, options)
+  await assert.rejects(store.write([{ id: 'blocked' }]), JsonStoreLockError)
+  // 不同 store 路径各有独立锁，不被该路径的持锁阻塞
+  await new JsonStore<Item>(path.join(dir, 'other.json'), options).write([{ id: 'free' }])
+  // 锁释放后同路径立即可写，进程内队列未被超时失败污染
+  await rm(`${file}.lock`)
+  await store.write([{ id: 'after' }])
+  assert.deepEqual(await store.read(), [{ id: 'after' }])
 })

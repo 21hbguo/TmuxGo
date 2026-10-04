@@ -1,14 +1,22 @@
-import { chmod, copyFile, mkdir, readFile, rename, rm, writeFile } from 'fs/promises'
+import { randomUUID } from 'crypto'
+import { chmod, copyFile, mkdir, open, readFile, rename, rm, stat, writeFile } from 'fs/promises'
 import path from 'path'
 
-// 最小 JSON 持久化：原子 temp+rename、0600、进程内写队列串行化 read-modify-write、
-// 主文件损坏时回落 .bak。仅面向单进程部署（约定见派工单），不做跨进程锁。
+// 最小 JSON 持久化：原子 temp+rename、0600、进程内写队列串行化 +
+// 同路径 .lock 文件跨进程互斥 read-modify-write、主文件损坏时回落 .bak。
 // payload 保持 {version:1, updatedAt, <key>: items} 旧格式——旧文件原样可读。
 
 export class JsonStoreCorruptionError extends Error {
   code = 'JSON_STORE_CORRUPT'
   constructor(filePath: string) {
     super(`Persisted data is corrupted and no usable backup exists: ${path.basename(filePath)}`)
+  }
+}
+
+export class JsonStoreLockError extends Error {
+  code = 'JSON_STORE_LOCK_TIMEOUT'
+  constructor(filePath: string, timeoutMs: number) {
+    super(`Timed out after ${timeoutMs}ms waiting for store lock: ${path.basename(filePath)}`)
   }
 }
 
@@ -20,6 +28,37 @@ export interface JsonStoreOptions<T> {
   // 设置时校验 payload.version：不匹配的版本视为不可读（损坏语义），
   // 防止旧代码误读新模式文件；未设置则不看 version（保持无版本约束的旧行为）
   expectedVersion?: number
+  // 跨进程锁等待上限（超时抛 JsonStoreLockError）；默认 10s，仅测试需要注入缩短
+  lockTimeoutMs?: number
+  // 锁文件 mtime 超过此值视为持有者崩溃遗留（stale），默认 15s
+  lockStaleMs?: number
+}
+
+interface LockMeta {
+  pid: number
+  token: string
+}
+
+function parseLockMeta(raw: string): LockMeta | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<LockMeta>
+    if (typeof parsed.pid === 'number' && typeof parsed.token === 'string') {
+      return { pid: parsed.pid, token: parsed.token }
+    }
+  } catch {
+    // 锁文件写一半进程死亡：内容不可解析，退化为只靠 mtime 判 stale
+  }
+  return null
+}
+
+function pidAlive(pid: number) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    // EPERM = 进程存在但属他人；ESRCH = 已退出
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
 }
 
 export class JsonStore<T> {
@@ -38,6 +77,10 @@ export class JsonStore<T> {
 
   private get backupPath() {
     return `${this.filePath}.bak`
+  }
+
+  private get lockPath() {
+    return `${this.filePath}.lock`
   }
 
   // null = 文件不存在；结构非法/不可解析/不可读 → CorruptionError（交给上层回落）
@@ -96,6 +139,77 @@ export class JsonStore<T> {
     }
   }
 
+  // 跨进程互斥：同一 store 路径用 <file>.lock 的 O_CREAT|O_EXCL 原子创建做锁，
+  // 内容 {pid, token}。不同路径各有独立锁文件，互不阻塞。
+  // 等待方轮询至超时抛 JsonStoreLockError，绝不无限等待；锁 mtime 老化
+  // （默认 15s）或记录持有 pid 已退出 → stale，删除后重抢。释放前核对
+  // token，防止自身锁被判定 stale 抢走后误删新持有者的锁。
+  private static readonly lockPollMs = 40
+
+  private async acquireLock(): Promise<() => Promise<void>> {
+    const lockPath = this.lockPath
+    await mkdir(path.dirname(lockPath), { recursive: true, mode: 0o700 })
+    const token = `${process.pid}:${randomUUID()}`
+    const meta = JSON.stringify({ pid: process.pid, token, createdAt: Date.now() })
+    const timeoutMs = this.options.lockTimeoutMs ?? 10_000
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      let created = false
+      try {
+        const handle = await open(lockPath, 'wx', 0o600)
+        created = true
+        try {
+          await handle.writeFile(meta)
+        } finally {
+          await handle.close()
+        }
+        return () => this.releaseLock(lockPath, token)
+      } catch (error) {
+        // writeFile/close 失败但 wx 已把锁文件建出来：清掉自己的残锁再抛，
+        // 否则留下空锁要等 15s stale 才能被回收
+        if (created) await rm(lockPath, { force: true }).catch(() => {})
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      }
+      if (await this.lockIsStale(lockPath)) {
+        await rm(lockPath, { force: true }).catch(() => {})
+      } else if (Date.now() >= deadline) {
+        throw new JsonStoreLockError(this.filePath, timeoutMs)
+      } else {
+        const poll = JsonStore.lockPollMs
+        await new Promise((resolve) => setTimeout(resolve, poll + Math.random() * poll))
+      }
+    }
+  }
+
+  private async lockIsStale(lockPath: string): Promise<boolean> {
+    const info = await stat(lockPath).catch(() => null)
+    if (!info) return true // 刚好被释放：下一轮 wx 直接重建
+    if (Date.now() - info.mtimeMs > (this.options.lockStaleMs ?? 15_000)) return true
+    const meta = await readFile(lockPath, 'utf8')
+      .then(parseLockMeta)
+      .catch(() => null)
+    // 持有进程已死：安全回收（同主机 pid 判定；pid 复用时 token 释放兜底不误删）
+    return meta !== null && !pidAlive(meta.pid)
+  }
+
+  private async releaseLock(lockPath: string, token: string) {
+    const meta = await readFile(lockPath, 'utf8')
+      .then(parseLockMeta)
+      .catch(() => null)
+    // 锁已消失/已易主：绝不能删，否则会删掉新持有者刚建的锁
+    if (meta?.token !== token) return
+    await rm(lockPath, { force: true }).catch(() => {})
+  }
+
+  private async withLock<R>(job: () => Promise<R>): Promise<R> {
+    const release = await this.acquireLock()
+    try {
+      return await job()
+    } finally {
+      await release()
+    }
+  }
+
   private enqueue<R>(job: () => Promise<R>): Promise<R> {
     const next = this.queue.then(job, job)
     // 队列本身不吸收失败：失败传播给调用方，后续写入仍按序继续
@@ -107,16 +221,19 @@ export class JsonStore<T> {
   }
 
   async write(items: T[]): Promise<void> {
-    return this.enqueue(() => this.persist(items))
+    return this.enqueue(() => this.withLock(() => this.persist(items)))
   }
 
-  // 串行区内 re-read：并发写天然互斥；mutate 抛错即放弃写入并传播错误
+  // 串行区内持锁 re-read：进程内队列 + 跨进程锁双重互斥；mutate 抛错即
+  // 放弃写入并传播错误，finally 保证锁一定归还
   async update<R>(mutate: (items: T[]) => { items: T[]; result: R }): Promise<R> {
-    return this.enqueue(async () => {
-      const current = await this.read()
-      const { items, result } = mutate(current)
-      await this.persist(items)
-      return result
-    })
+    return this.enqueue(() =>
+      this.withLock(async () => {
+        const current = await this.read()
+        const { items, result } = mutate(current)
+        await this.persist(items)
+        return result
+      }),
+    )
   }
 }

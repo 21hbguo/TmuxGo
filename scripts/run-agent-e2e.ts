@@ -58,7 +58,9 @@ async function waitFor(url: string, process: ChildProcess) {
     if (process.exitCode !== null) throw new Error(`${url} exited before becoming ready`)
     try {
       if ((await fetch(url)).ok) return
-    } catch {}
+    } catch {
+      // 服务未就绪时 fetch 拒绝：忽略并继续轮询至 deadline
+    }
     await delay(200)
   }
   throw new Error(`${url} did not become ready`)
@@ -94,7 +96,9 @@ async function waitForAgent(apiUrl: string, process: ChildProcess, hostId: strin
       })
       const host = (await response.json()) as { connectionMode?: string; agent?: { online?: boolean } }
       if (response.ok && host.connectionMode === 'agent' && host.agent?.online === true) return
-    } catch {}
+    } catch {
+      // 服务未就绪时 fetch 拒绝：忽略并继续轮询至 deadline
+    }
     await delay(200)
   }
   throw new Error('Agent did not register')
