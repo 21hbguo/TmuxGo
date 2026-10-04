@@ -26,7 +26,7 @@ import { requestTerminalSelection } from '@/lib/terminal-selection'
 import { DELETE_PREV_LINE_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 import { WatchButton } from './PaneNotifications'
 import { KeyCap } from './KeyCap'
-import { FiCheckSquare, FiEdit2, FiTrash2 } from 'react-icons/fi'
+import { FiCheckSquare, FiCommand, FiEdit2, FiTrash2 } from 'react-icons/fi'
 import type { CustomShortcut } from '@/types'
 
 const repeatDelay = 300
@@ -506,6 +506,8 @@ function useQuickActionController() {
 
   return {
     t,
+    preferences,
+    updatePreferences,
     activePaneId,
     shortcuts,
     recentShortcutButtons,
@@ -661,16 +663,21 @@ function renderDockButton(def: ActionButtonDef, controller: ReturnType<typeof us
 
 export function QuickActions({
   mode = 'panel',
+  compact = false,
   onOpenFiles,
   onOpenUpload,
 }: {
   mode?: QuickActionsMode
+  /** compact 仅 dock 模式生效：对齐桌面底部状态栏 h-7 的密度 */
+  compact?: boolean
   onOpenFiles?: () => void
   onOpenUpload?: () => void
 }) {
   const controller = useQuickActionController()
   const {
     t,
+    preferences,
+    updatePreferences,
     activePaneId,
     shortcuts,
     recentShortcutButtons,
@@ -740,12 +747,29 @@ export function QuickActions({
   if (mode === 'dock') {
     return (
       <>
-        <div className="mobile-nav-landscape-hide relative z-40 flex-shrink-0 bg-bg-1 border-t border-[var(--line)]">
+        {/* compact：h-7 落在带 border-t 的外层（border-box 含边框=28px），与 footer 同高 */}
+        <div
+          className={`mobile-nav-landscape-hide relative z-40 flex-shrink-0 bg-bg-1 border-t border-[var(--line)] ${compact ? 'flex h-7 items-center' : ''}`}
+        >
+          {/* compact 底栏左侧的 dock/状态栏切换：与 SessionPanel 开关同一偏好，固定在滚动区外不被横向滚动带走 */}
+          {compact && (
+            <button
+              type="button"
+              onClick={() => updatePreferences({ showShortcutBar: !preferences.showShortcutBar })}
+              className={`ml-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-apple transition-colors ${preferences.showShortcutBar ? 'bg-accent/15 text-accent' : 'text-text-3 hover:bg-accent/15 hover:text-accent'}`}
+              aria-label={t('shortcut.toggleDock')}
+              aria-pressed={preferences.showShortcutBar}
+              title={t('shortcut.toggleDock')}
+            >
+              <FiCommand aria-hidden="true" size={13} />
+            </button>
+          )}
           <div
             data-shortcut-bar
             data-keep-mobile-keyboard
-            className="overflow-x-auto scrollbar-none pb-[env(safe-area-inset-bottom)]"
-            style={{ minHeight: 40 }}
+            data-density={compact ? 'compact' : undefined}
+            className={`overflow-x-auto scrollbar-none pb-[env(safe-area-inset-bottom)] ${compact ? 'h-full min-w-0 flex-1' : ''}`}
+            style={compact ? undefined : { minHeight: 40 }}
             onPointerDownCapture={controller.startDockGesture}
             onPointerMove={controller.trackDockPointer}
             onPointerUpCapture={(e) => controller.finishDockGesture(e.pointerId)}
@@ -759,7 +783,11 @@ export function QuickActions({
             }}
             onContextMenu={(e) => e.preventDefault()}
           >
-            <div className="flex gap-1 p-1.5 w-max min-h-[40px] items-center" onContextMenu={(e) => e.preventDefault()}>
+            <div
+              // w-max + mx-auto：内容窄于栏宽时居中；超出时 margin 归零退回左对齐横向滚动
+              className={`flex gap-1 w-max items-center ${compact ? 'mx-auto h-full px-1.5' : 'min-h-[40px] p-1.5'}`}
+              onContextMenu={(e) => e.preventDefault()}
+            >
               {recentShortcutButtons.map((s) =>
                 renderDockButton(
                   {

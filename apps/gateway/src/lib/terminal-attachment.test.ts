@@ -5,7 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import type { IPty } from 'node-pty'
-import { createTerminalAttachment, setPtySpawnForTest } from './terminal-attachment.js'
+import { createTerminalAttachment, setAttachFlagProbeForTest, setPtySpawnForTest } from './terminal-attachment.js'
 import { upsertRemoteHost } from './hosts.js'
 import { agentManager } from '../agent-manager.js'
 
@@ -54,6 +54,8 @@ function withConfigDir(t: { after: (fn: () => void | Promise<void>) => void }) {
 }
 test('creates a remote SSH attachment with expected ssh arguments', async (t) => {
   await withConfigDir(t)()
+  setAttachFlagProbeForTest(async () => true)
+  t.after(() => setAttachFlagProbeForTest(null))
   await upsertRemoteHost({
     id: 'remote',
     address: 'remote.example',
@@ -91,6 +93,34 @@ test('creates a remote SSH attachment with expected ssh arguments', async (t) =>
   assert.ok(spawned[0].args.includes('ignore-size,active-pane'))
   assert.ok(spawned[0].args.includes('-t'))
   assert.ok(spawned[0].args.includes('dev'))
+  attachment.kill()
+})
+test('drops -f ignore-size when the remote tmux is below 3.2', async (t) => {
+  await withConfigDir(t)()
+  setAttachFlagProbeForTest(async () => false)
+  t.after(() => setAttachFlagProbeForTest(null))
+  await upsertRemoteHost({
+    id: 'remote-old-tmux',
+    address: 'remote-old.example',
+    user: 'guo',
+    port: 22,
+  })
+  const spawned: Array<{ file: string; args: string[] }> = []
+  setPtySpawnForTest((file, args, _options) => {
+    spawned.push({ file, args })
+    return fakePty(101)
+  })
+  const attachment = await createTerminalAttachment({
+    hostId: 'remote-old-tmux',
+    sessionName: 'dev',
+    cols: 100,
+    rows: 30,
+    exclusive: false,
+  })
+  assert.equal(spawned.length, 1)
+  assert.equal(spawned[0].file, 'ssh')
+  assert.ok(spawned[0].args.includes('attach'))
+  assert.ok(!spawned[0].args.includes('-f'))
   attachment.kill()
 })
 test('creates a local tmux attachment and adapts pty events', async () => {

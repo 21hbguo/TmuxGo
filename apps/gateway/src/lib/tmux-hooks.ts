@@ -11,7 +11,13 @@ export interface TmuxAgentHookEvent {
 }
 export const tmuxAgentHookMarker = 'tmuxgo-agent-monitor:v2'
 const legacyTmuxAgentHookMarkers = ['tmuxgo-agent-monitor:v1']
-const hookNames: TmuxAgentHookName[] = ['pane-exited', 'pane-died', 'pane-command-started', 'pane-command-finished']
+export const tmuxAgentHookNames: TmuxAgentHookName[] = [
+  'pane-exited',
+  'pane-died',
+  'pane-command-started',
+  'pane-command-finished',
+]
+const hookNames = tmuxAgentHookNames
 function shellQuote(value: string) {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
@@ -29,25 +35,47 @@ function hookIndex(line: string, event: TmuxAgentHookName) {
   return match ? Number(match[1]) : null
 }
 async function removeOwnHooks(hostId: string, event: TmuxAgentHookName, output: string) {
-  const indexes = output.split(/\r?\n/).filter((line) => [tmuxAgentHookMarker, ...legacyTmuxAgentHookMarkers].some((marker) => line.includes(marker))).map((line) => hookIndex(line, event)).filter((index): index is number => index !== null).sort((left, right) => right - left)
-  for (const index of indexes) {
-    try {
-      await execTmux(hostId, ['set-hook', '-g', '-u', `${event}[${index}]`])
-    } catch {}
-  }
+  const indexes = output
+    .split(/\r?\n/)
+    .filter((line) => [tmuxAgentHookMarker, ...legacyTmuxAgentHookMarkers].some((marker) => line.includes(marker)))
+    .map((line) => hookIndex(line, event))
+    .filter((index): index is number => index !== null)
+    .sort((left, right) => right - left)
+  if (!indexes.length) return
+  // 多个 index 合并进单次 tmux 调用（; 为 tmux 命令分隔符）——远端 SSH 下每个 exec ~10KB，避免清理风暴
+  const args: string[] = []
+  for (const index of indexes) args.push('set-hook', '-g', '-u', `${event}[${index}]`, ';')
+  args.pop()
+  try {
+    await execTmux(hostId, args)
+  } catch {}
 }
-export async function installTmuxAgentHooks(hostId: string) {
+// 老 tmux 不支持 pane-command-* 系列 hook（invalid option）：失败一次即标记，避免每轮 scan 白跑 set-hook
+const unsupportedHookEvents = new Set<string>()
+function ownHookMarkerCount(output: string) {
+  return output.split('\n').filter((line) => line.includes(tmuxAgentHookMarker)).length
+}
+// prefetched 用于远端批处理 scan：show-hooks 输出随单次 exec 一并带回，避免每轮再开 4 个 channel
+export async function installTmuxAgentHooks(hostId: string, prefetched?: Map<TmuxAgentHookName, string>) {
   const queuePath = getTmuxAgentHookQueuePath(hostId)
   for (const event of hookNames) {
+    if (unsupportedHookEvents.has(`${hostId}:${event}`)) continue
     let existing = ''
-    try {
-      existing = (await execTmux(hostId, ['show-hooks', '-g', event])).stdout
-    } catch {}
-    if (existing.includes(tmuxAgentHookMarker)) continue
+    if (prefetched) {
+      existing = prefetched.get(event) || ''
+    } else {
+      try {
+        existing = (await execTmux(hostId, ['show-hooks', '-g', event])).stdout
+      } catch {}
+    }
+    // 恰好一条自家 hook 才算健康；0 条补装，>1 条去重（历史 bug 会累积重复 hook）
+    if (ownHookMarkerCount(existing) === 1) continue
     await removeOwnHooks(hostId, event, existing)
     try {
       await execTmux(hostId, ['set-hook', '-g', '-a', event, hookCommand(event, queuePath)])
-    } catch {}
+    } catch (err: any) {
+      if (String(err?.message || '').includes('invalid option')) unsupportedHookEvents.add(`${hostId}:${event}`)
+    }
   }
 }
 export async function consumeTmuxAgentHookEvents(hostId: string) {
@@ -71,15 +99,26 @@ function parseTmuxAgentHookFields(fields: string[]): TmuxAgentHookEvent | null {
   const deadStatus = hasSession ? fifth : fourth
   const commandStatus = hasSession ? sixth : fifth
   if (!paneId?.startsWith('%') || !hookNames.includes(event)) return null
-  return { paneId, ...(sessionName ? { sessionName } : {}), event, deadStatus, commandStatus } satisfies TmuxAgentHookEvent
+  return {
+    paneId,
+    ...(sessionName ? { sessionName } : {}),
+    event,
+    deadStatus,
+    commandStatus,
+  } satisfies TmuxAgentHookEvent
 }
 export function parseTmuxAgentHookEvent(value: string) {
-  const marker = [tmuxAgentHookMarker, ...legacyTmuxAgentHookMarkers].find((item) => value.startsWith(item + '\t') || value.startsWith(item + '|'))
+  const marker = [tmuxAgentHookMarker, ...legacyTmuxAgentHookMarkers].find(
+    (item) => value.startsWith(item + '\t') || value.startsWith(item + '|'),
+  )
   if (!marker) return null
   if (value.startsWith(marker + '\t')) return parseTmuxAgentHookFields(value.split('\t'))
   if (value.startsWith(marker + '|')) return parseTmuxAgentHookFields(value.split('|'))
   return null
 }
 export function parseTmuxAgentHookEvents(value: string) {
-  return value.split(/\r?\n/).map((line) => parseTmuxAgentHookEvent(line)).filter((event): event is TmuxAgentHookEvent => !!event)
+  return value
+    .split(/\r?\n/)
+    .map((line) => parseTmuxAgentHookEvent(line))
+    .filter((event): event is TmuxAgentHookEvent => !!event)
 }

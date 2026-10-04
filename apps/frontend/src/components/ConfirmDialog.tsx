@@ -17,6 +17,9 @@ interface ConfirmDialogProps {
   busy?: boolean
   onConfirm: () => void | Promise<unknown>
   onCancel: () => void
+  /** 第三动作（最右主操作位），如「保存并关闭」；返回 Promise 期间同样进入执行中防重复 */
+  extraLabel?: string
+  onExtra?: () => void | Promise<unknown>
 }
 
 export function ConfirmDialog({
@@ -30,6 +33,8 @@ export function ConfirmDialog({
   busy = false,
   onConfirm,
   onCancel,
+  extraLabel,
+  onExtra,
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const [confirming, setConfirming] = useState(false)
@@ -70,10 +75,21 @@ export function ConfirmDialog({
       )
     }
   }
+  const handleExtra = () => {
+    if (busyState || !onExtra) return
+    const result = onExtra()
+    if (result && typeof result.then === 'function') {
+      setConfirming(true)
+      result.then(
+        () => setConfirming(false),
+        () => setConfirming(false),
+      )
+    }
+  }
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'Tab') return
     if (busyState) {
-      // busy 时两按钮均 disabled，下方 focusables 查询为空会让 Tab 默认行为放跑焦点；
+      // busy 时所有按钮均 disabled，下方 focusables 查询为空会让 Tab 默认行为放跑焦点；
       // 单独钳制：preventDefault + 焦点收回容器，正/反向 Tab 均不离开弹窗
       e.preventDefault()
       if (!dialogRef.current?.contains(document.activeElement)) dialogRef.current?.focus()
@@ -108,7 +124,8 @@ export function ConfirmDialog({
       onEscape={() => {
         if (!busyState) onCancel()
       }}
-      onEnter={handleConfirm}
+      // 有三键时 Enter 归主操作（extra），避免落在容器上的 Enter 默认触发丢弃类 confirm
+      onEnter={onExtra ? handleExtra : handleConfirm}
     >
       <div
         className="fixed inset-0 z-[115] flex items-center justify-center tmuxgo-scrim p-4"
@@ -147,6 +164,11 @@ export function ConfirmDialog({
             >
               {busyState ? `${confirmLabel}…` : confirmLabel}
             </Button>
+            {onExtra && (
+              <Button variant="primary" size="sm" disabled={busyState} onClick={handleExtra}>
+                {busyState ? `${extraLabel}…` : extraLabel}
+              </Button>
+            )}
           </div>
         </div>
       </div>

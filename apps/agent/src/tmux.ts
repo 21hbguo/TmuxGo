@@ -1,10 +1,24 @@
 import { exec } from 'child_process'
-import { execFile } from 'child_process'
+import { execFile, execFileSync } from 'child_process'
 import { promisify } from 'util'
 import * as pty from 'node-pty'
 
 const execAsync = promisify(exec)
 const execFileAsync = promisify(execFile)
+// attach -f ignore-size,active-pane 需要 tmux 3.2+；探测一次缓存，
+// 失败/不可解析维持原行为带 -f（与 gateway 侧探针语义一致）
+let attachFlagSupport: boolean | null = null
+function supportsAttachFlags() {
+  if (attachFlagSupport === null) {
+    try {
+      const match = String(execFileSync('tmux', ['-V'], { encoding: 'utf8' })).match(/(\d+)\.(\d+)/)
+      attachFlagSupport = match ? Number(match[1]) * 100 + Number(match[2]) >= 302 : true
+    } catch {
+      attachFlagSupport = true
+    }
+  }
+  return attachFlagSupport
+}
 const allowedSessions = new Set(
   (process.env.TMUX_WEB_ALLOWED_SESSIONS || '')
     .split(',')
@@ -157,7 +171,7 @@ export class TmuxManager {
   attach(name: string, cols: number, rows: number, exclusive: boolean) {
     assertSessionAllowed(name)
     const args = ['attach']
-    if (!exclusive) args.push('-f', 'ignore-size,active-pane')
+    if (!exclusive && supportsAttachFlags()) args.push('-f', 'ignore-size,active-pane')
     args.push('-t', name)
     return pty.spawn('tmux', args, {
       name: 'xterm-256color',

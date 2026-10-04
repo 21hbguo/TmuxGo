@@ -391,6 +391,7 @@ export interface UiPreferences {
   sidebarPosition?: string
   showStatusBar?: boolean
   showQuickActions?: boolean
+  showShortcutBar?: boolean
   agentNotificationsEnabled?: boolean
   agentNotificationDurationMs?: number
   autoReconnect?: boolean

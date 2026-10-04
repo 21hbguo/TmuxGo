@@ -230,7 +230,7 @@ if op=='remove':
  shutil.rmtree(abs_path) if typ=='directory' else pathlib.Path(abs_path).unlink()
  print(json.dumps({'ok':True,'path':rel,'type':typ}));sys.exit(0)
 if op=='resolve-file':
- print(json.dumps({'root':root,'absolutePath':abs_path,'relativePath':rel,'size':st.st_size,'isFile':pathlib.Path(abs_path).is_file()}));sys.exit(0)
+ print(json.dumps({'root':root,'absolutePath':abs_path,'relativePath':rel,'size':st.st_size,'isFile':pathlib.Path(abs_path).is_file(),'modifiedAt':iso(st.st_mtime)}));sys.exit(0)
 query=str(payload.get('query','')).lower().strip()
 # 可选扩展名过滤（与本地 searchContent 的 ext 对齐）；旧调用方不带此 key
 ext=str(payload.get('ext') or '').lower()
@@ -409,7 +409,7 @@ export async function resolveFileForHost(hostId: string, rootId: string, relativ
   if (hostId === 'local') {
     const resolved = await resolveInside(rootId, relativePath)
     const info = await stat(resolved.absolutePath)
-    return { ...resolved, size: info.size, isFile: info.isFile() }
+    return { ...resolved, size: info.size, isFile: info.isFile(), modifiedAt: info.mtime.toISOString() }
   }
   return runRemoteFileJson<{
     root: FileRoot
@@ -417,5 +417,6 @@ export async function resolveFileForHost(hostId: string, rootId: string, relativ
     relativePath: string
     size: number
     isFile: boolean
+    modifiedAt: string
   }>(hostId, { op: 'resolve-file', root: rootId, path: relativePath })
 }

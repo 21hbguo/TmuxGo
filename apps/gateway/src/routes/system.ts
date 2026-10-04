@@ -212,62 +212,124 @@ async function getDependencies() {
 function quoteShellValue(value: string) {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
-// 进程级网速的零依赖近似：标准 Linux 无 per-process 字节计数（无 eBPF/nethogs/
-// conntrack 时 ss 也不给 bytes_*），改按 ss -tunp 单快照归属进程，统计每进程的
-// 在途字节（Send-Q/Recv-Q 之和）与活跃连接数——正在搬数据的进程队列非零排前。
-// users:(("name",pid=N,fd=M)) 可能在连接行或续行，按「非缩进行=新记录」分块归属；
-// 非 root 只能看到自己进程的 users:。无 ss（macOS 等）返回 available:false。
-const NET_TOP_CMD = `command -v ss >/dev/null 2>&1 || { echo __NOSS__; exit 0; }; ss -H -tunp 2>/dev/null`
-type NetTopProc = { name: string; pid: number; conns: number; txQueue: number; rxQueue: number }
-function parseNetTop(text: string): NetTopProc[] {
-  const map = new Map<string, NetTopProc>()
-  let proc: { name: string; pid: number } | null = null
-  let txq = 0
-  let rxq = 0
-  let isConn = false
-  const flush = () => {
-    if (proc && isConn) {
-      const key = `${proc.name} ${proc.pid}`
-      const prev = map.get(key) || { name: proc.name, pid: proc.pid, conns: 0, txQueue: 0, rxQueue: 0 }
-      prev.conns += 1
-      prev.txQueue += txq
-      prev.rxQueue += rxq
-      map.set(key, prev)
-    }
-    proc = null
-    txq = 0
-    rxq = 0
-    isConn = false
-  }
-  for (const line of text.split('\n')) {
-    if (line.length > 0 && line[0] !== ' ' && line[0] !== '\t') {
-      flush()
-      const cols = line.trim().split(/\s+/)
-      // 连接行可能带协议前缀（tcp ESTAB ... 或 ESTAB ...）：取第一对连续数字列作
-      // Recv-Q/Send-Q；地址里的端口在 host:port 字符串内不会是独立数字列
-      const q = cols.findIndex((c, i) => i + 1 < cols.length && /^\d+$/.test(c) && /^\d+$/.test(cols[i + 1]))
-      if (q !== -1) {
-        isConn = true
-        rxq = Number(cols[q])
-        txq = Number(cols[q + 1])
-      }
-    }
-    const u = /users:\(\("([^"]+)",pid=(\d+)/.exec(line)
-    if (u && !proc) proc = { name: u[1], pid: Number(u[2]) }
-  }
-  flush()
-  return [...map.values()]
-    .sort((a, b) => b.txQueue + b.rxQueue - (a.txQueue + a.rxQueue) || b.conns - a.conns)
-    .slice(0, 5)
-}
-async function getNetTop(hostId: string) {
+// 进程级上下行速率：inet_diag(SOCK_DIAG_BY_FAMILY) 拿每 TCP socket 的
+// bytes_acked/bytes_received 累计计数，两次采样差分出 B/s。内核 tcp_diag
+// 模块未加载（ss -i 同样失效）时无 per-socket 字节计数可用——宁可报
+// unsupported 也不用 /proc/<pid>/io 的进程总 I/O 冒充网速（含管道/tty）。
+// socket→pid 归属靠 /proc/<pid>/fd 的 socket:[ino] 链接，非 root 只见自己
+// 进程；conns 含 UDP（udp_diag 无字节计数，UDP 进程速率恒 0）。
+// 采样窗口约 1.2s，结果缓存 4s 防止悬停反复触发远端 ssh 采样。
+const NET_TOP_SAMPLE_S = 1.2
+const netTopScript = `import json,os,socket,struct,time
+def inos():
+ m={}
+ for f in ('/proc/net/tcp','/proc/net/tcp6','/proc/net/udp','/proc/net/udp6'):
+  try:lns=open(f).read().splitlines()[1:]
+  except OSError:continue
+  for l in lns:
+   p=l.split()
+   if len(p)>9 and p[3]!='0A' and p[9] not in m:m[p[9]]=1
+ return m
+def pidmap(inos):
+ m={}
+ try:pids=sorted(int(p) for p in os.listdir('/proc') if p.isdigit())
+ except OSError:return m
+ for pid in pids:
+  try:fds=os.listdir('/proc/%d/fd'%pid)
+  except OSError:continue
+  for fd in fds:
+   try:l=os.readlink('/proc/%d/fd/%s'%(pid,fd))
+   except OSError:continue
+   if l.startswith('socket:['):
+    i=l[8:-1]
+    if i in inos and i not in m:m[i]=pid
+ return m
+# SOCK_DIAG_BY_FAMILY(20) dump inet_diag：req_v2 56B(family,proto=IPPROTO_TCP,
+# ext=0x0e 即请求 INFO/VEGAS/CONG attr,states 掩码)+48B sockid；响应
+# inet_diag_msg 里 inode@68、rtattr 列表自 72 起，INET_DIAG_INFO(type2)载荷是
+# tcp_info，bytes_acked/bytes_received 在 tcp_info 偏移 120/128（attr 起点 p+124）。
+def diag(fam):
+ try:sk=socket.socket(socket.AF_NETLINK,socket.SOCK_RAW,4);sk.settimeout(3)
+ except OSError:return None
+ try:
+  req=struct.pack('=BBBBI',fam,6,0x0e,0,0xfff)+b'\\0'*48
+  sk.send(struct.pack('=IHHII',16+len(req),20,0x301,1,0)+req)
+  out={}
+  while True:
+   d=sk.recv(1<<20);o=0
+   while o+16<=len(d):
+    ln,ty=struct.unpack_from('=IH',d,o)
+    if ty==3:return out
+    if ty==2:return None
+    b=d[o+16:o+ln];ino=struct.unpack_from('=I',b,68)[0];p=72
+    while p+4<=len(b):
+     al,at=struct.unpack_from('=HH',b,p)
+     if at==2 and al>=136:
+      out[ino]=struct.unpack_from('<QQ',b,p+124)
+     p+=(al+3)&~3
+    o+=(ln+3)&~3
+ except OSError:return None
+ finally:sk.close()
+def diag_all():
+ a=diag(2);b=diag(10)
+ return None if a is None and b is None else (a or {})|(b or {})
+d0=diag_all()
+if d0 is None:
+ print(json.dumps({'mode':'nodiag'}));raise SystemExit
+t0=time.monotonic();time.sleep(${NET_TOP_SAMPLE_S});dt=time.monotonic()-t0
+d1=diag_all() or {}
+procs={}
+# socket 归属中途不变，一次 pidmap 同时服务两帧与连接数统计
+for i,p in pidmap(inos()).items():
+ r=procs.setdefault(p,{'name':'','pid':p,'conns':0,'rx':0.0,'tx':0.0});r['conns']+=1
+ if i in d0 and i in d1:
+  r['rx']+=max(0,d1[i][1]-d0[i][1]);r['tx']+=max(0,d1[i][0]-d0[i][0])
+rows=sorted(procs.values(),key=lambda r:-(r['rx']+r['tx']))[:5]
+for r in rows:
+ try:r['name']=open('/proc/%d/comm'%r['pid']).read().strip() or '?'
+ except OSError:r['name']='?'
+ r['rx']=round(r['rx']/dt);r['tx']=round(r['tx']/dt)
+print(json.dumps({'mode':'sock','processes':rows}))`
+const NET_TOP_CMD = `if command -v python3 >/dev/null 2>&1; then exec python3 -c ${quoteShellValue(netTopScript)}; elif command -v python >/dev/null 2>&1; then exec python -c ${quoteShellValue(netTopScript)}; else echo __NOPY__; fi`
+type NetTopProc = { name: string; pid: number; conns: number; txBps: number; rxBps: number }
+type NetTopData = { available: boolean; mode?: 'sock' | 'nopy' | 'nodiag'; processes: NetTopProc[] }
+const NET_TOP_TTL_MS = 4000
+const netTopCache = new Map<string, { at: number; data: NetTopData }>()
+const netTopInflight = new Map<string, Promise<NetTopData>>()
+async function sampleNetTop(hostId: string): Promise<NetTopData> {
   try {
     const { stdout } = await execHostShell(hostId, NET_TOP_CMD, { timeoutMs: 15000 })
-    if (stdout.includes('__NOSS__')) return { available: false, processes: [] }
-    return { available: true, processes: parseNetTop(stdout) }
+    if (stdout.includes('__NOPY__')) return { available: false, mode: 'nopy', processes: [] }
+    const data = JSON.parse(stdout)
+    const processes = Array.isArray(data?.processes)
+      ? data.processes.map((p: any) => ({
+          name: String(p?.name || '?'),
+          pid: safeNumber(p?.pid),
+          conns: safeNumber(p?.conns),
+          rxBps: safeNumber(p?.rx),
+          txBps: safeNumber(p?.tx),
+        }))
+      : []
+    if (data?.mode === 'nodiag') return { available: false, mode: 'nodiag', processes: [] }
+    if (data?.mode !== 'sock') return { available: false, processes: [] }
+    return { available: true, mode: 'sock', processes }
   } catch {
     return { available: false, processes: [] }
   }
+}
+async function getNetTop(hostId: string) {
+  const hit = netTopCache.get(hostId)
+  if (hit && Date.now() - hit.at < NET_TOP_TTL_MS) return hit.data
+  const pending = netTopInflight.get(hostId)
+  if (pending) return pending
+  const req = sampleNetTop(hostId)
+    .then((data) => {
+      netTopCache.set(hostId, { at: Date.now(), data })
+      return data
+    })
+    .finally(() => netTopInflight.delete(hostId))
+  netTopInflight.set(hostId, req)
+  return req
 }
 function normalizeHostSystemInfo(hostId: string, value: any) {
   const dependencies = value?.dependencies && typeof value.dependencies === 'object' ? value.dependencies : {}

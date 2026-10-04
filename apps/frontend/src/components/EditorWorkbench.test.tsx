@@ -160,6 +160,8 @@ vi.mock('@/i18n', () => ({
       if (key === 'editor.saving') return 'Saving'
       if (key === 'common.confirm') return 'Confirm'
       if (key === 'common.cancel') return 'Cancel'
+      if (key === 'editor.closeDiscard') return "Don't Save"
+      if (key === 'editor.saveAndClose') return 'Save & Close'
       if (key === 'common.retry') return 'Retry'
       if (key === 'common.close') return 'Close'
       if (key === 'editor.saveFailedKept') return 'Save failed; changes are kept'
@@ -462,15 +464,51 @@ describe('EditorWorkbench', () => {
     expect(useConsoleStore.getState().openEditors).toHaveLength(1)
     expect(useConsoleStore.getState().openEditors[0]?.dirty).toBe(true)
   })
-  it('closes a dirty editor after confirming the close dialog', () => {
+  it('closes a dirty editor without saving after choosing discard in the close dialog', () => {
+    const onSaveEditor = vi.fn(async () => {})
     useConsoleStore.setState({
       openEditors: [{ ...editor1, content: 'const value=2', dirty: true }],
     } as any)
-    renderWorkbench()
+    renderWorkbench({ onSaveEditor })
     fireEvent.click(screen.getByRole('button', { name: 'Close index.ts' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    fireEvent.click(screen.getByRole('button', { name: "Don't Save" }))
+    expect(onSaveEditor).not.toHaveBeenCalled()
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(useConsoleStore.getState().openEditors).toHaveLength(0)
+  })
+  it('saves a dirty editor and closes it via the close dialog', async () => {
+    const onSaveEditor = vi.fn(async (editor: any) => {
+      useConsoleStore.getState().markEditorSaved(editor.id, editor.content, 'now', editor.content.length)
+    })
+    useConsoleStore.setState({
+      openEditors: [{ ...editor1, content: 'const value=2', dirty: true }],
+    } as any)
+    renderWorkbench({ onSaveEditor })
+    fireEvent.click(screen.getByRole('button', { name: 'Close index.ts' }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save & Close' }))
+    })
+    expect(onSaveEditor).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(useConsoleStore.getState().openEditors).toHaveLength(0)
+  })
+  it('keeps a dirty editor open when save-and-close fails', async () => {
+    const onSaveEditor = vi.fn(async (editor: any) => {
+      useConsoleStore.getState().setEditorSaveError(editor.id, 'network down')
+    })
+    useConsoleStore.setState({
+      openEditors: [{ ...editor1, content: 'const value=2', dirty: true }],
+    } as any)
+    renderWorkbench({ onSaveEditor })
+    fireEvent.click(screen.getByRole('button', { name: 'Close index.ts' }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save & Close' }))
+    })
+    expect(onSaveEditor).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(useConsoleStore.getState().openEditors).toHaveLength(1)
+    expect(useConsoleStore.getState().openEditors[0]?.dirty).toBe(true)
+    expect(useConsoleStore.getState().openEditors[0]?.saveError).toBe('network down')
   })
   it('dismisses the dirty-close dialog with Escape and keeps the editor', () => {
     useConsoleStore.setState({

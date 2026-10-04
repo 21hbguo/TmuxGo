@@ -138,25 +138,36 @@ export async function browserRoutes(fastify: FastifyInstance) {
     }
     const inst = instance()
     let client: Awaited<ReturnType<typeof inst.addClient>> | null = null
+    // addClient 是异步绑页：其完成前到达的 pause/resume 若只看 client 会被丢，
+    // 先记账最后意图，bind 落地后统一应用
+    let wantPaused = false
     // 画面帧经 JSON 文本帧下发；send 仅在 OPEN 时尝试，避免断线瞬间抛错
     const send = (msg: Record<string, unknown>) => {
       if (socket.readyState === 1) socket.send(JSON.stringify(msg))
     }
     inst
       .addClient(send)
-      .then((c) => (client = c))
+      .then(async (c) => {
+        client = c
+        if (wantPaused) await inst.clientPause(c, true).catch(() => {})
+      })
       .catch((err) => {
         dbg(request, 'browser addClient failed', { error: String(err) })
         socket.close(1011, 'browser attach failed')
       })
     socket.on('message', (data: Buffer) => {
-      if (!client) return
       let msg: Record<string, unknown>
       try {
         msg = JSON.parse(data.toString())
       } catch {
         return
       }
+      if (msg.type === 'pause' || msg.type === 'resume') {
+        wantPaused = msg.type === 'pause'
+        if (client) void inst.clientPause(client, wantPaused)
+        return
+      }
+      if (!client) return
       if (msg.type === 'input') void inst.clientInput(client, msg)
       else if (msg.type === 'resize')
         void inst.clientResize(client, Number(msg.width) || 1280, Number(msg.height) || 800)

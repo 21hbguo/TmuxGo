@@ -90,7 +90,7 @@ async function testHostConnectivity(hostId: string, context?: TaskExecutionConte
     try {
       const { stdout } = await execHostShell(
         hostId,
-        `for command in tmux git python3 rg sshpass; do if command -v "$command" >/dev/null 2>&1; then printf '%s=1\n' "$command"; else printf '%s=0\n' "$command"; fi; done`,
+        `for command in tmux git python3 python rg sshpass; do if command -v "$command" >/dev/null 2>&1; then printf '%s=1\n' "$command"; else printf '%s=0\n' "$command"; fi; done`,
         { timeoutMs: 8000 },
       )
       dependencies = Object.fromEntries(

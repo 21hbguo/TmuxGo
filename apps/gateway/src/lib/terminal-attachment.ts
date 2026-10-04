@@ -2,7 +2,9 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import * as pty from 'node-pty'
 import { agentManager, type AgentTerminal } from '../agent-manager.js'
-import { getHostById, getHostCredentials } from './hosts.js'
+import { getHostById, getHostCredentials, type HostRecord } from './hosts.js'
+import { execRemoteHostShell, quoteRemoteFileShellValue } from './remote-file-command.js'
+import { isTmuxVersionAtLeast } from './security.js'
 import {
   buildHostSshOptions,
   buildSshConfigArgs,
@@ -69,10 +71,35 @@ function adaptPtyProcess(process: pty.IPty): TerminalAttachment {
     },
   }
 }
+// attach -f ignore-size,active-pane 需要 tmux 3.2+；按 hostId 缓存探测结果，
+// 远端升级 tmux 后需重启 gateway 才会重新探测
+const attachFlagSupport = new Map<string, boolean>()
+async function probeAttachFlagSupport(hostId: string, host: HostRecord | null) {
+  const cached = attachFlagSupport.get(hostId)
+  if (cached !== undefined) return cached
+  // 探测失败（SSH 不可达/输出不可解析）维持原行为带 -f：反正 attach 也会失败，
+  // 只有明确解析出 <3.2 版本才去掉该 flag
+  let supported = true
+  try {
+    const stdout = host
+      ? (await execRemoteHostShell(host, `${quoteRemoteFileShellValue(host.tmuxPath || 'tmux')} -V`)).stdout
+      : String((await execFileAsync('tmux', ['-V'])).stdout)
+    if (stdout.trim()) supported = isTmuxVersionAtLeast(stdout.trim(), 3, 2)
+  } catch {}
+  attachFlagSupport.set(hostId, supported)
+  return supported
+}
+type AttachFlagProbe = (hostId: string, host: HostRecord | null) => Promise<boolean>
+let attachFlagProbe: AttachFlagProbe = probeAttachFlagSupport
+export function setAttachFlagProbeForTest(probe: AttachFlagProbe | null) {
+  attachFlagProbe = probe || probeAttachFlagSupport
+}
 export async function createTerminalAttachment(options: CreateTerminalAttachmentOptions): Promise<TerminalAttachment> {
   const { hostId, sessionName, cols, rows, exclusive } = options
-  const agent = hostId !== 'local' && !(await getHostById(hostId)) ? agentManager.getAgent(hostId) : null
-  if (agent) return adaptAgentTerminal(await agentManager.attachTerminal(hostId, sessionName, cols, rows, exclusive))
+  // agent 在线优先于 SSH 记录：同一 host 双通道时统一走 WS（与 tmux/git/文件一致）
+  const agent = hostId !== 'local' ? agentManager.getAgent(hostId) : null
+  if (agent?.online === true)
+    return adaptAgentTerminal(await agentManager.attachTerminal(hostId, sessionName, cols, rows, exclusive))
   if (hostId !== 'local') {
     const host = await getHostById(hostId)
     if (!host) throw new Error('Host not found')
@@ -99,7 +126,7 @@ export async function createTerminalAttachment(options: CreateTerminalAttachment
       host.tmuxPath || 'tmux',
       'attach',
     ]
-    if (!exclusive) sshBaseArgs.push('-f', 'ignore-size,active-pane')
+    if (!exclusive && (await attachFlagProbe(hostId, host))) sshBaseArgs.push('-f', 'ignore-size,active-pane')
     sshBaseArgs.push('-t', sessionName)
     const hostPassword = resolveHostPassword(credentials)
     if (hostPassword) {
@@ -123,7 +150,7 @@ export async function createTerminalAttachment(options: CreateTerminalAttachment
     )
   }
   const attachArgs = ['attach']
-  if (!exclusive) attachArgs.push('-f', 'ignore-size,active-pane')
+  if (!exclusive && (await attachFlagProbe('local', null))) attachArgs.push('-f', 'ignore-size,active-pane')
   attachArgs.push('-t', sessionName)
   return adaptPtyProcess(
     ptySpawn('tmux', attachArgs, {
