@@ -31,6 +31,18 @@ test('protects control routes with token and TMUXGO_ENV guard', async (t) => {
     payload: { target: { paneId: 'local:%1' }, condition: {} },
   })
   assert.equal(invalidWait.statusCode, 400)
+  // 新编排端点同样吃 token+env 双守卫
+  for (const url of ['/v1/control/panes/snapshot', '/v1/control/panes/wait-output', '/v1/control/panes/run']) {
+    const noToken = await fastify.inject({ method: 'POST', url, payload: { paneId: 'local:%1' } })
+    assert.equal(noToken.statusCode, 401, url)
+    const noGuard = await fastify.inject({
+      method: 'POST',
+      url,
+      headers: { 'x-tmuxgo-agent-token': 'agent-control-secret' },
+      payload: { paneId: 'local:%1' },
+    })
+    assert.equal(noGuard.statusCode, 403, url)
+  }
   await fastify.close()
 })
 

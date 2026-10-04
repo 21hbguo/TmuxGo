@@ -72,7 +72,14 @@ test('mcp handshake, tools/list and no-token tool-call contract', async (t) => {
 
   const list = await server.rpc(2, 'tools/list')
   const names = list.result.tools.map((tool: { name: string }) => tool.name)
-  for (const name of ['tmuxgo_push_text', 'tmuxgo_push_file', 'tmuxgo_inbox_list']) {
+  for (const name of [
+    'tmuxgo_push_text',
+    'tmuxgo_push_file',
+    'tmuxgo_inbox_list',
+    'tmuxgo_pane_snapshot',
+    'tmuxgo_pane_wait_output',
+    'tmuxgo_pane_run',
+  ]) {
     assert.ok(names.includes(name), `tools/list is missing ${name}`)
   }
 

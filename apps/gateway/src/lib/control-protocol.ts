@@ -19,6 +19,32 @@ export const controlReadBodySchema = z.object({
   lines: z.number().int().min(1).max(2000).optional(),
 })
 
+// snapshot：结构化非敏感 pane 状态；tail 行数封顶防无界历史
+export const controlSnapshotBodySchema = z.object({
+  paneId: paneIdSchema,
+  lines: z.number().int().min(1).max(100).optional(),
+})
+
+// wait-output：服务端持有轮询 tail。match 缺省 = 等任意输出变化；
+// regex=true 时按正则匹配（长度封顶，防巨长 pattern 输入）
+export const controlWaitOutputBodySchema = z.object({
+  paneId: paneIdSchema,
+  match: z.string().min(1).max(512).optional(),
+  regex: z.boolean().default(false),
+  lines: z.number().int().min(1).max(200).optional(),
+  timeoutMs: z.number().int().min(250).max(600000).optional(),
+})
+
+// run：只向经过 pane target 校验的 pane 送字面按键。enter 默认 true；
+// 目标 pane 非 shell occupant 时必须显式 allowOccupied 确认（往运行中
+// 程序打字=显式知情操作）
+export const controlRunBodySchema = z.object({
+  paneId: paneIdSchema,
+  text: z.string().min(1).max(4096),
+  enter: z.boolean().default(true),
+  allowOccupied: z.boolean().default(false),
+})
+
 export const controlWaitBodySchema = z.object({
   hostId: z.string().min(1).max(128).optional(),
   target: z.union([
@@ -64,18 +90,31 @@ export const controlWaitBodySchema = z.object({
 // 稳定错误码表（HTTP status + code 是契约的一部分，文档保持同步）：
 // 401 AGENT_CONTROL_AUTH_REQUIRED  缺少/错误 agent token
 // 403 TMUXGO_ENV_GUARD             缺少 x-tmuxgo-env: 1 守卫头
-// 400 AGENT_CONTROL_SPLIT_FAILED / AGENT_CONTROL_READ_FAILED / AGENT_CONTROL_WAIT_FAILED
+// 400 AGENT_CONTROL_SPLIT_FAILED / AGENT_CONTROL_READ_FAILED / AGENT_CONTROL_WAIT_FAILED /
+//     AGENT_CONTROL_SNAPSHOT_FAILED / AGENT_CONTROL_WAIT_OUTPUT_FAILED / AGENT_CONTROL_RUN_FAILED
 //     请求体校验失败或下游 tmux/目标解析失败（message 携带原因）
+// 400 INVALID_INPUT / INVALID_PATTERN  run 文本含控制字符 / wait-output 正则不合法
 // 409 OCCUPANT_CHANGED / PANE_REMOVED / TIMEOUT / INVALID_TARGET  agent/wait 语义错误
+// 409 PANE_MISSING / PANE_DEAD / PANE_IN_MODE / PANE_OCCUPIED
+//     pane 请求时状态不可执行（snapshot/run/wait-output 共用）
 export const CONTROL_ERROR_CODES = [
   'AGENT_CONTROL_AUTH_REQUIRED',
   'TMUXGO_ENV_GUARD',
   'AGENT_CONTROL_SPLIT_FAILED',
   'AGENT_CONTROL_READ_FAILED',
   'AGENT_CONTROL_WAIT_FAILED',
+  'AGENT_CONTROL_SNAPSHOT_FAILED',
+  'AGENT_CONTROL_WAIT_OUTPUT_FAILED',
+  'AGENT_CONTROL_RUN_FAILED',
+  'INVALID_INPUT',
+  'INVALID_PATTERN',
   'OCCUPANT_CHANGED',
   'PANE_REMOVED',
   'TIMEOUT',
   'INVALID_TARGET',
+  'PANE_MISSING',
+  'PANE_DEAD',
+  'PANE_IN_MODE',
+  'PANE_OCCUPIED',
 ] as const
 export type ControlErrorCode = (typeof CONTROL_ERROR_CODES)[number]
