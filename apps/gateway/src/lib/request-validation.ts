@@ -97,6 +97,26 @@ export const gitOperationBodySchema = z.object({
   action: z.enum(['continue', 'abort']),
   background: z.boolean().optional(),
 })
+export const gitWorktreeCreateBodySchema = z.object({
+  path: repositoryPath,
+  worktreePath: z.string().min(1).max(4096),
+  newBranch: z.string().max(200).optional(),
+  branch: z.string().max(200).optional(),
+  commit: z.string().max(128).optional(),
+  sessionId: z.string().max(256).optional(),
+  workspaceId: z.string().max(64).optional(),
+})
+export const gitWorktreeRemoveBodySchema = z.object({
+  path: repositoryPath,
+  worktreePath: z.string().min(1).max(4096),
+  force: z.boolean().optional(),
+})
+export const gitWorktreeLinkBodySchema = z.object({
+  path: repositoryPath,
+  worktreePath: z.string().min(1).max(4096),
+  sessionId: z.string().max(256).optional(),
+  workspaceId: z.string().max(64).optional(),
+})
 export const remoteHostBodySchema = z.object({
   id: identifier,
   name: z.string().max(120).optional(),

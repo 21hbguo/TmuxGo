@@ -861,3 +861,80 @@ export function useGitPush() {
     },
   })
 }
+
+export function useGitWorktrees(hostId: string, path: string, enabled = true) {
+  return useQuery({
+    queryKey: ['git-worktrees', hostId, path],
+    queryFn: () => api.git.worktrees(hostId, path),
+    enabled: !!hostId && !!path && enabled,
+    staleTime: 10000,
+  })
+}
+
+export function useGitCreateWorktree() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      hostId,
+      path,
+      worktreePath,
+      newBranch,
+      branch,
+      commit,
+    }: {
+      hostId: string
+      path: string
+      worktreePath: string
+      newBranch?: string
+      branch?: string
+      commit?: string
+    }) => api.git.createWorktree(hostId, path, { worktreePath, newBranch, branch, commit }),
+    onSuccess: (_, { hostId, path }) => {
+      qc.invalidateQueries({ queryKey: ['git-worktrees', hostId, path] })
+      qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] })
+    },
+  })
+}
+
+export function useGitRemoveWorktree() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      hostId,
+      path,
+      worktreePath,
+      force,
+    }: {
+      hostId: string
+      path: string
+      worktreePath: string
+      force?: boolean
+    }) => api.git.removeWorktree(hostId, path, worktreePath, force),
+    onSuccess: (_, { hostId, path }) => {
+      qc.invalidateQueries({ queryKey: ['git-worktrees', hostId, path] })
+      qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] })
+    },
+  })
+}
+
+export function useGitLinkWorktree() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      hostId,
+      path,
+      worktreePath,
+      sessionId,
+      workspaceId,
+    }: {
+      hostId: string
+      path: string
+      worktreePath: string
+      sessionId?: string
+      workspaceId?: string
+    }) => api.git.linkWorktree(hostId, path, worktreePath, { sessionId, workspaceId }),
+    onSuccess: (_, { hostId, path }) => {
+      qc.invalidateQueries({ queryKey: ['git-worktrees', hostId, path] })
+    },
+  })
+}
