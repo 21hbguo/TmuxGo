@@ -8,6 +8,7 @@ import {
   type AgentPaneState,
 } from './agent-state.js'
 import { persistAgentNotification } from './agent-notifications.js'
+import { upsertRecoveryCandidate, type RecoveryCandidateInput } from './agent-recovery.js'
 import type { AgentProtocolEvent } from './agent-events.js'
 
 export type AgentMonitorEvent =
@@ -66,6 +67,9 @@ interface AgentMonitorOptions {
   hostRefreshMs?: number
   now?: () => number
   onNotification?: (event: Extract<AgentMonitorEvent, { type: 'agent_notification' }>) => void
+  // recovery manifest 落点：pane 移除/host 下线/agent 进程结束时记录候选；
+  // 只记录绝不执行 resume——恢复必须走显式 resume API
+  onRecoveryCandidate?: (candidate: RecoveryCandidateInput) => void
 }
 
 const notificationEvents = new Set<AgentEvent>([
@@ -106,6 +110,7 @@ function samePane(left: AgentPaneState | undefined, right: AgentPaneState) {
     left.sessionName === right.sessionName &&
     left.agent === right.agent &&
     left.agentSessionId === right.agentSessionId &&
+    left.nativeAgentSessionId === right.nativeAgentSessionId &&
     left.agentStatus === right.agentStatus &&
     left.phase === right.phase &&
     left.lastEvent === right.lastEvent &&
@@ -183,6 +188,7 @@ function applyProtocolEvent(
     ...pane,
     agent: event.agent || pane.agent,
     agentSessionId: event.agentSessionId || pane.agentSessionId,
+    nativeAgentSessionId: event.agentSessionId || pane.nativeAgentSessionId,
     agentStatus: protocolAgentStatus(event),
     phase: event.phase,
     lastEvent: event.lastEvent,
@@ -204,6 +210,7 @@ export class AgentMonitor {
   private readonly hostRefreshMs: number
   private readonly now: () => number
   private readonly onNotification?: (event: Extract<AgentMonitorEvent, { type: 'agent_notification' }>) => void
+  private readonly onRecoveryCandidate: (candidate: RecoveryCandidateInput) => void
   private readonly hosts = new Map<string, MonitorHostState>()
   private readonly pendingProtocolEvents = new Map<string, Map<string, AgentProtocolEvent>>()
   private readonly listeners = new Set<(event: AgentMonitorEvent) => void>()
@@ -227,6 +234,22 @@ export class AgentMonitor {
     this.hostRefreshMs = Math.max(this.intervalMs, options.hostRefreshMs || 5000)
     this.now = options.now || (() => Date.now())
     this.onNotification = options.onNotification
+    this.onRecoveryCandidate = options.onRecoveryCandidate || ((candidate) => void upsertRecoveryCandidate(candidate))
+  }
+  private recordRecoveryCandidate(hostId: string, pane: AgentPaneState, reason: string) {
+    try {
+      this.onRecoveryCandidate({
+        hostId,
+        sessionName: pane.sessionName,
+        paneId: pane.paneId,
+        tmuxPaneId: pane.tmuxPaneId,
+        agent: pane.agent,
+        agentSessionId: pane.nativeAgentSessionId,
+        cwd: pane.cwd,
+        lastSeenAt: pane.updatedAt || new Date(this.now()).toISOString(),
+        reason,
+      })
+    } catch {}
   }
 
   async start() {
@@ -380,6 +403,7 @@ export class AgentMonitor {
       if (state.timer) clearInterval(state.timer)
       for (const pane of state.agents.values()) {
         forgetAgentPane(pane.paneId)
+        this.recordRecoveryCandidate(hostId, pane, 'host_removed')
         this.emit({
           type: 'agent_status_removed',
           initial: false,
@@ -486,6 +510,10 @@ export class AgentMonitor {
         eventId,
       }
       this.emit(changed)
+      // agent 进程在 pane 内退出但 pane 仍存活（协议 session_ended / paneDead）：
+      // 与 pane 移除并列记 recovery 候选，恢复目标仍是这个空闲 pane
+      if (!initial && pane.phase === 'ended' && previous?.phase !== 'ended')
+        this.recordRecoveryCandidate(hostId, pane, 'process_exited')
       if (!initial && pane.eventId !== previous?.eventId && pane.lastEvent && notificationEvents.has(pane.lastEvent))
         this.emit({
           type: 'agent_notification',
@@ -501,6 +529,7 @@ export class AgentMonitor {
       this.clearNotificationThrottle(previous.paneId)
       state.displaySeqs.delete(previous.paneId)
       forgetAgentPane(previous.paneId)
+      this.recordRecoveryCandidate(hostId, previous, 'pane_exited')
       state.revision += 1
       const eventId =
         hostId +
@@ -625,6 +654,7 @@ export class AgentMonitor {
       eventId: event.eventId,
     }
     this.emit(changed)
+    if (pane.phase === 'ended') this.recordRecoveryCandidate(hostId, pane, 'process_exited')
     if (pane.lastEvent && notificationEvents.has(pane.lastEvent))
       this.emit({
         type: 'agent_notification',

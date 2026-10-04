@@ -440,3 +440,84 @@ test('publishes the first snapshot after an initially unavailable host recovers'
   unsubscribe()
   monitor.stop()
 })
+
+test('records recovery candidates on pane removal, ended transitions and host removal', async () => {
+  const seen: any[] = []
+  let states: AgentPaneState[] = [
+    { ...pane('local:%7'), nativeAgentSessionId: 'claude-sess-1', cwd: '/repo' },
+    pane('local:%8'),
+  ]
+  let hostIds = ['local']
+  const monitor = new AgentMonitor({
+    getHostIds: async () => hostIds,
+    scan: async () => states,
+    intervalMs: 1000,
+    onRecoveryCandidate: (candidate) => seen.push(candidate),
+  })
+  const unsubscribe = monitor.subscribe(() => {})
+  await monitor.start()
+  // pane 移除：nativeAgentSessionId/cwd 原样进入候选，scan 合成 id 不落盘
+  states = [pane('local:%8')]
+  await monitor.pollNow('local')
+  const removed = seen.find((item) => item.paneId === 'local:%7')
+  assert.equal(removed?.reason, 'pane_exited')
+  assert.equal(removed?.agentSessionId, 'claude-sess-1')
+  assert.equal(removed?.cwd, '/repo')
+  // agent 进程在 pane 内结束（协议 session_ended）→ 同 pane 记候选
+  monitor.ingestProtocolEvent({
+    hostId: 'local',
+    agent: 'codex',
+    paneId: 'local:%8',
+    tmuxPaneId: '%8',
+    sessionName: 'dev',
+    agentSessionId: 'thread-99',
+    type: 'session_ended',
+    phase: 'ended',
+    lastEvent: 'ended',
+    source: 'protocol',
+    confidence: 'high',
+    eventId: 'local:codex:end:1',
+    timestamp: new Date().toISOString(),
+  })
+  const ended = seen.find((item) => item.paneId === 'local:%8' && item.reason === 'process_exited')
+  assert.equal(ended?.agentSessionId, 'thread-99')
+  // host 下线 → 全部 pane 记 host_removed
+  hostIds = []
+  await (monitor as any).refreshHosts()
+  assert.ok(seen.filter((item) => item.reason === 'host_removed').length >= 1)
+  unsubscribe()
+  monitor.stop()
+})
+
+test('nativeAgentSessionId comes only from protocol events and survives scan refresh', async () => {
+  const states: AgentPaneState[] = [pane('local:%9')]
+  const monitor = new AgentMonitor({
+    getHostIds: async () => ['local'],
+    scan: async () => states,
+    intervalMs: 1000,
+    onRecoveryCandidate: () => {},
+  })
+  const unsubscribe = monitor.subscribe(() => {})
+  await monitor.start()
+  const current = () => monitor.getStates('local')?.find((item) => item.paneId === 'local:%9')
+  assert.equal(current()?.nativeAgentSessionId, undefined)
+  monitor.ingestProtocolEvent({
+    hostId: 'local',
+    agent: 'codex',
+    paneId: 'local:%9',
+    sessionName: 'dev',
+    agentSessionId: 'native-thread-42',
+    type: 'working',
+    phase: 'working',
+    lastEvent: 'started',
+    source: 'protocol',
+    confidence: 'high',
+    eventId: 'local:codex:native:1',
+    timestamp: new Date().toISOString(),
+  })
+  assert.equal(current()?.nativeAgentSessionId, 'native-thread-42')
+  await monitor.pollNow('local')
+  assert.equal(current()?.nativeAgentSessionId, 'native-thread-42')
+  monitor.stop()
+  unsubscribe()
+})

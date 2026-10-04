@@ -143,6 +143,8 @@ export interface AgentPaneState {
   sessionName: string
   agent: string
   agentSessionId?: string
+  nativeAgentSessionId?: string
+  cwd?: string
   agentStatus: AgentStatus
   revision: number
   phase?: AgentPhase
@@ -154,6 +156,24 @@ export interface AgentPaneState {
   eventId?: string
   message?: string
   display?: AgentDisplayMetadata
+}
+export interface AgentRecoveryCandidate {
+  id: string
+  hostId: string
+  sessionName: string
+  paneId: string
+  tmuxPaneId: string
+  agent: string
+  agentSessionId?: string
+  cwd?: string
+  lastSeenAt: string
+  reason: string
+  status: 'pending' | 'resumed'
+  createdAt: string
+  resumedAt?: string
+  resumable: boolean
+  blockReason?: string
+  occupant: string
 }
 export interface AgentSummary {
   idle: number

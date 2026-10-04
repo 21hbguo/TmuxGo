@@ -47,6 +47,12 @@ export const sessionRenameBodySchema = z.object({
   sessionId: z.string().min(1).max(256),
   name: z.string().min(1).max(64),
 })
+// 显式 resume 必须携带与候选一致的目标 pane/agentSessionId——防止把
+// session 恢复到非预期 pane，也防止仅凭列表 id 猜目标发起恢复
+export const agentRecoveryResumeBodySchema = z.object({
+  paneId: z.string().min(1).max(256),
+  agentSessionId: z.string().min(1).max(256),
+})
 export const sessionLayoutApplyBodySchema = z.object({
   layout: z.unknown(),
   mode: z.enum(['create', 'append']).optional(),

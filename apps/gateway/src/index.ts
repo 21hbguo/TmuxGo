@@ -42,6 +42,7 @@ import { agentMonitor } from './lib/agent-monitor.js'
 import { agentEventRoutes } from './routes/agent-events.js'
 import { agentNotificationRoutes } from './routes/agent-notifications.js'
 import { agentControlRoutes } from './routes/agent-control.js'
+import { agentRecoveryRoutes } from './routes/agent-recovery.js'
 import { agentPushRoutes } from './routes/agent-push.js'
 import { inboxRoutes } from './routes/inbox.js'
 import { inboxPublicRoutes } from './routes/inbox-public.js'
@@ -156,6 +157,7 @@ await fastify.register(pluginRoutes, { prefix: '/api' })
 await fastify.register(agentEventRoutes, { prefix: '/api' })
 await fastify.register(agentNotificationRoutes, { prefix: '/api' })
 await fastify.register(agentControlRoutes, { prefix: '/api' })
+await fastify.register(agentRecoveryRoutes, { prefix: '/api' })
 await fastify.register(agentPushRoutes, { prefix: '/api' })
 await fastify.register(inboxRoutes, { prefix: '/api' })
 // 收件箱附件公开分享下载（/s/i/:token）：刻意不带 /api 前缀以绕开登录 hook，

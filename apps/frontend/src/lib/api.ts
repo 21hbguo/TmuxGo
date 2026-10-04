@@ -3,6 +3,7 @@ import { authenticatedFetch, getAccessToken, refreshAuth } from './auth'
 import { buildSessionId } from './session-id'
 import type {
   AgentInboxMessage,
+  AgentRecoveryCandidate,
   InboxListStats,
   InboxShare,
   AuditEvent,
@@ -628,6 +629,17 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ deviceId, ids }),
       }),
+  },
+  agentRecovery: {
+    list: (hostId: string) =>
+      fetchApi<{ version: number; candidates: AgentRecoveryCandidate[] }>(
+        `/api/hosts/${encodeURIComponent(hostId)}/agent-recovery`,
+      ),
+    resume: (hostId: string, candidateId: string, payload: { paneId: string; agentSessionId: string }) =>
+      fetchApi<{ ok: boolean; paneId: string; command: string }>(
+        `/api/hosts/${encodeURIComponent(hostId)}/agent-recovery/${encodeURIComponent(candidateId)}/resume`,
+        { method: 'POST', body: JSON.stringify(payload) },
+      ),
   },
   hosts: {
     list: () => fetchApi<any[]>('/api/hosts'),

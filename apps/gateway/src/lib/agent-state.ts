@@ -52,6 +52,12 @@ export interface AgentPaneState {
   sessionName: string
   agent: string
   agentSessionId?: string
+  // 协议事件明确上报的原生会话 id（claude session/codex thread 等）；
+  // scan 侧只合成占位 id，不写本字段——recovery 据此判定可 resume
+  nativeAgentSessionId?: string
+  // pane_current_path：仅作 recovery manifest 的 cwd 快照；不计入 samePane，
+  // agent 在 pane 里 cd 不会触发状态变更事件
+  cwd?: string
   agentStatus: AgentStatus
   revision: number
   // monitor 物化序号：pane 状态内容真实变化时递增，agent.wait 以此做基线
@@ -77,6 +83,7 @@ interface PaneCandidate {
   paneDead: boolean
   paneDeadStatus: string
   lastOutputTime: string
+  currentPath: string
   commandRunning: boolean
   commandStatus: string
   commandDuration: string
@@ -293,6 +300,7 @@ export function detectAgentEvidence(
     paneDead: false,
     paneDeadStatus: '',
     lastOutputTime: '',
+    currentPath: '',
     commandRunning: false,
     commandStatus: '',
     commandDuration: '',
@@ -377,6 +385,7 @@ function updateRecord(
     eventId,
     message: detected.message,
     revision: ++nextRevision,
+    cwd: candidate.currentPath || undefined,
     lastOutputTime: candidate.lastOutputTime,
     paneDead: candidate.paneDead,
   }
@@ -418,7 +427,7 @@ async function getProcessAgents(hostId: string, candidates: PaneCandidate[]) {
   }
 }
 const paneListFormat =
-  '#{session_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_title}\t#{pane_dead}\t#{pane_dead_status}\t#{pane_last_output_time}\t#{pane_command_running}\t#{pane_command_status}\t#{pane_command_duration}'
+  '#{session_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_title}\t#{pane_dead}\t#{pane_dead_status}\t#{pane_last_output_time}\t#{pane_current_path}\t#{pane_command_running}\t#{pane_command_status}\t#{pane_command_duration}'
 // 远端 scan 输出分段标记：\x1e<NAME> 行起新段，HOOKS 段内各事件以 \x1f 分隔
 const scanSectionMarker = '\x1e'
 const scanHookSep = '\x1f'
@@ -506,6 +515,7 @@ function parsePaneCandidates(
         paneDead,
         paneDeadStatus,
         lastOutputTime,
+        currentPath,
         commandRunning,
         commandStatus,
         commandDuration,
@@ -520,6 +530,7 @@ function parsePaneCandidates(
         paneDead: paneDead === '1',
         paneDeadStatus: paneDeadStatus || '',
         lastOutputTime: lastOutputTime || '',
+        currentPath: currentPath || '',
         commandRunning: commandRunning === '1',
         commandStatus: commandStatus || '',
         commandDuration: commandDuration || '',

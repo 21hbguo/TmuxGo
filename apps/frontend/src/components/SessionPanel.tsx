@@ -50,6 +50,7 @@ import {
 } from './SessionSortableList'
 import { HostSwitcher } from './HostSwitcher'
 import { AgentStatusBadge } from './AgentStatusBadge'
+import { AgentRecoveryBadge, useAgentRecoveryList } from './AgentRecovery'
 import { getAgentAttentionRank, mergeAgentSummaries } from '@/lib/agent-status'
 import type { AgentStatus, AgentSummary, Session, WorkspaceEntry } from '@/types'
 import { ModalPortal } from './ModalPortal'
@@ -71,6 +72,7 @@ export function SessionPanel() {
   const pushToast = useConsoleStore((state) => state.pushToast)
   const queryClient = useOptionalQueryClient()
   const { data: sessions = [], moveSession, isError, error, refetch } = useOrderedSessions(activeHostId || '')
+  const agentRecovery = useAgentRecoveryList(activeHostId || null)
   const createSession = useCreateSession()
   const deleteSession = useDeleteSession()
   const batchDeleteSessions = useBatchDeleteSessions()
@@ -518,6 +520,13 @@ export function SessionPanel() {
             summary={session.agentSummary}
             onStatusClick={(status) => handleAgentStatusClick(session, status)}
           />
+          {activeHostId && (
+            <AgentRecoveryBadge
+              hostId={activeHostId}
+              candidates={agentRecovery.bySession.get(session.name)}
+              onResumed={agentRecovery.refetch}
+            />
+          )}
         </div>
       </button>
       {!batchMode && (
