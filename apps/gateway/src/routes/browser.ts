@@ -1,6 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import { consumeWebSocketTicket, isAuthEnabled } from '../lib/auth.js'
+import { appendAuditEvent } from '../lib/audit-log.js'
+import { appendWsMessageAudit, type WsMessageErrorKind } from '../lib/ws-audit.js'
 import { browserManager, resolveBrowserBinary } from '../lib/browser-manager.js'
 import { getAgentEventToken, isAgentEventToken } from '../lib/agent-events.js'
 
@@ -132,10 +134,32 @@ export async function browserRoutes(fastify: FastifyInstance) {
     const socket = rawSocket as unknown as StreamSocket
     const query = request.query as { ticket?: unknown }
     const ticket = typeof query.ticket === 'string' ? query.ticket : ''
-    if (isAuthEnabled() && !consumeWebSocketTicket(ticket)) {
+    const wsUser = isAuthEnabled() ? consumeWebSocketTicket(ticket) : null
+    // 与 /api/stream 同一套 WS 审计：actor=ticket 用户名或 anonymous
+    const wsActor = wsUser?.username || 'anonymous'
+    const auditWsConnect = (result: 'success' | 'failure', statusCode: number) =>
+      void appendAuditEvent({
+        id: `${Date.now().toString(36)}-ws`,
+        timestamp: new Date().toISOString(),
+        user: wsActor,
+        actor: wsActor,
+        source: 'ws',
+        action: 'ws-browser-connect',
+        target: '/api/browser/stream',
+        result,
+        method: 'WS',
+        statusCode,
+      }).catch(() => {})
+    if (isAuthEnabled() && !wsUser) {
+      auditWsConnect('failure', 1008)
       socket.close(1008, 'Authentication required')
       return
     }
+    auditWsConnect('success', 101)
+    // 消息级审计：input/navigate/tab 等是用户操作要记 action/target；
+    // url、击键内容等正文字段不落盘（wsMessageTarget 只取标识字段）
+    const auditMsg = (type: unknown, data: unknown, result: 'success' | 'failure', error?: WsMessageErrorKind) =>
+      appendWsMessageAudit({ actor: wsActor, source: 'ws', channel: 'browser', type, data, result, error })
     const inst = instance()
     let client: Awaited<ReturnType<typeof inst.addClient>> | null = null
     // addClient 是异步绑页：其完成前到达的 pause/resume 若只看 client 会被丢，
@@ -160,23 +184,41 @@ export async function browserRoutes(fastify: FastifyInstance) {
       try {
         msg = JSON.parse(data.toString())
       } catch {
+        auditMsg(undefined, undefined, 'failure', 'invalid')
         return
       }
       if (msg.type === 'pause' || msg.type === 'resume') {
         wantPaused = msg.type === 'pause'
         if (client) void inst.clientPause(client, wantPaused)
+        auditMsg(msg.type, msg, 'success')
         return
       }
+      // addClient bind 窗口期的丢弃是正常竞态，不记审计
       if (!client) return
+      // navigate/history 是真正异步操作：按实际成败落审计（含下游异常），
+      // 不能只在 dispatch 时乐观记 success
+      const track = (op: Promise<unknown>) =>
+        void op.then(
+          () => auditMsg(msg.type, msg, 'success'),
+          () => auditMsg(msg.type, msg, 'failure', 'error'),
+        )
+      if (msg.type === 'navigate' && typeof msg.url === 'string')
+        return track(inst.navigate(msg.url, client.targetId ?? undefined))
+      if (msg.type === 'back' || msg.type === 'forward' || msg.type === 'reload')
+        return track(inst.history(msg.type, client.targetId ?? undefined))
+      let outcome: 'success' | 'invalid' = 'success'
       if (msg.type === 'input') void inst.clientInput(client, msg)
       else if (msg.type === 'resize')
         void inst.clientResize(client, Number(msg.width) || 1280, Number(msg.height) || 800)
       else if (msg.type === 'tab')
         void inst.clientTab(client, msg as { action: string; url?: string; targetId?: string })
-      else if (msg.type === 'navigate' && typeof msg.url === 'string')
-        void inst.navigate(msg.url, client.targetId ?? undefined).catch(() => {})
-      else if (msg.type === 'back' || msg.type === 'forward' || msg.type === 'reload')
-        void inst.history(msg.type, client.targetId ?? undefined).catch(() => {})
+      else outcome = 'invalid'
+      auditMsg(
+        msg.type,
+        msg,
+        outcome === 'success' ? 'success' : 'failure',
+        outcome === 'success' ? undefined : 'invalid',
+      )
     })
     socket.on('close', () => {
       if (client) void inst.removeClient(client)
