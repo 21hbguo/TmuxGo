@@ -96,8 +96,8 @@ jobs:
       - run: pnpm run test:smoke
         env:
           CI: '1'
-  # 完整 e2e 自动跑但不作合并门禁：PR/push 产出回归信号，暂不列 required check
-  # （单人仓库先测时长与 flake 率；升级为门禁需另配分支保护）
+  # 完整 e2e：PR/默认分支 push 均跑，通过 gate job 进入合并门禁（required check
+  # 建议只配 "merge-gate"，见 docs/ci.md）。串行运行、45min 硬超时，不并行共享 tmux/端口
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -116,7 +116,10 @@ jobs:
       - run: pnpm run test:e2e
         env:
           CI: '1'
-      # 失败时保留 trace/截图便于定位；产物仅含隔离环境的测试凭据与测试终端输出
+      # 失败产物含 trace/截图/终端输出：上传前脱敏 secret env 值与凭据形态字符串
+      - name: Scrub secrets from e2e artifacts
+        if: failure()
+        run: pnpm exec tsx scripts/scrub-e2e-artifacts.ts test-results playwright-report
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -126,3 +129,71 @@ jobs:
             playwright-report/
           retention-days: 7
           if-no-files-found: ignore
+  # 真实 SSH e2e：需要 secrets 配置的远端凭据，不参与 merge gate。
+  # fork PR 无 secrets → job 不跑；同仓但未配 secrets → 检出后检查并 skip 给出 notice
+  ssh-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      TMUXGO_SSH_E2E_HOST: ${{ secrets.TMUXGO_SSH_E2E_HOST }}
+      TMUXGO_SSH_E2E_USER: ${{ secrets.TMUXGO_SSH_E2E_USER }}
+      TMUXGO_SSH_E2E_AUTH: ${{ secrets.TMUXGO_SSH_E2E_AUTH }}
+      TMUXGO_SSH_E2E_PORT: ${{ secrets.TMUXGO_SSH_E2E_PORT }}
+      TMUXGO_SSH_E2E_JUMP_HOST: ${{ secrets.TMUXGO_SSH_E2E_JUMP_HOST }}
+      TMUXGO_SSH_E2E_KNOWN_HOSTS_POLICY: ${{ secrets.TMUXGO_SSH_E2E_KNOWN_HOSTS_POLICY }}
+      TMUXGO_SSH_E2E_PRIVATE_KEY: ${{ secrets.TMUXGO_SSH_E2E_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+      - name: Check SSH e2e credentials
+        id: creds
+        run: |
+          if [ -z "$TMUXGO_SSH_E2E_HOST" ] || [ -z "$TMUXGO_SSH_E2E_USER" ]; then
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+            echo "::notice::SSH e2e skipped: TMUXGO_SSH_E2E_HOST/USER secrets not configured"
+          fi
+      - name: Install system deps
+        if: steps.creds.outputs.skip != '1'
+        run: sudo apt-get update && sudo apt-get install -y tmux ripgrep
+      - uses: pnpm/action-setup@v6
+        if: steps.creds.outputs.skip != '1'
+      - uses: actions/setup-node@v7
+        if: steps.creds.outputs.skip != '1'
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        if: steps.creds.outputs.skip != '1'
+      # key 模式把 secret 私钥落成 0600 文件；agent 模式依赖 runner 自带 ssh-agent
+      - name: Prepare SSH private key
+        id: key
+        if: steps.creds.outputs.skip != '1' && env.TMUXGO_SSH_E2E_PRIVATE_KEY != ''
+        run: |
+          umask 077
+          printf '%s\n' "$TMUXGO_SSH_E2E_PRIVATE_KEY" > "$RUNNER_TEMP/ssh-e2e-key"
+          echo "key_path=$RUNNER_TEMP/ssh-e2e-key" >> "$GITHUB_OUTPUT"
+      - name: Run SSH e2e
+        if: steps.creds.outputs.skip != '1'
+        run: pnpm run test:ssh-e2e
+        env:
+          CI: '1'
+          TMUXGO_SSH_E2E_PRIVATE_KEY_PATH: ${{ steps.key.outputs.key_path }}
+  # 合并门禁聚合：分支保护只需把 merge-gate 标为 required check；
+  # ssh-e2e 为可选信号不进 needs（见 docs/ci.md）
+  gate:
+    name: merge-gate
+    needs: [lint-typecheck, test, build, smoke, e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required jobs succeeded
+        run: |
+          echo '${{ toJSON(needs) }}'
+          failed=$(echo '${{ toJSON(needs) }}' | jq -r 'to_entries[] | select(.value.result != "success") | .key' | paste -sd, -)
+          if [ -n "$failed" ]; then
+            echo "::error::merge-gate failed: $failed"
+            exit 1
+          fi
+          echo "merge-gate: all required jobs succeeded"
