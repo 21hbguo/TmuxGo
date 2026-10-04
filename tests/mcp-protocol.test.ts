@@ -1,20 +1,22 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import { createServer, type Server } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { AddressInfo } from 'node:net'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const mcpEntry = join(root, 'apps/mcp/index.mjs')
 
 // 无 token 环境：置空 TMUXGO_AGENT_EVENT_TOKEN + 指向空 config dir，
 // callGateway 在取 fetch 前就短路返回，测试不触网、不依赖真实 gateway
-function startMcp() {
+function startMcp(env: Record<string, string> = {}) {
   const configDir = mkdtempSync(join(tmpdir(), 'tmuxgo-mcp-'))
   const child = spawn(process.execPath, [mcpEntry], {
-    env: { ...process.env, TMUXGO_AGENT_EVENT_TOKEN: '', TMUXGO_CONFIG_DIR: configDir },
+    env: { ...process.env, TMUXGO_AGENT_EVENT_TOKEN: '', TMUXGO_CONFIG_DIR: configDir, ...env },
     stdio: ['pipe', 'pipe', 'inherit'],
   })
   let buffer = ''
@@ -85,6 +87,56 @@ test('mcp handshake, tools/list and no-token tool-call contract', async (t) => {
   const unknownTool = await server.rpc(5, 'tools/call', { name: 'tmuxgo_nope', arguments: {} })
   assert.equal(unknownTool.result.isError, true)
   assert.match(unknownTool.result.content[0].text, /Unknown tool: tmuxgo_nope/)
+})
+
+test('mcp tools/call proxies to isolated gateway with contract headers', async (t) => {
+  // 随机端口 mock gateway：验证 tools/call 的 HTTP 契约（头、body、响应透出），不触 :3001
+  const received: { url: string; headers: Record<string, unknown>; body: any }[] = []
+  const gateway: Server = createServer((req, res) => {
+    let raw = ''
+    req.on('data', (chunk) => (raw += chunk))
+    req.on('end', () => {
+      received.push({ url: req.url || '', headers: req.headers, body: raw ? JSON.parse(raw) : undefined })
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ ok: true, messageId: 'msg-1' }))
+    })
+  })
+  await new Promise<void>((resolve) => gateway.listen(0, '127.0.0.1', resolve))
+  const port = (gateway.address() as AddressInfo).port
+  t.after(() => gateway.close())
+
+  const server = startMcp({
+    TMUXGO_AGENT_EVENT_TOKEN: 'mcp-secret',
+    TMUXGO_GATEWAY_URL: `http://127.0.0.1:${port}`,
+  })
+  t.after(() => server.close())
+
+  const call = await server.rpc(1, 'tools/call', { name: 'tmuxgo_push_text', arguments: { text: 'hello', title: 't' } })
+  assert.notEqual(call.result.isError, true, JSON.stringify(call.result))
+  assert.match(call.result.content[0].text, /msg-1/)
+
+  assert.equal(received.length, 1)
+  const req = received[0]
+  assert.equal(req.url, '/api/v1/control/push')
+  assert.equal(req.headers['x-tmuxgo-env'], '1')
+  assert.equal(req.headers['x-tmuxgo-agent-token'], 'mcp-secret')
+  assert.equal(req.body.type, 'text')
+  assert.equal(req.body.text, 'hello')
+
+  // gateway 错误 → isError + 状态码/正文透出（不吞错）
+  const failGateway: Server = createServer((_req, res) => {
+    res.writeHead(401, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ message: 'Agent control token required', code: 'AGENT_CONTROL_AUTH_REQUIRED' }))
+  })
+  await new Promise<void>((resolve) => failGateway.listen(0, '127.0.0.1', resolve))
+  const failPort = (failGateway.address() as AddressInfo).port
+  t.after(() => failGateway.close())
+  const badServer = startMcp({ TMUXGO_AGENT_EVENT_TOKEN: 'wrong', TMUXGO_GATEWAY_URL: `http://127.0.0.1:${failPort}` })
+  t.after(() => badServer.close())
+  const failed = await badServer.rpc(2, 'tools/call', { name: 'tmuxgo_push_text', arguments: { text: 'x' } })
+  assert.equal(failed.result.isError, true)
+  assert.match(failed.result.content[0].text, /401/)
+  assert.match(failed.result.content[0].text, /AGENT_CONTROL_AUTH_REQUIRED/)
 })
 
 test('mcp rejects malformed requests and unknown methods', async (t) => {
