@@ -140,12 +140,24 @@ export async function bootstrapE2E(root: string): Promise<E2EEnvironment> {
       })) !== 0
     )
       throw new Error('E2E tmux startup failed')
+    // pane 固定跑 sh：空 HOME 下 zsh 会起 newuser-install 向导吞掉输入，且 sh 无 rc
+    // 文件依赖（run-agent-e2e 同款约定）。必须在 server 起来后 set，否则首个 pane 已建
+    if (
+      (await run('tmux', ['-S', tmuxSocketPath(tmuxDir), 'set-option', '-s', '-g', 'default-shell', '/bin/sh'], {
+        cwd: root,
+        env: tmuxEnv,
+      })) !== 0
+    )
+      throw new Error('E2E tmux default-shell setup failed')
     gateway = spawn(tsxBin, ['apps/gateway/src/index.ts'], {
       cwd: root,
       stdio: 'inherit',
       env: {
         ...tmuxEnv,
         PORT: String(apiPort),
+        // 调用方环境可能带 TMUXGO_HOST=0.0.0.0（生产实例），必须钉回 loopback，
+        // 否则未认证 gateway 按安全策略拒启
+        TMUXGO_HOST: '127.0.0.1',
         TMUXGO_AUTH_USERNAME: '',
         TMUXGO_AUTH_PASSWORD: '',
         TMUXGO_FRONTEND_DIST: frontendDist,
