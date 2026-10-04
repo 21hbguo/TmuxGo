@@ -704,6 +704,104 @@ describe('SessionPanel session actions', () => {
     fireEvent.click(screen.getByText('confirm-delete'))
     await waitFor(() => expect(mutateRemoveWorkspace).toHaveBeenCalledWith('ws-1'))
   })
+  // —— Task21：workspace 组内 session attention 排序 ——
+  const mkSummary = (counts: Partial<Record<'idle' | 'working' | 'blocked' | 'done' | 'unknown', number>>) => {
+    const summary = { idle: 0, working: 0, blocked: 0, done: 0, unknown: 0, ...counts }
+    return { ...summary, total: summary.idle + summary.working + summary.blocked + summary.done + summary.unknown }
+  }
+  const mkWorkspace = (id: string, name: string) => ({
+    id,
+    name,
+    hostId: 'local',
+    path: `/workspace/${id}`,
+    rootId: 'root-workspace',
+    rootPath: '/workspace',
+    rootLabel: 'workspace',
+    relativePath: id,
+    templateId: null,
+    createdAt: '',
+    updatedAt: '',
+  })
+  const bindSession = (sessionId: string, ws: { id: string; path: string }) => ({
+    sessionId,
+    hostId: 'local',
+    workspaceId: ws.id,
+    workspacePath: ws.path,
+    rootId: 'root-workspace',
+    rootPath: '/workspace',
+    rootLabel: 'workspace',
+    relativePath: ws.id,
+    updatedAt: '',
+  })
+  const mkSession = (id: string, name: string, agentSummary?: unknown) => ({ id, name, windowCount: 1, agentSummary })
+  const domBefore = (a: HTMLElement, b: HTMLElement) =>
+    (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+
+  it('sorts sessions inside a workspace group by attention rank', () => {
+    const ws = mkWorkspace('ws-1', 'tmuxgo')
+    workspacesState.data = [ws]
+    orderedSessionQueryState.data = [
+      mkSession('s-idle', 'a-idle', mkSummary({ idle: 1 })),
+      mkSession('s-blocked', 'b-blocked', mkSummary({ blocked: 1 })),
+      mkSession('s-done', 'c-done', mkSummary({ done: 1 })),
+      mkSession('s-working', 'd-working', mkSummary({ working: 1 })),
+      mkSession('s-unknown', 'e-unknown', mkSummary({ unknown: 1 })),
+    ]
+    sessionWorkspacesState.data = orderedSessionQueryState.data.map((s: any) => bindSession(s.id, ws))
+    render(<SessionPanel />)
+    // blocked > done > working > idle > unknown（agentAttentionPriority 同一模型）
+    const ordered = ['b-blocked', 'c-done', 'd-working', 'a-idle', 'e-unknown'].map((name) => screen.getByText(name))
+    for (let i = 0; i + 1 < ordered.length; i++) expect(domBefore(ordered[i], ordered[i + 1])).toBeTruthy()
+  })
+
+  it('keeps manual order within the same attention rank', () => {
+    const ws = mkWorkspace('ws-1', 'tmuxgo')
+    workspacesState.data = [ws]
+    const first = mkSession('s-a', 'idle-a', mkSummary({ idle: 1 }))
+    const second = mkSession('s-b', 'idle-b', mkSummary({ idle: 1 }))
+    const hot = mkSession('s-c', 'blk-c', mkSummary({ blocked: 1 }))
+    orderedSessionQueryState.data = [first, second, hot]
+    sessionWorkspacesState.data = [first, second, hot].map((s: any) => bindSession(s.id, ws))
+    const { rerender } = render(<SessionPanel />)
+    expect(domBefore(screen.getByText('blk-c'), screen.getByText('idle-a'))).toBeTruthy()
+    expect(domBefore(screen.getByText('idle-a'), screen.getByText('idle-b'))).toBeTruthy()
+    // 手动序翻转（等价拖拽后 moveSession 写回的新存储序）→ 同档跟随，排序偏好不丢
+    orderedSessionQueryState.data = [second, first, hot]
+    rerender(<SessionPanel />)
+    expect(domBefore(screen.getByText('idle-b'), screen.getByText('idle-a'))).toBeTruthy()
+    expect(domBefore(screen.getByText('blk-c'), screen.getByText('idle-b'))).toBeTruthy()
+  })
+
+  it('keeps the unclassified group last while sorting its own sessions by attention', () => {
+    const ws = mkWorkspace('ws-1', 'tmuxgo')
+    workspacesState.data = [ws]
+    const inWs = mkSession('s-in', 'in-ws', mkSummary({ idle: 1 }))
+    const uDone = mkSession('s-u1', 'u-done', mkSummary({ done: 1 }))
+    const uBlocked = mkSession('s-u2', 'u-blocked', mkSummary({ blocked: 1 }))
+    orderedSessionQueryState.data = [inWs, uDone, uBlocked]
+    sessionWorkspacesState.data = [bindSession(inWs.id, ws)]
+    render(<SessionPanel />)
+    // 未分类组固定沉底：即便内含最高注意力 session，也排在 workspace 组后
+    expect(domBefore(screen.getByText('in-ws'), screen.getByText('workspace.unclassified'))).toBeTruthy()
+    // 未分类组内同样按 rank 排：blocked 反超存储序在前的 done
+    expect(domBefore(screen.getByText('u-blocked'), screen.getByText('u-done'))).toBeTruthy()
+  })
+
+  it('orders workspace dropdown items by attention like the group list', () => {
+    const calm = mkWorkspace('ws-1', 'calm')
+    const urgent = mkWorkspace('ws-2', 'urgent')
+    workspacesState.data = [calm, urgent]
+    orderedSessionQueryState.data = [
+      mkSession('s-calm', 'calm-s', mkSummary({ idle: 1 })),
+      mkSession('s-hot', 'hot-s', mkSummary({ blocked: 1 })),
+    ]
+    sessionWorkspacesState.data = [bindSession('s-calm', calm), bindSession('s-hot', urgent)]
+    render(<SessionPanel />)
+    fireEvent.click(screen.getByLabelText(/^Current workspace:/))
+    // 下拉项与列表分组同序：urgent(blocked) 在 calm(idle) 前
+    expect(domBefore(screen.getByLabelText('urgent'), screen.getByLabelText('calm'))).toBeTruthy()
+  })
+
   it('hands the pending removal promise to the workspace delete dialog', async () => {
     workspacesState.data = [
       {
