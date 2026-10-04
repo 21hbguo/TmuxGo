@@ -51,7 +51,13 @@ function guardControlRequest(request: FastifyRequest, reply: FastifyReply) {
 // pane 请求时状态错误 → 409 语义码；输入/模式校验 → 400 各自 code；
 // 其余（zod/下游执行失败）→ 400 failedCode。code 值是协议契约
 const paneStateCodes = new Set(['PANE_MISSING', 'PANE_DEAD', 'PANE_IN_MODE', 'PANE_OCCUPIED'])
-const waitSemanticCodes = new Set(['OCCUPANT_CHANGED', 'PANE_REMOVED', 'TIMEOUT', 'INVALID_TARGET'])
+const waitSemanticCodes = new Set([
+  'OCCUPANT_CHANGED',
+  'PANE_REMOVED',
+  'TIMEOUT',
+  'INVALID_TARGET',
+  'CLIENT_DISCONNECTED',
+])
 const inputCodes = new Set(['INVALID_INPUT', 'INVALID_PATTERN'])
 function controlError(reply: FastifyReply, error: unknown, failedCode: string) {
   const code = error instanceof Error && 'code' in error ? (error as { code: string }).code : ''
@@ -115,6 +121,12 @@ export async function agentControlRoutes(fastify: FastifyInstance) {
   })
   fastify.post('/v1/control/panes/wait-output', { bodyLimit: 64 * 1024 }, async (request, reply) => {
     if (!guardControlRequest(request, reply)) return
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    request.raw.once('aborted', abort)
+    // POST body 已读完时 request.aborted 不再可靠；响应 close 捕获等待期间断连。
+    reply.raw.once('close', abort)
+    if (request.raw.aborted || reply.raw.destroyed) abort()
     try {
       const body = controlWaitOutputBodySchema.parse(request.body)
       const { hostId, tmuxPaneId } = await parsePaneTarget(body.paneId)
@@ -123,11 +135,15 @@ export async function agentControlRoutes(fastify: FastifyInstance) {
         regex: body.regex,
         lines: body.lines,
         timeoutMs: body.timeoutMs,
+        signal: controller.signal,
       })
       reply.header('cache-control', 'no-store')
       return { ok: true, ...result }
     } catch (error) {
       return controlError(reply, error, 'AGENT_CONTROL_WAIT_OUTPUT_FAILED')
+    } finally {
+      request.raw.off('aborted', abort)
+      reply.raw.off('close', abort)
     }
   })
   fastify.post('/v1/control/panes/run', { bodyLimit: 64 * 1024 }, async (request, reply) => {
@@ -148,17 +164,30 @@ export async function agentControlRoutes(fastify: FastifyInstance) {
   })
   fastify.post('/v1/control/agent/wait', { bodyLimit: 64 * 1024 }, async (request, reply) => {
     if (!guardControlRequest(request, reply)) return
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    request.raw.once('aborted', abort)
+    // POST body 已读完时 request.aborted 不再可靠；响应 close 捕获等待期间断连。
+    reply.raw.once('close', abort)
+    if (request.raw.aborted || reply.raw.destroyed) abort()
     try {
       const body = controlWaitBodySchema.parse(request.body)
       const target = body.target as AgentWaitTarget
       const { hostId } = resolveAgentWaitTarget(target, body.hostId || 'local')
       await assertKnownHost(hostId)
       const condition = body.condition as AgentWaitCondition
-      const result = await agentControl.wait(target, condition, { hostId, timeoutMs: body.timeoutMs })
+      const result = await agentControl.wait(target, condition, {
+        hostId,
+        timeoutMs: body.timeoutMs,
+        signal: controller.signal,
+      })
       reply.header('cache-control', 'no-store')
       return { ok: true, waitId: result.waitId, elapsedMs: result.elapsedMs, pane: result.pane }
     } catch (error) {
       return controlError(reply, error, 'AGENT_CONTROL_WAIT_FAILED')
+    } finally {
+      request.raw.off('aborted', abort)
+      reply.raw.off('close', abort)
     }
   })
 
@@ -206,7 +235,9 @@ export async function agentControlRoutes(fastify: FastifyInstance) {
     if (
       error instanceof Error &&
       'code' in error &&
-      ['OCCUPANT_CHANGED', 'PANE_REMOVED', 'TIMEOUT', 'INVALID_TARGET'].includes((error as { code: string }).code)
+      ['OCCUPANT_CHANGED', 'PANE_REMOVED', 'TIMEOUT', 'INVALID_TARGET', 'CLIENT_DISCONNECTED'].includes(
+        (error as { code: string }).code,
+      )
     )
       return 409
     return 400

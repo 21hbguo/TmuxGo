@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { setTimeout as delay } from 'node:timers/promises'
 import { agentMonitor, type AgentMonitorEvent } from './agent-monitor.js'
 import { inspectRecoveryPane, type RecoveryPaneInspection } from './agent-recovery.js'
 import { getHostAgentPanes, type AgentPaneState } from './agent-state.js'
@@ -17,6 +18,7 @@ export interface AgentWaitOptions {
   getStates?: (hostId: string) => AgentPaneState[] | null
   subscribe?: (listener: (event: AgentMonitorEvent) => void) => () => void
   scanStates?: (hostId: string) => Promise<AgentPaneState[]>
+  signal?: AbortSignal
 }
 export interface AgentWaitResult {
   pane: AgentPaneState
@@ -35,6 +37,7 @@ export class AgentWaitError extends Error {
     | 'PANE_OCCUPIED'
     | 'INVALID_INPUT'
     | 'INVALID_PATTERN'
+    | 'CLIENT_DISCONNECTED'
   constructor(code: AgentWaitError['code'], message: string) {
     super(message)
     this.code = code
@@ -57,6 +60,8 @@ interface PendingWait {
   resolve: (value: AgentWaitResult) => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout>
+  signal?: AbortSignal
+  onAbort?: () => void
 }
 function parsePaneId(paneId: string) {
   const separator = paneId.indexOf(':')
@@ -125,10 +130,14 @@ export class AgentControl {
       throw new AgentWaitError('INVALID_TARGET', 'Wait condition requires status, phase, or lastEvent')
     const { hostId } = resolveAgentWaitTarget(target, options.hostId || 'local')
     if (!hostId) throw new AgentWaitError('INVALID_TARGET', 'Wait target is invalid')
+    if (options.signal?.aborted)
+      throw new AgentWaitError('CLIENT_DISCONNECTED', 'Agent wait request was cancelled by the client')
     const startedAt = this.now()
     const timeoutMs = Math.max(250, Math.min(options.timeoutMs || 60000, 600000))
     const waitId = randomUUID()
     const states = this.getStates(hostId) || (await this.scanStates(hostId).catch(() => []))
+    if (options.signal?.aborted)
+      throw new AgentWaitError('CLIENT_DISCONNECTED', 'Agent wait request was cancelled by the client')
     const initial = findMatchingPane(states, target)
     if (initial && matchesCondition(initial, condition)) return { pane: initial, elapsedMs: 0, waitId }
     // stateSeq 基线：wait 建立前已物化的状态（含订阅即回放的首个快照、排队旧事件）
@@ -141,11 +150,10 @@ export class AgentControl {
       const timer = setTimeout(() => {
         const pending = this.waits.get(waitId)
         if (!pending) return
-        this.waits.delete(waitId)
-        this.ensureUnsubscribed()
+        this.removeWait(pending)
         reject(new AgentWaitError('TIMEOUT', `Agent wait timed out after ${timeoutMs}ms`))
       }, timeoutMs)
-      this.waits.set(waitId, {
+      const pending: PendingWait = {
         waitId,
         hostId,
         target,
@@ -156,9 +164,25 @@ export class AgentControl {
         resolve,
         reject,
         timer,
-      })
-      this.ensureSubscribed()
+        signal: options.signal,
+      }
+      pending.onAbort = () => {
+        if (this.waits.get(waitId) !== pending) return
+        this.removeWait(pending)
+        reject(new AgentWaitError('CLIENT_DISCONNECTED', 'Agent wait request was cancelled by the client'))
+      }
+      options.signal?.addEventListener('abort', pending.onAbort, { once: true })
+      this.waits.set(waitId, pending)
+      if (options.signal?.aborted) pending.onAbort()
+      else this.ensureSubscribed()
     })
+  }
+  private removeWait(pending: PendingWait) {
+    if (this.waits.get(pending.waitId) !== pending) return
+    this.waits.delete(pending.waitId)
+    clearTimeout(pending.timer)
+    if (pending.signal && pending.onAbort) pending.signal.removeEventListener('abort', pending.onAbort)
+    this.ensureUnsubscribed()
   }
   private handleEvent(event: AgentMonitorEvent) {
     if (event.type === 'agent_status_changed' || event.type === 'agent_status_snapshot') {
@@ -212,17 +236,13 @@ export class AgentControl {
       }
       if (!matchesCondition(pane, pending.condition)) continue
       const elapsedMs = this.now() - pending.startedAt
-      this.waits.delete(pending.waitId)
-      clearTimeout(pending.timer)
-      this.ensureUnsubscribed()
+      this.removeWait(pending)
       pending.resolve({ pane, elapsedMs, waitId: pending.waitId })
     }
   }
   private failWait(pending: PendingWait, error: Error) {
     if (this.waits.get(pending.waitId) !== pending) return
-    this.waits.delete(pending.waitId)
-    clearTimeout(pending.timer)
-    this.ensureUnsubscribed()
+    this.removeWait(pending)
     pending.reject(error)
   }
   activeWaitCount() {
@@ -341,6 +361,7 @@ export interface WaitAgentPaneOutputOptions {
   lines?: number
   timeoutMs?: number
   pollMs?: number
+  signal?: AbortSignal
   exec?: TmuxExecFn
   sleep?: (ms: number) => Promise<void>
   now?: () => number
@@ -352,7 +373,6 @@ export interface WaitAgentPaneOutputResult {
   elapsedMs: number
   output: string
 }
-const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 function buildOutputMatcher(match: string | undefined, regex: boolean) {
   if (!match) return null
   if (!regex) return (tail: string) => tail.includes(match)
@@ -373,7 +393,6 @@ export async function waitAgentPaneOutput(
   options: WaitAgentPaneOutputOptions = {},
 ): Promise<WaitAgentPaneOutputResult> {
   const exec = options.exec || ((h, a, o) => execTmux(h, a, o).then((r) => ({ stdout: r.stdout })))
-  const sleep = options.sleep || defaultSleep
   const now = options.now || (() => Date.now())
   const matcher = buildOutputMatcher(options.match, options.regex === true)
   const count = Math.max(1, Math.min(Math.floor(options.lines || 50), 200))
@@ -381,6 +400,11 @@ export async function waitAgentPaneOutput(
   const pollMs = Math.max(50, Math.min(options.pollMs || 300, 5000))
   const waitId = randomUUID()
   const startedAt = now()
+  const ensureConnected = () => {
+    if (options.signal?.aborted)
+      throw new AgentWaitError('CLIENT_DISCONNECTED', 'Output wait request was cancelled by the client')
+  }
+  ensureConnected()
   const readTail = () =>
     exec(hostId, ['capture-pane', '-p', '-t', tmuxPaneId, '-S', `-${count}`], { timeoutMs: 8000 }).then((r) => r.stdout)
   const readOccupant = async () => {
@@ -394,10 +418,13 @@ export async function waitAgentPaneOutput(
   let baselineTail: string
   try {
     baseline = await readOccupant()
+    ensureConnected()
     baselineTail = await readTail()
   } catch {
+    ensureConnected()
     throw new AgentWaitError('PANE_MISSING', `Pane ${tmuxPaneId} does not exist`)
   }
+  ensureConnected()
   if (baseline.dead) throw new AgentWaitError('PANE_DEAD', `Pane ${tmuxPaneId} is dead`)
   const evaluate = (tail: string) => {
     if (matcher) return matcher(tail)
@@ -412,15 +439,26 @@ export async function waitAgentPaneOutput(
       output: capTail(baselineTail, count).join('\n'),
     }
   while (now() - startedAt < timeoutMs) {
-    await sleep(pollMs)
+    ensureConnected()
+    try {
+      if (options.sleep) await options.sleep(pollMs)
+      else await delay(pollMs, undefined, { signal: options.signal })
+    } catch (error) {
+      ensureConnected()
+      throw error
+    }
+    ensureConnected()
     let occupant: { command: string; dead: boolean }
     let tail: string
     try {
       occupant = await readOccupant()
+      ensureConnected()
       tail = await readTail()
     } catch {
+      ensureConnected()
       throw new AgentWaitError('PANE_REMOVED', `Pane ${tmuxPaneId} was removed during output wait`)
     }
+    ensureConnected()
     if (evaluate(tail))
       return {
         matched: !!matcher,

@@ -1,5 +1,6 @@
 import '../test-env.js'
 import assert from 'node:assert/strict'
+import { getEventListeners } from 'node:events'
 import test from 'node:test'
 import {
   AgentControl,
@@ -50,7 +51,7 @@ function createControl(initial: AgentPaneState[]) {
   const emit = (event: AgentMonitorEvent) => {
     for (const listener of listeners) listener(event)
   }
-  return { control, holder, emit }
+  return { control, holder, emit, listeners }
 }
 test('resolves immediately when the condition is already met', async () => {
   const { control } = createControl([pane('local:%1', { agentStatus: 'blocked', phase: 'permission_required' })])
@@ -218,6 +219,83 @@ test('still resolves on stateSeq-less panes when a wait baseline exists', async 
   await promise
   assert.equal(control.activeWaitCount(), 0)
 })
+test('cancels an active agent wait when the client aborts', async () => {
+  const { control, listeners } = createControl([pane('local:%1')])
+  const controller = new AbortController()
+  const pending = control.wait({ paneId: 'local:%1' }, { status: 'done' }, { signal: controller.signal })
+  assert.equal(control.activeWaitCount(), 1)
+  controller.abort()
+  await assert.rejects(pending, (error: AgentWaitError) => error.code === 'CLIENT_DISCONNECTED')
+  assert.equal(control.activeWaitCount(), 0)
+  assert.equal(listeners.size, 0)
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 0)
+})
+
+test('rejects pre-aborted waits even when the initial state matches', async () => {
+  const { control, listeners } = createControl([pane('local:%1', { agentStatus: 'done' })])
+  const controller = new AbortController()
+  controller.abort()
+  await assert.rejects(
+    control.wait({ paneId: 'local:%1' }, { status: 'done' }, { signal: controller.signal }),
+    (error: AgentWaitError) => error.code === 'CLIENT_DISCONNECTED',
+  )
+  assert.equal(control.activeWaitCount(), 0)
+  assert.equal(listeners.size, 0)
+})
+
+test('rejects aborts during the initial scan before accepting a matching state', async () => {
+  const controller = new AbortController()
+  const control = new AgentControl({
+    getStates: () => null,
+    scanStates: async () => {
+      controller.abort()
+      return [pane('local:%1', { agentStatus: 'done' })]
+    },
+  })
+  await assert.rejects(
+    control.wait({ paneId: 'local:%1' }, { status: 'done' }, { signal: controller.signal }),
+    (error: AgentWaitError) => error.code === 'CLIENT_DISCONNECTED',
+  )
+  assert.equal(control.activeWaitCount(), 0)
+})
+
+test('aborting one wait preserves another and removes listeners on completion', async () => {
+  const { control, emit, listeners } = createControl([pane('local:%1')])
+  const first = new AbortController()
+  const second = new AbortController()
+  const cancelled = control.wait({ paneId: 'local:%1' }, { status: 'done' }, { signal: first.signal })
+  const pending = control.wait({ paneId: 'local:%1' }, { status: 'done' }, { signal: second.signal })
+  first.abort()
+  await assert.rejects(cancelled, (error: AgentWaitError) => error.code === 'CLIENT_DISCONNECTED')
+  assert.equal(control.activeWaitCount(), 1)
+  assert.equal(listeners.size, 1)
+  emit({
+    type: 'agent_status_changed',
+    initial: false,
+    hostId: 'local',
+    sessionName: 'dev',
+    eventId: 'task15:done',
+    pane: pane('local:%1', { agentStatus: 'done' }),
+  })
+  await pending
+  assert.equal(control.activeWaitCount(), 0)
+  assert.equal(listeners.size, 0)
+  assert.equal(getEventListeners(second.signal, 'abort').length, 0)
+  second.abort()
+})
+
+test('timeout removes abort listeners and the monitor subscription', async () => {
+  const { control, listeners } = createControl([pane('local:%1')])
+  const controller = new AbortController()
+  await assert.rejects(
+    control.wait({ paneId: 'local:%1' }, { status: 'done' }, { signal: controller.signal, timeoutMs: 250 }),
+    (error: AgentWaitError) => error.code === 'TIMEOUT',
+  )
+  assert.equal(control.activeWaitCount(), 0)
+  assert.equal(listeners.size, 0)
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 0)
+})
+
 test('tracks active wait count and cleans up after resolution', async () => {
   const { control, emit } = createControl([pane('local:%1')])
   const promise = control.wait({ paneId: 'local:%1' }, { status: 'done' })
@@ -311,6 +389,61 @@ test('wait-output resolves on output change and reports elapsed', async () => {
   assert.equal(result.changed, true)
   assert.ok(result.output.includes('new output'))
 })
+test('wait-output cancels promptly when the client aborts', async () => {
+  const controller = new AbortController()
+  const staticOut = fakeExec((args) => (args[0] === 'display-message' ? 'zsh\t0' : 'same\n'))
+  const pending = waitAgentPaneOutput('local', '%1', {
+    match: 'never',
+    timeoutMs: 30000,
+    exec: staticOut.exec,
+    sleep: async () => controller.abort(),
+    signal: controller.signal,
+  })
+  await assert.rejects(pending, (error: AgentWaitError) => error.code === 'CLIENT_DISCONNECTED')
+})
+
+test('wait-output abort interrupts a long poll timer and removes its listener', async (t) => {
+  const controller = new AbortController()
+  const staticOut = fakeExec((args) => (args[0] === 'display-message' ? 'zsh\t0' : 'same\n'))
+  const pending = waitAgentPaneOutput('local', '%1', {
+    match: 'never',
+    pollMs: 5000,
+    exec: staticOut.exec,
+    signal: controller.signal,
+  })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 1)
+  const watchdog = setTimeout(() => controller.abort(), 1000)
+  t.after(() => clearTimeout(watchdog))
+  controller.abort()
+  await assert.rejects(pending, (error: AgentWaitError) => error.code === 'CLIENT_DISCONNECTED')
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 0)
+  assert.equal(staticOut.calls.length, 2)
+})
+
+test('wait-output rejects pre-aborted requests without reading a pane', async () => {
+  const controller = new AbortController()
+  controller.abort()
+  const staticOut = fakeExec(() => 'unused')
+  await assert.rejects(
+    waitAgentPaneOutput('local', '%1', { signal: controller.signal, exec: staticOut.exec }),
+    (error: AgentWaitError) => error.code === 'CLIENT_DISCONNECTED',
+  )
+  assert.equal(staticOut.calls.length, 0)
+})
+
+test('wait-output rejects cancellation during a read instead of returning a match', async () => {
+  const controller = new AbortController()
+  const staticOut = fakeExec((args) => {
+    if (args[0] === 'capture-pane') controller.abort()
+    return args[0] === 'display-message' ? 'zsh\t0' : 'matched\n'
+  })
+  await assert.rejects(
+    waitAgentPaneOutput('local', '%1', { match: 'matched', signal: controller.signal, exec: staticOut.exec }),
+    (error: AgentWaitError) => error.code === 'CLIENT_DISCONNECTED',
+  )
+})
+
 test('wait-output fails TIMEOUT, PANE_REMOVED and OCCUPANT_CHANGED explicably', async () => {
   const noDelay = () => Promise.resolve()
   const staticOut = fakeExec((args) => (args[0] === 'display-message' ? 'zsh\t0' : 'same\n'))
