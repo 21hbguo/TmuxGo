@@ -350,9 +350,16 @@ export class AgentMonitor {
     for (const [hostId, state] of this.hosts) {
       const current = state.agents.get(paneId)
       if (!current) continue
+      // 该 pane 仍挂着的 completed 协议覆盖一并清除：不清则下一次 scan 会把
+      // TTL 内的旧 completed 重新叠回 done，「标记已读」在协议链路下瞬间失效
+      for (const [key, event] of state.protocolEvents)
+        if (matchesProtocolEvent(event, current) && protocolAgentStatus(event) === 'done')
+          state.protocolEvents.delete(key)
       const marked = markAgentPaneSeen(paneId)
-      if (!marked || samePane(current, marked)) return null
-      const pane = { ...marked, stateSeq: ++nextStateSeq }
+      // 无记录但 monitor 仍显示 done（纯协议覆盖/记录已淘汰）→ 用当前态合成 idle 收口
+      const next = marked || (current.agentStatus === 'done' ? { ...current, agentStatus: 'idle' as const } : null)
+      if (!next || samePane(current, next)) return null
+      const pane = { ...next, stateSeq: ++nextStateSeq }
       state.agents.set(paneId, pane)
       state.revision += 1
       const event: AgentMonitorEvent = {

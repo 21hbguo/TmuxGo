@@ -6,6 +6,7 @@ import { agentMonitor } from '../lib/agent-monitor.js'
 import {
   paneCopySelectionBodySchema,
   paneIdBodySchema,
+  paneMarkSeenBodySchema,
   paneResizeBodySchema,
   paneSelectBodySchema,
   paneSplitBodySchema,
@@ -41,6 +42,18 @@ export async function paneRoutes(fastify: FastifyInstance) {
     } catch (err: any) {
       return { ok: false, error: err.message }
     }
+  })
+  // 显式「标记已查看」入口：done→idle 幂等，不做 tmux select 副作用；
+  // paneId/paneIds 均接受，非 done 状态原样返回不计入 marked
+  fastify.post('/panes/mark-seen', async (request) => {
+    const body = paneMarkSeenBodySchema.parse(request.body)
+    const paneIds = [...new Set([...(body.paneIds || []), ...(body.paneId ? [body.paneId] : [])])]
+    let marked = 0
+    for (const paneId of paneIds) {
+      parsePaneId(paneId)
+      if (agentMonitor.markSeen(paneId) || markAgentPaneSeen(paneId)) marked += 1
+    }
+    return { ok: true, marked }
   })
   // mouse on 时终端拖选全部归 tmux copy-mode：选区坐标只在 tmux 侧，
   // 前端轮询此端点拿 pane 相对坐标，再用本地 buffer 切片算实时字符数

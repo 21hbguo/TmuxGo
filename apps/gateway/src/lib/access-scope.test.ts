@@ -163,6 +163,14 @@ test('collectScopeTargets resolves hosts and sessions from params/query/body', (
   })
   assert.deepEqual([...targets.hosts], ['h9'])
   assert.deepEqual([...targets.sessions.get('h9')!], ['dev'])
+  // paneIds 批量体（/panes/mark-seen）：每个 id 单独解出 host，畸形项跳过
+  targets = from({
+    routeUrl: '/api/panes/mark-seen',
+    url: '/api/panes/mark-seen',
+    method: 'POST',
+    body: { paneIds: ['h2:%3', 'h5:%1', 'bad'] },
+  })
+  assert.deepEqual([...targets.hosts].sort(), ['h2', 'h5'])
   // window/pane 复合 id 提取 host；畸形 id 静默跳过交给路由自身校验
   targets = from({
     routeUrl: '/api/windows/:windowId/panes',

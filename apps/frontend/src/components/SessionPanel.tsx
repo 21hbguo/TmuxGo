@@ -52,7 +52,8 @@ import {
 import { HostSwitcher } from './HostSwitcher'
 import { AgentStatusBadge } from './AgentStatusBadge'
 import { AgentRecoveryBadge, useAgentRecoveryList } from './AgentRecovery'
-import { getAgentAttentionRank, mergeAgentSummaries } from '@/lib/agent-status'
+import { doneAgentPaneIds, getAgentAttentionRank, mergeAgentSummaries } from '@/lib/agent-status'
+import { useMarkAgentSeen } from '@/hooks/useMarkAgentSeen'
 import type { AgentStatus, AgentSummary, Session, WorkspaceEntry } from '@/types'
 import { ModalPortal } from './ModalPortal'
 import { api } from '@/lib/api'
@@ -72,6 +73,7 @@ export function SessionPanel() {
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const pushToast = useConsoleStore((state) => state.pushToast)
   const queryClient = useOptionalQueryClient()
+  const markAgentSeen = useMarkAgentSeen()
   const { data: sessions = [], moveSession, isError, error, refetch } = useOrderedSessions(activeHostId || '')
   const agentRecovery = useAgentRecoveryList(activeHostId || null)
   const createSession = useCreateSession()
@@ -562,6 +564,7 @@ export function SessionPanel() {
           <AgentStatusBadge
             summary={session.agentSummary}
             onStatusClick={(status) => handleAgentStatusClick(session, status)}
+            onClearDone={() => void markAgentSeen(doneAgentPaneIds([session]))}
           />
           {activeHostId && (
             <AgentRecoveryBadge
@@ -608,11 +611,20 @@ export function SessionPanel() {
   // sticky 需要列表容器作包含块，不能再套只包组头的中间层），这里只产出内部内容
   const groupHeaderClassName =
     'group sticky top-0 z-10 relative flex items-center gap-1 border-b border-[var(--line)] bg-bg-0/95 px-2 py-1 backdrop-blur'
-  const renderGroupHeader = (workspace: WorkspaceEntry | null, count: number, agentSummary: AgentSummary) =>
+  const renderGroupHeader = (
+    workspace: WorkspaceEntry | null,
+    count: number,
+    agentSummary: AgentSummary,
+    groupSessions: Session[],
+  ) =>
     workspace ? (
       <>
         <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text-1">{workspace.name}</span>
-        <AgentStatusBadge summary={agentSummary} compact />
+        <AgentStatusBadge
+          summary={agentSummary}
+          compact
+          onClearDone={() => void markAgentSeen(doneAgentPaneIds(groupSessions))}
+        />
         <span className="text-meta text-text-3">{count}</span>
         {!batchMode && (
           <button
@@ -671,7 +683,11 @@ export function SessionPanel() {
     ) : (
       <>
         <span className="min-w-0 flex-1 truncate text-xs text-text-3">{t('workspace.unclassified')}</span>
-        <AgentStatusBadge summary={agentSummary} compact />
+        <AgentStatusBadge
+          summary={agentSummary}
+          compact
+          onClearDone={() => void markAgentSeen(doneAgentPaneIds(groupSessions))}
+        />
         <span className="text-meta text-text-3">{count}</span>
         {!batchMode && (
           <button
@@ -758,7 +774,8 @@ export function SessionPanel() {
               <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-30 overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1 py-1">
                 <div className="tmuxgo-scrollbar max-h-64 overflow-y-auto">
                   {/* 下拉项与列表分组同序：都按 workspaceGroups 的注意力序排，
-                      徽标语义一致（同一 rollup summary），不再用 hostWorkspaces 原序 */}
+                      徽标语义一致（同一 rollup summary），不再用 hostWorkspaces 原序；
+                      done 徽标可标记已查看，清除语义与列表项一致 */}
                   {workspaceGroups.flatMap((group) =>
                     group.workspace ? (
                       <button
@@ -774,7 +791,11 @@ export function SessionPanel() {
                             {group.workspace.path}
                           </span>
                         </span>
-                        <AgentStatusBadge summary={group.agentSummary} compact />
+                        <AgentStatusBadge
+                          summary={group.agentSummary}
+                          compact
+                          onClearDone={() => void markAgentSeen(doneAgentPaneIds(group.sessions))}
+                        />
                         {currentWorkspace?.id === group.workspace.id && (
                           <FiCheck aria-hidden="true" className="shrink-0 text-accent" size={14} />
                         )}
@@ -864,7 +885,7 @@ export function SessionPanel() {
                 groups={displayedGroups.map(({ key, workspace, sessions: groupSessions, agentSummary }) => ({
                   key,
                   sessions: groupSessions,
-                  header: renderGroupHeader(workspace, groupSessions.length, agentSummary),
+                  header: renderGroupHeader(workspace, groupSessions.length, agentSummary, groupSessions),
                   headerClassName: groupHeaderClassName,
                 }))}
               />

@@ -904,6 +904,12 @@ export const api = {
         '/api/panes/copy-selection',
         { method: 'POST', body: JSON.stringify({ paneId, since: options?.since, peek: options?.peek }) },
       ),
+    // done→idle 标记已查看；幂等（重复/非 done 不计入 marked）
+    markSeen: (paneIds: string[]) =>
+      fetchApi<{ ok: boolean; marked: number }>('/api/panes/mark-seen', {
+        method: 'POST',
+        body: JSON.stringify({ paneIds }),
+      }),
   },
   system: {
     info: (hostId = 'local') => fetchApi<SystemInfoResponse>(`/api/hosts/${encodeURIComponent(hostId)}/system`),
