@@ -62,3 +62,166 @@ test('creating a session with a valid cwd starts in that directory', async () =>
     await killTestTmuxSession()
   }
 })
+test('exports a session layout and re-imports it as a new session', async () => {
+  const sessionName = TEST_TMUX_SESSION
+  const importedName = `${sessionName}-imported`
+  const cwd = process.cwd()
+  const fastify = Fastify()
+  await fastify.register(sessionRoutes)
+  try {
+    await execTmuxFile('tmux', ['new-session', '-d', '-s', sessionName, '-c', cwd])
+    const { stdout: firstIndex } = await execTmuxFile('tmux', [
+      'list-windows',
+      '-t',
+      sessionName,
+      '-F',
+      '#{window_index}',
+    ])
+    const firstWindow = `${sessionName}:${firstIndex.trim().split('\n')[0]}`
+    await execTmuxFile('tmux', ['rename-window', '-t', firstWindow, 'editor'])
+    await execTmuxFile('tmux', ['split-window', '-h', '-t', firstWindow, '-c', cwd])
+    await execTmuxFile('tmux', ['new-window', '-t', sessionName, '-n', 'logs', '-c', cwd])
+    const exported = await fastify.inject({
+      method: 'GET',
+      url: `/hosts/local/sessions/session-local-${sessionName}/layout`,
+    })
+    assert.equal(exported.statusCode, 200)
+    const doc = exported.json()
+    assert.equal(doc.kind, 'tmuxgo.session-layout')
+    assert.equal(doc.version, 1)
+    assert.equal(doc.name, sessionName)
+    assert.equal(doc.windows.length, 2)
+    assert.equal(doc.windows[0].panes.length, 2)
+    assert.equal(JSON.stringify(doc).includes('TOKEN'), false)
+    const created = await fastify.inject({
+      method: 'POST',
+      url: '/hosts/local/session-layouts/apply',
+      payload: { layout: doc, name: importedName },
+    })
+    assert.equal(created.statusCode, 200)
+    assert.equal(created.json().mode, 'create')
+    const { stdout: windowNames } = await execTmuxFile('tmux', [
+      'list-windows',
+      '-t',
+      importedName,
+      '-F',
+      '#{window_name}',
+    ])
+    assert.deepEqual(windowNames.trim().split('\n').sort(), doc.windows.map((w: any) => w.name).sort())
+    const { stdout: paneCount } = await execTmuxFile('tmux', [
+      'list-panes',
+      '-s',
+      '-t',
+      importedName,
+      '-F',
+      '#{pane_id}',
+    ])
+    assert.equal(paneCount.trim().split('\n').filter(Boolean).length, 3)
+  } finally {
+    await execTmuxFile('tmux', ['kill-session', '-t', importedName]).catch(() => {})
+    await fastify.close()
+    await killTestTmuxSession()
+  }
+})
+test('append mode adds windows without touching existing ones and requires the session to exist', async () => {
+  const sessionName = TEST_TMUX_SESSION
+  const fastify = Fastify()
+  await fastify.register(sessionRoutes)
+  try {
+    await execTmuxFile('tmux', ['new-session', '-d', '-s', sessionName])
+    const layout = {
+      kind: 'tmuxgo.session-layout',
+      version: 1,
+      name: 'extra',
+      windows: [
+        { name: 'w1', panes: [{ cwd: process.cwd() }, { cwd: process.cwd() }], splitDirection: 'horizontal' },
+        { name: 'w2', panes: [{}] },
+      ],
+    }
+    const missing = await fastify.inject({
+      method: 'POST',
+      url: '/hosts/local/session-layouts/apply',
+      payload: { layout, mode: 'append', name: 'no-such-session' },
+    })
+    assert.equal(missing.statusCode, 500)
+    assert.match(String(missing.json().message || ''), /Session not found/)
+    const appended = await fastify.inject({
+      method: 'POST',
+      url: '/hosts/local/session-layouts/apply',
+      payload: { layout, mode: 'append', name: sessionName },
+    })
+    assert.equal(appended.statusCode, 200)
+    assert.equal(appended.json().appendedWindows, 2)
+    const { stdout: windowNames } = await execTmuxFile('tmux', [
+      'list-windows',
+      '-t',
+      sessionName,
+      '-F',
+      '#{window_name}',
+    ])
+    const names = windowNames.trim().split('\n')
+    assert.deepEqual(names.slice(-2).sort(), ['w1', 'w2'])
+    assert.equal(names.length, 3)
+  } finally {
+    await fastify.close()
+    await killTestTmuxSession()
+  }
+})
+test('create mode refuses to overwrite an existing session without replace=true', async () => {
+  const sessionName = TEST_TMUX_SESSION
+  const fastify = Fastify()
+  await fastify.register(sessionRoutes)
+  try {
+    await execTmuxFile('tmux', ['new-session', '-d', '-s', sessionName])
+    const layout = { windows: [{ name: 'replacement', panes: [{}] }] }
+    const conflict = await fastify.inject({
+      method: 'POST',
+      url: '/hosts/local/session-layouts/apply',
+      payload: { layout, name: sessionName },
+    })
+    assert.equal(conflict.statusCode, 500)
+    assert.match(String(conflict.json().message || ''), /already exists/)
+    const { stdout: stillOne } = await execTmuxFile('tmux', ['list-windows', '-t', sessionName, '-F', '#{window_name}'])
+    assert.equal(stillOne.trim().split('\n').length, 1)
+    const replaced = await fastify.inject({
+      method: 'POST',
+      url: '/hosts/local/session-layouts/apply',
+      payload: { layout, name: sessionName, replace: true },
+    })
+    assert.equal(replaced.statusCode, 200)
+    assert.equal(replaced.json().session.replaced, true)
+    const { stdout: names } = await execTmuxFile('tmux', ['list-windows', '-t', sessionName, '-F', '#{window_name}'])
+    assert.deepEqual(names.trim().split('\n'), ['replacement'])
+  } finally {
+    await fastify.close()
+    await killTestTmuxSession()
+  }
+})
+test('import rejects invalid layout documents and unsafe cwd', async () => {
+  const sessionName = TEST_TMUX_SESSION
+  const fastify = Fastify()
+  await fastify.register(sessionRoutes)
+  try {
+    const badVersion = await fastify.inject({
+      method: 'POST',
+      url: '/hosts/local/session-layouts/apply',
+      payload: { layout: { version: 9, windows: [{ name: 'w', panes: [{}] }] }, name: sessionName },
+    })
+    assert.equal(badVersion.statusCode, 500)
+    assert.match(String(badVersion.json().message || ''), /unsupported version/)
+    const badCwd = await fastify.inject({
+      method: 'POST',
+      url: '/hosts/local/session-layouts/apply',
+      payload: {
+        layout: { windows: [{ name: 'w', panes: [{ cwd: `/tmp/tmuxgo-missing-${process.pid}-${Date.now()}` }] }] },
+        name: sessionName,
+      },
+    })
+    assert.equal(badCwd.statusCode, 500)
+    assert.match(String(badCwd.json().message || ''), /cwd directory does not exist/)
+    await assert.rejects(execTmuxFile('tmux', ['has-session', '-t', sessionName]))
+  } finally {
+    await fastify.close()
+    await killTestTmuxSession()
+  }
+})

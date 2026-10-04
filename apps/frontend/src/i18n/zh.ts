@@ -73,6 +73,7 @@ export const zh = {
   'sidebar.newAction': '新建',
   'sidebar.deleteSession': '结束会话',
   'sidebar.renameSession': '重命名会话',
+  'sidebar.exportLayout': '导出布局 JSON',
   'sidebar.reorderSession': '拖动排序会话',
   'sidebar.deleteConfirm': '将结束会话 "{name}"，其中的程序会被终止，不能撤销。',
   'sidebar.deleteTitle': '结束会话',
@@ -596,6 +597,7 @@ export const zh = {
   'templates.monitoringDesc': '多监控面板',
   'templates.training': 'ML 训练',
   'templates.trainingDesc': '训练 + 监控 + 日志',
+  'templates.importLayout': '导入 JSON',
 
   // PaneGrid
   'grid.noWindows': '没有打开的窗口',
@@ -1060,6 +1062,7 @@ export const zh = {
   // Session CRUD
   'session.created': '会话 {name} 已创建',
   'session.deleted': '会话 {name} 已结束',
+  'session.layoutExported': '已导出 {name} 的布局',
   'session.renamed': '会话 {from} 已重命名为 {to}',
   'session.requestFailed': '请求失败',
   'session.loadFailed': '会话加载失败',

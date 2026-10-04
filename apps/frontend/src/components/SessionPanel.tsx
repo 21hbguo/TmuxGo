@@ -56,7 +56,7 @@ import { ModalPortal } from './ModalPortal'
 import { api } from '@/lib/api'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
 import { WorkspaceDirectoryPicker, type WorkspaceDirectoryTarget } from './WorkspaceDirectoryPicker'
-import { FiCheck, FiChevronDown, FiCommand, FiFolder, FiFolderPlus } from 'react-icons/fi'
+import { FiCheck, FiChevronDown, FiCommand, FiDownload, FiFolder, FiFolderPlus } from 'react-icons/fi'
 
 function getNextSessionId(sessions: { id: string }[], removedIds: string[]) {
   const removed = new Set(removedIds)
@@ -209,6 +209,23 @@ export function SessionPanel() {
     }
     setCreateDialogOpen(false)
     setCreateDialogTemplate(null)
+  }
+  // 导出为版本化 layout JSON 文件（gateway 端保证不含 env/输出/参数）
+  const handleExportSessionLayout = async (session: Session) => {
+    if (!activeHostId) return
+    try {
+      const doc = await api.sessions.exportLayout(activeHostId, session.id)
+      const url = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }))
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `${session.name}.layout.json`
+      anchor.click()
+      // 延后 revoke：click 同步触发下载，立即回收会让部分浏览器拿到失效 URL
+      window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
+      pushToast({ type: 'success', message: t('session.layoutExported', { name: session.name }) })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
+    }
   }
   const confirmDeleteSession = async () => {
     if (!activeHostId || !pendingDeleteSessionId) return
@@ -511,6 +528,16 @@ export function SessionPanel() {
           title={t('sidebar.renameSession')}
         >
           ✎
+        </button>
+      )}
+      {!batchMode && (
+        <button
+          onClick={() => void handleExportSessionLayout(session)}
+          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-9 w-9 text-meta opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+          aria-label={t('sidebar.exportLayout')}
+          title={t('sidebar.exportLayout')}
+        >
+          <FiDownload aria-hidden="true" size={13} />
         </button>
       )}
       {!batchMode && (

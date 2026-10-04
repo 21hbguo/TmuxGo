@@ -36,6 +36,8 @@ import type {
   SessionArchiveSummary,
   SessionContinuityConfig,
   SessionLayout,
+  SessionLayoutApplyMode,
+  SessionLayoutDocument,
   SessionOrderPreference,
   SessionTemplate,
   SessionWorkspaceEntry,
@@ -771,6 +773,22 @@ export const api = {
     },
     batchDelete: (hostId: string, payload: BatchDeleteSessionsRequest) =>
       fetchApi<BatchDeleteSessionsResponse>(`/api/hosts/${hostId}/sessions/batch-delete`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    exportLayout: (hostId: string, sessionId: string) =>
+      fetchApi<SessionLayoutDocument>(`/api/hosts/${hostId}/sessions/${sessionId}/layout`),
+    applyLayout: (
+      hostId: string,
+      payload: {
+        layout: unknown
+        mode?: SessionLayoutApplyMode
+        name?: string
+        sessionId?: string
+        replace?: boolean
+      },
+    ) =>
+      fetchApi<{ session: any; mode: SessionLayoutApplyMode }>(`/api/hosts/${hostId}/session-layouts/apply`, {
         method: 'POST',
         body: JSON.stringify(payload),
       }),

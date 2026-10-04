@@ -47,6 +47,13 @@ export const sessionRenameBodySchema = z.object({
   sessionId: z.string().min(1).max(256),
   name: z.string().min(1).max(64),
 })
+export const sessionLayoutApplyBodySchema = z.object({
+  layout: z.unknown(),
+  mode: z.enum(['create', 'append']).optional(),
+  name: z.string().min(1).max(64).optional(),
+  sessionId: z.string().min(1).max(256).optional(),
+  replace: z.boolean().optional(),
+})
 export const workspaceParamsSchema = z.object({ id: identifier })
 export const workspaceCreateBodySchema = z.object({
   name: z.string().trim().min(1).max(64),

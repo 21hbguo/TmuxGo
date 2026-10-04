@@ -6,6 +6,7 @@ import { Chip } from './Chip'
 import { Select } from './Select'
 import { useSessionTemplates, useUpdateSessionTemplates } from '@/hooks/useApi'
 import { useModalLayer } from '@/hooks/useModalLayer'
+import { parseSessionLayoutDocument, sessionLayoutToTemplate } from '@/lib/session-layout'
 import type { SessionLayout, SessionTemplate, SessionWindowLayoutPreset, SessionWindowSplitDirection } from '@/types'
 
 interface CustomPaneConfig {
@@ -127,8 +128,10 @@ export function SessionTemplates({
   const updateTemplates = useUpdateSessionTemplates()
   const savedTemplates = data?.templates || []
   const [showCustom, setShowCustom] = useState(false)
+  const [importError, setImportError] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
   const customRef = useRef<HTMLDivElement>(null)
+  const importFileRef = useRef<HTMLInputElement>(null)
   // 两层弹窗各挂一层按键栈：自定义层开着时在上层，ESC 只关最上层
   useModalLayer({ open: true, getEl: () => rootRef.current, onEscape: onClose })
   useModalLayer({ open: showCustom, getEl: () => customRef.current, onEscape: () => setShowCustom(false) })
@@ -207,6 +210,19 @@ export function SessionTemplates({
   }
   const deleteTemplate = async (id: string) =>
     updateTemplates.mutateAsync(savedTemplates.filter((template) => template.id !== id))
+  // 导入 layout JSON → 转成模板走既有创建流程；解析失败只在本弹窗内提示
+  const handleImportFile = async (file: File | undefined) => {
+    if (!file) return
+    try {
+      const doc = parseSessionLayoutDocument(await file.text())
+      setImportError('')
+      onSelect(sessionLayoutToTemplate(doc))
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err))
+    } finally {
+      if (importFileRef.current) importFileRef.current.value = ''
+    }
+  }
   return (
     <div
       ref={rootRef}
@@ -262,7 +278,20 @@ export function SessionTemplates({
             </div>
           ))}
         </div>
-        <div className="flex justify-end border-t border-[var(--line)] p-4">
+        <div className="flex items-center justify-between gap-3 border-t border-[var(--line)] p-4">
+          <div className="flex min-w-0 items-center gap-2">
+            <input
+              ref={importFileRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={(event) => void handleImportFile(event.target.files?.[0])}
+            />
+            <Button variant="ghost" size="sm" onClick={() => importFileRef.current?.click()}>
+              {t('templates.importLayout')}
+            </Button>
+            {importError && <span className="truncate text-xs text-danger">{importError}</span>}
+          </div>
           <Button variant="ghost" size="sm" onClick={onClose}>
             {t('templates.cancel')}
           </Button>

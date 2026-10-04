@@ -8,7 +8,18 @@ import { execTmux, execHostShell } from '../lib/tmux-executor.js'
 import { getHostAgentPanes, summarizeAgentPanes } from '../lib/agent-state.js'
 import { agentMonitor } from '../lib/agent-monitor.js'
 import { emitPluginEvent } from '../lib/plugin-manager.js'
-import { hostParamsSchema, sessionCreateBodySchema, sessionRenameBodySchema } from '../lib/request-validation.js'
+import {
+  hostParamsSchema,
+  sessionCreateBodySchema,
+  sessionLayoutApplyBodySchema,
+  sessionRenameBodySchema,
+} from '../lib/request-validation.js'
+import {
+  buildSessionLayoutDocument,
+  normalizeSessionLayoutDocument,
+  sessionLayoutToTemplateLayout,
+  type SessionLayoutPaneRow,
+} from '../lib/session-layout.js'
 
 // tmux kill-session 的 -t 非精确匹配：目标 session 不存在时回退为前缀/fnmatch
 // 模式匹配并杀掉全部命中项（删已死 session 会误杀同名前缀的所有会话）。
@@ -352,6 +363,56 @@ async function applyTemplateLayout(hostId: string, sessionName: string, layout: 
   }
   await execTmux(hostId, ['select-window', '-t', firstWindowTarget])
 }
+// 追加模式应用 layout：所有窗口新建，绝不触碰已有窗口/pane；
+// new-window/split-window 均带 -d 不抢焦点，结束还原活动窗口
+async function applySessionLayoutAppend(hostId: string, sessionName: string, layout: SessionTemplateLayout) {
+  assertSessionAllowed(sessionName)
+  if (!layout.windows.length) return
+  const activeWindowTarget = await getFirstWindowTarget(hostId, sessionName)
+  for (const windowDef of layout.windows) {
+    const panes = windowDef.panes?.length ? windowDef.panes : [{}]
+    if (!windowDef.name) throw new Error('Layout apply failed: window missing name')
+    const splitFlag = windowDef.splitDirection === 'vertical' ? '-v' : '-h'
+    const layoutPreset = windowDef.layoutPreset || 'tiled'
+    const args = ['new-window', '-d', '-P', '-F', '#{window_index}', '-t', sessionName, '-n', windowDef.name]
+    if (panes[0]?.cwd?.trim()) args.push('-c', panes[0].cwd.trim())
+    const { stdout } = await execTmux(hostId, args)
+    const windowIndex = stdout.trim()
+    if (!windowIndex) throw new Error('Layout apply failed: new-window returned no index')
+    const windowTarget = `${sessionName}:${windowIndex}`
+    const paneBaseIndex = await getFirstPaneIndex(hostId, windowTarget)
+    for (let p = 1; p < panes.length; p++) {
+      await execTmux(hostId, [
+        'split-window',
+        '-d',
+        '-c',
+        panes[p]?.cwd?.trim() || '#{pane_current_path}',
+        '-t',
+        windowTarget,
+        splitFlag,
+      ])
+    }
+    await execTmux(hostId, ['select-layout', '-t', windowTarget, layoutPreset])
+    for (let p = 0; p < panes.length; p++) {
+      const command = getPaneStartupCommand(panes[p] || {})
+      if (!command) continue
+      await runSendKeys(hostId, `${windowTarget}.${paneBaseIndex + p}`, command)
+    }
+  }
+  await execTmux(hostId, ['select-window', '-t', activeWindowTarget])
+}
+// layout 内所有非空 cwd 必须在目标 host 存在且为绝对路径；远端经 execHostShell 探测
+async function assertLayoutCwdsExist(hostId: string, layout: SessionTemplateLayout) {
+  const cwds = [
+    ...new Set(
+      layout.windows.flatMap((window) => window.panes.map((pane) => pane.cwd?.trim()).filter(Boolean) as string[]),
+    ),
+  ]
+  for (const cwd of cwds) {
+    if (!path.isAbsolute(cwd)) throw new Error(`Invalid session layout: cwd must be absolute: ${cwd}`)
+    await assertCwdExists(hostId, cwd)
+  }
+}
 async function cleanupSession(hostId: string, sessionName: string) {
   try {
     await execTmux(hostId, ['kill-session', '-t', exactSessionTarget(sessionName)])
@@ -544,6 +605,99 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       deleted,
       failed,
     }
+  })
+  // 导出 session 布局为版本化 JSON：仅窗口名/pane 顺序/分栏/布局/cwd/命令名，
+  // 不含 env、命令行参数与 pane 输出（避免泄露 token/密钥）
+  fastify.get('/hosts/:hostId/sessions/:sessionId/layout', async (request) => {
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const { sessionId } = request.params as { sessionId: string }
+    const sessionName = normalizeSessionName(hostId, sessionId)
+    assertSessionAllowed(sessionName)
+    const sessions = await getHostTmuxSessions(hostId)
+    if (!sessions.some((session) => session.name === sessionName)) throw new Error(`Session not found: ${sessionName}`)
+    const { stdout: windowsOut } = await execTmux(hostId, [
+      'list-windows',
+      '-t',
+      sessionName,
+      '-F',
+      '#{window_index}|#{window_name}',
+    ])
+    const { stdout: panesOut } = await execTmux(hostId, [
+      'list-panes',
+      '-s',
+      '-t',
+      sessionName,
+      '-F',
+      '#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}',
+    ])
+    const panesByWindow = new Map<string, SessionLayoutPaneRow[]>()
+    for (const line of panesOut.trim().split('\n').filter(Boolean)) {
+      const [windowIndex, paneIndex, cwd, command, width, height, left, top] = line.split('|')
+      const rows = panesByWindow.get(windowIndex) || []
+      rows.push({
+        index: parseInt(paneIndex, 10) || 0,
+        cwd: cwd || '',
+        command: command || '',
+        width: parseInt(width, 10) || 0,
+        height: parseInt(height, 10) || 0,
+        left: parseInt(left, 10) || 0,
+        top: parseInt(top, 10) || 0,
+      })
+      panesByWindow.set(windowIndex, rows)
+    }
+    // window_name 可能含 '|'：首字段取 window_index，其余并回名字
+    const windows = windowsOut
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [windowIndex, ...nameParts] = line.split('|')
+        return { name: nameParts.join('|') || `win-${windowIndex}`, panes: panesByWindow.get(windowIndex) || [] }
+      })
+      .filter((window) => window.panes.length)
+    return buildSessionLayoutDocument({ sessionName, hostId, windows })
+  })
+  // 导入 layout：mode=create 建新 session（已存在须 replace:true 才会先销毁重建）；
+  // mode=append 把布局窗口追加到已有 session，不破坏现有窗口/pane
+  fastify.post('/hosts/:hostId/session-layouts/apply', async (request) => {
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const body = sessionLayoutApplyBodySchema.parse(request.body)
+    const doc = normalizeSessionLayoutDocument(body.layout)
+    const layout = sessionLayoutToTemplateLayout(doc)
+    const mode = body.mode === 'append' ? 'append' : 'create'
+    const sessionName =
+      mode === 'append' && body.sessionId ? normalizeSessionName(hostId, body.sessionId) : body.name?.trim() || doc.name
+    assertSessionAllowed(sessionName)
+    await assertLayoutCwdsExist(hostId, layout)
+    const sessions = await getHostTmuxSessions(hostId)
+    const existing = sessions.find((session) => session.name === sessionName)
+    if (mode === 'append') {
+      if (!existing) throw new Error(`Session not found: ${sessionName}`)
+      await applySessionLayoutAppend(hostId, sessionName, layout)
+      return { session: existing, mode, appendedWindows: layout.windows.length }
+    }
+    if (existing && body.replace !== true)
+      throw new Error(`Session already exists: ${sessionName} (set replace=true to overwrite)`)
+    if (existing) await execTmux(hostId, ['kill-session', '-t', exactSessionTarget(sessionName)])
+    try {
+      await execTmux(hostId, ['new-session', '-d', '-s', sessionName, '-e', 'TMUXGO_ENV=1'])
+      await applyTemplateLayout(hostId, sessionName, layout)
+    } catch (err: any) {
+      await cleanupSession(hostId, sessionName)
+      throw new Error(err?.message || 'Layout apply failed')
+    }
+    await safePrepareSessionAttach(hostId, sessionName)
+    const created = (await getHostTmuxSessions(hostId)).find((session) => session.name === sessionName) || {
+      id: buildSessionId(hostId, sessionName),
+      hostId,
+      name: sessionName,
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+      windowCount: layout.windows.length || 1,
+      attached: false,
+    }
+    emitPluginEvent('session.created', { hostId, sessionId: created.id, sessionName })
+    return { session: { ...created, replaced: !!existing }, mode }
   })
   fastify.delete('/hosts/:hostId/sessions/:sessionId', async (request) => {
     const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }

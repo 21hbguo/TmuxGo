@@ -73,6 +73,7 @@ export const en = {
   'sidebar.newAction': 'New',
   'sidebar.deleteSession': 'End session',
   'sidebar.renameSession': 'Rename session',
+  'sidebar.exportLayout': 'Export layout JSON',
   'sidebar.reorderSession': 'Reorder session',
   'sidebar.deleteConfirm': 'End session "{name}"? Its programs will be terminated and cannot be restored.',
   'sidebar.deleteTitle': 'End session',
@@ -602,6 +603,7 @@ export const en = {
   'templates.monitoringDesc': 'Multiple monitoring panes',
   'templates.training': 'ML Training',
   'templates.trainingDesc': 'Training + monitoring + logs',
+  'templates.importLayout': 'Import JSON',
 
   // PaneGrid
   'grid.noWindows': 'No windows open',
@@ -1067,6 +1069,7 @@ export const en = {
   // Session CRUD
   'session.created': 'Session {name} created',
   'session.deleted': 'Session {name} ended',
+  'session.layoutExported': 'Layout for {name} exported',
   'session.renamed': 'Session {from} renamed to {to}',
   'session.requestFailed': 'Request failed',
   'session.loadFailed': 'Failed to load sessions',

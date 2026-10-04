@@ -52,6 +52,15 @@ export interface SessionLayoutWindow {
 export interface SessionLayout {
   windows: SessionLayoutWindow[]
 }
+export interface SessionLayoutDocument {
+  kind: 'tmuxgo.session-layout'
+  version: 1
+  name: string
+  exportedAt?: string
+  sourceHostId?: string
+  windows: SessionLayoutWindow[]
+}
+export type SessionLayoutApplyMode = 'create' | 'append'
 export interface SessionTemplate {
   id: string
   name: string
