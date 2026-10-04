@@ -18,6 +18,7 @@ import {
 import { useCreateWorkspace, useRemoveWorkspace, useUpdateWorkspace, useWorkspaces } from '@/hooks/useWorkspaces'
 import { useSplitGroups } from '@/hooks/useSplitGroups'
 import { SessionTemplates, templates as builtinTemplates, type Template } from './SessionTemplates'
+import { SessionLayoutImportDialog } from './SessionLayoutImportDialog'
 import { CreateSessionDialog } from './CreateSessionDialog'
 import { getTemplateSessionName } from '@/lib/session-template'
 import { Chip } from './Chip'
@@ -107,6 +108,7 @@ export function SessionPanel() {
   const { t } = useTranslation()
   const { prompt, PromptElement } = usePrompt()
   const [showTemplates, setShowTemplates] = useState(false)
+  const [showLayoutImport, setShowLayoutImport] = useState(false)
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
   const [batchMode, setBatchMode] = useState(false)
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
@@ -120,6 +122,12 @@ export function SessionPanel() {
     setCreateDialogInitialWorkspace(templateWorkspace)
     setTemplateWorkspace(null)
     setCreateDialogOpen(true)
+  }
+  const handleLayoutApplied = (session: Session) => {
+    setShowLayoutImport(false)
+    void refetch()
+    if (session.id) setActiveSession(session.id)
+    pushToast({ type: 'success', message: t('session.layoutImported', { name: session.name }) })
   }
   const allTemplates = [...builtinTemplates, ...(sessionTemplates?.templates || [])]
   const handleWorkspaceCreateSession = (workspace: WorkspaceEntry) => {
@@ -804,6 +812,9 @@ export function SessionPanel() {
                   <Chip tone="accent" onClick={handleNewSession}>
                     {t('sidebar.newAction')}
                   </Chip>
+                  <Chip onClick={() => setShowLayoutImport(true)} disabled={!activeHostId}>
+                    {t('sidebar.importLayout')}
+                  </Chip>
                   <Chip onClick={toggleBatchMode}>{t('sidebar.batchDeleteAction')}</Chip>
                 </>
               )}
@@ -882,6 +893,14 @@ export function SessionPanel() {
           />
         </ModalPortal>
       )}
+      <SessionLayoutImportDialog
+        open={showLayoutImport && !!activeHostId}
+        hostId={activeHostId || ''}
+        sessions={sessions}
+        activeSessionId={activeSessionId || ''}
+        onApplied={handleLayoutApplied}
+        onClose={() => setShowLayoutImport(false)}
+      />
       {workspacePickerOpen && (
         <WorkspaceDirectoryPicker
           hostId={activeHostId || ''}
