@@ -33,6 +33,8 @@ export interface VncTouchAdapterHooks {
   sendPointer(elX: number, elY: number, mask: number): void
   // 同步 noVNC 本地光标覆盖层位置（client 坐标），可选
   moveCursor?(clientX: number, clientY: number): void
+  // 单指短按（左键点击已完成）：供调用方做"点按画布聚焦隐藏输入"之类的副作用，可选
+  onTap?(): void
 }
 
 // 阈值取 client px / ms：与画布尺寸无关，矩形为 0 的测试环境也可复现
@@ -179,6 +181,7 @@ export function createVncTouchAdapter(hooks: VncTouchAdapterHooks) {
         if (el) {
           clickAt(el.x, el.y, MASK_LEFT)
           lastTap = { t: Date.now(), elX: el.x, elY: el.y, cx: t.x, cy: t.y }
+          hooks.onTap?.()
         }
       }
       phase = remaining > 0 ? 'off' : 'idle'

@@ -45,8 +45,10 @@ const {
       public url: string,
       public options: unknown,
     ) {
-      // 真实 RFB 在容器内建 canvas，触控适配层以它为坐标基准
-      target.appendChild(document.createElement('canvas'))
+      // 真实 RFB 在容器内建 canvas（tabIndex=-1 可聚焦收键盘事件），触控适配层以它为坐标基准
+      const canvas = document.createElement('canvas')
+      canvas.tabIndex = -1
+      target.appendChild(canvas)
       RFB.instances.push(this)
     }
     addEventListener(type: string, fn: (event: { detail: any }) => void) {
@@ -304,7 +306,9 @@ describe('DesktopView VNC password memory', () => {
     expect(sendKeyMock).toHaveBeenCalledWith(0xff0d, 'Enter', true)
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(sendKeyMock).toHaveBeenCalledWith(0xff1b, 'Escape', true)
-    expect(screen.queryByPlaceholderText('Type to send keys')).toBeNull()
+    // input 常驻（收条后隐藏仍在 DOM）：特殊键行消失，焦点让回 canvas 恢复原生链路
+    expect(screen.queryByRole('button', { name: 'Ctrl' })).toBeNull()
+    expect(document.activeElement).toBe(lastRfb().target.querySelector('canvas'))
   })
 
   it('keeps the keyboard button hidden on desktop layout', async () => {
@@ -573,6 +577,122 @@ describe('DesktopView VNC password memory', () => {
     } finally {
       spy.mockRestore()
     }
+  })
+
+  it('keeps canvas, pointer indicator and keyboard input inside the fullscreen subtree', async () => {
+    mobileMatches = true
+    const requestFullscreen = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(window.HTMLElement.prototype, 'requestFullscreen', {
+      configurable: true,
+      value: requestFullscreen,
+    })
+    try {
+      renderView()
+      await waitFor(() => expect(lastRfb()).toBeTruthy())
+      await act(async () => {
+        lastRfb().emit('connect', {})
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Fullscreen' }))
+      // 全屏元素必须是 section 根：canvas/指示器/键盘输入/header 按钮都在其子树内才不被裁
+      const fullscreenEl = requestFullscreen.mock.contexts[0] as HTMLElement
+      expect(fullscreenEl).toBeTruthy()
+      expect(fullscreenEl.contains(lastRfb().target.querySelector('canvas'))).toBe(true)
+      expect(fullscreenEl.contains(document.querySelector('[data-vnc-pointer]'))).toBe(true)
+      expect(fullscreenEl.contains(screen.getByPlaceholderText('Type to send keys'))).toBe(true)
+      expect(fullscreenEl.contains(screen.getByRole('button', { name: 'Keyboard input' }))).toBe(true)
+    } finally {
+      delete (window.HTMLElement.prototype as any).requestFullscreen
+    }
+  })
+
+  it('does not focus the keyboard input on a plain canvas tap (canvas keeps keys)', async () => {
+    mobileMatches = true
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    await act(async () => {
+      lastRfb().emit('connect', {})
+    })
+    const input = screen.getByPlaceholderText('Type to send keys')
+    const canvas = lastRfb().target.querySelector('canvas')!
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue(canvasRect)
+    try {
+      // 普通 tap：input 不得聚焦（否则每次点击都弹系统键盘），焦点回 canvas 走 noVNC 原生链路
+      fireTouch('touchstart', [{ identifier: 0, clientX: 100, clientY: 100 }])
+      fireTouch('touchend', [])
+      expect(document.activeElement).not.toBe(input)
+      expect(document.activeElement).toBe(canvas)
+      expect(screen.queryByRole('button', { name: 'Ctrl' })).toBeNull()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('keeps input focus and single-send on canvas tap while the bar is open', async () => {
+    mobileMatches = true
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    await act(async () => {
+      lastRfb().emit('connect', {})
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Keyboard input' }))
+    const input = screen.getByPlaceholderText('Type to send keys')
+    await waitFor(() => expect(document.activeElement).toBe(input))
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue(canvasRect)
+    try {
+      // 开条状态点画布：适配层拦截 touch，canvas 不会抢走 input 焦点
+      fireTouch('touchstart', [{ identifier: 0, clientX: 100, clientY: 100 }])
+      fireTouch('touchend', [])
+      expect(document.activeElement).toBe(input)
+      // Enter 只经 input keydown 一条路发出：down+up 各一次，无重复
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(sendKeyMock.mock.calls.filter((c) => c[0] === 0xff0d)).toEqual([
+        [0xff0d, 'Enter', true],
+        [0xff0d, 'Enter', false],
+      ])
+      // canvas 的 keydown 只属于 noVNC 原生 Keyboard（mock 无处理器），组件不重复发
+      fireEvent.keyDown(lastRfb().target.querySelector('canvas')!, { key: 'a' })
+      expect(sendKeyMock.mock.calls.filter((c) => c[0] === 0x61)).toEqual([])
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('sends IME composition only once on commit, ignoring prefix updates', async () => {
+    mobileMatches = true
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    await act(async () => {
+      lastRfb().emit('connect', {})
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Keyboard input' }))
+    const input = screen.getByPlaceholderText('Type to send keys')
+    // Android/中文输入法典型序列：compositionstart + 前缀 insertCompositionText 更新 + end 提交
+    fireEvent.compositionStart(input)
+    for (const p of ['c', 'cl', 'cle', 'clea', 'clear']) {
+      fireEvent.input(input, { inputType: 'insertCompositionText', data: p, isComposing: true })
+    }
+    fireEvent.compositionEnd(input, { data: 'clear' })
+    // 部分浏览器 commit 后补一个同内容 input 事件：去重不得再发
+    fireEvent.input(input, { inputType: 'insertText', data: 'clear' })
+    const downs = sendKeyMock.mock.calls.filter((c) => c[2] === true).map((c) => c[0])
+    expect(downs).toEqual([0x63, 0x6c, 0x65, 0x61, 0x72])
+  })
+
+  it('sends only the delta for prefix insertCompositionText without composition events', async () => {
+    mobileMatches = true
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    await act(async () => {
+      lastRfb().emit('connect', {})
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Keyboard input' }))
+    const input = screen.getByPlaceholderText('Type to send keys')
+    // 无 composition 事件的怪癖软键盘：每击键发整段前缀，只能按差量补发尾部
+    for (const p of ['c', 'cl', 'cle', 'clea', 'clear']) {
+      fireEvent.input(input, { inputType: 'insertCompositionText', data: p })
+    }
+    const downs = sendKeyMock.mock.calls.filter((c) => c[2] === true).map((c) => c[0])
+    expect(downs).toEqual([0x63, 0x6c, 0x65, 0x61, 0x72])
   })
 
   it('positions an in-subtree pointer indicator after touch movement in trackpad mode', async () => {
