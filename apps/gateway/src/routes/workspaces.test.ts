@@ -56,6 +56,36 @@ test('workspaces CRUD roundtrip', async (t) => {
   await fastify.close()
 })
 
+test('concurrent workspace creates do not overwrite each other', async (t) => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-workspaces-route-'))
+  const previousConfigDir = process.env.TMUXGO_CONFIG_DIR
+  process.env.TMUXGO_CONFIG_DIR = configDir
+  t.after(async () => {
+    if (previousConfigDir === undefined) delete process.env.TMUXGO_CONFIG_DIR
+    else process.env.TMUXGO_CONFIG_DIR = previousConfigDir
+    await rm(configDir, { recursive: true, force: true })
+  })
+  const { workspaceRoutes } = await import(`./workspaces.js?test=${Date.now()}-${Math.random()}`)
+  const fastify = Fastify()
+  await fastify.register(workspaceRoutes)
+  const count = 10
+  const responses = await Promise.all(
+    Array.from({ length: count }, (_, index) =>
+      fastify.inject({
+        method: 'POST',
+        url: '/workspaces',
+        payload: { name: `ws-${index}`, hostId: 'local', path: `/workspace/ws-${index}` },
+      }),
+    ),
+  )
+  for (const response of responses) assert.equal(response.statusCode, 200)
+  const listed = await fastify.inject({ method: 'GET', url: '/workspaces' })
+  const workspaces = listed.json().workspaces as { name: string }[]
+  assert.equal(workspaces.length, count)
+  assert.equal(new Set(workspaces.map((item) => item.name)).size, count)
+  await fastify.close()
+})
+
 test('validates workspace create payloads', () => {
   workspaceCreateBodySchema.parse({ name: 'good-name_1', hostId: 'local', path: '/workspace/x' })
   workspaceCreateBodySchema.parse({ name: '中文工作区', hostId: 'local', path: '/workspace/x' })
