@@ -4,7 +4,27 @@ import { execGit } from '../lib/git-executor.js'
 import { execTmux } from '../lib/tmux-executor.js'
 import { assertTargetAllowed } from '../lib/tmux-policy.js'
 import { discoverGitRepositoriesForHost } from './files.js'
-import { gitCommitBodySchema, gitFilesBodySchema, gitOperationBodySchema, gitResolveBodySchema, hostParamsSchema } from '../lib/request-validation.js'
+import {
+  gitCommitBodySchema,
+  gitFilesBodySchema,
+  gitOperationBodySchema,
+  gitResolveBodySchema,
+  gitWorktreeCreateBodySchema,
+  gitWorktreeLinkBodySchema,
+  gitWorktreeRemoveBodySchema,
+  hostParamsSchema,
+} from '../lib/request-validation.js'
+import {
+  assertSafeWorktreePath,
+  buildWorktreeAddArgs,
+  buildWorktreeRemoveArgs,
+  classifyWorktreeRemoveByState,
+  classifyWorktreeRemoveError,
+  mergeWorktreeProvenance,
+  parseWorktreeListPorcelain,
+  removeWorktreeRecord,
+  upsertWorktreeRecord,
+} from '../lib/git-worktree.js'
 import { taskManager, type TaskExecutionContext, type TaskManager } from '../lib/task-manager.js'
 
 interface GitFileChange {
@@ -18,34 +38,47 @@ const gitLogRecordSeparator = '\x1e'
 const gitBranchFieldSeparator = '\t'
 
 interface GitBackgroundTaskInput {
-  hostId:string
-  path:string
-  args:string[]
-  commit?:{message:string;amend:boolean}
+  hostId: string
+  path: string
+  args: string[]
+  commit?: { message: string; amend: boolean }
 }
-function appendGitTaskOutput(context:TaskExecutionContext,stdout:string,stderr:string) {
+function appendGitTaskOutput(context: TaskExecutionContext, stdout: string, stderr: string) {
   if (stdout) context.appendLog(stdout)
   if (stderr) context.appendLog(stderr)
 }
-async function runGitBackgroundTask(input:unknown,context:TaskExecutionContext) {
-  const task=input as GitBackgroundTaskInput
+async function runGitBackgroundTask(input: unknown, context: TaskExecutionContext) {
+  const task = input as GitBackgroundTaskInput
   context.appendLog(`git ${task.args.join(' ')}`)
-  const { stdout,stderr }=await execGit(task.hostId,task.args,task.path,300000,false,context.signal)
-  appendGitTaskOutput(context,stdout,stderr)
-  const message=(stdout||stderr).trim()||'Completed'
-  const hash=task.commit?stdout.match(/\[(?:[^\s]+)\s+([a-f0-9]+)\]/)?.[1]||'':''
-  if (task.commit) emitPluginEvent('git.commit.completed',{hostId:task.hostId,repoPath:task.path,hash,message:task.commit.message,amend:task.commit.amend})
-  return { message,result:{command:`git ${task.args.join(' ')}`,hash,message} }
+  const { stdout, stderr } = await execGit(task.hostId, task.args, task.path, 300000, false, context.signal)
+  appendGitTaskOutput(context, stdout, stderr)
+  const message = (stdout || stderr).trim() || 'Completed'
+  const hash = task.commit ? stdout.match(/\[(?:[^\s]+)\s+([a-f0-9]+)\]/)?.[1] || '' : ''
+  if (task.commit)
+    emitPluginEvent('git.commit.completed', {
+      hostId: task.hostId,
+      repoPath: task.path,
+      hash,
+      message: task.commit.message,
+      amend: task.commit.amend,
+    })
+  return { message, result: { command: `git ${task.args.join(' ')}`, hash, message } }
 }
 
 function mapStatusCode(code: string): GitFileChange['status'] {
   switch (code) {
-    case 'A': return 'added'
-    case 'D': return 'deleted'
-    case 'R': return 'renamed'
-    case 'C': return 'copied'
-    case 'U': return 'unmerged'
-    default: return 'modified'
+    case 'A':
+      return 'added'
+    case 'D':
+      return 'deleted'
+    case 'R':
+      return 'renamed'
+    case 'C':
+      return 'copied'
+    case 'U':
+      return 'unmerged'
+    default:
+      return 'modified'
   }
 }
 
@@ -107,80 +140,118 @@ export function parsePorcelainV2(stdout: string) {
   return { branch, ahead, behind, staged, unstaged, untracked, conflicted }
 }
 function parseNumStat(stdout: string) {
-  return stdout.split('\n').filter(Boolean).map((line) => {
-    const [additionsRaw, deletionsRaw, filename] = line.split('\t')
-    const additions = additionsRaw === '-' ? 0 : parseInt(additionsRaw || '0', 10) || 0
-    const deletions = deletionsRaw === '-' ? 0 : parseInt(deletionsRaw || '0', 10) || 0
-    return {
-      filename: filename || '',
-      status: additionsRaw === '-' || deletionsRaw === '-' ? 'binary' : additions > 0 && deletions > 0 ? 'modified' : additions > 0 ? 'added' : deletions > 0 ? 'deleted' : 'modified',
-      additions,
-      deletions,
-    }
-  }).filter((item) => item.filename)
+  return stdout
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [additionsRaw, deletionsRaw, filename] = line.split('\t')
+      const additions = additionsRaw === '-' ? 0 : parseInt(additionsRaw || '0', 10) || 0
+      const deletions = deletionsRaw === '-' ? 0 : parseInt(deletionsRaw || '0', 10) || 0
+      return {
+        filename: filename || '',
+        status:
+          additionsRaw === '-' || deletionsRaw === '-'
+            ? 'binary'
+            : additions > 0 && deletions > 0
+              ? 'modified'
+              : additions > 0
+                ? 'added'
+                : deletions > 0
+                  ? 'deleted'
+                  : 'modified',
+        additions,
+        deletions,
+      }
+    })
+    .filter((item) => item.filename)
 }
 function parseGitLog(stdout: string) {
-  return stdout.split(gitLogRecordSeparator).filter(Boolean).map((record) => {
-    const [hash = '', shortHash = '', subject = '', body = '', author = '', authorEmail = '', authorDate = '', committedDate = '', rawParents = ''] = record.split(gitLogFieldSeparator)
-    const cleanHash = hash.trim()
-    const cleanShortHash = shortHash.trim()
-    const cleanSubject = subject.replace(/\n/g, ' ').trim()
-    const cleanBody = body.replace(/^\n+|\n+$/g, '')
-    const cleanAuthor = author.trim()
-    const cleanAuthorEmail = authorEmail.trim()
-    const cleanAuthorDate = authorDate.trim()
-    const cleanCommittedDate = committedDate.trim()
-    const parents = rawParents.trim() ? rawParents.trim().split(/\s+/).filter(Boolean) : []
-    return cleanHash && cleanShortHash && cleanAuthor && cleanCommittedDate ? {
-      hash: cleanHash,
-      shortHash: cleanShortHash,
-      subject: cleanSubject,
-      body: cleanBody,
-      author: cleanAuthor,
-      authorEmail: cleanAuthorEmail,
-      authorDate: cleanAuthorDate || cleanCommittedDate,
-      date: cleanCommittedDate,
-      parents,
-    } : null
-  }).filter(Boolean)
+  return stdout
+    .split(gitLogRecordSeparator)
+    .filter(Boolean)
+    .map((record) => {
+      const [
+        hash = '',
+        shortHash = '',
+        subject = '',
+        body = '',
+        author = '',
+        authorEmail = '',
+        authorDate = '',
+        committedDate = '',
+        rawParents = '',
+      ] = record.split(gitLogFieldSeparator)
+      const cleanHash = hash.trim()
+      const cleanShortHash = shortHash.trim()
+      const cleanSubject = subject.replace(/\n/g, ' ').trim()
+      const cleanBody = body.replace(/^\n+|\n+$/g, '')
+      const cleanAuthor = author.trim()
+      const cleanAuthorEmail = authorEmail.trim()
+      const cleanAuthorDate = authorDate.trim()
+      const cleanCommittedDate = committedDate.trim()
+      const parents = rawParents.trim() ? rawParents.trim().split(/\s+/).filter(Boolean) : []
+      return cleanHash && cleanShortHash && cleanAuthor && cleanCommittedDate
+        ? {
+            hash: cleanHash,
+            shortHash: cleanShortHash,
+            subject: cleanSubject,
+            body: cleanBody,
+            author: cleanAuthor,
+            authorEmail: cleanAuthorEmail,
+            authorDate: cleanAuthorDate || cleanCommittedDate,
+            date: cleanCommittedDate,
+            parents,
+          }
+        : null
+    })
+    .filter(Boolean)
 }
 function parseGitBranches(stdout: string) {
-  return stdout.split('\n').filter(Boolean).map((line) => {
-    const [head = '', name = '', commitHash = '', remote = '', trackingBranch = '', ...subjectParts] = line.split(gitBranchFieldSeparator)
-    const lastCommitSubject = subjectParts.join(gitBranchFieldSeparator)
-    if (!name.trim() || !commitHash.trim()) return null
-    return {
-      name: name.trim(),
-      current: head.trim() === '*',
-      remote: remote.trim() || undefined,
-      commitHash: commitHash.trim(),
-      trackingBranch: trackingBranch.trim() || undefined,
-      lastCommitSubject: lastCommitSubject.trim(),
-    }
-  }).filter(Boolean)
+  return stdout
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [head = '', name = '', commitHash = '', remote = '', trackingBranch = '', ...subjectParts] =
+        line.split(gitBranchFieldSeparator)
+      const lastCommitSubject = subjectParts.join(gitBranchFieldSeparator)
+      if (!name.trim() || !commitHash.trim()) return null
+      return {
+        name: name.trim(),
+        current: head.trim() === '*',
+        remote: remote.trim() || undefined,
+        commitHash: commitHash.trim(),
+        trackingBranch: trackingBranch.trim() || undefined,
+        lastCommitSubject: lastCommitSubject.trim(),
+      }
+    })
+    .filter(Boolean)
 }
 export function parseGitRefs(stdout: string) {
-  return stdout.split('\n').filter(Boolean).map((line) => {
-    const [fullName = '', objectHash = '', peeledHash = '', symref = ''] = line.split(gitBranchFieldSeparator)
-    if (!fullName || symref) return null
-    const kind = fullName.startsWith('refs/remotes/') ? 'remote' : fullName.startsWith('refs/tags/') ? 'tag' : null
-    if (!kind) return null
-    return {
-      name: fullName.replace(kind === 'remote' ? 'refs/remotes/' : 'refs/tags/', ''),
-      kind,
-      commitHash: peeledHash || objectHash,
-    }
-  }).filter(Boolean)
+  return stdout
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [fullName = '', objectHash = '', peeledHash = '', symref = ''] = line.split(gitBranchFieldSeparator)
+      if (!fullName || symref) return null
+      const kind = fullName.startsWith('refs/remotes/') ? 'remote' : fullName.startsWith('refs/tags/') ? 'tag' : null
+      if (!kind) return null
+      return {
+        name: fullName.replace(kind === 'remote' ? 'refs/remotes/' : 'refs/tags/', ''),
+        kind,
+        commitHash: peeledHash || objectHash,
+      }
+    })
+    .filter(Boolean)
 }
 
-export async function gitRoutes(fastify: FastifyInstance, options:{ taskManager?:TaskManager }={}) {
-  const backgroundTasks=options.taskManager||taskManager
-  backgroundTasks.register('git-fetch',runGitBackgroundTask)
-  backgroundTasks.register('git-pull',runGitBackgroundTask,{retryable:false})
-  backgroundTasks.register('git-push',runGitBackgroundTask,{retryable:false})
-  backgroundTasks.register('git-commit',runGitBackgroundTask)
-  backgroundTasks.register('git-merge',runGitBackgroundTask)
-  backgroundTasks.register('git-operation',runGitBackgroundTask)
+export async function gitRoutes(fastify: FastifyInstance, options: { taskManager?: TaskManager } = {}) {
+  const backgroundTasks = options.taskManager || taskManager
+  backgroundTasks.register('git-fetch', runGitBackgroundTask)
+  backgroundTasks.register('git-pull', runGitBackgroundTask, { retryable: false })
+  backgroundTasks.register('git-push', runGitBackgroundTask, { retryable: false })
+  backgroundTasks.register('git-commit', runGitBackgroundTask)
+  backgroundTasks.register('git-merge', runGitBackgroundTask)
+  backgroundTasks.register('git-operation', runGitBackgroundTask)
   fastify.get('/hosts/:hostId/git/repositories', async (request) => {
     const { hostId } = request.params as { hostId: string }
     return discoverGitRepositoriesForHost(hostId)
@@ -217,18 +288,45 @@ export async function gitRoutes(fastify: FastifyInstance, options:{ taskManager?
       execGit(hostId, ['rev-parse', '--verify', '-q', 'MERGE_HEAD'], repoPath, undefined, true),
       execGit(hostId, ['rev-parse', '--verify', '-q', 'REBASE_HEAD'], repoPath, undefined, true),
     ])
-    return { ...parsePorcelainV2(stdout), operation: mergeHead.stdout.trim() ? 'merge' : rebaseHead.stdout.trim() ? 'rebase' : null }
+    return {
+      ...parsePorcelainV2(stdout),
+      operation: mergeHead.stdout.trim() ? 'merge' : rebaseHead.stdout.trim() ? 'rebase' : null,
+    }
   })
 
   fastify.get('/hosts/:hostId/git/diff', async (request) => {
     const { hostId } = request.params as { hostId: string }
-    const { path: repoPath, filePath, staged, commit, workingTree, untracked } = request.query as { path?: string; filePath?: string; staged?: string; commit?: string; workingTree?: string; untracked?: string }
+    const {
+      path: repoPath,
+      filePath,
+      staged,
+      commit,
+      workingTree,
+      untracked,
+    } = request.query as {
+      path?: string
+      filePath?: string
+      staged?: string
+      commit?: string
+      workingTree?: string
+      untracked?: string
+    }
     if (!repoPath) throw new Error('Missing path parameter')
     if (untracked === 'true' && filePath) {
       if (filePath.startsWith('/') || filePath.split('/').includes('..')) throw new Error('Invalid untracked file path')
-      const { stdout: untrackedOut } = await execGit(hostId, ['ls-files', '--others', '--exclude-standard', '-z', '--', filePath], repoPath)
+      const { stdout: untrackedOut } = await execGit(
+        hostId,
+        ['ls-files', '--others', '--exclude-standard', '-z', '--', filePath],
+        repoPath,
+      )
       if (!untrackedOut.split('\0').includes(filePath)) throw new Error('File is not untracked')
-      const { stdout } = await execGit(hostId, ['diff', '--no-index', '--no-color', '--', '/dev/null', filePath], repoPath, undefined, true)
+      const { stdout } = await execGit(
+        hostId,
+        ['diff', '--no-index', '--no-color', '--', '/dev/null', filePath],
+        repoPath,
+        undefined,
+        true,
+      )
       return { raw: stdout }
     }
     const args = commit ? ['show', '--format=', '--no-color', commit.replace(/\^!$/, '')] : ['diff', '--no-color']
@@ -260,12 +358,19 @@ export async function gitRoutes(fastify: FastifyInstance, options:{ taskManager?
     return { ok: true }
   })
 
-  fastify.post('/hosts/:hostId/git/commit', async (request,reply) => {
+  fastify.post('/hosts/:hostId/git/commit', async (request, reply) => {
     const { hostId } = hostParamsSchema.parse(request.params)
     const { path: repoPath, message, amend, background } = gitCommitBodySchema.parse(request.body)
     const args = ['commit', '-m', message]
     if (amend) args.splice(1, 0, '--amend')
-    if (background) return reply.status(202).send({task:await backgroundTasks.start({type:'git-commit',title:'Git Commit',input:{hostId,path:repoPath,args,commit:{message,amend:!!amend}}})})
+    if (background)
+      return reply.status(202).send({
+        task: await backgroundTasks.start({
+          type: 'git-commit',
+          title: 'Git Commit',
+          input: { hostId, path: repoPath, args, commit: { message, amend: !!amend } },
+        }),
+      })
     const { stdout } = await execGit(hostId, args, repoPath)
     const hashMatch = stdout.match(/\[(?:[^\s]+)\s+([a-f0-9]+)\]/)
     const hash = hashMatch?.[1] || ''
@@ -286,11 +391,18 @@ export async function gitRoutes(fastify: FastifyInstance, options:{ taskManager?
     await execGit(hostId, ['add', '--', filePath], repoPath)
     return { ok: true, filePath, resolution }
   })
-  fastify.post('/hosts/:hostId/git/operation', async (request,reply) => {
+  fastify.post('/hosts/:hostId/git/operation', async (request, reply) => {
     const { hostId } = hostParamsSchema.parse(request.params)
     const { path: repoPath, operation, action, background } = gitOperationBodySchema.parse(request.body)
     const args = action === 'continue' ? ['-c', 'core.editor=true', operation, '--continue'] : [operation, '--abort']
-    if (background&&action==='continue') return reply.status(202).send({task:await backgroundTasks.start({type:'git-operation',title:`Git ${operation} continue`,input:{hostId,path:repoPath,args}})})
+    if (background && action === 'continue')
+      return reply.status(202).send({
+        task: await backgroundTasks.start({
+          type: 'git-operation',
+          title: `Git ${operation} continue`,
+          input: { hostId, path: repoPath, args },
+        }),
+      })
     const { stdout, stderr } = await execGit(hostId, args, repoPath, 30000)
     return { ok: true, operation, action, message: (stdout || stderr).trim() }
   })
@@ -302,7 +414,13 @@ export async function gitRoutes(fastify: FastifyInstance, options:{ taskManager?
     if (!repoPath) throw new Error('Missing path parameter')
     const n = Math.min(Math.max(parseInt(limit || '50', 10) || 50, 1), 200)
     const s = Math.max(parseInt(skip || '0', 10) || 0, 0)
-    const args = ['log', '--all', '--date-order', `--format=%H%x1f%h%x1f%s%x1f%b%x1f%an%x1f%ae%x1f%ai%x1f%ci%x1f%P%x1e`, `-n${n}`]
+    const args = [
+      'log',
+      '--all',
+      '--date-order',
+      `--format=%H%x1f%h%x1f%s%x1f%b%x1f%an%x1f%ae%x1f%ai%x1f%ci%x1f%P%x1e`,
+      `-n${n}`,
+    ]
     if (s > 0) args.push(`--skip=${s}`)
     const { stdout } = await execGit(hostId, args, repoPath)
     const commits = parseGitLog(stdout)
@@ -315,8 +433,27 @@ export async function gitRoutes(fastify: FastifyInstance, options:{ taskManager?
     const { path: repoPath } = request.query as { path?: string }
     if (!repoPath) throw new Error('Missing path parameter')
     const [{ stdout }, { stdout: refsOut }] = await Promise.all([
-      execGit(hostId, ['for-each-ref', '--sort=-committerdate', `--format=%(if)%(HEAD)%(then)*%(else) %(end)${gitBranchFieldSeparator}%(refname:short)${gitBranchFieldSeparator}%(objectname)${gitBranchFieldSeparator}%(upstream:short)${gitBranchFieldSeparator}%(upstream:trackshort)${gitBranchFieldSeparator}%(contents:subject)`, 'refs/heads'], repoPath),
-      execGit(hostId, ['for-each-ref', '--sort=-committerdate', `--format=%(refname)${gitBranchFieldSeparator}%(objectname)${gitBranchFieldSeparator}%(*objectname)${gitBranchFieldSeparator}%(symref)`, 'refs/remotes', 'refs/tags'], repoPath),
+      execGit(
+        hostId,
+        [
+          'for-each-ref',
+          '--sort=-committerdate',
+          `--format=%(if)%(HEAD)%(then)*%(else) %(end)${gitBranchFieldSeparator}%(refname:short)${gitBranchFieldSeparator}%(objectname)${gitBranchFieldSeparator}%(upstream:short)${gitBranchFieldSeparator}%(upstream:trackshort)${gitBranchFieldSeparator}%(contents:subject)`,
+          'refs/heads',
+        ],
+        repoPath,
+      ),
+      execGit(
+        hostId,
+        [
+          'for-each-ref',
+          '--sort=-committerdate',
+          `--format=%(refname)${gitBranchFieldSeparator}%(objectname)${gitBranchFieldSeparator}%(*objectname)${gitBranchFieldSeparator}%(symref)`,
+          'refs/remotes',
+          'refs/tags',
+        ],
+        repoPath,
+      ),
     ])
     const branches = parseGitBranches(stdout)
     const refs = parseGitRefs(refsOut)
@@ -355,14 +492,26 @@ export async function gitRoutes(fastify: FastifyInstance, options:{ taskManager?
     return { ok: true }
   })
 
-  fastify.post('/hosts/:hostId/git/merge', async (request,reply) => {
+  fastify.post('/hosts/:hostId/git/merge', async (request, reply) => {
     const { hostId } = request.params as { hostId: string }
-    const { path: repoPath, branch, noFF, background } = request.body as { path: string; branch: string; noFF?: boolean; background?: boolean }
+    const {
+      path: repoPath,
+      branch,
+      noFF,
+      background,
+    } = request.body as { path: string; branch: string; noFF?: boolean; background?: boolean }
     if (!repoPath || !branch) throw new Error('Missing path or branch')
     const args = ['merge']
     if (noFF) args.push('--no-ff')
     args.push(branch)
-    if (background) return reply.status(202).send({task:await backgroundTasks.start({type:'git-merge',title:'Git Merge',input:{hostId,path:repoPath,args}})})
+    if (background)
+      return reply.status(202).send({
+        task: await backgroundTasks.start({
+          type: 'git-merge',
+          title: 'Git Merge',
+          input: { hostId, path: repoPath, args },
+        }),
+      })
     try {
       const { stdout } = await execGit(hostId, args, repoPath)
       const fastForward = stdout.includes('Fast-forward')
@@ -379,25 +528,50 @@ export async function gitRoutes(fastify: FastifyInstance, options:{ taskManager?
   // Phase 3 endpoints
   fastify.post('/hosts/:hostId/git/fetch', async (request, reply) => {
     const { hostId } = request.params as { hostId: string }
-    const { path: repoPath, remote, prune, background } = request.body as { path: string; remote?: string; prune?: boolean; background?: boolean }
+    const {
+      path: repoPath,
+      remote,
+      prune,
+      background,
+    } = request.body as { path: string; remote?: string; prune?: boolean; background?: boolean }
     if (!repoPath) throw new Error('Missing path')
     const args = ['fetch']
     if (prune) args.push('--prune')
     if (remote) args.push(remote)
-    if (background) return reply.status(202).send({ task:await backgroundTasks.start({ type:'git-fetch',title:'Git Fetch',input:{ hostId,path:repoPath,args } }) })
+    if (background)
+      return reply.status(202).send({
+        task: await backgroundTasks.start({
+          type: 'git-fetch',
+          title: 'Git Fetch',
+          input: { hostId, path: repoPath, args },
+        }),
+      })
     const { stdout } = await execGit(hostId, args, repoPath)
     return { ok: true, message: stdout.trim() }
   })
 
   fastify.post('/hosts/:hostId/git/pull', async (request, reply) => {
     const { hostId } = request.params as { hostId: string }
-    const { path: repoPath, remote, branch, rebase, background } = request.body as { path: string; remote?: string; branch?: string; rebase?: boolean; background?: boolean }
+    const {
+      path: repoPath,
+      remote,
+      branch,
+      rebase,
+      background,
+    } = request.body as { path: string; remote?: string; branch?: string; rebase?: boolean; background?: boolean }
     if (!repoPath) throw new Error('Missing path')
     const args = ['pull']
     if (rebase) args.push('--rebase')
     if (remote) args.push(remote)
     if (branch) args.push(branch)
-    if (background) return reply.status(202).send({ task:await backgroundTasks.start({ type:'git-pull',title:'Git Pull',input:{ hostId,path:repoPath,args } }) })
+    if (background)
+      return reply.status(202).send({
+        task: await backgroundTasks.start({
+          type: 'git-pull',
+          title: 'Git Pull',
+          input: { hostId, path: repoPath, args },
+        }),
+      })
     try {
       const { stdout } = await execGit(hostId, args, repoPath, 30000)
       return { ok: true, conflicts: false, message: stdout.trim() }
@@ -412,14 +586,35 @@ export async function gitRoutes(fastify: FastifyInstance, options:{ taskManager?
 
   fastify.post('/hosts/:hostId/git/push', async (request, reply) => {
     const { hostId } = request.params as { hostId: string }
-    const { path: repoPath, remote, branch, force, setUpstream, background } = request.body as { path: string; remote?: string; branch?: string; force?: boolean; setUpstream?: boolean; background?: boolean }
+    const {
+      path: repoPath,
+      remote,
+      branch,
+      force,
+      setUpstream,
+      background,
+    } = request.body as {
+      path: string
+      remote?: string
+      branch?: string
+      force?: boolean
+      setUpstream?: boolean
+      background?: boolean
+    }
     if (!repoPath) throw new Error('Missing path')
     const args = ['push']
     if (force) args.push('--force-with-lease')
     if (setUpstream) args.push('-u')
     if (remote) args.push(remote)
     if (branch) args.push(branch)
-    if (background) return reply.status(202).send({ task:await backgroundTasks.start({ type:'git-push',title:'Git Push',input:{ hostId,path:repoPath,args } }) })
+    if (background)
+      return reply.status(202).send({
+        task: await backgroundTasks.start({
+          type: 'git-push',
+          title: 'Git Push',
+          input: { hostId, path: repoPath, args },
+        }),
+      })
     try {
       const { stdout, stderr } = await execGit(hostId, args, repoPath, 30000)
       return { ok: true, rejected: false, message: (stdout || stderr).trim() }
@@ -432,16 +627,91 @@ export async function gitRoutes(fastify: FastifyInstance, options:{ taskManager?
     }
   })
 
+  fastify.get('/hosts/:hostId/git/worktrees', async (request) => {
+    const { hostId } = request.params as { hostId: string }
+    const { path: repoPath } = request.query as { path?: string }
+    if (!repoPath) throw new Error('Missing path parameter')
+    const { stdout } = await execGit(hostId, ['worktree', 'list', '--porcelain'], repoPath)
+    return { worktrees: await mergeWorktreeProvenance(hostId, repoPath, parseWorktreeListPorcelain(stdout)) }
+  })
+
+  fastify.post('/hosts/:hostId/git/worktrees', async (request) => {
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const body = gitWorktreeCreateBodySchema.parse(request.body)
+    const worktreePath = assertSafeWorktreePath(body.worktreePath)
+    if (worktreePath === body.path) throw new Error('Worktree path must differ from repository path')
+    await execGit(
+      hostId,
+      buildWorktreeAddArgs({ worktreePath, newBranch: body.newBranch, branch: body.branch, commit: body.commit }),
+      body.path,
+    )
+    const { stdout } = await execGit(hostId, ['rev-parse', 'HEAD'], worktreePath)
+    const record = await upsertWorktreeRecord({
+      hostId,
+      repoPath: body.path,
+      worktreePath,
+      branch: body.newBranch || body.branch,
+      commit: stdout.trim(),
+      sessionId: body.sessionId,
+      workspaceId: body.workspaceId,
+    })
+    return { ok: true, worktree: record }
+  })
+
+  fastify.post('/hosts/:hostId/git/worktrees/remove', async (request) => {
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const body = gitWorktreeRemoveBodySchema.parse(request.body)
+    const worktreePath = assertSafeWorktreePath(body.worktreePath)
+    try {
+      await execGit(hostId, buildWorktreeRemoveArgs(worktreePath, !!body.force), body.path)
+    } catch (err: any) {
+      // dirty/missing 属于可预期结果，返回结构化失败由前端决定是否 --force 重试；
+      // 文案分类失败时按实况复检（git 报错随宿主 locale 变化）；
+      // 其余错误（SSH/远端/权限）继续抛出
+      let code = classifyWorktreeRemoveError(err?.message || '')
+      if (code === 'other') {
+        code = await classifyWorktreeRemoveByState((args, cwd) => execGit(hostId, args, cwd), body.path, worktreePath)
+      }
+      if (code === 'other') throw err
+      return { ok: false, code, message: String(err?.message || '').trim() }
+    }
+    await removeWorktreeRecord(hostId, body.path, worktreePath)
+    return { ok: true }
+  })
+
+  fastify.post('/hosts/:hostId/git/worktrees/link', async (request) => {
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const body = gitWorktreeLinkBodySchema.parse(request.body)
+    const worktreePath = assertSafeWorktreePath(body.worktreePath)
+    const { stdout } = await execGit(hostId, ['worktree', 'list', '--porcelain'], body.path)
+    const found = parseWorktreeListPorcelain(stdout).find((item) => item.path === worktreePath)
+    if (!found) return { ok: false, code: 'missing' }
+    const record = await upsertWorktreeRecord({
+      hostId,
+      repoPath: body.path,
+      worktreePath,
+      branch: found.branch,
+      commit: found.head,
+      sessionId: body.sessionId,
+      workspaceId: body.workspaceId,
+    })
+    return { ok: true, worktree: record }
+  })
+
   fastify.get('/hosts/:hostId/git/remotes', async (request) => {
     const { hostId } = request.params as { hostId: string }
     const { path: repoPath } = request.query as { path?: string }
     if (!repoPath) throw new Error('Missing path parameter')
     const { stdout } = await execGit(hostId, ['remote', '-v'], repoPath)
-    const remotes = stdout.split('\n').filter(Boolean).map((line) => {
-      const match = line.match(/^(\S+)\s+(\S+)\s+\((\w+)\)$/)
-      if (!match) return null
-      return { name: match[1], url: match[2], type: match[3] }
-    }).filter(Boolean)
+    const remotes = stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const match = line.match(/^(\S+)\s+(\S+)\s+\((\w+)\)$/)
+        if (!match) return null
+        return { name: match[1], url: match[2], type: match[3] }
+      })
+      .filter(Boolean)
     const grouped: Record<string, { name: string; fetchUrl: string; pushUrl: string }> = {}
     for (const r of remotes) {
       if (!r) continue

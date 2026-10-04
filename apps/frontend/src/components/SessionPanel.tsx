@@ -92,6 +92,11 @@ export function SessionPanel() {
   const createWorkspace = useCreateWorkspace()
   const { data: sessionTemplates } = useSessionTemplates()
   const [createDialogInitialWorkspace, setCreateDialogInitialWorkspace] = useState<WorkspaceEntry | null>(null)
+  const [createDialogCwd, setCreateDialogCwd] = useState<string | null>(null)
+  const [createDialogWorktreeLink, setCreateDialogWorktreeLink] = useState<{
+    repoPath: string
+    worktreePath: string
+  } | null>(null)
   const [templateWorkspace, setTemplateWorkspace] = useState<WorkspaceEntry | null>(null)
   const [pendingDeleteWorkspace, setPendingDeleteWorkspace] = useState<WorkspaceEntry | null>(null)
   const [templateMenuWorkspaceId, setTemplateMenuWorkspaceId] = useState<string | null>(null)
@@ -200,6 +205,20 @@ export function SessionPanel() {
               relativePath: workspace.relativePath,
               updatedAt: new Date().toISOString(),
             })
+          } catch {}
+        }
+        if (createDialogWorktreeLink) {
+          // worktree → session 关联写回 provenance（失败不阻塞会话创建）
+          try {
+            await api.git.linkWorktree(
+              activeHostId,
+              createDialogWorktreeLink.repoPath,
+              createDialogWorktreeLink.worktreePath,
+              {
+                sessionId: created.id,
+                workspaceId: workspace?.workspaceId,
+              },
+            )
           } catch {}
         }
         setActiveSession(created.id)
@@ -349,12 +368,17 @@ export function SessionPanel() {
     window.addEventListener('tmuxgo-open-session-templates', handleOpenTemplates as EventListener)
     return () => window.removeEventListener('tmuxgo-open-session-templates', handleOpenTemplates as EventListener)
   }, [])
-  // 空状态「新建会话」入口：复用未分类创建流程（Default 模板）
+  // 空状态「新建会话」入口：复用未分类创建流程（Default 模板）；
+  // detail 可携带 worktree cwd/link（GitPanel worktrees 入口）
   useEffect(() => {
-    const handleOpenCreate = () => {
+    const handleOpenCreate = (event: Event) => {
       if (!activeHostId) return
+      const detail = (event as CustomEvent<{ cwd?: string; worktreeLink?: { repoPath: string; worktreePath: string } }>)
+        .detail
       setCreateDialogTemplate(builtinTemplates[0] || null)
       setCreateDialogInitialWorkspace(null)
+      setCreateDialogCwd(detail?.cwd || null)
+      setCreateDialogWorktreeLink(detail?.worktreeLink || null)
       setCreateDialogOpen(true)
     }
     window.addEventListener('tmuxgo-open-create-session', handleOpenCreate)
@@ -878,12 +902,15 @@ export function SessionPanel() {
         hostId={activeHostId || ''}
         workspaces={workspaces}
         initialWorkspace={createDialogInitialWorkspace}
+        initialCwd={createDialogCwd}
         workspaceLocked={!!createDialogInitialWorkspace}
         onCreate={handleCreateSession}
         onClose={() => {
           setCreateDialogOpen(false)
           setCreateDialogTemplate(null)
           setCreateDialogInitialWorkspace(null)
+          setCreateDialogCwd(null)
+          setCreateDialogWorktreeLink(null)
         }}
       />
       <ConfirmDialog

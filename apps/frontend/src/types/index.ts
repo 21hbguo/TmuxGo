@@ -679,6 +679,37 @@ export interface GitMergeResponse {
   conflicts: boolean
   message: string
 }
+export interface GitWorktreeProvenance {
+  id: string
+  hostId: string
+  repoPath: string
+  worktreePath: string
+  branch?: string
+  commit?: string
+  workspaceId?: string
+  sessionId?: string
+  createdAt: string
+  updatedAt: string
+}
+export interface GitWorktreeEntry {
+  path: string
+  head: string
+  branch?: string
+  detached: boolean
+  bare: boolean
+  locked: boolean
+  prunable: boolean
+  provenance?: GitWorktreeProvenance
+}
+export interface GitWorktreesResponse {
+  worktrees: GitWorktreeEntry[]
+}
+export interface GitWorktreeMutationResponse {
+  ok: boolean
+  code?: 'dirty' | 'missing'
+  message?: string
+  worktree?: GitWorktreeProvenance
+}
 // Agent inbox：与 docs/agent-inbox/PROTOCOL.md 的 wire schema 对齐（metadata-only）
 export type InboxMessageType = 'text' | 'image' | 'video' | 'file' | 'link'
 export interface InboxMessageRoute {
