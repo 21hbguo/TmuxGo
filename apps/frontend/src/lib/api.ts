@@ -28,6 +28,8 @@ import type {
   GitMergeResponse,
   GitRepositoryInfo,
   GitStatusResponse,
+  GitWorktreeMutationResponse,
+  GitWorktreesResponse,
   PluginCommandLog,
   PluginInfo,
   PluginPermission,
@@ -1188,6 +1190,39 @@ export const api = {
       fetchApi<{ remotes: { name: string; fetchUrl: string; pushUrl: string }[] }>(
         `/api/hosts/${hostId}/git/remotes?path=${encodeURIComponent(path)}`,
       ),
+    worktrees: (hostId: string, path: string) =>
+      fetchApi<GitWorktreesResponse>(`/api/hosts/${hostId}/git/worktrees?path=${encodeURIComponent(path)}`),
+    createWorktree: (
+      hostId: string,
+      path: string,
+      options: {
+        worktreePath: string
+        newBranch?: string
+        branch?: string
+        commit?: string
+        sessionId?: string
+        workspaceId?: string
+      },
+    ) =>
+      fetchApi<GitWorktreeMutationResponse>(`/api/hosts/${hostId}/git/worktrees`, {
+        method: 'POST',
+        body: JSON.stringify({ path, ...options }),
+      }),
+    removeWorktree: (hostId: string, path: string, worktreePath: string, force?: boolean) =>
+      fetchApi<GitWorktreeMutationResponse>(`/api/hosts/${hostId}/git/worktrees/remove`, {
+        method: 'POST',
+        body: JSON.stringify({ path, worktreePath, force }),
+      }),
+    linkWorktree: (
+      hostId: string,
+      path: string,
+      worktreePath: string,
+      link: { sessionId?: string; workspaceId?: string },
+    ) =>
+      fetchApi<GitWorktreeMutationResponse>(`/api/hosts/${hostId}/git/worktrees/link`, {
+        method: 'POST',
+        body: JSON.stringify({ path, worktreePath, ...link }),
+      }),
   },
   vnc: {
     status: (hostId: string) =>

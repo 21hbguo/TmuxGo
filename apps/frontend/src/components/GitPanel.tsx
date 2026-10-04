@@ -24,6 +24,9 @@ import {
   useGitOperation,
   useGitRemotes,
   useGitResolve,
+  useGitWorktrees,
+  useGitCreateWorktree,
+  useGitRemoveWorktree,
 } from '@/hooks/useApi'
 import { useQueryClient } from '@tanstack/react-query'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -48,7 +51,7 @@ import { DiffViewer } from './DiffViewer'
 import { Select } from './Select'
 import { isImagePath, openFileInEditor } from '@/lib/editor-open'
 
-type GitTab = 'status' | 'history' | 'branches'
+type GitTab = 'status' | 'history' | 'branches' | 'worktrees'
 type MobileGitDiff = {
   title: string
   subtitle: string
@@ -826,6 +829,154 @@ function BranchesTab({ hostId, repoPath, t }: { hostId: string; repoPath: string
   )
 }
 
+function WorktreesTab({ hostId, repoPath, t }: { hostId: string; repoPath: string; t: TFunc }) {
+  const { data, isError, refetch } = useGitWorktrees(hostId, repoPath)
+  const { data: branchData } = useGitBranches(hostId, repoPath)
+  const createWorktree = useGitCreateWorktree()
+  const removeWorktree = useGitRemoveWorktree()
+  const pushToast = useConsoleStore((s) => s.pushToast)
+  const [showCreate, setShowCreate] = useState(false)
+  const [worktreePath, setWorktreePath] = useState('')
+  const [branchName, setBranchName] = useState('')
+  const [pendingRemove, setPendingRemove] = useState<{ worktreePath: string; dirty: boolean } | null>(null)
+
+  if (isError) return <GitLoadError onRetry={() => void refetch()} t={t} />
+  if (!data) return <div className="p-3 text-meta text-text-3">{t('git.detecting')}</div>
+
+  const openInSession = (path: string) => {
+    window.dispatchEvent(
+      new CustomEvent('tmuxgo-open-create-session', {
+        detail: { cwd: path, worktreeLink: { repoPath, worktreePath: path } },
+      }),
+    )
+  }
+  const handleCreate = () => {
+    const target = worktreePath.trim()
+    if (!target) return
+    const branch = branchName.trim()
+    const existing = branch && branchData?.branches?.some((item) => item?.name === branch)
+    createWorktree.mutate(
+      {
+        hostId,
+        path: repoPath,
+        worktreePath: target,
+        ...(existing ? { branch } : branch ? { newBranch: branch } : {}),
+      },
+      {
+        onSuccess: (result) => {
+          if (!result.ok) return pushToast({ type: 'error', message: result.message || t('git.worktreeCreateFailed') })
+          pushToast({ type: 'success', message: t('git.worktreeCreated') })
+          setShowCreate(false)
+          setWorktreePath('')
+          setBranchName('')
+          openInSession(target)
+        },
+        onError: (err) => pushToast({ type: 'error', message: err.message }),
+      },
+    )
+  }
+  const runRemove = (path: string, force?: boolean) => {
+    removeWorktree.mutate(
+      { hostId, path: repoPath, worktreePath: path, force },
+      {
+        onSuccess: (result) => {
+          if (!result.ok && result.code === 'dirty' && !force) {
+            // 未提交改动 → 升级为强删确认，分支仍保留
+            setPendingRemove({ worktreePath: path, dirty: true })
+            return
+          }
+          if (!result.ok) return pushToast({ type: 'error', message: result.message || t('git.worktreeRemoveFailed') })
+          pushToast({ type: 'success', message: t('git.worktreeRemoved') })
+        },
+        onError: (err) => pushToast({ type: 'error', message: err.message }),
+      },
+    )
+  }
+  const extras = data.worktrees.filter((item) => item.path !== repoPath && !item.bare)
+
+  return (
+    <div>
+      <div className="border-b border-[var(--line)] px-3 py-2">
+        {showCreate ? (
+          <div className="flex flex-col gap-1.5">
+            <input
+              value={worktreePath}
+              onChange={(e) => setWorktreePath(e.target.value)}
+              placeholder={t('git.worktreePath')}
+              className="tmuxgo-control tmuxgo-input flex-1 rounded-apple px-2 py-1 text-meta"
+              autoFocus
+            />
+            <div className="flex gap-1">
+              <input
+                value={branchName}
+                onChange={(e) => setBranchName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (isImeKeyEvent(e.nativeEvent)) return
+                  if (e.key === 'Enter') handleCreate()
+                }}
+                placeholder={t('git.worktreeBranch')}
+                className="tmuxgo-control tmuxgo-input flex-1 rounded-apple px-2 py-1 text-meta"
+              />
+              <Chip tone="accent" onClick={handleCreate}>
+                {t('common.confirm')}
+              </Chip>
+              <Chip onClick={() => setShowCreate(false)}>{t('common.cancel')}</Chip>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => setShowCreate(true)} className="text-meta text-accent hover:text-text-1">
+            + {t('git.newWorktree')}
+          </button>
+        )}
+      </div>
+      {extras.length === 0 && <div className="px-3 py-2 text-caption text-text-3">{t('git.noExtraWorktrees')}</div>}
+      {data.worktrees.map((item) => {
+        const isMain = item.path === repoPath || item.bare
+        return (
+          <div key={item.path} className="group flex min-h-11 items-center gap-2 px-3 py-1.5 hover:bg-bg-2 lg:min-h-0">
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-mono text-meta text-text-1" title={item.path}>
+                {item.path}
+              </div>
+              <div className="truncate text-caption text-text-3">
+                {isMain ? t('git.worktreeMain') : item.branch || t('git.worktreeDetached')}
+                {item.head ? ` · ${item.head.slice(0, 7)}` : ''}
+                {item.locked ? ` · ${t('git.worktreeLocked')}` : ''}
+                {item.provenance?.sessionId ? ` · ${item.provenance.sessionId}` : ''}
+              </div>
+            </div>
+            {!isMain && (
+              <div className="flex shrink-0 items-center gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100">
+                <Chip onClick={() => openInSession(item.path)}>{t('git.openWorktree')}</Chip>
+                <Chip tone="danger" onClick={() => setPendingRemove({ worktreePath: item.path, dirty: false })}>
+                  ✕
+                </Chip>
+              </div>
+            )}
+          </div>
+        )
+      })}
+      <ConfirmDialog
+        open={!!pendingRemove}
+        title={t('git.removeWorktree')}
+        message={
+          pendingRemove?.dirty
+            ? t('git.removeWorktreeDirty', { name: pendingRemove.worktreePath })
+            : t('git.removeWorktreeConfirm', { name: pendingRemove?.worktreePath || '' })
+        }
+        confirmLabel={t('git.removeWorktree')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onCancel={() => setPendingRemove(null)}
+        onConfirm={() => {
+          if (pendingRemove) runRemove(pendingRemove.worktreePath, pendingRemove.dirty || undefined)
+          setPendingRemove(null)
+        }}
+      />
+    </div>
+  )
+}
+
 export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) {
   const { t } = useTranslation()
   const activeHostId = useConsoleStore((state) => state.activeHostId)
@@ -1283,7 +1434,7 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
       {repoPath && (
         <>
           <div className="flex border-b border-[var(--line)]">
-            {(['status', 'history', 'branches'] as const).map((tab) => (
+            {(['status', 'history', 'branches', 'worktrees'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -1340,6 +1491,7 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
               />
             )}
             {activeTab === 'branches' && <BranchesTab hostId={activeHostId} repoPath={repoPath} t={t as TFunc} />}
+            {activeTab === 'worktrees' && <WorktreesTab hostId={activeHostId} repoPath={repoPath} t={t as TFunc} />}
           </div>
           {activeTab === 'status' && (
             <div className="border-t border-[var(--line)] p-3">

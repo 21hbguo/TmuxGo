@@ -34,6 +34,7 @@ interface CreateSessionDialogProps {
   hostId: string
   workspaces: WorkspaceEntry[]
   initialWorkspace?: WorkspaceEntry | null
+  initialCwd?: string | null
   workspaceLocked?: boolean
   onCreate: (result: CreateSessionDialogResult) => Promise<void> | void
   onClose: () => void
@@ -56,6 +57,7 @@ export function CreateSessionDialog({
   hostId,
   workspaces,
   initialWorkspace,
+  initialCwd,
   workspaceLocked,
   onCreate,
   onClose,
@@ -130,7 +132,11 @@ export function CreateSessionDialog({
     }
     setSubmitting(true)
     try {
-      await onCreate({ name: trimmed, cwd: workspace?.absolutePath, workspace: workspace || undefined })
+      await onCreate({
+        name: trimmed,
+        cwd: workspace?.absolutePath || initialCwd || undefined,
+        workspace: workspace || undefined,
+      })
     } finally {
       setSubmitting(false)
     }
@@ -212,6 +218,11 @@ export function CreateSessionDialog({
                 >
                   {pickerOpen ? t('session.hidePicker') : t('session.browseDirectory')}
                 </Chip>
+              </div>
+            )}
+            {!workspace && initialCwd && (
+              <div className="mt-1 truncate text-xs text-text-3" title={initialCwd}>
+                {t('session.worktreeCwd', { path: initialCwd })}
               </div>
             )}
             {workspace && (
