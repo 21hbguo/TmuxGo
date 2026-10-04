@@ -632,15 +632,27 @@ export function getHostAgentPanes(hostId: string, allowedSessionNames?: string[]
 export function getSessionAgentPanes(hostId: string, sessionName: string) {
   return getAgentPanes(hostId, sessionName)
 }
+// 仅 done→idle 真实翻转时返回新态；无记录/非 done 返回 null——
+// 调用方据此区分「已标记」与「无可标记」（mark-seen 的 marked 计数依赖此语义）
 export function markAgentPaneSeen(paneId: string) {
   const current = records.get(paneId)
-  if (!current || current.agentStatus !== 'done') return current ? toAgentPaneState(current) : null
+  if (!current || current.agentStatus !== 'done') return null
   const next = { ...current, agentStatus: 'idle' as const, revision: ++nextRevision }
   records.set(paneId, next)
   return toAgentPaneState(next)
 }
 export function forgetAgentPane(paneId: string) {
   records.delete(paneId)
+}
+// 测试注入用：mark-seen 等路由用例需要不经 tmux scan 直接造 done/working 记录
+export function _setAgentPaneRecordForTest(state: AgentPaneState) {
+  records.set(state.paneId, {
+    ...state,
+    rawStatus: state.agentStatus,
+    rawPhase: state.phase || 'unknown',
+    lastOutputTime: '',
+    paneDead: false,
+  })
 }
 export function summarizeAgentPanes(states: AgentPaneState[]) {
   return states.reduce(

@@ -521,3 +521,42 @@ test('nativeAgentSessionId comes only from protocol events and survives scan ref
   monitor.stop()
   unsubscribe()
 })
+
+// markSeen 需清掉该 pane 仍挂着的 completed 协议覆盖：不清则 TTL 内的旧事件
+// 在下一次 scan 时重新叠回 done，「标记已读」立刻失效
+test('markSeen clears stale completed protocol overlay so done does not reapply', async () => {
+  const states: AgentPaneState[] = [pane('local:%7')]
+  const monitor = new AgentMonitor({
+    getHostIds: async () => ['local'],
+    scan: async () => states,
+    intervalMs: 1000,
+  })
+  const events: any[] = []
+  const unsubscribe = monitor.subscribe((event) => events.push(event))
+  await monitor.start()
+  monitor.ingestProtocolEvent({
+    hostId: 'local',
+    agent: 'codex',
+    paneId: 'local:%7',
+    tmuxPaneId: '%7',
+    sessionName: 'dev',
+    agentSessionId: 'local:%7:dev',
+    type: 'idle',
+    phase: 'idle',
+    lastEvent: 'completed',
+    source: 'protocol',
+    confidence: 'high',
+    eventId: 'local:codex:done:1',
+    timestamp: new Date().toISOString(),
+  })
+  const current = () => monitor.getStates('local')?.find((item) => item.paneId === 'local:%7')
+  assert.equal(current()?.agentStatus, 'done')
+  const marked = monitor.markSeen('local:%7')
+  assert.equal(marked?.agentStatus, 'idle')
+  assert.equal(current()?.agentStatus, 'idle')
+  // 无记录的路径下 scan 仍报 working：清掉的覆盖不再回贴，状态回到真实 working
+  await monitor.pollNow('local')
+  assert.equal(current()?.agentStatus, 'working')
+  monitor.stop()
+  unsubscribe()
+})

@@ -272,6 +272,11 @@ export function collectScopeTargets(request: FastifyRequest) {
     if (hostId) addHost(hostId)
     const paneId = hostFromPrefixedId(source.paneId, /^%/)
     if (paneId) addHost(paneId)
+    if (Array.isArray(source.paneIds))
+      for (const item of source.paneIds) {
+        const host = hostFromPrefixedId(item, /^%/)
+        if (host) addHost(host)
+      }
     const windowId = hostFromPrefixedId(source.windowId, /^@/)
     if (windowId) addHost(windowId)
   }

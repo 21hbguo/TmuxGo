@@ -28,6 +28,13 @@ export const fileTrashBodySchema = z.object({ root: identifier, path: filePath }
 export const fileRestoreBodySchema = z.object({ trashId: identifier })
 export const fileRemoveQuerySchema = z.object({ root: identifier, path: filePath })
 export const paneIdBodySchema = z.object({ paneId: z.string().min(3).max(256) })
+// paneId/paneIds 二选一或同给；refine 保证至少一个有效 id
+export const paneMarkSeenBodySchema = z
+  .object({
+    paneId: z.string().min(3).max(256).optional(),
+    paneIds: z.array(z.string().min(3).max(256)).max(256).optional(),
+  })
+  .refine((body) => !!body.paneId || !!body.paneIds?.length, { message: 'paneId is required' })
 export const paneSelectBodySchema = paneIdBodySchema.extend({ keepZoom: z.boolean().optional() })
 export const paneCopySelectionBodySchema = paneIdBodySchema.extend({
   since: z.string().max(128).optional(),

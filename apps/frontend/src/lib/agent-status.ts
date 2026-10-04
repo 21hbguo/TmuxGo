@@ -77,6 +77,12 @@ export function mergeAgentPaneEvent(panes: Pane[], incoming: AgentPaneState, for
         },
   )
 }
+// 「标记已查看」批量入参：聚合 session/分组下全部 done paneId
+export function doneAgentPaneIds(sessions: Array<{ agents?: AgentPaneState[] }>) {
+  return sessions.flatMap((session) =>
+    (session.agents || []).filter((agent) => agent.agentStatus === 'done').map((agent) => agent.paneId),
+  )
+}
 export function removeAgentPaneEvent(panes: Pane[], paneId: string) {
   return panes.map((pane) => {
     if (pane.id !== paneId) return pane
