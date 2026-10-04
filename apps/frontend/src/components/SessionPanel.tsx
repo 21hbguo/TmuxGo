@@ -425,17 +425,28 @@ export function SessionPanel() {
     }
     const rollup = (groupSessions: Session[]) =>
       mergeAgentSummaries(groupSessions.map((session) => session.agentSummary))
+    // 组内按注意力 rank 稳定排序（Array.sort 稳定）：rank 小靠前，同档保持
+    // 用户手动序（sessions 存储序）；排序只影响展示，不回写存储
+    const byAttention = (groupSessions: Session[]) =>
+      groupSessions
+        .slice()
+        .sort((a, b) => getAgentAttentionRank(a.agentSummary) - getAgentAttentionRank(b.agentSummary))
     const result: { key: string; workspace: WorkspaceEntry | null; sessions: Session[]; agentSummary: AgentSummary }[] =
       []
     for (const workspace of hostWorkspaces) {
       const groupSessions = groups.get(workspace.id) || []
-      result.push({ key: workspace.id, workspace, sessions: groupSessions, agentSummary: rollup(groupSessions) })
+      result.push({
+        key: workspace.id,
+        workspace,
+        sessions: byAttention(groupSessions),
+        agentSummary: rollup(groupSessions),
+      })
     }
     // 注意力排序：rank 越小越靠前，同档保持 workspace 原序；未分类是兜底组固定沉底
     result.sort((a, b) => getAgentAttentionRank(a.agentSummary) - getAgentAttentionRank(b.agentSummary))
     const unclassified = groups.get('')
     if (unclassified?.length)
-      result.push({ key: '', workspace: null, sessions: unclassified, agentSummary: rollup(unclassified) })
+      result.push({ key: '', workspace: null, sessions: byAttention(unclassified), agentSummary: rollup(unclassified) })
     return result
   }, [sessions, hostWorkspaces, sessionWorkspaces])
   const currentWorkspace =
@@ -746,27 +757,32 @@ export function SessionPanel() {
             {workspaceMenuOpen && (
               <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-30 overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1 py-1">
                 <div className="tmuxgo-scrollbar max-h-64 overflow-y-auto">
-                  {hostWorkspaces.map((workspace) => (
-                    <button
-                      key={workspace.id}
-                      onClick={() => handleWorkspaceSelect(workspace)}
-                      className={`flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs ${currentWorkspace?.id === workspace.id ? 'bg-accent/10 text-text-1' : 'text-text-2 hover:bg-bg-2 hover:text-text-1'}`}
-                      aria-label={workspace.name}
-                    >
-                      <FiFolder aria-hidden="true" className="shrink-0 text-[#dcb67a]" size={14} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">{workspace.name}</span>
-                        <span className="block truncate font-mono text-caption text-text-3">{workspace.path}</span>
-                      </span>
-                      <AgentStatusBadge
-                        summary={workspaceGroups.find((group) => group.key === workspace.id)?.agentSummary}
-                        compact
-                      />
-                      {currentWorkspace?.id === workspace.id && (
-                        <FiCheck aria-hidden="true" className="shrink-0 text-accent" size={14} />
-                      )}
-                    </button>
-                  ))}
+                  {/* 下拉项与列表分组同序：都按 workspaceGroups 的注意力序排，
+                      徽标语义一致（同一 rollup summary），不再用 hostWorkspaces 原序 */}
+                  {workspaceGroups.flatMap((group) =>
+                    group.workspace ? (
+                      <button
+                        key={group.workspace.id}
+                        onClick={() => handleWorkspaceSelect(group.workspace!)}
+                        className={`flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs ${currentWorkspace?.id === group.workspace.id ? 'bg-accent/10 text-text-1' : 'text-text-2 hover:bg-bg-2 hover:text-text-1'}`}
+                        aria-label={group.workspace.name}
+                      >
+                        <FiFolder aria-hidden="true" className="shrink-0 text-[#dcb67a]" size={14} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{group.workspace.name}</span>
+                          <span className="block truncate font-mono text-caption text-text-3">
+                            {group.workspace.path}
+                          </span>
+                        </span>
+                        <AgentStatusBadge summary={group.agentSummary} compact />
+                        {currentWorkspace?.id === group.workspace.id && (
+                          <FiCheck aria-hidden="true" className="shrink-0 text-accent" size={14} />
+                        )}
+                      </button>
+                    ) : (
+                      []
+                    ),
+                  )}
                 </div>
                 <div className="border-t border-[var(--line)] p-1">
                   <button
