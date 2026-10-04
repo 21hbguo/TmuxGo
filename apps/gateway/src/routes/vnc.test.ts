@@ -4,6 +4,7 @@ import net from 'net'
 import test from 'node:test'
 import Fastify from 'fastify'
 import websocket from '@fastify/websocket'
+import { WebSocket } from 'ws'
 
 // auth 开关在模块加载时读取环境变量，先置空密码再走免 ticket 路径
 process.env.TMUXGO_AUTH_PASSWORD = ''
