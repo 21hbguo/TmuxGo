@@ -23,6 +23,19 @@ function startMockGateway() {
     '/health': { status: 200, body: { status: 'ok', timestamp: '2026-01-01T00:00:00.000Z' } },
     '/api/v1/control/panes/split': { status: 200, body: { ok: true, paneId: 'local:%9' } },
     '/api/v1/control/panes/read': { status: 200, body: { ok: true, paneId: 'local:%0', output: 'line1\nline2' } },
+    '/api/v1/control/panes/snapshot': {
+      status: 200,
+      body: {
+        ok: true,
+        paneId: 'local:%0',
+        snapshot: { tmuxPaneId: '%0', command: 'zsh', tail: ['prompt$'] },
+      },
+    },
+    '/api/v1/control/panes/wait-output': {
+      status: 200,
+      body: { ok: true, matched: true, changed: false, waitId: 'w-2', elapsedMs: 3, output: 'done\n' },
+    },
+    '/api/v1/control/panes/run': { status: 200, body: { ok: true, paneId: 'local:%0', target: 'dev:0.1' } },
     '/api/v1/control/agent/wait': {
       status: 200,
       body: { ok: true, waitId: 'w-1', elapsedMs: 5, pane: { paneId: 'local:%1' } },
@@ -131,6 +144,30 @@ test('cli panes split/read forward contract and surface error envelope', async (
   assert.deepEqual(stdoutJson(read), { ok: true, paneId: 'local:%0', output: 'line1\nline2' })
   assert.deepEqual(gateway.requests.at(-1)!.body, { paneId: 'local:%0', lines: 50 })
 
+  // Task9 编排命令契约：body 字段精确转发、stdout 单行 JSON
+  const snap = await runCtl(['panes', 'snapshot', '--pane-id', 'local:%0', '--lines', '20'], env)
+  assert.equal(snap.status, 0, snap.stderr)
+  assert.equal(stdoutJson(snap).snapshot.command, 'zsh')
+  assert.deepEqual(gateway.requests.at(-1)!.body, { paneId: 'local:%0', lines: 20 })
+
+  const waitOut = await runCtl(
+    ['panes', 'wait-output', '--pane-id', 'local:%0', '--match', 'done', '--regex', '--timeout-ms', '5000'],
+    env,
+  )
+  assert.equal(waitOut.status, 0, waitOut.stderr)
+  assert.equal(stdoutJson(waitOut).matched, true)
+  assert.deepEqual(gateway.requests.at(-1)!.body, {
+    paneId: 'local:%0',
+    match: 'done',
+    regex: true,
+    timeoutMs: 5000,
+  })
+
+  const run = await runCtl(['panes', 'run', '--pane-id', 'local:%0', '--text', 'echo hi', '--no-enter'], env)
+  assert.equal(run.status, 0, run.stderr)
+  assert.equal(stdoutJson(run).ok, true)
+  assert.deepEqual(gateway.requests.at(-1)!.body, { paneId: 'local:%0', text: 'echo hi', enter: false })
+
   // 远端错误 envelope 原样透出：exit 1、code/message 稳定
   gateway.responses['/api/v1/control/agent/wait'] = {
     status: 409,
@@ -170,6 +207,10 @@ test('cli local validation and env guard contract', async () => {
     ['panes', 'read'],
     ['panes', 'split', '--pane-id', 'local:%0', '--direction', 'diagonal'],
     ['panes', 'read', '--pane-id', 'local:%0', '--lines', '99999'],
+    ['panes', 'snapshot', '--pane-id', 'local:%0', '--lines', '500'],
+    ['panes', 'wait-output', '--pane-id', 'local:%0', '--timeout-ms', '10'],
+    ['panes', 'run', '--pane-id', 'local:%0'], // 无 --text
+    ['panes', 'run', '--text', 'ls'], // 无 --pane-id
     ['agent', 'wait', '--status', 'done'], // 无 target
     ['agent', 'wait', '--pane-id', 'local:%1'], // 无 condition
     ['bogus'],

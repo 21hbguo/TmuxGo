@@ -29,6 +29,10 @@ Usage:
   tmuxgo-ctl initialize                 握手：探测 gateway /health + 上报本地 env 状态
   tmuxgo-ctl panes split --pane-id <host:%n> [--direction horizontal|vertical] [--cwd <dir>]
   tmuxgo-ctl panes read --pane-id <host:%n> [--lines 1-2000]
+  tmuxgo-ctl panes snapshot --pane-id <host:%n> [--lines 1-100]
+  tmuxgo-ctl panes wait-output --pane-id <host:%n> [--match <s>] [--regex]
+                                [--lines 1-200] [--timeout-ms 250-600000]
+  tmuxgo-ctl panes run --pane-id <host:%n> --text <t> [--no-enter] [--allow-occupied]
   tmuxgo-ctl agent wait (--pane-id <host:%n> | --session <name> --agent <name>)
                         [--status idle|working|blocked|done|unknown] [--phase <p>]
                         [--last-event <e>] [--host-id <h>] [--timeout-ms 250-600000]
@@ -114,7 +118,7 @@ async function main() {
   }
   if (group === 'initialize') await initialize()
   const flags = parseFlags(argv)
-  if (group === 'panes' && (action === 'split' || action === 'read')) {
+  if (group === 'panes' && (action === 'split' || action === 'read' || action === 'snapshot')) {
     requireEnv(`panes ${action}`)
     if (typeof flags.paneId !== 'string' || !flags.paneId) failUsage('panes: --pane-id is required (e.g. local:%0)')
     if (action === 'split') {
@@ -127,12 +131,41 @@ async function main() {
       const body = { paneId: flags.paneId }
       if (flags.lines !== undefined) {
         const lines = Number(flags.lines)
-        if (!Number.isInteger(lines) || lines < 1 || lines > 2000)
-          failUsage('panes read: --lines must be an integer 1-2000')
+        if (!Number.isInteger(lines) || lines < 1 || lines > (action === 'snapshot' ? 100 : 2000))
+          failUsage(`panes ${action}: --lines must be an integer 1-${action === 'snapshot' ? 100 : 2000}`)
         body.lines = lines
       }
-      finish(await post('/panes/read', body))
+      finish(await post(`/panes/${action}`, body))
     }
+  } else if (group === 'panes' && action === 'wait-output') {
+    requireEnv('panes wait-output')
+    if (typeof flags.paneId !== 'string' || !flags.paneId)
+      failUsage('panes wait-output: --pane-id is required (e.g. local:%0)')
+    const body = { paneId: flags.paneId }
+    if (typeof flags.match === 'string' && flags.match) body.match = flags.match
+    if (flags.regex === true) body.regex = true
+    if (flags.lines !== undefined) {
+      const lines = Number(flags.lines)
+      if (!Number.isInteger(lines) || lines < 1 || lines > 200)
+        failUsage('panes wait-output: --lines must be an integer 1-200')
+      body.lines = lines
+    }
+    let timeoutMs = 60000
+    if (flags.timeoutMs !== undefined) {
+      timeoutMs = Number(flags.timeoutMs)
+      if (!Number.isInteger(timeoutMs) || timeoutMs < 250 || timeoutMs > 600000)
+        failUsage('panes wait-output: --timeout-ms must be an integer 250-600000')
+      body.timeoutMs = timeoutMs
+    }
+    finish(await post('/panes/wait-output', body, timeoutMs + 10000))
+  } else if (group === 'panes' && action === 'run') {
+    requireEnv('panes run')
+    if (typeof flags.paneId !== 'string' || !flags.paneId) failUsage('panes run: --pane-id is required (e.g. local:%0)')
+    if (typeof flags.text !== 'string' || !flags.text) failUsage('panes run: --text is required')
+    const body = { paneId: flags.paneId, text: flags.text }
+    if (flags.noEnter === true) body.enter = false
+    if (flags.allowOccupied === true) body.allowOccupied = true
+    finish(await post('/panes/run', body))
   } else if (group === 'agent' && action === 'wait') {
     requireEnv('agent wait')
     const target = flags.paneId

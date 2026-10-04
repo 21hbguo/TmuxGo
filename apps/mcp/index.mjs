@@ -235,6 +235,50 @@ const TOOLS = [
     },
   },
   {
+    name: 'tmuxgo_pane_snapshot',
+    description:
+      'Structured non-sensitive snapshot of a tmux pane: command/title/cwd/dead/inMode/size plus a bounded recent-output tail. No env vars or unbounded history.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        paneId: { type: 'string', description: 'Host-scoped pane id like local:%3 (required)' },
+        lines: { type: 'number', description: 'Tail lines 1-100 (default 12)' },
+      },
+      required: ['paneId'],
+    },
+  },
+  {
+    name: 'tmuxgo_pane_wait_output',
+    description:
+      'Wait for a pane output change or a literal/regex match in its recent output. Server-held, bounded tail window; fails explicably with TIMEOUT, PANE_REMOVED or OCCUPANT_CHANGED.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        paneId: { type: 'string', description: 'Host-scoped pane id like local:%3 (required)' },
+        match: { type: 'string', description: 'Literal substring or regex to match (omit = any output change)' },
+        regex: { type: 'boolean', description: 'Treat match as a regular expression' },
+        lines: { type: 'number', description: 'Tail window 1-200 lines (default 50)' },
+        timeoutMs: { type: 'number', description: 'Max wait 250-600000 ms (default 60000)' },
+      },
+      required: ['paneId'],
+    },
+  },
+  {
+    name: 'tmuxgo_pane_run',
+    description:
+      'Type literal text into a validated pane (send-keys literal + optional Enter). Non-shell occupants require allowOccupied:true; control characters are rejected.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        paneId: { type: 'string', description: 'Host-scoped pane id like local:%3 (required)' },
+        text: { type: 'string', description: 'Literal text to send (1-4096 chars, no control codes/newlines)' },
+        enter: { type: 'boolean', description: 'Send Enter after text (default true)' },
+        allowOccupied: { type: 'boolean', description: 'Confirm typing into a non-shell occupant' },
+      },
+      required: ['paneId', 'text'],
+    },
+  },
+  {
     name: 'tmuxgo_inbox_list',
     description:
       'Query the TmuxGo inbox for pushed messages. Use messageId to confirm a specific push was delivered; without it returns recent messages (metadata only: id, type, title, name, size, mime, createdAt, route, readBy). A non-empty readBy means a user device has opened it — absent readBy means delivered but not yet read.',
@@ -380,6 +424,36 @@ async function handleToolCall(id, params) {
     const reqTimeout =
       op === 'pick' ? Math.min((Number(args.timeoutMs) > 0 ? Number(args.timeoutMs) : 60000) + 10000, 130000) : 30000
     result = await callGateway('/v1/control/browser', { op, ...args }, reqTimeout)
+  } else if (name === 'tmuxgo_pane_snapshot') {
+    if (typeof args.paneId !== 'string' || !args.paneId) return toolResult(id, 'paneId is required', true)
+    result = await callGateway('/v1/control/panes/snapshot', {
+      paneId: args.paneId,
+      lines: typeof args.lines === 'number' ? args.lines : undefined,
+    })
+  } else if (name === 'tmuxgo_pane_wait_output') {
+    if (typeof args.paneId !== 'string' || !args.paneId) return toolResult(id, 'paneId is required', true)
+    // 服务端挂起最长 600s：client fetch 超时按 timeoutMs + 10s 放宽
+    const timeoutMs = Number(args.timeoutMs) > 0 ? Number(args.timeoutMs) : 60000
+    result = await callGateway(
+      '/v1/control/panes/wait-output',
+      {
+        paneId: args.paneId,
+        match: typeof args.match === 'string' && args.match ? args.match : undefined,
+        regex: args.regex === true ? true : undefined,
+        lines: typeof args.lines === 'number' ? args.lines : undefined,
+        timeoutMs: typeof args.timeoutMs === 'number' ? args.timeoutMs : undefined,
+      },
+      Math.min(timeoutMs + 10000, 610000),
+    )
+  } else if (name === 'tmuxgo_pane_run') {
+    if (typeof args.paneId !== 'string' || !args.paneId) return toolResult(id, 'paneId is required', true)
+    if (typeof args.text !== 'string' || !args.text) return toolResult(id, 'text is required', true)
+    result = await callGateway('/v1/control/panes/run', {
+      paneId: args.paneId,
+      text: args.text,
+      enter: args.enter !== false,
+      allowOccupied: args.allowOccupied === true ? true : undefined,
+    })
   } else if (name === 'tmuxgo_inbox_list') {
     result = await callGateway('/v1/control/inbox', {
       id: typeof args.messageId === 'string' ? args.messageId : undefined,

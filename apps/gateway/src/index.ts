@@ -79,6 +79,9 @@ fastify.addHook('onRequest', async (request, reply) => {
     routePath === '/api/agent-events' ||
     routePath === '/api/v1/control/panes/split' ||
     routePath === '/api/v1/control/panes/read' ||
+    routePath === '/api/v1/control/panes/snapshot' ||
+    routePath === '/api/v1/control/panes/wait-output' ||
+    routePath === '/api/v1/control/panes/run' ||
     routePath === '/api/v1/control/agent/wait' ||
     routePath === '/api/v1/control/push' ||
     routePath === '/api/v1/control/open-target' ||
