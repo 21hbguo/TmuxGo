@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import Fastify from 'fastify'
 import websocket from '@fastify/websocket'
+import { WebSocket } from 'ws'
 
 // 免 ticket 路径：先置空密码再加载路由
 process.env.TMUXGO_AUTH_PASSWORD = ''
