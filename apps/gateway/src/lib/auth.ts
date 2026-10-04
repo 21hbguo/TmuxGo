@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafe
 import os from 'os'
 import path from 'path'
 import { chmod, mkdir, readFile, rename, writeFile } from 'fs/promises'
+import type { FastifyRequest } from 'fastify'
 
 const ACCESS_TTL_SECONDS = 15 * 60
 const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60
@@ -16,9 +17,23 @@ const WS_TICKET_CONTEXT = 'ws-ticket'
 
 export type AuthUser = { username: string }
 export type AccessTokenPayload = { username: string; sessionId: string; exp: number }
-export type AuthSession = { id: string; createdAt: string; lastUsedAt: string; expiresAt: string; userAgent?: string; ip?: string }
+export type AuthSession = {
+  id: string
+  createdAt: string
+  lastUsedAt: string
+  expiresAt: string
+  userAgent?: string
+  ip?: string
+}
 type StoredSession = AuthSession & { refreshTokenHash: string }
-type AuthStore = { version: number; username: string; passwordHash: string; signingKey: string; sessions: StoredSession[]; generation: number }
+type AuthStore = {
+  version: number
+  username: string
+  passwordHash: string
+  signingKey: string
+  sessions: StoredSession[]
+  generation: number
+}
 type LoginAttempt = { count: number; resetAt: number }
 
 export class AuthError extends Error {
@@ -97,10 +112,18 @@ async function initializeAuth() {
   try {
     loaded = JSON.parse(await readFile(authFile, 'utf8')) as AuthStore
   } catch {}
-  if (loaded?.version === AUTH_VERSION && typeof loaded.username === 'string' && typeof loaded.passwordHash === 'string' && typeof loaded.signingKey === 'string' && Array.isArray(loaded.sessions)) {
+  if (
+    loaded?.version === AUTH_VERSION &&
+    typeof loaded.username === 'string' &&
+    typeof loaded.passwordHash === 'string' &&
+    typeof loaded.signingKey === 'string' &&
+    Array.isArray(loaded.sessions)
+  ) {
     store = loaded
     store.generation = Number.isInteger(store.generation) && store.generation > 0 ? store.generation : 1
-    store.sessions = store.sessions.filter((session) => typeof session.refreshTokenHash === 'string' && Date.parse(session.expiresAt) > now())
+    store.sessions = store.sessions.filter(
+      (session) => typeof session.refreshTokenHash === 'string' && Date.parse(session.expiresAt) > now(),
+    )
     if (store.username !== configuredUsername) {
       store.username = configuredUsername
       await writeStore()
@@ -108,7 +131,14 @@ async function initializeAuth() {
     defaultPasswordInUse = store.username === 'admin' && verifyPassword('admin123', store.passwordHash)
     return
   }
-  store = { version: AUTH_VERSION, username: configuredUsername, passwordHash: createPasswordHash(configuredPassword), signingKey: randomBytes(32).toString('base64url'), sessions: [], generation: 1 }
+  store = {
+    version: AUTH_VERSION,
+    username: configuredUsername,
+    passwordHash: createPasswordHash(configuredPassword),
+    signingKey: randomBytes(32).toString('base64url'),
+    sessions: [],
+    generation: 1,
+  }
   defaultPasswordInUse = store.username === 'admin' && configuredPassword === 'admin123'
   await writeStore()
 }
@@ -155,11 +185,20 @@ function issueAccessToken(username: string, sessionId: string) {
 export function verifyAccessToken(token: string): AccessTokenPayload | null {
   if (!store || typeof token !== 'string') return null
   const [encoded, signature] = token.split('.')
-  if (!encoded || !signature || !safeEqual(sign(`${ACCESS_SECRET_CONTEXT}.${encoded}`, store.signingKey), signature)) return null
+  if (!encoded || !signature || !safeEqual(sign(`${ACCESS_SECRET_CONTEXT}.${encoded}`, store.signingKey), signature))
+    return null
   try {
     const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as AccessTokenPayload
-    if (!payload || payload.username !== store.username || typeof payload.sessionId !== 'string' || typeof payload.exp !== 'number' || payload.exp <= Math.floor(now() / 1000)) return null
-    if (!store.sessions.some((session) => session.id === payload.sessionId && Date.parse(session.expiresAt) > now())) return null
+    if (
+      !payload ||
+      payload.username !== store.username ||
+      typeof payload.sessionId !== 'string' ||
+      typeof payload.exp !== 'number' ||
+      payload.exp <= Math.floor(now() / 1000)
+    )
+      return null
+    if (!store.sessions.some((session) => session.id === payload.sessionId && Date.parse(session.expiresAt) > now()))
+      return null
     return payload
   } catch {
     return null
@@ -167,9 +206,31 @@ export function verifyAccessToken(token: string): AccessTokenPayload | null {
 }
 function getValidAccessToken(token: string) {
   const payload = accessTokens.get(token)
-  if (payload && payload.exp > Math.floor(now() / 1000) && store?.sessions.some((session) => session.id === payload.sessionId && Date.parse(session.expiresAt) > now())) return payload
+  if (
+    payload &&
+    payload.exp > Math.floor(now() / 1000) &&
+    store?.sessions.some((session) => session.id === payload.sessionId && Date.parse(session.expiresAt) > now())
+  )
+    return payload
   accessTokens.delete(token)
   return verifyAccessToken(token)
+}
+// HTTP 认证入口（bearer 优先、access cookie 兜底）；命中即写 request.principal
+// 供审计使用。request.principal 的类型由 lib/principal.ts 的 fastify 扩展声明
+export function authenticateHttpRequest(request: FastifyRequest): AccessTokenPayload | null {
+  const authorization = request.headers.authorization
+  const bearer =
+    typeof authorization === 'string' && authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
+  const cookiePrefix = `${ACCESS_COOKIE_NAME}=`
+  const cookieToken =
+    (request.headers.cookie || '')
+      .split(';')
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(cookiePrefix))
+      ?.slice(cookiePrefix.length) || ''
+  const payload = verifyAccessToken(bearer) || verifyAccessToken(cookieToken)
+  if (payload) request.principal = { actor: payload.username, source: 'http', sessionId: payload.sessionId }
+  return payload
 }
 function checkLoginRateLimit(identifier: string) {
   const current = loginAttempts.get(identifier)
@@ -185,17 +246,37 @@ export async function login(username: string, password: string, metadata: { user
   await initializeAuthStore()
   const authStore = requireStore()
   checkLoginRateLimit(metadata.ip || 'unknown')
-  if (username !== authStore.username || !verifyPassword(password, authStore.passwordHash)) throw new AuthError('Invalid username or password', 401, 'INVALID_CREDENTIALS')
+  if (username !== authStore.username || !verifyPassword(password, authStore.passwordHash))
+    throw new AuthError('Invalid username or password', 401, 'INVALID_CREDENTIALS')
   const timestamp = now()
   const rawRefreshToken = randomBytes(48).toString('base64url')
-  const session: StoredSession = { id: randomUUID(), createdAt: toIso(timestamp), lastUsedAt: toIso(timestamp), expiresAt: toIso(timestamp + REFRESH_TTL_SECONDS * 1000), refreshTokenHash: hash(rawRefreshToken), userAgent: metadata.userAgent, ip: metadata.ip }
+  const session: StoredSession = {
+    id: randomUUID(),
+    createdAt: toIso(timestamp),
+    lastUsedAt: toIso(timestamp),
+    expiresAt: toIso(timestamp + REFRESH_TTL_SECONDS * 1000),
+    refreshTokenHash: hash(rawRefreshToken),
+    userAgent: metadata.userAgent,
+    ip: metadata.ip,
+  }
   authStore.sessions.push(session)
   await writeStore()
-  return { accessToken: issueAccessToken(authStore.username, session.id), refreshToken: rawRefreshToken, expiresIn: ACCESS_TTL_SECONDS, user: getAuthUser(authStore.username), sessionId: session.id, passwordChangeRequired: isPasswordChangeRequired() }
+  return {
+    accessToken: issueAccessToken(authStore.username, session.id),
+    refreshToken: rawRefreshToken,
+    expiresIn: ACCESS_TTL_SECONDS,
+    user: getAuthUser(authStore.username),
+    sessionId: session.id,
+    passwordChangeRequired: isPasswordChangeRequired(),
+  }
 }
 function findSession(refreshToken: string) {
   if (!store) return null
-  return store.sessions.find((session) => safeEqual(session.refreshTokenHash, hash(refreshToken)) && Date.parse(session.expiresAt) > now()) || null
+  return (
+    store.sessions.find(
+      (session) => safeEqual(session.refreshTokenHash, hash(refreshToken)) && Date.parse(session.expiresAt) > now(),
+    ) || null
+  )
 }
 export async function refresh(refreshToken: string, metadata: { userAgent?: string; ip?: string } = {}) {
   await initializeAuthStore()
@@ -209,12 +290,20 @@ export async function refresh(refreshToken: string, metadata: { userAgent?: stri
   if (metadata.userAgent) session.userAgent = metadata.userAgent
   if (metadata.ip) session.ip = metadata.ip
   await writeStore()
-  return { accessToken: issueAccessToken(authStore.username, session.id), refreshToken: nextRefreshToken, expiresIn: ACCESS_TTL_SECONDS, user: getAuthUser(authStore.username), sessionId: session.id, passwordChangeRequired: isPasswordChangeRequired() }
+  return {
+    accessToken: issueAccessToken(authStore.username, session.id),
+    refreshToken: nextRefreshToken,
+    expiresIn: ACCESS_TTL_SECONDS,
+    user: getAuthUser(authStore.username),
+    sessionId: session.id,
+    passwordChangeRequired: isPasswordChangeRequired(),
+  }
 }
 export async function logout(refreshToken?: string, sessionId?: string) {
   await initializeAuthStore()
   if (!store) return
-  if (refreshToken) store.sessions = store.sessions.filter((session) => !safeEqual(session.refreshTokenHash, hash(refreshToken)))
+  if (refreshToken)
+    store.sessions = store.sessions.filter((session) => !safeEqual(session.refreshTokenHash, hash(refreshToken)))
   else if (sessionId) store.sessions = store.sessions.filter((session) => session.id !== sessionId)
   await writeStore()
 }
@@ -242,9 +331,12 @@ export async function deleteOtherSessions(sessionId: string) {
 export async function changePassword(currentPassword: string, newPassword: string) {
   await initializeAuthStore()
   const authStore = requireStore()
-  if (!verifyPassword(currentPassword, authStore.passwordHash)) throw new AuthError('Invalid password', 401, 'INVALID_CREDENTIALS')
-  if (newPassword.length < 8 || newPassword.length > 256) throw new AuthError('Password must be 8 to 256 characters', 400, 'INVALID_PASSWORD')
-  if (authStore.username === 'admin' && newPassword === 'admin123') throw new AuthError('Default password is not allowed', 400, 'DEFAULT_PASSWORD_NOT_ALLOWED')
+  if (!verifyPassword(currentPassword, authStore.passwordHash))
+    throw new AuthError('Invalid password', 401, 'INVALID_CREDENTIALS')
+  if (newPassword.length < 8 || newPassword.length > 256)
+    throw new AuthError('Password must be 8 to 256 characters', 400, 'INVALID_PASSWORD')
+  if (authStore.username === 'admin' && newPassword === 'admin123')
+    throw new AuthError('Default password is not allowed', 400, 'DEFAULT_PASSWORD_NOT_ALLOWED')
   authStore.passwordHash = createPasswordHash(newPassword)
   defaultPasswordInUse = false
   authStore.generation += 1
@@ -257,7 +349,11 @@ export async function issueWebSocketTicket(accessToken: string) {
   const payload = getValidAccessToken(accessToken)
   if (!payload) throw new AuthError('Invalid access token')
   const ticket = randomBytes(32).toString('base64url')
-  wsTickets.set(ticket, { username: payload.username, sessionId: payload.sessionId, expiresAt: now() + WS_TICKET_TTL_SECONDS * 1000 })
+  wsTickets.set(ticket, {
+    username: payload.username,
+    sessionId: payload.sessionId,
+    expiresAt: now() + WS_TICKET_TTL_SECONDS * 1000,
+  })
   return { ticket, expiresIn: WS_TICKET_TTL_SECONDS }
 }
 export function consumeWebSocketTicket(ticket: string): AuthUser | null {

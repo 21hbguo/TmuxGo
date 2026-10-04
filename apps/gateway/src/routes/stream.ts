@@ -12,6 +12,7 @@ import {
   streamResizeMessageSchema,
 } from '../lib/request-validation.js'
 import { consumeWebSocketTicket, isAuthEnabled } from '../lib/auth.js'
+import { appendAuditEvent } from '../lib/audit-log.js'
 import { shareLinkStore, type ShareTicket } from '../lib/share-links.js'
 import { StreamSession } from '../lib/stream/stream-session.js'
 import { applyPasteDataFrame } from '../lib/stream/paste-binary.js'
@@ -32,10 +33,28 @@ export async function streamRoutes(fastify: FastifyInstance) {
       ping: () => void
       terminate: () => void
     }
-    if (isAuthEnabled() && !shareTicket && !consumeWebSocketTicket(ticket)) {
+    const wsUser = isAuthEnabled() && !shareTicket ? consumeWebSocketTicket(ticket) : null
+    // WS 走 ticket 而非 HTTP bearer：actor 取 ticket 用户名 / share 访客 / anonymous
+    const wsActor = wsUser?.username || (shareTicket ? 'share' : 'anonymous')
+    const auditWsConnect = (result: 'success' | 'failure', statusCode: number) =>
+      void appendAuditEvent({
+        id: `${Date.now().toString(36)}-ws`,
+        timestamp: new Date().toISOString(),
+        user: wsActor,
+        actor: wsActor,
+        source: shareTicket ? 'share' : 'ws',
+        action: 'ws-stream-connect',
+        target: '/api/stream',
+        result,
+        method: 'WS',
+        statusCode,
+      }).catch(() => {})
+    if (isAuthEnabled() && !shareTicket && !wsUser) {
+      auditWsConnect('failure', 1008)
       socket.close(1008, 'Authentication required')
       return
     }
+    auditWsConnect('success', 101)
     console.log('Client connected to stream')
     const agentSocket = socket
     const session = new StreamSession(socket, shareTicket)

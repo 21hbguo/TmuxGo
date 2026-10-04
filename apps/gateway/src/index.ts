@@ -30,13 +30,7 @@ import { pluginManager } from './lib/plugin-manager.js'
 import { createFastifyLoggerConfig } from './lib/process-log.js'
 import { authRoutes } from './routes/auth.js'
 import { shareRoutes } from './routes/shares.js'
-import {
-  getAccessCookieName,
-  initializeAuthStore,
-  isAuthEnabled,
-  isPasswordChangeRequired,
-  verifyAccessToken,
-} from './lib/auth.js'
+import { authenticateHttpRequest, initializeAuthStore, isAuthEnabled, isPasswordChangeRequired } from './lib/auth.js'
 import { agentManager } from './agent-manager.js'
 import { agentMonitor } from './lib/agent-monitor.js'
 import { agentEventRoutes } from './routes/agent-events.js'
@@ -96,17 +90,7 @@ fastify.addHook('onRequest', async (request, reply) => {
     routePath === '/api/shares/exchange'
   )
     return
-  const authorization = request.headers.authorization
-  const token =
-    typeof authorization === 'string' && authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
-  const cookiePrefix = `${getAccessCookieName()}=`
-  const cookieToken =
-    (request.headers.cookie || '')
-      .split(';')
-      .map((part) => part.trim())
-      .find((part) => part.startsWith(cookiePrefix))
-      ?.slice(cookiePrefix.length) || ''
-  const payload = verifyAccessToken(token) || verifyAccessToken(cookieToken)
+  const payload = authenticateHttpRequest(request)
   if (!payload) return reply.code(401).send({ message: 'Authentication required', code: 'AUTH_REQUIRED' })
   if (isPasswordChangeRequired() && routePath !== '/api/auth/change-password')
     return reply.code(403).send({ message: 'Password change is required', code: 'PASSWORD_CHANGE_REQUIRED' })

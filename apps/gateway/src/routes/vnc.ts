@@ -5,6 +5,7 @@ import { readdir, readFile } from 'fs/promises'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { agentManager, type AgentSocket } from '../agent-manager.js'
 import { consumeWebSocketTicket, isAuthEnabled } from '../lib/auth.js'
+import { appendAuditEvent } from '../lib/audit-log.js'
 import { execHostShell, openVncSshTunnel } from '../lib/tmux-executor.js'
 import {
   normalizeVncPort,
@@ -83,11 +84,29 @@ export async function vncRoutes(fastify: FastifyInstance) {
     const dbg: VncDbg = VNC_DEBUG ? (msg, extra) => request.log.info({ vnc: true, ...extra }, msg) : noopDbg
     const query = request.query as { ticket?: unknown; hostId?: unknown; port?: unknown }
     const ticket = typeof query.ticket === 'string' ? query.ticket : ''
-    if (isAuthEnabled() && !consumeWebSocketTicket(ticket)) {
+    const wsUser = isAuthEnabled() ? consumeWebSocketTicket(ticket) : null
+    // 与 /api/stream 同一套 WS 审计：actor=ticket 用户名或 anonymous
+    const wsActor = wsUser?.username || 'anonymous'
+    const auditWsConnect = (result: 'success' | 'failure', statusCode: number) =>
+      void appendAuditEvent({
+        id: `${Date.now().toString(36)}-ws`,
+        timestamp: new Date().toISOString(),
+        user: wsActor,
+        actor: wsActor,
+        source: 'ws',
+        action: 'ws-vnc-connect',
+        target: '/api/vnc',
+        result,
+        method: 'WS',
+        statusCode,
+      }).catch(() => {})
+    if (isAuthEnabled() && !wsUser) {
       dbg('vnc ws rejected: bad ticket')
+      auditWsConnect('failure', 1008)
       socket.close(1008, 'Authentication required')
       return
     }
+    auditWsConnect('success', 101)
     const hostId = typeof query.hostId === 'string' && query.hostId ? query.hostId : 'local'
     const port = normalizeVncPort(query.port)
     if (port === null) {

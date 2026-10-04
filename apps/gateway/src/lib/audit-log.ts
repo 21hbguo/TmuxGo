@@ -2,11 +2,15 @@ import { appendFile, mkdir, readFile, rename, stat } from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import { getRequestPrincipal, type AuditSource } from './principal.js'
 
 export interface AuditEvent {
   id: string
   timestamp: string
+  // 兼容旧 ndjson 字段：始终等于 actor（旧行可能没有 actor/source，读取端按可选处理）
   user: string
+  actor?: string
+  source?: AuditSource
   action: string
   target: string
   result: 'success' | 'failure'
@@ -19,7 +23,10 @@ const MAX_FILE_BYTES = 8 * 1024 * 1024
 const DEFAULT_LIMIT = 200
 const MAX_LIMIT = 1000
 function getAuditPath() {
-  return process.env.TMUXGO_AUDIT_LOG || path.join(process.env.TMUXGO_CONFIG_DIR || path.join(os.homedir(), '.tmuxgo'), 'audit.ndjson')
+  return (
+    process.env.TMUXGO_AUDIT_LOG ||
+    path.join(process.env.TMUXGO_CONFIG_DIR || path.join(os.homedir(), '.tmuxgo'), 'audit.ndjson')
+  )
 }
 function safeValue(value: unknown) {
   return typeof value === 'string' ? value.trim().slice(0, 256) : ''
@@ -28,7 +35,20 @@ function getRequestTarget(request: FastifyRequest) {
   const params = request.params as Record<string, unknown> | undefined
   const query = request.query as Record<string, unknown> | undefined
   const body = request.body as Record<string, unknown> | undefined
-  const values = [params?.hostId, params?.id, params?.sessionId, params?.windowId, params?.paneId, body?.sessionId, body?.paneId, body?.windowId, body?.path, body?.name, body?.branch, query?.path]
+  const values = [
+    params?.hostId,
+    params?.id,
+    params?.sessionId,
+    params?.windowId,
+    params?.paneId,
+    body?.sessionId,
+    body?.paneId,
+    body?.windowId,
+    body?.path,
+    body?.name,
+    body?.branch,
+    query?.path,
+  ]
   return values.map(safeValue).filter(Boolean).join(' · ') || request.routeOptions.url || request.url.split('?')[0]
 }
 function getRequestAction(request: FastifyRequest) {
@@ -51,10 +71,13 @@ export async function appendAuditEvent(event: AuditEvent) {
 export async function recordAuditRequest(request: FastifyRequest, reply: FastifyReply) {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return
   const statusCode = reply.statusCode
+  const principal = getRequestPrincipal(request)
   const event: AuditEvent = {
     id: `${Date.now().toString(36)}-${request.id}`,
     timestamp: new Date().toISOString(),
-    user: 'local',
+    user: principal.actor,
+    actor: principal.actor,
+    source: principal.source,
     action: getRequestAction(request),
     target: getRequestTarget(request),
     result: statusCode >= 200 && statusCode < 400 ? 'success' : 'failure',
@@ -67,7 +90,9 @@ export async function recordAuditRequest(request: FastifyRequest, reply: Fastify
   if (statusCode >= 400) event.message = reply.statusCode >= 500 ? 'Request failed' : `HTTP ${statusCode}`
   await appendAuditEvent(event).catch(() => {})
 }
-export async function readAuditEvents(options: { limit?: number | string; action?: string; result?: string; hostId?: string } = {}) {
+export async function readAuditEvents(
+  options: { limit?: number | string; action?: string; result?: string; hostId?: string } = {},
+) {
   const filePath = getAuditPath()
   let content = ''
   try {
@@ -77,13 +102,19 @@ export async function readAuditEvents(options: { limit?: number | string; action
   const action = safeValue(options.action).toLowerCase()
   const result = options.result === 'success' || options.result === 'failure' ? options.result : ''
   const hostId = safeValue(options.hostId)
-  return content.trim().split('\n').filter(Boolean).reverse().map((line) => {
-    try {
-      return JSON.parse(line) as AuditEvent
-    } catch {
-      return null
-    }
-  }).filter((event): event is AuditEvent => !!event)
+  return content
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .reverse()
+    .map((line) => {
+      try {
+        return JSON.parse(line) as AuditEvent
+      } catch {
+        return null
+      }
+    })
+    .filter((event): event is AuditEvent => !!event)
     .filter((event) => !action || event.action.toLowerCase().includes(action))
     .filter((event) => !result || event.result === result)
     .filter((event) => !hostId || event.hostId === hostId)

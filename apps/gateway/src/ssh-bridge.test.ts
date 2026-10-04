@@ -68,3 +68,27 @@ test('rejects unknown remote host with Host not found', async () => {
     await rm(configDir, { recursive: true, force: true })
   }
 })
+test('writes audit event with resolved ssh user and ssh source', async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-ssh-'))
+  const auditFile = path.join(configDir, 'audit.ndjson')
+  try {
+    const result = runBridge(['attach', '--host', 'ghost', '--session', 'dev'], {
+      TMUXGO_CONFIG_DIR: configDir,
+      TMUXGO_AUDIT_LOG: auditFile,
+      TMUXGO_SSH_USER: 'alice',
+      TMUXGO_SSH_USER_MAP: 'alice=alice-tmux',
+    })
+    assert.equal(result.status, 1)
+    const { readFile } = await import('fs/promises')
+    const lines = (await readFile(auditFile, 'utf8')).trim().split('\n').filter(Boolean)
+    assert.equal(lines.length, 1)
+    const event = JSON.parse(lines[0])
+    assert.equal(event.user, 'alice-tmux')
+    assert.equal(event.actor, 'alice-tmux')
+    assert.equal(event.source, 'ssh')
+    assert.equal(event.action, 'ssh-attach')
+    assert.equal(event.result, 'failure')
+  } finally {
+    await rm(configDir, { recursive: true, force: true })
+  }
+})

@@ -472,6 +472,8 @@ export interface AuditEvent {
   id: string
   timestamp: string
   user: string
+  actor?: string
+  source?: 'http' | 'agent-token' | 'ws' | 'ssh' | 'share' | 'anonymous'
   action: string
   target: string
   result: 'success' | 'failure'
