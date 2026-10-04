@@ -30,7 +30,7 @@ export interface AgentProtocolEvent {
   attempt?: number
   action?: string
   next?: string
-  display?: { title?: string; stateLabel?: string; tokens?: number; seq?: number; ttlMs?: number }
+  display?: { title?: string; stateLabel?: string; tokens?: number; seq?: number; source?: string; ttlMs?: number }
 }
 export interface AgentEventContext {
   hostId: string
@@ -106,6 +106,13 @@ function normalizeDisplay(raw: Record<string, unknown>) {
   const stateLabel = firstText(displayRaw.stateLabel, displayRaw.state_label, raw.stateLabel, raw.state_label)
   const tokensValue = displayRaw.tokens ?? raw.tokens ?? data.tokens
   const seqValue = displayRaw.seq ?? displayRaw.seqNum ?? displayRaw.seq_num ?? raw.displaySeq ?? raw.display_seq
+  const source = firstText(
+    displayRaw.source,
+    raw.displaySource,
+    raw.display_source,
+    data.displaySource,
+    data.display_source,
+  )
   const ttlValue = displayRaw.ttlMs ?? displayRaw.ttl_ms ?? raw.displayTtlMs ?? raw.display_ttl_ms
   const tokens =
     typeof tokensValue === 'number' && Number.isFinite(tokensValue)
@@ -130,6 +137,7 @@ function normalizeDisplay(raw: Record<string, unknown>) {
   if (stateLabel) display.stateLabel = stateLabel.slice(0, 160)
   if (Number.isFinite(tokens) && tokens! >= 0) display.tokens = Math.floor(tokens!)
   if (Number.isFinite(seq) && seq! >= 0) display.seq = Math.floor(seq!)
+  if (source) display.source = source.slice(0, 64)
   if (Number.isFinite(ttlMs) && ttlMs! > 0) display.ttlMs = Math.floor(ttlMs!)
   return Object.keys(display).length ? display : undefined
 }

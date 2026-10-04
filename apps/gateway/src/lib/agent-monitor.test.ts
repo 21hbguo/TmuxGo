@@ -303,6 +303,80 @@ test('applies display metadata patches with seq dedup and ttl expiry', async () 
   unsubscribe()
 })
 
+test('scopes display seq dedup per source and keeps legacy unsourced patches compatible', async () => {
+  const states: AgentPaneState[] = [pane('local:%5')]
+  let now = 5000
+  const monitor = new AgentMonitor({
+    getHostIds: async () => ['local'],
+    scan: async () => states,
+    intervalMs: 1000,
+    now: () => now,
+  })
+  const unsubscribe = monitor.subscribe(() => {})
+  await monitor.start()
+  const displayEvent = (source: string | undefined, seq: number, title: string) => {
+    now += 1000
+    return {
+      hostId: 'local',
+      agent: 'codex',
+      paneId: 'local:%5',
+      tmuxPaneId: '%5',
+      sessionName: 'dev',
+      agentSessionId: 'local:%5:dev',
+      type: 'working' as const,
+      phase: 'working' as const,
+      lastEvent: 'started' as const,
+      source: 'protocol' as const,
+      confidence: 'high' as const,
+      eventId: 'local:codex:display:' + (source || 'flat') + ':' + seq,
+      timestamp: new Date(now).toISOString(),
+      display: { title, seq, ttlMs: 60000, ...(source ? { source } : {}) },
+    }
+  }
+  const currentDisplay = () => monitor.getStates('local')?.find((item) => item.paneId === 'local:%5')?.display
+  monitor.ingestProtocolEvent(displayEvent('tui', 5, 'TUI five'))
+  monitor.ingestProtocolEvent(displayEvent('hook-feed', 2, 'Hook two'))
+  assert.equal(currentDisplay()?.title, 'Hook two')
+  assert.equal(currentDisplay()?.source, 'hook-feed')
+  monitor.ingestProtocolEvent(displayEvent('tui', 4, 'TUI stale'))
+  assert.equal(currentDisplay()?.title, 'Hook two')
+  monitor.ingestProtocolEvent(displayEvent('tui', 6, 'TUI six'))
+  assert.equal(currentDisplay()?.title, 'TUI six')
+  assert.equal(currentDisplay()?.source, 'tui')
+  monitor.ingestProtocolEvent(displayEvent('hook-feed', 1, 'Hook stale'))
+  assert.equal(currentDisplay()?.title, 'TUI six')
+  monitor.ingestProtocolEvent(displayEvent(undefined, 2, 'Legacy two'))
+  assert.equal(currentDisplay()?.title, 'Legacy two')
+  assert.equal(currentDisplay()?.source, undefined)
+  monitor.ingestProtocolEvent(displayEvent(undefined, 1, 'Legacy stale'))
+  assert.equal(currentDisplay()?.title, 'Legacy two')
+  monitor.ingestProtocolEvent(displayEvent('tui', 7, 'TUI seven'))
+  assert.equal(currentDisplay()?.title, 'TUI seven')
+  monitor.stop()
+  unsubscribe()
+})
+
+test('stamps stateSeq once and only advances it on real state changes', async () => {
+  let states: AgentPaneState[] = [pane('local:%6')]
+  const monitor = new AgentMonitor({
+    getHostIds: async () => ['local'],
+    scan: async () => states,
+    intervalMs: 1000,
+  })
+  const unsubscribe = monitor.subscribe(() => {})
+  await monitor.start()
+  const first = monitor.getStates('local')?.[0]?.stateSeq
+  assert.ok(first !== undefined && first > 0)
+  await monitor.pollNow('local')
+  assert.equal(monitor.getStates('local')?.[0]?.stateSeq, first)
+  states = [pane('local:%6', 'failed', 'failed')]
+  await monitor.pollNow('local')
+  const second = monitor.getStates('local')?.[0]?.stateSeq
+  assert.ok(second !== undefined && second > first)
+  unsubscribe()
+  monitor.stop()
+})
+
 test('discards an in-flight scan after stop and emits a fresh snapshot after restart', async () => {
   let releaseScan: (states: AgentPaneState[]) => void = () => {}
   let scanCount = 0

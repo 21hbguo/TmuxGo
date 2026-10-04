@@ -191,6 +191,24 @@ test('normalizes display metadata patches with tokens, seq, and ttl', () => {
   assert.equal(flat?.display?.title, 'Parallel tasks')
   assert.equal(flat?.display?.tokens, 800)
 })
+test('normalizes display source for source-scoped seq dedup', () => {
+  const event = normalizeAgentEvent(
+    {
+      type: 'item/started',
+      threadId: 'thread-1',
+      eventId: 'ds1',
+      display: { title: 'Refactor', seq: 4, source: 'tui' },
+    },
+    { hostId: 'local', provider: 'codex', tmuxPaneId: '%2', sessionName: 'dev' },
+  )
+  assert.equal(event?.display?.source, 'tui')
+  const flat = normalizeAgentEvent(
+    { type: 'working', displayTitle: 'Flat', display_seq: 2, display_source: 'hooks' },
+    { hostId: 'local', provider: 'gemini', agentSessionId: 'session-1', sessionName: 'dev' },
+  )
+  assert.equal(flat?.display?.source, 'hooks')
+  assert.equal(flat?.display?.seq, 2)
+})
 test('normalizes Reasonix hook lifecycle events per official docs', () => {
   const ctx = { hostId: 'local', provider: 'reasonix', agentSessionId: 'session-1', sessionName: 'dev' }
   const sessionStart = normalizeAgentEvent({ event: 'SessionStart', cwd: '/repo' }, ctx)

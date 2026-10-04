@@ -40,6 +40,9 @@ export interface AgentDisplayMetadata {
   stateLabel?: string
   tokens?: number
   seq?: number
+  // display patch 来源标识：多来源各自维护 seq，仅同 source 的旧 seq 可丢弃 patch；
+  // 不带 source 的旧客户端走默认桶，行为与引入 source 前一致
+  source?: string
   ttlMs?: number
   updatedAt?: string
 }
@@ -51,6 +54,9 @@ export interface AgentPaneState {
   agentSessionId?: string
   agentStatus: AgentStatus
   revision: number
+  // monitor 物化序号：pane 状态内容真实变化时递增，agent.wait 以此做基线
+  // 丢弃 wait 建立前已存在的旧状态回放；可选，缺省走旧行为
+  stateSeq?: number
   phase?: AgentPhase
   lastEvent?: AgentEvent
   source?: AgentSource

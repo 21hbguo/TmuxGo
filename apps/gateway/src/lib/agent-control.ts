@@ -3,9 +3,7 @@ import { agentMonitor, type AgentMonitorEvent } from './agent-monitor.js'
 import { getHostAgentPanes, type AgentPaneState } from './agent-state.js'
 import { execTmux } from './tmux-executor.js'
 
-export type AgentWaitTarget =
-  | { paneId: string }
-  | { sessionName: string; agent: string }
+export type AgentWaitTarget = { paneId: string } | { sessionName: string; agent: string }
 export interface AgentWaitCondition {
   status?: AgentPaneState['agentStatus']
   phase?: AgentPaneState['phase']
@@ -43,6 +41,7 @@ interface PendingWait {
   target: AgentWaitTarget
   condition: AgentWaitCondition
   pinned: PinnedOccupant | null
+  baselineSeq: number
   startedAt: number
   resolve: (value: AgentWaitResult) => void
   reject: (error: Error) => void
@@ -50,7 +49,8 @@ interface PendingWait {
 }
 function parsePaneId(paneId: string) {
   const separator = paneId.indexOf(':')
-  if (separator <= 0 || separator === paneId.length - 1 || !paneId.slice(separator + 1).startsWith('%')) throw new AgentWaitError('INVALID_TARGET', 'Invalid pane id')
+  if (separator <= 0 || separator === paneId.length - 1 || !paneId.slice(separator + 1).startsWith('%'))
+    throw new AgentWaitError('INVALID_TARGET', 'Invalid pane id')
   return { hostId: paneId.slice(0, separator), tmuxPaneId: paneId.slice(separator + 1) }
 }
 export function resolveAgentWaitTarget(target: AgentWaitTarget, defaultHostId = 'local') {
@@ -58,7 +58,8 @@ export function resolveAgentWaitTarget(target: AgentWaitTarget, defaultHostId = 
     const { hostId, tmuxPaneId } = parsePaneId(target.paneId)
     return { hostId, tmuxPaneId }
   }
-  if (!target.sessionName || !target.agent) throw new AgentWaitError('INVALID_TARGET', 'Wait target requires sessionName and agent')
+  if (!target.sessionName || !target.agent)
+    throw new AgentWaitError('INVALID_TARGET', 'Wait target requires sessionName and agent')
   return { hostId: defaultHostId, tmuxPaneId: '' }
 }
 function matchesTarget(pane: AgentPaneState, target: AgentWaitTarget) {
@@ -104,17 +105,27 @@ export class AgentControl {
       this.unsubscribe = null
     }
   }
-  async wait(target: AgentWaitTarget, condition: AgentWaitCondition, options: AgentWaitOptions = {}): Promise<AgentWaitResult> {
-    if (!hasCondition(condition)) throw new AgentWaitError('INVALID_TARGET', 'Wait condition requires status, phase, or lastEvent')
+  async wait(
+    target: AgentWaitTarget,
+    condition: AgentWaitCondition,
+    options: AgentWaitOptions = {},
+  ): Promise<AgentWaitResult> {
+    if (!hasCondition(condition))
+      throw new AgentWaitError('INVALID_TARGET', 'Wait condition requires status, phase, or lastEvent')
     const { hostId } = resolveAgentWaitTarget(target, options.hostId || 'local')
     if (!hostId) throw new AgentWaitError('INVALID_TARGET', 'Wait target is invalid')
     const startedAt = this.now()
     const timeoutMs = Math.max(250, Math.min(options.timeoutMs || 60000, 600000))
     const waitId = randomUUID()
-    const states = this.getStates(hostId) || await this.scanStates(hostId).catch(() => [])
+    const states = this.getStates(hostId) || (await this.scanStates(hostId).catch(() => []))
     const initial = findMatchingPane(states, target)
     if (initial && matchesCondition(initial, condition)) return { pane: initial, elapsedMs: 0, waitId }
-    const pinned: PinnedOccupant | null = initial ? { agent: initial.agent, agentSessionId: initial.agentSessionId, paneId: initial.paneId } : null
+    // stateSeq 基线：wait 建立前已物化的状态（含订阅即回放的首个快照、排队旧事件）
+    // 不得再次满足条件；无 stateSeq 的旧链路 pane 不受影响
+    const baselineSeq = (states || []).reduce((max, pane) => Math.max(max, pane.stateSeq ?? -1), -1)
+    const pinned: PinnedOccupant | null = initial
+      ? { agent: initial.agent, agentSessionId: initial.agentSessionId, paneId: initial.paneId }
+      : null
     return new Promise<AgentWaitResult>((resolve, reject) => {
       const timer = setTimeout(() => {
         const pending = this.waits.get(waitId)
@@ -123,37 +134,69 @@ export class AgentControl {
         this.ensureUnsubscribed()
         reject(new AgentWaitError('TIMEOUT', `Agent wait timed out after ${timeoutMs}ms`))
       }, timeoutMs)
-      this.waits.set(waitId, { waitId, hostId, target, condition, pinned, startedAt, resolve, reject, timer })
+      this.waits.set(waitId, {
+        waitId,
+        hostId,
+        target,
+        condition,
+        pinned,
+        baselineSeq,
+        startedAt,
+        resolve,
+        reject,
+        timer,
+      })
       this.ensureSubscribed()
     })
   }
   private handleEvent(event: AgentMonitorEvent) {
     if (event.type === 'agent_status_changed' || event.type === 'agent_status_snapshot') {
-      for (const pane of event.type === 'agent_status_snapshot' ? event.agents : [event.pane]) this.evaluatePane(event.hostId, pane)
+      for (const pane of event.type === 'agent_status_snapshot' ? event.agents : [event.pane])
+        this.evaluatePane(event.hostId, pane)
     }
     if (event.type === 'agent_status_removed') {
       for (const pending of [...this.waits.values()]) {
         if (pending.hostId !== event.hostId) continue
-        if ('paneId' in pending.target && pending.target.paneId === event.paneId) this.failWait(pending, new AgentWaitError('PANE_REMOVED', `Target pane ${event.paneId} was removed`))
-        else if (!('paneId' in pending.target) && pending.pinned?.paneId === event.paneId) this.failWait(pending, new AgentWaitError('PANE_REMOVED', `Target pane ${event.paneId} was removed`))
+        if ('paneId' in pending.target && pending.target.paneId === event.paneId)
+          this.failWait(pending, new AgentWaitError('PANE_REMOVED', `Target pane ${event.paneId} was removed`))
+        else if (!('paneId' in pending.target) && pending.pinned?.paneId === event.paneId)
+          this.failWait(pending, new AgentWaitError('PANE_REMOVED', `Target pane ${event.paneId} was removed`))
       }
     }
   }
   private evaluatePane(hostId: string, pane: AgentPaneState) {
     for (const pending of [...this.waits.values()]) {
       if (pending.hostId !== hostId || !matchesSession(pane, pending.target)) continue
+      // wait 建立前已存在的旧状态回放：既不满足条件也不参与 occupant 判定
+      if (pane.stateSeq !== undefined && pane.stateSeq <= pending.baselineSeq) continue
       if (!pending.pinned) {
-        if ('paneId' in pending.target) pending.pinned = { agent: pane.agent, agentSessionId: pane.agentSessionId, paneId: pane.paneId }
-        else if (pane.agent === pending.target.agent) pending.pinned = { agent: pane.agent, agentSessionId: pane.agentSessionId, paneId: pane.paneId }
+        if ('paneId' in pending.target)
+          pending.pinned = { agent: pane.agent, agentSessionId: pane.agentSessionId, paneId: pane.paneId }
+        else if (pane.agent === pending.target.agent)
+          pending.pinned = { agent: pane.agent, agentSessionId: pane.agentSessionId, paneId: pane.paneId }
         else {
-          this.failWait(pending, new AgentWaitError('OCCUPANT_CHANGED', `Session ${pane.sessionName} is occupied by ${pane.agent} instead of ${pending.target.agent}`))
+          this.failWait(
+            pending,
+            new AgentWaitError(
+              'OCCUPANT_CHANGED',
+              `Session ${pane.sessionName} is occupied by ${pane.agent} instead of ${pending.target.agent}`,
+            ),
+          )
           continue
         }
       }
       if (pending.pinned.paneId && pending.pinned.paneId !== pane.paneId) continue
-      const occupantChanged = pending.pinned.agent !== undefined && pane.agent !== pending.pinned.agent || pending.pinned.agentSessionId !== undefined && pane.agentSessionId !== pending.pinned.agentSessionId
+      const occupantChanged =
+        (pending.pinned.agent !== undefined && pane.agent !== pending.pinned.agent) ||
+        (pending.pinned.agentSessionId !== undefined && pane.agentSessionId !== pending.pinned.agentSessionId)
       if (occupantChanged) {
-        this.failWait(pending, new AgentWaitError('OCCUPANT_CHANGED', `Pane occupant changed from ${pending.pinned.agent || 'unknown'} to ${pane.agent || 'unknown'} before wait condition was met`))
+        this.failWait(
+          pending,
+          new AgentWaitError(
+            'OCCUPANT_CHANGED',
+            `Pane occupant changed from ${pending.pinned.agent || 'unknown'} to ${pane.agent || 'unknown'} before wait condition was met`,
+          ),
+        )
         continue
       }
       if (!matchesCondition(pane, pending.condition)) continue
@@ -176,8 +219,17 @@ export class AgentControl {
   }
 }
 export const agentControl = new AgentControl()
-export async function splitAgentPane(hostId: string, tmuxPaneId: string, direction: 'horizontal' | 'vertical', cwd?: string) {
-  const listPanes = async () => (await execTmux(hostId, ['list-panes', '-s', '-t', tmuxPaneId, '-F', '#{pane_id}'])).stdout.trim().split('\n').filter(Boolean)
+export async function splitAgentPane(
+  hostId: string,
+  tmuxPaneId: string,
+  direction: 'horizontal' | 'vertical',
+  cwd?: string,
+) {
+  const listPanes = async () =>
+    (await execTmux(hostId, ['list-panes', '-s', '-t', tmuxPaneId, '-F', '#{pane_id}'])).stdout
+      .trim()
+      .split('\n')
+      .filter(Boolean)
   const before = new Set(await listPanes())
   const args = ['split-window']
   if (cwd && cwd.trim() && /^[A-Za-z0-9_./~-]+$/.test(cwd.trim())) args.push('-c', cwd.trim())

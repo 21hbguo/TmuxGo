@@ -50,6 +50,8 @@ interface MonitorHostState {
   agents: Map<string, AgentPaneState>
   protocolEvents: Map<string, AgentProtocolEvent>
   protocolEventIds: Set<string>
+  // paneId -> (display.source || '') -> 已应用的最大 seq：分来源去乱序
+  displaySeqs: Map<string, Map<string, number>>
   revision: number
   initialized: boolean
   disconnected: boolean
@@ -77,6 +79,9 @@ const notificationEvents = new Set<AgentEvent>([
 const protocolOverlayMaxAgeMs = 30 * 60 * 1000
 const displayDefaultTtlMs = 60 * 1000
 const notificationThrottleMs = 30 * 1000
+// monitor 物化的 pane 状态全局序号：只在状态内容真实变化时递增，
+// agent.wait 用 wait 建立时刻的最大值做基线，忽略其前已存在的旧状态回放
+let nextStateSeq = 0
 
 function sortAgents(agents: Iterable<AgentPaneState>) {
   return [...agents].sort((left, right) => left.paneId.localeCompare(right.paneId))
@@ -89,6 +94,7 @@ function sameDisplay(left: AgentPaneState['display'], right: AgentPaneState['dis
     left.stateLabel === right.stateLabel &&
     left.tokens === right.tokens &&
     left.seq === right.seq &&
+    left.source === right.source &&
     left.updatedAt === right.updatedAt
   )
 }
@@ -143,27 +149,36 @@ function resolveDisplay(display: AgentPaneState['display'], now: number): AgentP
 function applyDisplayPatch(
   current: AgentPaneState['display'],
   patch: AgentProtocolEvent['display'],
+  displaySeqs: Map<string, number> | undefined,
   now: number,
 ): AgentPaneState['display'] | undefined {
   if (!patch) return current
+  // seq 按 patch.source 分桶（'' = 未带 source 的旧客户端）；桶内无记录时回退到
+  // 「当前 display 由同桶写入」的 seq，纯旧客户端链路行为与分桶前完全一致
+  const scope = patch.source || ''
+  const lastSeq = displaySeqs?.get(scope) ?? ((current?.source || '') === scope ? current?.seq : undefined)
   if (patch.seq === undefined) {
-    if (current?.seq !== undefined) return current
-  } else if (current?.seq !== undefined) {
-    if (patch.seq <= current.seq) return current
-  }
+    if (lastSeq !== undefined) return current
+  } else if (lastSeq !== undefined && patch.seq <= lastSeq) return current
+  if (patch.seq !== undefined) displaySeqs?.set(scope, patch.seq)
   return {
     title: patch.title ?? current?.title,
     stateLabel: patch.stateLabel ?? current?.stateLabel,
     tokens: patch.tokens ?? current?.tokens,
     seq: patch.seq ?? current?.seq,
+    // seq 与 source 必须同源归属：patch 写入 seq 时 source 记为 patch 的来源桶
+    // （未带 source 即清空），未写 seq 时沿用当前 seq 的归属
+    source: patch.seq !== undefined ? patch.source : current?.source,
     ttlMs: patch.ttlMs ?? current?.ttlMs ?? displayDefaultTtlMs,
-    updatedAt:
-      patch.seq !== undefined && current?.seq !== undefined && patch.seq === current.seq
-        ? current.updatedAt
-        : new Date(now).toISOString(),
+    updatedAt: new Date(now).toISOString(),
   }
 }
-function applyProtocolEvent(pane: AgentPaneState, event: AgentProtocolEvent, now: number) {
+function applyProtocolEvent(
+  pane: AgentPaneState,
+  event: AgentProtocolEvent,
+  now: number,
+  displaySeqs?: Map<string, number>,
+) {
   return {
     ...pane,
     agent: event.agent || pane.agent,
@@ -177,7 +192,7 @@ function applyProtocolEvent(pane: AgentPaneState, event: AgentProtocolEvent, now
     updatedAt: event.timestamp,
     eventId: event.eventId,
     message: event.message,
-    display: resolveDisplay(applyDisplayPatch(pane.display, event.display, now), now),
+    display: resolveDisplay(applyDisplayPatch(pane.display, event.display, displaySeqs, now), now),
   }
 }
 
@@ -311,8 +326,9 @@ export class AgentMonitor {
     for (const [hostId, state] of this.hosts) {
       const current = state.agents.get(paneId)
       if (!current) continue
-      const pane = markAgentPaneSeen(paneId)
-      if (!pane || samePane(current, pane)) return null
+      const marked = markAgentPaneSeen(paneId)
+      if (!marked || samePane(current, marked)) return null
+      const pane = { ...marked, stateSeq: ++nextStateSeq }
       state.agents.set(paneId, pane)
       state.revision += 1
       const event: AgentMonitorEvent = {
@@ -345,6 +361,7 @@ export class AgentMonitor {
         agents: new Map(),
         protocolEvents,
         protocolEventIds: new Set([...protocolEvents.values()].map((event) => event.eventId)),
+        displaySeqs: new Map(),
         revision: 0,
         initialized: false,
         disconnected: false,
@@ -433,12 +450,14 @@ export class AgentMonitor {
       next.set(pane.paneId, resolveDisplay(pane, this.now()) ? pane : { ...pane, display: undefined })
     }
     const previousAgents = state.agents
+    // stateSeq 戳记与 eventId 回填同一轮完成：内容未变的 pane 沿用旧 seq，
+    // agent.wait 基线据此区分「真实新变化」与「wait 建立前的旧状态回放」
     for (const pane of next.values()) {
-      if (pane.eventId) continue
-      next.set(pane.paneId, {
-        ...pane,
-        eventId: this.eventId(hostId, pane, pane.lastEvent || 'changed', state.revision + 1),
-      })
+      const prior = previousAgents.get(pane.paneId)
+      const eventId = pane.eventId || this.eventId(hostId, pane, pane.lastEvent || 'changed', state.revision + 1)
+      const candidate = { ...pane, eventId }
+      const stateSeq = prior?.stateSeq !== undefined && samePane(prior, candidate) ? prior.stateSeq : ++nextStateSeq
+      next.set(pane.paneId, { ...candidate, stateSeq })
     }
     state.agents = next
     if (initial) {
@@ -480,6 +499,7 @@ export class AgentMonitor {
     for (const previous of previousAgents.values()) {
       if (next.has(previous.paneId)) continue
       this.clearNotificationThrottle(previous.paneId)
+      state.displaySeqs.delete(previous.paneId)
       forgetAgentPane(previous.paneId)
       state.revision += 1
       const eventId =
@@ -538,6 +558,7 @@ export class AgentMonitor {
           confidence: 'medium',
           updatedAt: new Date(this.now()).toISOString(),
           eventId: hostId + ':' + previous.paneId + ':disconnected:' + state.revision,
+          stateSeq: ++nextStateSeq,
           message: 'Agent host is unavailable',
         }
         state.agents.set(pane.paneId, pane)
@@ -587,7 +608,13 @@ export class AgentMonitor {
       agentStatus: 'unknown' as const,
       revision: 0,
     }
-    const pane = { ...applyProtocolEvent(base, event, this.now()), revision: ++state.revision }
+    let displaySeqs = state.displaySeqs.get(paneId)
+    if (event.display && !displaySeqs) state.displaySeqs.set(paneId, (displaySeqs = new Map()))
+    const pane = {
+      ...applyProtocolEvent(base, event, this.now(), displaySeqs),
+      revision: ++state.revision,
+      stateSeq: ++nextStateSeq,
+    }
     state.agents.set(pane.paneId, pane)
     const changed: AgentMonitorEvent = {
       type: 'agent_status_changed',

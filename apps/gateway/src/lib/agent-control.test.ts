@@ -148,6 +148,68 @@ test('rejects invalid targets and empty conditions', async () => {
     (error: AgentWaitError) => error.code === 'INVALID_TARGET',
   )
 })
+test('ignores stale pre-wait state replays and resolves only on fresh changes', async () => {
+  const { control, emit } = createControl([
+    pane('local:%1', { agentStatus: 'idle', phase: 'idle', lastEvent: 'completed', stateSeq: 7 }),
+  ])
+  const promise = control.wait({ paneId: 'local:%1' }, { status: 'done' })
+  emit({
+    type: 'agent_status_snapshot',
+    initial: true,
+    hostId: 'local',
+    revision: 1,
+    agents: [pane('local:%1', { agentStatus: 'done', phase: 'idle', lastEvent: 'completed', stateSeq: 5 })],
+    eventId: 'snap1',
+  })
+  emit({
+    type: 'agent_status_changed',
+    initial: false,
+    hostId: 'local',
+    sessionName: 'dev',
+    pane: pane('local:%1', {
+      agentStatus: 'done',
+      phase: 'idle',
+      lastEvent: 'completed',
+      stateSeq: 7,
+      eventId: 'stale',
+      revision: 2,
+    }),
+    eventId: 'stale',
+  })
+  assert.equal(control.activeWaitCount(), 1)
+  emit({
+    type: 'agent_status_changed',
+    initial: false,
+    hostId: 'local',
+    sessionName: 'dev',
+    pane: pane('local:%1', {
+      agentStatus: 'done',
+      phase: 'idle',
+      lastEvent: 'completed',
+      stateSeq: 8,
+      eventId: 'fresh',
+      revision: 3,
+    }),
+    eventId: 'fresh',
+  })
+  const result = await promise
+  assert.equal(result.pane.stateSeq, 8)
+  assert.equal(control.activeWaitCount(), 0)
+})
+test('still resolves on stateSeq-less panes when a wait baseline exists', async () => {
+  const { control, emit } = createControl([pane('local:%1', { stateSeq: 7 })])
+  const promise = control.wait({ paneId: 'local:%1' }, { status: 'done' })
+  emit({
+    type: 'agent_status_changed',
+    initial: false,
+    hostId: 'local',
+    sessionName: 'dev',
+    pane: pane('local:%1', { agentStatus: 'done', phase: 'idle', lastEvent: 'completed', eventId: 'e9', revision: 2 }),
+    eventId: 'e9',
+  })
+  await promise
+  assert.equal(control.activeWaitCount(), 0)
+})
 test('tracks active wait count and cleans up after resolution', async () => {
   const { control, emit } = createControl([pane('local:%1')])
   const promise = control.wait({ paneId: 'local:%1' }, { status: 'done' })
