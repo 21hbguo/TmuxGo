@@ -56,6 +56,11 @@ interface ViewClient {
   sessionId: string | null
   targetId: string | null
   send: (msg: Record<string, unknown>) => void
+  // 前端 tab 隐藏态：抑制 screencast 产帧与下发，session/页面照旧保活
+  paused: boolean
+  // 最近视口尺寸：暂停期间 resize 只更新记录，resume 重启 screencast 用它
+  viewW: number
+  viewH: number
 }
 
 const configDir = () => process.env.TMUXGO_CONFIG_DIR?.trim() || path.join(os.homedir(), '.tmuxgo')
@@ -650,7 +655,7 @@ export class BrowserInstance extends EventEmitter {
   // ---- 前端 view client：一个 WS 客户端挂一条 page session，帧只发给它 ----
 
   async addClient(send: ViewClient['send']): Promise<ViewClient> {
-    const client: ViewClient = { sessionId: null, targetId: null, send }
+    const client: ViewClient = { sessionId: null, targetId: null, send, paused: false, viewW: 1280, viewH: 800 }
     this.clients.add(client)
     send({ type: 'status', state: this.state, error: this.error ?? undefined })
     send({ type: 'targets', targets: [...this.targets.values()], activeTargetId: this.activeTargetId })
@@ -669,8 +674,9 @@ export class BrowserInstance extends EventEmitter {
         sessionId: number
         metadata?: { deviceWidth?: number; deviceHeight?: number }
       }
-      client.send({ type: 'frame', data: p.data, width: p.metadata?.deviceWidth, height: p.metadata?.deviceHeight })
-      // screencast 每帧必须 ack，否则 Chrome 停止发帧
+      // 暂停期到达的在途帧照常 ack（否则 Chrome 停帧）但不下发
+      if (!client.paused)
+        client.send({ type: 'frame', data: p.data, width: p.metadata?.deviceWidth, height: p.metadata?.deviceHeight })
       void this.cmd('Page.screencastFrameAck', { sessionId: p.sessionId }, sid)
     })
     this.onSessionEvent(sid, 'Page.frameNavigated', (params) => {
@@ -683,10 +689,11 @@ export class BrowserInstance extends EventEmitter {
       }
     })
     await this.cmd('Page.enable', {}, sid)
-    await this.startScreencast(client)
+    // 暂停中的 client 重绑（换 tab/页面销毁补绑）不恢复推流
+    if (!client.paused) await this.startScreencast(client)
   }
 
-  private async startScreencast(client: ViewClient, width = 1280, height = 800) {
+  private async startScreencast(client: ViewClient, width = client.viewW, height = client.viewH) {
     if (!client.sessionId) return
     await this.cmd(
       'Page.startScreencast',
@@ -737,17 +744,42 @@ export class BrowserInstance extends EventEmitter {
   }
 
   async clientResize(client: ViewClient, width: number, height: number) {
-    if (!client.sessionId) return
     const w = Math.max(200, Math.min(3840, Math.floor(width)))
     const h = Math.max(200, Math.min(2160, Math.floor(height)))
+    client.viewW = w
+    client.viewH = h
+    if (!client.sessionId) return
     await this.cmd(
       'Emulation.setDeviceMetricsOverride',
       { width: w, height: h, deviceScaleFactor: 1, mobile: false },
       client.sessionId,
     ).catch(() => {})
-    // 尺寸变化后重启 screencast，让 maxWidth/maxHeight 跟上新画布
+    // 尺寸变化后重启 screencast，让 maxWidth/maxHeight 跟上新画布；暂停期只记尺寸不动流
+    if (client.paused) return
     await this.cmd('Page.stopScreencast', {}, client.sessionId).catch(() => {})
-    await this.startScreencast(client, w, h)
+    await this.startScreencast(client)
+  }
+
+  // tab 隐藏/恢复：只停/起该 client 的 screencast，session 与浏览器进程不动；
+  // 恢复时抓一张静态帧立刻下发——screencast 首帧要等页面下次重绘才有
+  async clientPause(client: ViewClient, paused: boolean) {
+    if (client.paused === paused) return
+    client.paused = paused
+    const sid = client.sessionId
+    if (!sid) return
+    if (paused) {
+      await this.cmd('Page.stopScreencast', {}, sid).catch(() => {})
+      return
+    }
+    await this.startScreencast(client)
+    // resume 串行含多个 await：期间可能又被暂停或换绑新 session（另一页）。
+    // 检查当前性：暂停了不发，session 变了这张旧页截图更不能下发
+    const stillCurrent = () => !client.paused && client.sessionId === sid
+    if (!stillCurrent()) return
+    const shot = (await this.cmd('Page.captureScreenshot', { format: 'jpeg', quality: SCREENCAST_QUALITY }, sid).catch(
+      () => null,
+    )) as { data?: string } | null
+    if (stillCurrent() && shot?.data) client.send({ type: 'frame', data: shot.data })
   }
 
   async clientTab(client: ViewClient, msg: { action: string; url?: string; targetId?: string }) {

@@ -1101,7 +1101,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         </div>
       )}
       {activeBrowser && (
-        // 同 DesktopView 保活模式：minimized 用 visibility 隐藏不卸载，WS/screencast 不断流
+        // 同 DesktopView 保活模式：minimized 用 visibility 隐藏不卸载，WS 不断但画面流暂停
         <div
           className={`fixed inset-0 z-[85] ${
             activeBrowser.minimized ? 'invisible' : activeBrowser.view === 'window' ? 'pointer-events-none' : 'bg-bg-0'
@@ -1112,6 +1112,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
             <BrowserView
               hostId={activeBrowser.hostId}
               view={activeBrowser.view}
+              minimized={activeBrowser.minimized}
               onViewChange={(view) => useConsoleStore.getState().setBrowserView(view)}
               onMinimize={() => useConsoleStore.getState().setBrowserMinimized(true)}
               onClose={() => {

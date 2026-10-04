@@ -62,12 +62,14 @@ export function normalizeBrowserAddress(raw: string) {
 interface BrowserViewProps {
   hostId: string
   view: DesktopViewMode
+  // 应用内面板最小化（页面仍可见）：暂停画面流但保留 WS/session
+  minimized?: boolean
   onViewChange: (view: DesktopViewMode) => void
   onMinimize: () => void
   onClose: () => void
 }
 
-export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }: BrowserViewProps) {
+export function BrowserView({ hostId, view, minimized = false, onViewChange, onMinimize, onClose }: BrowserViewProps) {
   const { t } = useTranslation()
   const pushToast = useConsoleStore((state) => state.pushToast)
   const sectionRef = useRef<HTMLElement | null>(null)
@@ -95,8 +97,11 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
   const moveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastMoveAtRef = useRef(0)
   const pressedButtonRef = useRef(0)
-  const hiddenRef = useRef(typeof document !== 'undefined' && document.hidden)
-  const wasActiveRef = useRef(true)
+  // 画面流暂停态：面板最小化或文档隐藏即停推。want 记录目标态，sent 记录已向当前
+  // socket 推送的态——重连后服务端 client 重置为非暂停，sentPausedRef 必须在 onopen 归零
+  const minimizedRef = useRef(minimized)
+  minimizedRef.current = minimized
+  const sentPausedRef = useRef(false)
   // pick 去抖/归属：seq 作废迟到的响应（取消/重发），targetRef 记发起时的 tab 供 cancel 指认
   const pickSeqRef = useRef(0)
   const pickTargetRef = useRef<string | null>(null)
@@ -130,6 +135,15 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
     const ws = wsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg))
   }, [])
+
+  // 目标暂停态 = 面板最小化或文档隐藏；状态无变化或 ws 未 OPEN 时不发（onopen 统一补发）
+  const pushPauseState = useCallback(() => {
+    const want = minimizedRef.current || document.hidden
+    if (sentPausedRef.current === want) return
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return
+    sentPausedRef.current = want
+    send({ type: want ? 'pause' : 'resume' })
+  }, [send])
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
@@ -210,6 +224,10 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
       // 断线期画布尺寸照常记录：open 后补发 resize，远端按当前画布排版
       const { w, h } = viewSizeRef.current
       if (w >= MIN_VIEW_SIZE && h >= MIN_VIEW_SIZE) send({ type: 'resize', width: w, height: h })
+      // 新 socket = 服务端新 client（默认非暂停）：本地记录归零后补发当前目标态，
+      // 覆盖"暂停期间重连/隐藏中连上"的竞态
+      sentPausedRef.current = false
+      pushPauseState()
     }
     ws.onmessage = (event) => {
       if (connectSeqRef.current !== seq) return
@@ -271,7 +289,7 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
     }
     // error 细节拿不到有效信息，统一由 close 走重连
     ws.onerror = () => {}
-  }, [clearReconnectTimer, clearReadyCheck, drawFrame, scheduleReconnect, send])
+  }, [clearReconnectTimer, clearReadyCheck, drawFrame, pushPauseState, scheduleReconnect, send])
   connectRef.current = () => void connect()
 
   // 本地立即复位；服务端挂起的 pick 由 cancel 端点收尾，其迟到响应被 seq 守卫丢弃
@@ -399,25 +417,19 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
       if (pickingRef.current) void api.browser.pickCancel(pickTargetRef.current ?? undefined).catch(() => {})
     }
   }, [connect, clearReconnectTimer, clearReadyCheck])
-  // 浏览器 tab 隐藏即断流：回前台若之前在连则自动恢复（与 DesktopView 同策略）
+  // tab 隐藏或面板最小化只暂停画面流不断 WS：浏览器实例/tab/session 全部保活；
+  // 恢复续流（服务端补一帧）。隐藏期间掉线的由这里补连——scheduleReconnect 在 hidden 下会跳过
   useEffect(() => {
     const onVisibility = () => {
-      if (document.hidden) {
-        hiddenRef.current = true
-        wasActiveRef.current = wsRef.current !== null
-        connectSeqRef.current += 1
-        clearReconnectTimer()
-        wsRef.current?.close()
-        wsRef.current = null
-        setWsState('closed')
-      } else if (hiddenRef.current) {
-        hiddenRef.current = false
-        if (wasActiveRef.current) void connect()
-      }
+      pushPauseState()
+      if (!document.hidden && !wsRef.current) void connect()
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
-  }, [connect, clearReconnectTimer])
+  }, [connect, pushPauseState])
+  useEffect(() => {
+    pushPauseState()
+  }, [minimized, pushPauseState])
 
   // 拾取态绑定发起时的 target：切 tab/断线/引擎退出后结果已无意义，兜底取消让按钮复位
   useEffect(() => {
