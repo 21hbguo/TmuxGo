@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { prepareTmuxSocketDir, tmuxSocketPath, tmuxTestEnv } from './tmux-isolation'
 const root = process.cwd()
 let configDir = ''
 let frontendDist = ''
@@ -73,7 +74,7 @@ async function cleanup() {
   cleaned = true
   await stop(gateway)
   if (tmuxDir)
-    await run('tmux', ['kill-server'], { cwd: root, env: { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir } }).catch(
+    await run('tmux', ['-S', tmuxSocketPath(tmuxDir), 'kill-server'], { cwd: root, env: tmuxTestEnv(tmuxDir) }).catch(
       () => undefined,
     )
   // gateway 停止后仍可能延迟写入 configDir，rm 需重试避免 ENOTEMPTY 假失败
@@ -92,6 +93,7 @@ async function main() {
   configDir = await mkdtemp(join(tmpdir(), 'tmuxgo-auth-e2e-'))
   frontendDist = await mkdtemp(join(tmpdir(), 'tmuxgo-auth-e2e-frontend-'))
   tmuxDir = await mkdtemp(join(tmpdir(), 'tmuxgo-auth-e2e-tmux-'))
+  prepareTmuxSocketDir(tmuxDir)
   try {
     const apiPort = await port()
     const apiUrl = `http://127.0.0.1:${apiPort}`
@@ -113,7 +115,12 @@ async function main() {
     // tmux/gateway 用空 HOME，避免用户 ~/.tmux.conf 的失效选项让隔离 server 起在 config-error 屏
     const tmuxEnv = { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir, HOME: configDir }
     // 真实 tmux 行为测试只允许操作隔离 server 上名为 test 的 session（AGENTS.md）
-    if ((await run('tmux', ['new-session', '-d', '-s', 'test'], { cwd: root, env: tmuxEnv })) !== 0)
+    if (
+      (await run('tmux', ['-S', tmuxSocketPath(tmuxDir), 'new-session', '-d', '-s', 'test'], {
+        cwd: root,
+        env: tmuxEnv,
+      })) !== 0
+    )
       throw new Error('Authentication E2E tmux startup failed')
     const gatewayEnv = {
       ...process.env,

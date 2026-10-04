@@ -5,6 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { prepareTmuxSocketDir, tmuxSocketPath, tmuxTestEnv } from './tmux-isolation'
 import WebSocket from 'ws'
 import { stripTerminalControlSequences } from '../apps/gateway/src/lib/terminal-output.ts'
 
@@ -183,7 +184,7 @@ async function cleanup() {
   await stop(agent)
   await stop(gateway)
   if (tmuxDir)
-    await run('tmux', ['kill-server'], { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir }).catch(() => undefined)
+    await run('tmux', ['-S', tmuxSocketPath(tmuxDir), 'kill-server'], tmuxTestEnv(tmuxDir)).catch(() => undefined)
   if (configDir) await rm(configDir, { recursive: true, force: true })
   if (tmuxDir) await rm(tmuxDir, { recursive: true, force: true })
 }
@@ -191,6 +192,7 @@ async function main() {
   assertSupportedNode()
   configDir = await mkdtemp(join(tmpdir(), 'tmuxgo-agent-e2e-'))
   tmuxDir = await mkdtemp(join(tmpdir(), 'tmuxgo-agent-e2e-tmux-'))
+  prepareTmuxSocketDir(tmuxDir)
   try {
     const apiPort = await port()
     const apiUrl = `http://127.0.0.1:${apiPort}`
@@ -200,7 +202,7 @@ async function main() {
     const tmuxEnv = { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir, HOME: configDir }
     // 真实 tmux 行为测试只允许操作隔离 server 上名为 test 的 session（AGENTS.md）
     // pane 固定跑 sh：空 HOME 下 zsh 会起 newuser-install 向导吞掉输入，且 sh 无 rc 文件依赖
-    if ((await run('tmux', ['new-session', '-d', '-s', 'test', 'sh'], tmuxEnv)) !== 0)
+    if ((await run('tmux', ['-S', tmuxSocketPath(tmuxDir), 'new-session', '-d', '-s', 'test', 'sh'], tmuxEnv)) !== 0)
       throw new Error('Agent E2E tmux startup failed')
     gateway = startGateway(tsxBin, apiPort, tmuxEnv)
     await waitFor(`${apiUrl}/health`, gateway)

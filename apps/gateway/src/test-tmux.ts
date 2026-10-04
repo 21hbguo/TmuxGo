@@ -4,6 +4,7 @@
 // 本模块的文件排进串行组——共享同一 session，跨文件并发会互踩 window/pane
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { join } from 'node:path'
 
 // 硬约束：必须经由根目录 pnpm test（run-tests.ts）跑——它设独立 TMUX_TMPDIR
 // 并置 TMUXGO_TEST_TMUX_ISOLATED 标记。直接 tsx --test / vitest 本文件会
@@ -15,7 +16,16 @@ if (!process.env.TMUXGO_TEST_TMUX_ISOLATED) {
 }
 
 export const TEST_TMUX_SESSION = 'test'
-export const execTmuxFile = promisify(execFile)
+const execFileAsync = promisify(execFile)
+function isolatedTmuxArgs(args: string[]) {
+  const tmuxDir = process.env.TMUX_TMPDIR
+  const uid = typeof process.getuid === 'function' ? process.getuid() : 0
+  if (!tmuxDir) throw new Error('TMUX_TMPDIR is required for isolated tmux tests')
+  return ['-S', join(tmuxDir, `tmux-${uid}`, 'default'), ...args]
+}
+// 统一显式 socket；即便调用方错误继承 TMUX，也不能把测试命令路由到用户 server。
+export const execTmuxFile = (file: string, args: string[]) =>
+  execFileAsync(file, file === 'tmux' ? isolatedTmuxArgs(args) : args)
 
 // tmux may accept new-session before the detached pane is ready to process keys.
 // Retry only the transient startup error; other failures stay fatal.

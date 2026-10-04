@@ -58,6 +58,7 @@ export function validateAgentPrompt(prompt: string) {
   if (Buffer.byteLength(prompt, 'utf8') > maxPromptBytes)
     throw new AgentActionError('INVALID_ARGUMENT', `prompt exceeds ${maxPromptBytes} bytes`)
   // NUL/控制字符进 send-keys 会破坏输入流；\n \t 保留（多行输入合法）
+  // eslint-disable-next-line no-control-regex -- 这里正是要拒绝控制字符
   if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(prompt))
     throw new AgentActionError('INVALID_ARGUMENT', 'prompt contains disallowed control characters')
 }

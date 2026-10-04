@@ -1,9 +1,17 @@
 import '../test-env.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { AgentControl, AgentWaitError, resolveAgentWaitTarget } from './agent-control.js'
+import {
+  AgentControl,
+  AgentWaitError,
+  resolveAgentWaitTarget,
+  runAgentPaneInput,
+  snapshotAgentPane,
+  waitAgentPaneOutput,
+} from './agent-control.js'
 import type { AgentPaneState } from './agent-state.js'
 import type { AgentMonitorEvent } from './agent-monitor.js'
+import type { RecoveryPaneInspection } from './agent-recovery.js'
 
 function pane(paneId: string, overrides: Partial<AgentPaneState> = {}): AgentPaneState {
   return {
@@ -224,4 +232,168 @@ test('tracks active wait count and cleans up after resolution', async () => {
   })
   await promise
   assert.equal(control.activeWaitCount(), 0)
+})
+
+// ---- Task9：snapshot / wait-output / run（exec/inspect 全注入，不触真实 tmux） ----
+type ExecCalls = { args: string[] }[]
+function fakeExec(handler: (args: string[]) => string | Error) {
+  const calls: ExecCalls = []
+  const exec = async (_host: string, args: string[]) => {
+    calls.push({ args })
+    const out = handler(args)
+    if (out instanceof Error) throw out
+    return { stdout: out }
+  }
+  return { exec, calls }
+}
+const snapshotRow = '%1\ttest\t0\t1\tzsh\tmy title\t/repo\t0\t0\t80\t24\t1'
+test('snapshot returns capped structured fields and bounded tail', async () => {
+  const long = 'x'.repeat(500)
+  const { exec } = fakeExec((args) => (args[0] === 'display-message' ? snapshotRow : `line1\n${long}\nline3\n`))
+  const snapshot = await snapshotAgentPane('local', '%1', 50, exec)
+  assert.equal(snapshot.paneId, 'local:%1')
+  assert.equal(snapshot.command, 'zsh')
+  assert.equal(snapshot.title, 'my title')
+  assert.equal(snapshot.cwd, '/repo')
+  assert.deepEqual(snapshot.size, { cols: 80, rows: 24 })
+  assert.equal(snapshot.dead, false)
+  assert.equal(snapshot.tail.length, 3)
+  // 行长封顶 200、行数按请求上限截取
+  assert.equal(snapshot.tail[1].length, 200)
+  const capped = await snapshotAgentPane('local', '%1', 1, exec)
+  assert.deepEqual(capped.tail, ['line3'])
+})
+test('snapshot tail enforces the total size cap', async () => {
+  const lines = Array.from({ length: 100 }, (_, i) => `line-${i}-${'y'.repeat(190)}`).join('\n')
+  const { exec } = fakeExec((args) => (args[0] === 'display-message' ? snapshotRow : lines))
+  const snapshot = await snapshotAgentPane('local', '%1', 100, exec)
+  assert.ok(snapshot.tail.join('\n').length <= 8192)
+  assert.ok(snapshot.tail[snapshot.tail.length - 1].startsWith('line-99'))
+})
+test('snapshot maps a missing pane to PANE_MISSING', async () => {
+  const { exec } = fakeExec(() => new Error('no such pane'))
+  await assert.rejects(snapshotAgentPane('local', '%99', 12, exec), (e: AgentWaitError) => e.code === 'PANE_MISSING')
+})
+test('wait-output resolves on literal and regex matches', async () => {
+  const noDelay = () => Promise.resolve()
+  const lit = fakeExec((args) => (args[0] === 'display-message' ? 'zsh\t0' : 'prompt$ ok\n'))
+  const litResult = await waitAgentPaneOutput('local', '%1', { match: 'ok', exec: lit.exec, sleep: noDelay })
+  assert.equal(litResult.matched, true)
+  assert.equal(litResult.elapsedMs, 0)
+  const re = fakeExec((args) => (args[0] === 'display-message' ? 'zsh\t0' : 'exit code 42\n'))
+  const reResult = await waitAgentPaneOutput('local', '%1', {
+    match: 'code \\d+',
+    regex: true,
+    exec: re.exec,
+    sleep: noDelay,
+  })
+  assert.equal(reResult.matched, true)
+  await assert.rejects(
+    waitAgentPaneOutput('local', '%1', { match: '([', regex: true, exec: lit.exec, sleep: noDelay }),
+    (e: AgentWaitError) => e.code === 'INVALID_PATTERN',
+  )
+})
+test('wait-output resolves on output change and reports elapsed', async () => {
+  let tick = 0
+  const exec = fakeExec((args) => {
+    if (args[0] === 'display-message') return 'zsh\t0'
+    tick += 1
+    return tick === 1 ? 'stable\n' : 'stable\nnew output\n'
+  })
+  let now = 1000
+  const result = await waitAgentPaneOutput('local', '%1', {
+    exec: exec.exec,
+    sleep: async () => {
+      now += 300
+    },
+    now: () => now,
+  })
+  assert.equal(result.changed, true)
+  assert.ok(result.output.includes('new output'))
+})
+test('wait-output fails TIMEOUT, PANE_REMOVED and OCCUPANT_CHANGED explicably', async () => {
+  const noDelay = () => Promise.resolve()
+  const staticOut = fakeExec((args) => (args[0] === 'display-message' ? 'zsh\t0' : 'same\n'))
+  await assert.rejects(
+    waitAgentPaneOutput('local', '%1', { match: 'never', timeoutMs: 260, exec: staticOut.exec, sleep: noDelay }),
+    (e: AgentWaitError) => e.code === 'TIMEOUT',
+  )
+  let step = 0
+  const gone = fakeExec((args) => {
+    step += 1
+    if (step > 2) return new Error('pane gone')
+    return args[0] === 'display-message' ? 'zsh\t0' : 'x\n'
+  })
+  await assert.rejects(
+    waitAgentPaneOutput('local', '%1', { match: 'zzz', timeoutMs: 30000, exec: gone.exec, sleep: noDelay }),
+    (e: AgentWaitError) => e.code === 'PANE_REMOVED',
+  )
+  let poll = 0
+  const swapped = fakeExec((args) => {
+    poll += 1
+    if (args[0] === 'display-message') return poll <= 2 ? 'zsh\t0' : 'vim\t0'
+    return 'unchanged\n'
+  })
+  await assert.rejects(
+    waitAgentPaneOutput('local', '%1', { match: 'zzz', timeoutMs: 30000, exec: swapped.exec, sleep: noDelay }),
+    (e: AgentWaitError) => e.code === 'OCCUPANT_CHANGED',
+  )
+})
+const inspectAs = (state: RecoveryPaneInspection['state'], command = 'zsh'): RecoveryPaneInspection =>
+  state === 'missing' ? { state } : { state, command, cwd: '/repo', target: 'test:0.1' }
+test('run rejects control-char input and unconfirmed occupied panes', async () => {
+  const { exec, calls } = fakeExec(() => '')
+  const shellInspect = async () => inspectAs('shell')
+  for (const bad of ['echo\x00hi', 'line1\nline2', 'a\rb', 'esc\x1b[', '']) {
+    await assert.rejects(
+      runAgentPaneInput('local', '%1', { text: bad, exec, inspect: shellInspect }),
+      (e: AgentWaitError) => e.code === 'INVALID_INPUT',
+      JSON.stringify(bad),
+    )
+  }
+  assert.equal(calls.length, 0)
+  const occupiedInspect = async () => inspectAs('occupied', 'vim')
+  await assert.rejects(
+    runAgentPaneInput('local', '%1', { text: 'q', exec, inspect: occupiedInspect }),
+    (e: AgentWaitError) => e.code === 'PANE_OCCUPIED',
+  )
+})
+test('run maps pane states to codes and sends literal keys + Enter', async () => {
+  const { exec, calls } = fakeExec(() => '')
+  for (const [state, code] of [
+    ['missing', 'PANE_MISSING'],
+    ['dead', 'PANE_DEAD'],
+    ['in_mode', 'PANE_IN_MODE'],
+  ] as const) {
+    await assert.rejects(
+      runAgentPaneInput('local', '%1', { text: 'ls', exec, inspect: async () => inspectAs(state) }),
+      (e: AgentWaitError) => e.code === code,
+    )
+  }
+  const result = await runAgentPaneInput('local', '%1', {
+    text: 'echo hi',
+    exec,
+    inspect: async () => inspectAs('shell'),
+  })
+  assert.equal(result.target, 'test:0.1')
+  // 字面 -l + 坐标 target；Enter 独立下发，杜绝 key-name 解析注入
+  assert.deepEqual(
+    calls.map((c) => c.args),
+    [
+      ['send-keys', '-l', '-t', 'test:0.1', 'echo hi'],
+      ['send-keys', '-t', 'test:0.1', 'Enter'],
+    ],
+  )
+  calls.length = 0
+  await runAgentPaneInput('local', '%1', {
+    text: 'y',
+    enter: false,
+    allowOccupied: true,
+    exec,
+    inspect: async () => inspectAs('occupied', 'cat'),
+  })
+  assert.deepEqual(
+    calls.map((c) => c.args),
+    [['send-keys', '-l', '-t', 'test:0.1', 'y']],
+  )
 })

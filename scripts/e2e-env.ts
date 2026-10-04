@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { prepareTmuxSocketDir, tmuxSocketPath, tmuxTestEnv } from './tmux-isolation'
 
 export interface E2EEnvironment {
   root: string
@@ -91,6 +92,7 @@ export async function bootstrapE2E(root: string): Promise<E2EEnvironment> {
   const configDir = await mkdtemp(join(tmpdir(), 'tmuxgo-e2e-'))
   const frontendDist = await mkdtemp(join(tmpdir(), 'tmuxgo-e2e-frontend-'))
   const tmuxDir = await mkdtemp(join(tmpdir(), 'tmuxgo-e2e-tmux-'))
+  prepareTmuxSocketDir(tmuxDir)
   let gateway: ChildProcess | undefined
   let cleaned = false
   const cleanup = async () => {
@@ -98,7 +100,7 @@ export async function bootstrapE2E(root: string): Promise<E2EEnvironment> {
     cleaned = true
     await stop(gateway)
     if (tmuxDir)
-      await run('tmux', ['kill-server'], { cwd: root, env: { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir } }).catch(
+      await run('tmux', ['-S', tmuxSocketPath(tmuxDir), 'kill-server'], { cwd: root, env: tmuxTestEnv(tmuxDir) }).catch(
         () => undefined,
       )
     // gateway 停止后仍可能延迟写入 configDir，rm 需重试避免 ENOTEMPTY 假失败
@@ -131,7 +133,12 @@ export async function bootstrapE2E(root: string): Promise<E2EEnvironment> {
       })) !== 0
     )
       throw new Error('E2E frontend build failed')
-    if ((await run('tmux', ['new-session', '-d', '-s', 'test'], { cwd: root, env: tmuxEnv })) !== 0)
+    if (
+      (await run('tmux', ['-S', tmuxSocketPath(tmuxDir), 'new-session', '-d', '-s', 'test'], {
+        cwd: root,
+        env: tmuxEnv,
+      })) !== 0
+    )
       throw new Error('E2E tmux startup failed')
     gateway = spawn(tsxBin, ['apps/gateway/src/index.ts'], {
       cwd: root,
