@@ -78,6 +78,7 @@ vi.mock('@/i18n', () => ({
       if (key === 'agent.status.idle') return '空闲'
       if (key === 'agent.status.working') return '工作中'
       if (key === 'agent.status.blocked') return '等待处理'
+      if (key === 'agent.status.done') return 'Done'
       if (key === 'drawer.sessionName') return 'Session name:'
       if (key === 'drawer.renamePrompt') return 'Rename session:'
       if (key === 'common.cancel') return 'Cancel'
@@ -477,6 +478,90 @@ describe('SessionPanel session actions', () => {
     ]
     render(<SessionPanel />)
     expect(screen.getByText('empty')).toBeInTheDocument()
+  })
+  it('rolls session agent summaries up to workspace groups by attention', () => {
+    workspacesState.data = [
+      {
+        id: 'ws-1',
+        name: 'tmuxgo',
+        hostId: 'local',
+        path: '/workspace/tmuxgo',
+        rootId: 'root-workspace',
+        rootPath: '/workspace',
+        rootLabel: 'workspace',
+        relativePath: 'tmuxgo',
+        templateId: null,
+        createdAt: '',
+        updatedAt: '',
+      },
+      {
+        id: 'ws-2',
+        name: 'other',
+        hostId: 'local',
+        path: '/workspace/other',
+        rootId: 'root-workspace',
+        rootPath: '/workspace',
+        rootLabel: 'workspace',
+        relativePath: 'other',
+        templateId: null,
+        createdAt: '',
+        updatedAt: '',
+      },
+    ]
+    sessionWorkspacesState.data = [
+      {
+        sessionId: 'session-dev',
+        hostId: 'local',
+        workspaceId: 'ws-1',
+        workspacePath: '/workspace/tmuxgo',
+        rootId: 'root-workspace',
+        rootPath: '/workspace',
+        rootLabel: 'workspace',
+        relativePath: 'tmuxgo',
+        updatedAt: '',
+      },
+      {
+        sessionId: 'session-next',
+        hostId: 'local',
+        workspaceId: 'ws-2',
+        workspacePath: '/workspace/other',
+        rootId: 'root-workspace',
+        rootPath: '/workspace',
+        rootLabel: 'workspace',
+        relativePath: 'other',
+        updatedAt: '',
+      },
+    ]
+    orderedSessionQueryState.data = [
+      {
+        id: 'session-dev',
+        name: 'dev',
+        windowCount: 1,
+        agentSummary: { idle: 1, working: 1, blocked: 0, done: 0, unknown: 0, total: 2 },
+      },
+      {
+        id: 'session-next',
+        name: 'next',
+        windowCount: 1,
+        agentSummary: { idle: 0, working: 0, blocked: 1, done: 0, unknown: 0, total: 1 },
+      },
+      {
+        id: 'session-loose',
+        name: 'loose',
+        windowCount: 1,
+        agentSummary: { idle: 0, working: 0, blocked: 0, done: 1, unknown: 0, total: 1 },
+      },
+    ]
+    render(<SessionPanel />)
+    // ws-2(blocked) 注意力排序先于 ws-1(working)
+    expect(
+      screen.getByText('next').compareDocumentPosition(screen.getByText('dev')) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    const otherHeader = screen.getByText('other').parentElement as HTMLElement
+    expect(within(otherHeader).getByTitle('等待处理')).toBeInTheDocument()
+    // 未分类组同样产出 rollup 徽标
+    const unclassifiedHeader = screen.getByText('workspace.unclassified').parentElement as HTMLElement
+    expect(within(unclassifiedHeader).getByTitle('Done')).toBeInTheDocument()
   })
   it('switches to the selected workspace session', () => {
     workspacesState.data = [

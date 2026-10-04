@@ -50,7 +50,8 @@ import {
 } from './SessionSortableList'
 import { HostSwitcher } from './HostSwitcher'
 import { AgentStatusBadge } from './AgentStatusBadge'
-import type { AgentStatus, Session, WorkspaceEntry } from '@/types'
+import { getAgentAttentionRank, mergeAgentSummaries } from '@/lib/agent-status'
+import type { AgentStatus, AgentSummary, Session, WorkspaceEntry } from '@/types'
 import { ModalPortal } from './ModalPortal'
 import { api } from '@/lib/api'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
@@ -371,12 +372,19 @@ export function SessionPanel() {
       list.push(session)
       groups.set(key, list)
     }
-    const result: { key: string; workspace: WorkspaceEntry | null; sessions: Session[] }[] = []
+    const rollup = (groupSessions: Session[]) =>
+      mergeAgentSummaries(groupSessions.map((session) => session.agentSummary))
+    const result: { key: string; workspace: WorkspaceEntry | null; sessions: Session[]; agentSummary: AgentSummary }[] =
+      []
     for (const workspace of hostWorkspaces) {
-      result.push({ key: workspace.id, workspace, sessions: groups.get(workspace.id) || [] })
+      const groupSessions = groups.get(workspace.id) || []
+      result.push({ key: workspace.id, workspace, sessions: groupSessions, agentSummary: rollup(groupSessions) })
     }
+    // 注意力排序：rank 越小越靠前，同档保持 workspace 原序；未分类是兜底组固定沉底
+    result.sort((a, b) => getAgentAttentionRank(a.agentSummary) - getAgentAttentionRank(b.agentSummary))
     const unclassified = groups.get('')
-    if (unclassified?.length) result.push({ key: '', workspace: null, sessions: unclassified })
+    if (unclassified?.length)
+      result.push({ key: '', workspace: null, sessions: unclassified, agentSummary: rollup(unclassified) })
     return result
   }, [sessions, hostWorkspaces, sessionWorkspaces])
   const currentWorkspace =
@@ -405,7 +413,8 @@ export function SessionPanel() {
       const ids = dragPreview[group.key] || []
       return { ...group, sessions: ids.length ? orderByIds(sessions, ids) : [] }
     })
-    if (!list.some((group) => group.key === '')) list.push({ key: '', workspace: null, sessions: [] })
+    if (!list.some((group) => group.key === ''))
+      list.push({ key: '', workspace: null, sessions: [], agentSummary: mergeAgentSummaries([]) })
     return list
   }, [dragPreview, workspaceGroups, sessions])
   const dragSession = sessions.find((item) => item.id === dragSessionId) || null
@@ -520,10 +529,11 @@ export function SessionPanel() {
   // sticky 需要列表容器作包含块，不能再套只包组头的中间层），这里只产出内部内容
   const groupHeaderClassName =
     'group sticky top-0 z-10 relative flex items-center gap-1 border-b border-[var(--line)] bg-bg-0/95 px-2 py-1 backdrop-blur'
-  const renderGroupHeader = (workspace: WorkspaceEntry | null, count: number) =>
+  const renderGroupHeader = (workspace: WorkspaceEntry | null, count: number, agentSummary: AgentSummary) =>
     workspace ? (
       <>
         <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text-1">{workspace.name}</span>
+        <AgentStatusBadge summary={agentSummary} compact />
         <span className="text-meta text-text-3">{count}</span>
         {!batchMode && (
           <button
@@ -582,6 +592,7 @@ export function SessionPanel() {
     ) : (
       <>
         <span className="min-w-0 flex-1 truncate text-xs text-text-3">{t('workspace.unclassified')}</span>
+        <AgentStatusBadge summary={agentSummary} compact />
         <span className="text-meta text-text-3">{count}</span>
         {!batchMode && (
           <button
@@ -679,6 +690,10 @@ export function SessionPanel() {
                         <span className="block truncate font-medium">{workspace.name}</span>
                         <span className="block truncate font-mono text-caption text-text-3">{workspace.path}</span>
                       </span>
+                      <AgentStatusBadge
+                        summary={workspaceGroups.find((group) => group.key === workspace.id)?.agentSummary}
+                        compact
+                      />
                       {currentWorkspace?.id === workspace.id && (
                         <FiCheck aria-hidden="true" className="shrink-0 text-accent" size={14} />
                       )}
@@ -759,10 +774,10 @@ export function SessionPanel() {
                 listClassName="min-h-full"
                 getItemClassName={sessionItemClassName}
                 renderItem={renderSessionItem}
-                groups={displayedGroups.map(({ key, workspace, sessions: groupSessions }) => ({
+                groups={displayedGroups.map(({ key, workspace, sessions: groupSessions, agentSummary }) => ({
                   key,
                   sessions: groupSessions,
-                  header: renderGroupHeader(workspace, groupSessions.length),
+                  header: renderGroupHeader(workspace, groupSessions.length, agentSummary),
                   headerClassName: groupHeaderClassName,
                 }))}
               />
