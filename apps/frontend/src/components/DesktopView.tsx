@@ -14,9 +14,11 @@ import {
   FiMinus,
   FiMonitor,
   FiMoreHorizontal,
+  FiMousePointer,
   FiPlay,
   FiSliders,
   FiSquare,
+  FiTablet,
   FiTool,
   FiType,
   FiX,
@@ -45,6 +47,7 @@ import {
 } from '@/lib/vnc-tuning'
 import { getVncWebSocketBase } from '@/lib/runtime-endpoints'
 import { attachVncClipboardSync } from '@/lib/vnc-clipboard'
+import { attachVncTouchAdapter, type VncTouchMode } from '@/lib/vnc-touch-gestures'
 import { isImeKeyEvent } from '@/lib/terminal-platform'
 import { useConsoleStore, type DesktopViewMode } from '@/stores/useConsoleStore'
 import { useEscapeClose } from '@/hooks/useEscapeClose'
@@ -63,7 +66,18 @@ const MOBILE_KEYSYM: Record<string, number> = {
   Tab: 0xff09,
   Escape: 0xff1b,
   Delete: 0xffff,
+  ArrowLeft: 0xff51,
+  ArrowUp: 0xff52,
+  ArrowRight: 0xff53,
+  ArrowDown: 0xff54,
 }
+// 移动键盘条上的修饰键：锁定后保持按下，再次点击才抬起；普通按键趁按住期间发出即完成组合
+const MOBILE_MODIFIERS = [
+  { id: 'ctrl', label: 'Ctrl', keysym: 0xffe3, code: 'ControlLeft' },
+  { id: 'alt', label: 'Alt', keysym: 0xffe9, code: 'AltLeft' },
+  { id: 'shift', label: 'Shift', keysym: 0xffe1, code: 'ShiftLeft' },
+] as const
+type MobileModifier = (typeof MOBILE_MODIFIERS)[number]['id']
 
 type VncStatus = 'idle' | 'connecting' | 'connected' | 'disconnected'
 
@@ -210,7 +224,19 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
   )
   const [rotateHintDismissed, setRotateHintDismissed] = useState(false)
   const [mobileKeyboardOpen, setMobileKeyboardOpen] = useState(false)
+  const mobileKeyboardOpenRef = useRef(mobileKeyboardOpen)
+  mobileKeyboardOpenRef.current = mobileKeyboardOpen
   const keyboardInputRef = useRef<HTMLInputElement>(null)
+  // 移动触控模式：trackpad=屏幕鼠标(相对位移) / touch=触摸屏(绝对映射)，持久化默认 trackpad
+  const [touchMode, setTouchMode] = useState<VncTouchMode>(() =>
+    localStorage.getItem('tmuxgo:vnc-touch-mode') === 'touch' ? 'touch' : 'trackpad',
+  )
+  const touchModeRef = useRef(touchMode)
+  touchModeRef.current = touchMode
+  // 键盘条修饰键锁存态：按住期间普通按键自动组合
+  const [lockedMods, setLockedMods] = useState<ReadonlySet<MobileModifier>>(new Set())
+  // 移动端虚拟指针指示器：noVNC 触屏 cursor 挂在 body，全屏子树外会被裁掉，故自绘
+  const pointerIndicatorRef = useRef<HTMLDivElement>(null)
   // 我们主动 lock 过横屏才在卸载/断开时 unlock，避免动用户原本的系统方向锁
   const orientationLockedRef = useRef(false)
   // 底层 WS 关闭码/原因：RFB 的 disconnect 事件不带这些，单独捕获用于错误提示
@@ -231,6 +257,8 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
   const tRef = useRef(t)
   viewOnlyRef.current = viewOnly
   tRef.current = t
+  const isMobileLayoutRef = useRef(isMobileLayout)
+  isMobileLayoutRef.current = isMobileLayout
 
   // 连接落空（拒连/超时）时探测真实在跑的虚拟屏：有别的屏在跑就展开选择器指路，避免默认端口扑空无从下手
   const suggestDisplays = useCallback(
@@ -502,8 +530,9 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
   )
   const enterLandscapeFullscreen = () => {
     setRotateHintDismissed(true)
-    // Android Chrome 要先 fullscreen 才能 lock；iOS Safari 两 API 都没有，失败静默只当提示
-    containerRef.current
+    // Android Chrome 要先 fullscreen 才能 lock；iOS Safari 两 API 都没有，失败静默只当提示。
+    // 全屏对象是 section 根而非 canvas 容器：指示器/键盘输入/工具栏都必须在 fullscreen 子树内
+    sectionRef.current
       ?.requestFullscreen?.()
       .then(() => {
         // lock 在部分 TS DOM lib / iOS Safari 缺席：可选调用+失败静默
@@ -531,11 +560,74 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
     rfbRef.current?.sendKey(keysym, code, true)
     rfbRef.current?.sendKey(keysym, code, false)
   }
-  // 非受控 input + inputType 分支：IME 组字整串提交也逐字符发，Backspace 在 keydown 已拦故不会重复
+  // 修饰键锁存：点一下按下保持（组合后续按键），再点抬起；锁态只活在键盘条打开期间
+  const toggleMobileModifier = (mod: MobileModifier) => {
+    const def = MOBILE_MODIFIERS.find((m) => m.id === mod)!
+    const next = new Set(lockedMods)
+    const down = !next.has(mod)
+    if (down) next.add(mod)
+    else next.delete(mod)
+    setLockedMods(next)
+    rfbRef.current?.sendKey(def.keysym, def.code, down)
+  }
+  // 收条前必须放掉全部锁存修饰键，否则远端修饰键卡死在按下态
+  const releaseMobileModifiers = () => {
+    for (const m of MOBILE_MODIFIERS) {
+      if (lockedMods.has(m.id)) rfbRef.current?.sendKey(m.keysym, m.code, false)
+    }
+    setLockedMods(new Set())
+  }
+  const closeMobileKeyboard = () => {
+    releaseMobileModifiers()
+    // 收条即放掉 input 焦点并把键盘还给 canvas：两通路互斥，任一时刻只有一条生效
+    keyboardInputRef.current?.blur()
+    containerRef.current?.querySelector('canvas')?.focus()
+    setMobileKeyboardOpen(false)
+  }
+  // IME 组合态与提交去重：组合中间态一律不发，compositionend 发最终串并记档，
+  // 防部分浏览器随后补同内容 input 事件二次发送；无 composition 事件的怪癖软键盘
+  // （部分安卓）连发 insertCompositionText 前缀串，按前后差量只发新增尾部
+  const kbComposingRef = useRef(false)
+  const kbCommittedRef = useRef<string | null>(null)
+  const kbUncommittedRef = useRef('')
+  const sendMobileText = (text: string) => {
+    for (const ch of text) sendMobileKey(keysymForChar(ch))
+  }
+  const handleKeyboardCompositionStart = () => {
+    kbComposingRef.current = true
+    kbUncommittedRef.current = ''
+  }
+  const handleKeyboardCompositionEnd = (event: React.CompositionEvent<HTMLInputElement>) => {
+    kbComposingRef.current = false
+    const data = (event.nativeEvent as CompositionEvent).data
+    if (!data) return
+    sendMobileText(data)
+    kbCommittedRef.current = data
+  }
+  // 单一发送链路：组合更新不发，提交只发一次，insertText 逐次发，删除键不重复
   const handleKeyboardNativeInput = (event: React.FormEvent<HTMLInputElement>) => {
     const ev = event.nativeEvent as InputEvent
-    if ((ev.inputType === 'insertText' || ev.inputType === 'insertCompositionText') && ev.data) {
-      for (const ch of ev.data) sendMobileKey(keysymForChar(ch))
+    if (ev.isComposing || kbComposingRef.current) return
+    const committed = kbCommittedRef.current
+    kbCommittedRef.current = null
+    if (ev.inputType === 'insertCompositionText') {
+      const data = ev.data ?? ''
+      if (data === committed) return
+      const prev = kbUncommittedRef.current
+      const delta = data.startsWith(prev) ? data.slice(prev.length) : data
+      kbUncommittedRef.current = data
+      sendMobileText(delta)
+      return
+    }
+    kbUncommittedRef.current = ''
+    if (
+      (ev.inputType === 'insertText' ||
+        ev.inputType === 'insertFromComposition' ||
+        ev.inputType === 'insertFromPaste') &&
+      ev.data
+    ) {
+      if (ev.data === committed) return
+      sendMobileText(ev.data)
     } else if (ev.inputType === 'deleteContentBackward') {
       sendMobileKey(MOBILE_KEYSYM.Backspace, 'Backspace')
     } else if (ev.inputType === 'deleteContentForward') {
@@ -549,18 +641,17 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
     if (keysym === undefined) return
     event.preventDefault()
     sendMobileKey(keysym, event.key)
-    if (event.key === 'Escape') setMobileKeyboardOpen(false)
+    if (event.key === 'Escape') closeMobileKeyboard()
   }
   // 输入条存在期间失焦即收回；开/关条都不动 rfb 连接
   const toggleMobileKeyboard = () => {
-    setMobileKeyboardOpen((open) => {
-      const next = !open
-      if (next) {
-        if (keyboardInputRef.current) keyboardInputRef.current.value = ''
-        setTimeout(() => keyboardInputRef.current?.focus(), 0)
-      }
-      return next
-    })
+    if (mobileKeyboardOpen) {
+      closeMobileKeyboard()
+      return
+    }
+    setMobileKeyboardOpen(true)
+    if (keyboardInputRef.current) keyboardInputRef.current.value = ''
+    setTimeout(() => keyboardInputRef.current?.focus(), 0)
   }
 
   useEffect(() => {
@@ -602,6 +693,13 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
       /* 同上 */
     }
   }, [showStats])
+  useEffect(() => {
+    try {
+      localStorage.setItem('tmuxgo:vnc-touch-mode', touchMode)
+    } catch {
+      /* 同上 */
+    }
+  }, [touchMode])
   // 统计采样：1s 出 fps/带宽，2s 一次 gateway RTT；仅连接中且开关打开时跑
   useEffect(() => {
     if (!showStats || status !== 'connected') return
@@ -672,6 +770,53 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
       clipboardSyncRef.current = null
       sync.dispose()
     }
+  }, [])
+  // 移动端触控手势接管：capture 阶段拦容器触点自译，noVNC 自带手势层收不到事件；
+  // sendPointer 按 mask 分流——与 _mouseButtonMask 相同走 _handleMouseMove（有节流），
+  // 不同走 _handleMouseButton（同步内部掩码并先冲刷待发移动，保证拖拽中按钮态不丢）
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const adapter = attachVncTouchAdapter(container, {
+      // viewOnly 直接不接管：事件落回 noVNC 自带手势层，其 _sendMouse 内部再挡一次，
+      // 双保险确保仅查看模式下移动端触点不会发出任何 pointer 事件
+      active: () => isMobileLayoutRef.current && rfbRef.current !== null && !viewOnlyRef.current,
+      mode: () => touchModeRef.current,
+      canvas: () => container.querySelector('canvas'),
+      cursor: () => (rfbRef.current as unknown as { _mousePos?: { x: number; y: number } } | null)?._mousePos ?? null,
+      sendPointer: (x, y, mask) => {
+        const rfb = rfbRef.current as unknown as {
+          _mouseButtonMask: number
+          _handleMouseMove: (x: number, y: number) => void
+          _handleMouseButton: (x: number, y: number, mask: number) => void
+        } | null
+        if (!rfb) return
+        if (mask === rfb._mouseButtonMask) rfb._handleMouseMove(x, y)
+        else rfb._handleMouseButton(x, y, mask)
+      },
+      moveCursor: (x, y) => {
+        // 继续同步 noVNC 原生 cursor（body 侧，非全屏时仍显示远端光标形状），不破坏原行为
+        ;(rfbRef.current as unknown as { _cursor?: { move: (x: number, y: number) => void } } | null)?._cursor?.move(
+          x,
+          y,
+        )
+        // 同步容器内指示器：client 坐标换算成容器相对坐标，全屏/普通窗口都可见
+        const indicator = pointerIndicatorRef.current
+        const host = indicator?.parentElement
+        if (!indicator || !host) return
+        const r = host.getBoundingClientRect()
+        indicator.style.transform = `translate(${x - r.left}px, ${y - r.top}px) translate(-50%, -50%)`
+        indicator.style.opacity = '1'
+      },
+      // 单指 tap 完成 → 焦点还给 canvas：适配层 stopPropagation 拦掉了 noVNC 原生
+      // focusCanvas，这里恢复其键盘链路（canvas 不可编辑，focus 不弹系统键盘）。
+      // 键盘条开着时保持 input 独占，不抢焦
+      onTap: () => {
+        if (mobileKeyboardOpenRef.current) return
+        containerRef.current?.querySelector('canvas')?.focus()
+      },
+    })
+    return () => adapter.dispose()
   }, [])
 
   const submitCredentials = () => {
@@ -946,6 +1091,18 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
           <Button
             variant="ghost"
             size="icon-sm"
+            onClick={() => setTouchMode((mode) => (mode === 'trackpad' ? 'touch' : 'trackpad'))}
+            aria-label={`${t('vnc.touchMode')}: ${t(`vnc.touchMode.${touchMode}`)}`}
+            data-tip={`${t('vnc.touchMode')}: ${t(`vnc.touchMode.${touchMode}`)}`}
+            className="tmuxgo-tip"
+          >
+            {touchMode === 'trackpad' ? <FiMousePointer size={14} /> : <FiTablet size={14} />}
+          </Button>
+        )}
+        {isMobileLayout && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
             onClick={toggleMobileKeyboard}
             disabled={status !== 'connected' || viewOnly}
             aria-label={t('vnc.mobileKeyboard')}
@@ -1146,7 +1303,21 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
         </Button>
       </header>
       <div className="relative min-h-0 flex-1 bg-black">
-        <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
+        {/* touch-action:none 禁浏览器默认手势（滚动/双指缩放），配合 capture 拦截自译触控 */}
+        <div ref={containerRef} className="absolute inset-0 overflow-hidden" style={{ touchAction: 'none' }} />
+        {isMobileLayout && status === 'connected' && (
+          // 全屏安全的指针指示器：挂在 fullscreen 子树内，白边+黑描边保证深浅背景对比度
+          <div
+            ref={pointerIndicatorRef}
+            data-vnc-pointer
+            className="pointer-events-none absolute left-0 top-0 z-10 h-4 w-4 rounded-full opacity-0 transition-opacity"
+            style={{
+              border: '2px solid #fff',
+              background: 'rgba(255, 255, 255, 0.25)',
+              boxShadow: '0 0 0 2px rgba(0, 0, 0, 0.85), 0 0 6px rgba(0, 0, 0, 0.5)',
+            }}
+          />
+        )}
         {isMobileLayout && isPortrait && status === 'connected' && !rotateHintDismissed && (
           <div className="tmuxgo-glass absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-apple-lg px-3 py-1.5 text-xs text-text-1">
             <span>{t('vnc.rotateHint')}</span>
@@ -1167,42 +1338,112 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
             </button>
           </div>
         )}
-        {isMobileLayout && mobileKeyboardOpen && status === 'connected' && (
+        {isMobileLayout && status === 'connected' && (
+          // 常驻挂载的键盘通路：input 不随键盘条开合卸载，避免焦点随卸载丢失；
+          // 与 canvas 的 noVNC Keyboard 互斥——任一时刻只有焦点所在那条生效，不会重复发键。
           // 虚拟键盘顶起时画布被压缩：bottom 跟随 --mobile-keyboard-inset（与 MobileNav 同一变量）
           <div
-            className="tmuxgo-glass absolute inset-x-2 z-20 flex items-center gap-1.5 rounded-apple-lg p-1.5"
+            className={`absolute inset-x-2 z-20 ${mobileKeyboardOpen ? 'tmuxgo-glass flex flex-col gap-1.5 rounded-apple-lg p-1.5' : 'pointer-events-none'}`}
             style={{ bottom: 'calc(8px + var(--mobile-keyboard-inset, 0px))' }}
           >
-            <input
-              ref={keyboardInputRef}
-              onInput={handleKeyboardNativeInput}
-              onKeyDown={handleKeyboardKeyDown}
-              onBlur={() => setMobileKeyboardOpen(false)}
-              autoFocus
-              autoCapitalize="off"
-              autoCorrect="off"
-              autoComplete="off"
-              aria-label={t('vnc.mobileKeyboard')}
-              placeholder={t('vnc.mobileKeyboardPlaceholder')}
-              className="h-8 min-w-0 flex-1 rounded-apple border border-[var(--line)] bg-bg-1 px-2 text-xs text-text-1 outline-none focus:border-accent"
-            />
-            <button
-              type="button"
-              // mousedown 抢在 input blur 前：否则失焦先收条，点击丢失
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => sendMobileKey(MOBILE_KEYSYM.Enter, 'Enter')}
-              className="h-8 shrink-0 rounded-apple bg-accent/15 px-2.5 text-xs text-accent"
-            >
-              Enter
-            </button>
-            <button
-              type="button"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => setMobileKeyboardOpen(false)}
-              className="h-8 shrink-0 rounded-apple px-2.5 text-xs text-text-2"
-            >
-              {t('common.close')}
-            </button>
+            {/* 特殊键行：横向滚动不挤压输入行；pointerdown 抢在 input blur 前防收条 */}
+            {mobileKeyboardOpen && (
+              <div className="flex items-center gap-1 overflow-x-auto">
+                {(
+                  [
+                    { label: 'Esc', keysym: MOBILE_KEYSYM.Escape, code: 'Escape' },
+                    { label: 'Tab', keysym: MOBILE_KEYSYM.Tab, code: 'Tab' },
+                  ] as const
+                ).map((k) => (
+                  <button
+                    key={k.code}
+                    type="button"
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={() => sendMobileKey(k.keysym, k.code)}
+                    className="h-7 shrink-0 rounded-apple border border-[var(--line)] bg-bg-1 px-2 text-caption text-text-2"
+                  >
+                    {k.label}
+                  </button>
+                ))}
+                {MOBILE_MODIFIERS.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={() => toggleMobileModifier(m.id)}
+                    aria-pressed={lockedMods.has(m.id)}
+                    className={`h-7 shrink-0 rounded-apple border px-2 text-caption ${
+                      lockedMods.has(m.id)
+                        ? 'border-accent bg-accent/15 text-accent'
+                        : 'border-[var(--line)] bg-bg-1 text-text-2'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+                {(
+                  [
+                    { label: '⌫', aria: 'Backspace', keysym: MOBILE_KEYSYM.Backspace, code: 'Backspace' },
+                    { label: 'Del', aria: 'Delete', keysym: MOBILE_KEYSYM.Delete, code: 'Delete' },
+                    { label: '←', aria: 'ArrowLeft', keysym: MOBILE_KEYSYM.ArrowLeft, code: 'ArrowLeft' },
+                    { label: '↑', aria: 'ArrowUp', keysym: MOBILE_KEYSYM.ArrowUp, code: 'ArrowUp' },
+                    { label: '↓', aria: 'ArrowDown', keysym: MOBILE_KEYSYM.ArrowDown, code: 'ArrowDown' },
+                    { label: '→', aria: 'ArrowRight', keysym: MOBILE_KEYSYM.ArrowRight, code: 'ArrowRight' },
+                  ] as const
+                ).map((k) => (
+                  <button
+                    key={k.code}
+                    type="button"
+                    aria-label={k.aria}
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={() => sendMobileKey(k.keysym, k.code)}
+                    className="h-7 shrink-0 rounded-apple border border-[var(--line)] bg-bg-1 px-2 text-caption text-text-2"
+                  >
+                    {k.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className={`flex items-center gap-1.5 ${mobileKeyboardOpen ? '' : 'h-0 overflow-hidden opacity-0'}`}>
+              <input
+                ref={keyboardInputRef}
+                onInput={handleKeyboardNativeInput}
+                onKeyDown={handleKeyboardKeyDown}
+                onCompositionStart={handleKeyboardCompositionStart}
+                onCompositionEnd={handleKeyboardCompositionEnd}
+                onBlur={closeMobileKeyboard}
+                autoCapitalize="off"
+                autoCorrect="off"
+                autoComplete="off"
+                aria-label={t('vnc.mobileKeyboard')}
+                placeholder={t('vnc.mobileKeyboardPlaceholder')}
+                className={
+                  mobileKeyboardOpen
+                    ? 'h-8 min-w-0 flex-1 rounded-apple border border-[var(--line)] bg-bg-1 px-2 text-xs text-text-1 outline-none focus:border-accent'
+                    : 'h-px w-px'
+                }
+              />
+              {mobileKeyboardOpen && (
+                <>
+                  <button
+                    type="button"
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={() => sendMobileKey(MOBILE_KEYSYM.Enter, 'Enter')}
+                    className="h-8 shrink-0 rounded-apple bg-accent/15 px-2.5 text-xs text-accent"
+                  >
+                    Enter
+                  </button>
+                  <button
+                    type="button"
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={closeMobileKeyboard}
+                    className="h-8 shrink-0 rounded-apple px-2.5 text-xs text-text-2"
+                  >
+                    {t('common.close')}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         )}
         {showStats && status === 'connected' && (

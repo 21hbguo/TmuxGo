@@ -87,8 +87,24 @@ vi.mock('@/i18n', () => ({
 const drawImage = vi.fn()
 const lastWs = () => MockWebSocket.instances[MockWebSocket.instances.length - 1]
 const sentMsgs = (ws: MockWebSocket) => ws.sent.map((raw) => JSON.parse(raw))
-const renderView = () =>
-  render(<BrowserView hostId="local" view="full" onViewChange={vi.fn()} onMinimize={vi.fn()} onClose={vi.fn()} />)
+const renderView = (minimized = false) =>
+  render(
+    <BrowserView
+      hostId="local"
+      view="full"
+      minimized={minimized}
+      onViewChange={vi.fn()}
+      onMinimize={vi.fn()}
+      onClose={vi.fn()}
+    />,
+  )
+const viewProps = () => ({
+  hostId: 'local',
+  view: 'full' as const,
+  onViewChange: vi.fn(),
+  onMinimize: vi.fn(),
+  onClose: vi.fn(),
+})
 const openWs = async () => {
   await waitFor(() => expect(lastWs()).toBeTruthy())
   await act(async () => {
@@ -357,6 +373,91 @@ describe('BrowserView', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('pauses the frame stream on tab hide and resumes without dropping the socket', async () => {
+    const setHidden = (v: boolean) => Object.defineProperty(document, 'hidden', { configurable: true, value: v })
+    try {
+      const ws = await renderReady()
+      setHidden(true)
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'))
+      })
+      // WS 不断、不重连：只发 pause 控制消息，连接态不显示断开
+      expect(sentMsgs(ws)).toContainEqual({ type: 'pause' })
+      expect(ws.readyState).toBe(MockWebSocket.OPEN)
+      expect(MockWebSocket.instances.length).toBe(1)
+      expect(screen.queryByText('browser.disconnected')).toBeNull()
+      setHidden(false)
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'))
+      })
+      expect(sentMsgs(ws)).toContainEqual({ type: 'resume' })
+      expect(MockWebSocket.instances.length).toBe(1)
+    } finally {
+      setHidden(false)
+    }
+  })
+
+  it('reconnects on resume if the socket dropped while hidden', async () => {
+    const setHidden = (v: boolean) => Object.defineProperty(document, 'hidden', { configurable: true, value: v })
+    try {
+      const ws = await renderReady()
+      setHidden(true)
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'))
+      })
+      await act(async () => {
+        ws.drop()
+      })
+      // scheduleReconnect 在 hidden 下不触发 connect；回前台才补连
+      await act(async () => {
+        await Promise.resolve()
+      })
+      expect(MockWebSocket.instances.length).toBe(1)
+      setHidden(false)
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'))
+      })
+      await waitFor(() => expect(MockWebSocket.instances.length).toBeGreaterThan(1))
+    } finally {
+      setHidden(false)
+    }
+  })
+
+  it('pauses the stream on pane minimize and resumes on restore (same socket)', async () => {
+    const props = viewProps()
+    const { rerender } = render(<BrowserView {...props} minimized={false} />)
+    await openWs()
+    await act(async () => {
+      lastWs().message({ type: 'status', state: 'ready' })
+      lastWs().message({ type: 'frame', data: 'eXt==', width: 1600, height: 1200 })
+    })
+    const ws = lastWs()
+    // 面板最小化：页面仍可见、document.hidden=false，但流必须暂停
+    act(() => rerender(<BrowserView {...props} minimized={true} />))
+    expect(sentMsgs(ws)).toContainEqual({ type: 'pause' })
+    expect(ws.readyState).toBe(MockWebSocket.OPEN)
+    expect(MockWebSocket.instances.length).toBe(1)
+    act(() => rerender(<BrowserView {...props} minimized={false} />))
+    expect(sentMsgs(ws)).toContainEqual({ type: 'resume' })
+    expect(MockWebSocket.instances.length).toBe(1)
+  })
+
+  it('stays paused when the document becomes visible while still minimized', async () => {
+    const props = viewProps()
+    const { rerender } = render(<BrowserView {...props} minimized={true} />)
+    await openWs()
+    const ws = lastWs()
+    // 最小化态连上的 socket：open 即补发 pause（服务端新 client 默认非暂停）
+    expect(sentMsgs(ws)).toContainEqual({ type: 'pause' })
+    // 文档可见性变化不得误发 resume：目标态仍 = 暂停
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(sentMsgs(ws).filter((m) => m.type === 'resume')).toHaveLength(0)
+    act(() => rerender(<BrowserView {...props} minimized={false} />))
+    expect(sentMsgs(ws)).toContainEqual({ type: 'resume' })
   })
 
   it('disables the pick button until the engine is ready', async () => {

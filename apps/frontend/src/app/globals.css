@@ -872,6 +872,13 @@ a {
   touch-action: pan-x;
 }
 
+/* compact 密度（桌面底栏替换 StatusBar 用）：栏高对齐 footer h-7，按键收成 ~20px */
+[data-shortcut-bar][data-density='compact'] .tmuxgo-keycap,
+[data-shortcut-bar][data-density='compact'] .tmuxgo-chip {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
 .scrollbar-none {
   -ms-overflow-style: none;
   scrollbar-width: none;

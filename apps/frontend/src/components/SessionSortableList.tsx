@@ -119,8 +119,13 @@ export function SessionGroupDropZone({
   className?: string
 }) {
   const { setNodeRef, isOver } = useDroppable({ id })
+  // isOver 用 inset ring 而非纯 bg 染色：组头自身带 bg-bg-0/95，同优先级 bg 工具类
+  // 层叠顺序不稳，ring 走 box-shadow 必定可见
   return (
-    <div ref={setNodeRef} className={`${className ?? ''} ${isOver ? 'bg-accent/5' : ''}`}>
+    <div
+      ref={setNodeRef}
+      className={`${className ?? ''} ${isOver ? 'bg-accent/5 ring-1 ring-inset ring-accent/50' : ''}`}
+    >
       {children}
     </div>
   )
@@ -137,7 +142,7 @@ export function SessionGroupedSortableList({
   getItemClassName,
   renderItem,
 }: {
-  groups: { key: string; header: ReactNode; sessions: Session[] }[]
+  groups: { key: string; header: ReactNode; sessions: Session[]; headerClassName?: string }[]
   listClassName?: string
   getItemClassName?: (args: GetClassNameArgs) => string
   renderItem: (args: RenderSessionArgs) => ReactNode
@@ -149,11 +154,15 @@ export function SessionGroupedSortableList({
     <SortableContext items={flatIds} strategy={verticalListSortingStrategy}>
       <div className={listClassName}>
         {groups.flatMap((group) => [
-          // 每组仅一个 group:key droppable 挂在组头上；空组加底部留白保证可落点
+          // 每组仅一个 group:key droppable。组头样式落在 dropzone 自身（不套内层 div）：
+          // 扁平兄弟约束下 sticky 的包含块 = 整个列表，多个组头钉在 top-0 同一位置、
+          // DOM 顺序后者盖前者 → 「当前组头钉顶」。若包一层只装组头的 div，sticky
+          // 活动范围被压成 0。空组的 pb-5 只在拖拽激活时出现——平时是落点留白需求
+          // 不存在，常驻会渲染出无底线收口的死空白。
           <SessionGroupDropZone
             key={`group-drop:${group.key || 'unclassified'}`}
             id={`group:${group.key}`}
-            className={group.sessions.length === 0 ? 'pb-5' : undefined}
+            className={`${group.headerClassName ?? ''} ${group.sessions.length === 0 && activeId ? 'pb-5' : ''}`.trim()}
           >
             {group.header}
           </SessionGroupDropZone>,

@@ -55,7 +55,7 @@ import { ModalPortal } from './ModalPortal'
 import { api } from '@/lib/api'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
 import { WorkspaceDirectoryPicker, type WorkspaceDirectoryTarget } from './WorkspaceDirectoryPicker'
-import { FiCheck, FiChevronDown, FiFolder, FiFolderPlus } from 'react-icons/fi'
+import { FiCheck, FiChevronDown, FiCommand, FiFolder, FiFolderPlus } from 'react-icons/fi'
 
 function getNextSessionId(sessions: { id: string }[], removedIds: string[]) {
   const removed = new Set(removedIds)
@@ -95,7 +95,7 @@ export function SessionPanel() {
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false)
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false)
   const workspaceMenuRef = useRef<HTMLDivElement>(null)
-  const { preferences } = usePreferences()
+  const { preferences, updatePreferences } = usePreferences()
   const { t } = useTranslation()
   const { prompt, PromptElement } = usePrompt()
   const [showTemplates, setShowTemplates] = useState(false)
@@ -516,9 +516,13 @@ export function SessionPanel() {
       )}
     </div>
   )
+  // 组头容器样式直接落在 SessionGroupDropZone 上（见 SessionGroupedSortableList 注释：
+  // sticky 需要列表容器作包含块，不能再套只包组头的中间层），这里只产出内部内容
+  const groupHeaderClassName =
+    'group sticky top-0 z-10 relative flex items-center gap-1 border-b border-[var(--line)] bg-bg-0/95 px-2 py-1 backdrop-blur'
   const renderGroupHeader = (workspace: WorkspaceEntry | null, count: number) =>
     workspace ? (
-      <div className="group sticky top-0 z-10 relative flex items-center gap-1 border-b border-[var(--line)] bg-bg-0/95 px-2 py-1 backdrop-blur">
+      <>
         <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text-1">{workspace.name}</span>
         <span className="text-meta text-text-3">{count}</span>
         {!batchMode && (
@@ -574,9 +578,9 @@ export function SessionPanel() {
             ))}
           </div>
         )}
-      </div>
+      </>
     ) : (
-      <div className="group sticky top-0 z-10 relative flex items-center gap-1 border-b border-[var(--line)] bg-bg-0/95 px-2 py-1 backdrop-blur">
+      <>
         <span className="min-w-0 flex-1 truncate text-xs text-text-3">{t('workspace.unclassified')}</span>
         <span className="text-meta text-text-3">{count}</span>
         {!batchMode && (
@@ -589,7 +593,7 @@ export function SessionPanel() {
             ＋
           </button>
         )}
-      </div>
+      </>
     )
   const handleNewSession = () => {
     if (!activeHostId) return
@@ -759,6 +763,7 @@ export function SessionPanel() {
                   key,
                   sessions: groupSessions,
                   header: renderGroupHeader(workspace, groupSessions.length),
+                  headerClassName: groupHeaderClassName,
                 }))}
               />
               <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.22,1,0.36,1)' }}>
@@ -773,7 +778,20 @@ export function SessionPanel() {
         </div>
         {preferences.showQuickActions && (
           <div className="border-t border-[var(--line)] p-3">
-            <div className="mb-2 text-caption uppercase tracking-[0.18em] text-text-3">{t('sidebar.quickActions')}</div>
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-caption uppercase tracking-[0.18em] text-text-3">{t('sidebar.quickActions')}</div>
+              {/* 桌面端快捷键栏开关：开启后 dock 栏占用底部状态栏位置，见 ConsoleLayout */}
+              <button
+                type="button"
+                onClick={() => updatePreferences({ showShortcutBar: !preferences.showShortcutBar })}
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-apple transition-colors ${preferences.showShortcutBar ? 'bg-accent/15 text-accent' : 'text-text-3 hover:bg-accent/15 hover:text-accent'}`}
+                aria-label={t('shortcut.toggleDock')}
+                aria-pressed={preferences.showShortcutBar}
+                title={t('shortcut.toggleDock')}
+              >
+                <FiCommand aria-hidden="true" size={13} />
+              </button>
+            </div>
             <QuickActions />
           </div>
         )}

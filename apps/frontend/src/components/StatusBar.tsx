@@ -11,6 +11,8 @@ import { subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { getNetStats } from '@/lib/net-stats'
 import { api, type NetTopResponse } from '@/lib/api'
 import { useStatusBarPrefs, STATUSBAR_ITEMS, type StatusBarItem } from '@/stores/useStatusBarPrefs'
+import { usePreferences } from '@/hooks/usePreferences'
+import { FiCommand } from 'react-icons/fi'
 
 const gb = (mb: number) => (mb / 1024).toFixed(1)
 const SESSION_SYNC_DELAY_MS = 15000
@@ -94,6 +96,7 @@ export function StatusBar() {
   const [showCustomize, setShowCustomize] = useState(false)
   const hidden = useStatusBarPrefs((s) => s.hidden)
   const toggleItem = useStatusBarPrefs((s) => s.toggle)
+  const { preferences, updatePreferences } = usePreferences()
   const vis = (key: StatusBarItem) => !hidden.includes(key)
   const [now, setNow] = useState(Date.now())
   const [agentMonitorErrorAt, setAgentMonitorErrorAt] = useState(0)
@@ -205,6 +208,17 @@ export function StatusBar() {
       {/* z-40：backdrop-filter 使 footer 成为层叠上下文且默认按 0 排序，终端的
           .xterm-helpers(z:5) 会盖住行内浮层，鼠标移向浮层时命中的是 xterm 触发 mouseleave */}
       <div className="relative flex h-full items-center justify-between gap-3">
+        {/* 与 SessionPanel 的 dock 开关同一偏好：状态栏与快捷键 dock 互斥占用底部栏位，h-6 不撑高 h-7 */}
+        <button
+          type="button"
+          onClick={() => updatePreferences({ showShortcutBar: !preferences.showShortcutBar })}
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-apple transition-colors ${preferences.showShortcutBar ? 'bg-accent/15 text-accent' : 'text-text-3 hover:bg-accent/15 hover:text-accent'}`}
+          aria-label={t('shortcut.toggleDock')}
+          aria-pressed={preferences.showShortcutBar}
+          title={t('shortcut.toggleDock')}
+        >
+          <FiCommand aria-hidden="true" size={13} />
+        </button>
         {vis('context') && (
           <section aria-label="Workspace context" className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
             {activePane && (
@@ -283,7 +297,13 @@ export function StatusBar() {
                         </div>
                       ) : !netTop.available ? (
                         <div className="flex h-6 items-center px-2 text-caption text-text-3">
-                          {t('status.netTopUnsupported')}
+                          {t(
+                            netTop.mode === 'nopy'
+                              ? 'status.netTopNoPython'
+                              : netTop.mode === 'nodiag'
+                                ? 'status.netTopNoDiag'
+                                : 'status.netTopUnsupported',
+                          )}
                         </div>
                       ) : netTop.processes.length === 0 ? (
                         <div className="flex h-6 items-center px-2 text-caption text-text-3">
@@ -300,7 +320,7 @@ export function StatusBar() {
                               {p.name}
                               <span className="text-text-3/60">:{p.pid}</span>
                             </span>
-                            <span className="shrink-0 text-text-2">{`↓${formatTraffic(p.rxQueue)} ↑${formatTraffic(p.txQueue)} · ${p.conns}`}</span>
+                            <span className="shrink-0 text-text-2">{`↓${formatTraffic(p.rxBps)}/s ↑${formatTraffic(p.txBps)}/s · ${p.conns}`}</span>
                           </div>
                         ))
                       )}
