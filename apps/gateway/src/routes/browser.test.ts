@@ -59,6 +59,37 @@ test('browser control endpoint accepts valid token + env and returns status', as
   assert.ok(['idle', 'launching', 'ready', 'error'].includes(body.state))
 })
 
+test('stream pause sent during addClient bind window is applied after bind', async (t) => {
+  const { app, port } = await setup()
+  t.after(() => app.close())
+  const inst = browserManager.get('local')!
+  // addClient 人为挂起，造出"ws 已 open 但 client 未落地"的窗口期
+  const origAdd = inst.addClient
+  const origPause = inst.clientPause
+  const pauses: boolean[] = []
+  let releaseAdd: (() => void) | null = null
+  inst.addClient = ((send: Parameters<typeof origAdd>[0]) =>
+    new Promise<void>((r) => (releaseAdd = r)).then(() => origAdd.call(inst, send))) as typeof inst.addClient
+  inst.clientPause = (async (c: Parameters<typeof origPause>[0], p: boolean) => {
+    pauses.push(p)
+    return origPause.call(inst, c, p)
+  }) as typeof inst.clientPause
+  try {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/api/browser/stream`)
+    await new Promise((r) => ws.addEventListener('open', r))
+    ws.send(JSON.stringify({ type: 'pause' }))
+    await new Promise((r) => setTimeout(r, 30))
+    assert.deepEqual(pauses, []) // 窗口期只记账，不下发
+    releaseAdd!()
+    await new Promise((r) => setTimeout(r, 50))
+    assert.deepEqual(pauses, [true]) // bind 落地后补应用
+    ws.close()
+  } finally {
+    inst.addClient = origAdd
+    inst.clientPause = origPause
+  }
+})
+
 test('browser full loop: launch → WS frames → navigate → snapshot → click', { timeout: 45000 }, async (t) => {
   if (!hasBrowser) return t.skip('no chromium binary found')
   const { app, port } = await setup()

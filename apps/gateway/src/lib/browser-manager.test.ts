@@ -124,3 +124,113 @@ test('cancelPick without active pick is a no-op eval', async () => {
   await inst.cancelPick('t1')
   assert.deepEqual(evals, ['window.__tgPickCleanup?.()'])
 })
+
+// view client 的 CDP 链路 stub：attach 给固定 session，cmd 记录调用；captureScreenshot 回静态帧
+function boundInst() {
+  const inst = new BrowserInstance()
+  inst.state = 'ready'
+  inst.activeTargetId = 't1'
+  const calls: { method: string; params: Record<string, unknown> }[] = []
+  inst.attach = async () => 'sid-1'
+  inst.detach = async () => {}
+  inst.cmd = ((method: string, params: Record<string, unknown> = {}) => {
+    calls.push({ method, params })
+    if (method === 'Page.captureScreenshot') return Promise.resolve({ data: 'SNAP' })
+    return Promise.resolve({})
+  }) as BrowserInstance['cmd']
+  return { inst, calls }
+}
+const frameHandlersOf = (inst: BrowserInstance) =>
+  (
+    inst as unknown as { sessionEventHandlers: Map<string, Map<string, Set<(p: unknown) => void>>> }
+  ).sessionEventHandlers
+    .get('sid-1')!
+    .get('Page.screencastFrame')!
+
+test('clientPause stops screencast without detaching; in-flight frames ack but not forward', async () => {
+  const { inst, calls } = boundInst()
+  const sent: Record<string, unknown>[] = []
+  const client = await inst.addClient((m) => sent.push(m))
+  assert.equal(client.sessionId, 'sid-1')
+  assert.equal(calls.filter((c) => c.method === 'Page.startScreencast').length, 1)
+
+  await inst.clientPause(client, true)
+  assert.equal(calls.filter((c) => c.method === 'Page.stopScreencast').length, 1)
+  assert.equal(client.sessionId, 'sid-1') // session 保活不 detach
+  sent.length = 0
+  for (const h of frameHandlersOf(inst)) {
+    h({ data: 'F', sessionId: 7, metadata: { deviceWidth: 1, deviceHeight: 1 } })
+  }
+  assert.equal(calls.filter((c) => c.method === 'Page.screencastFrameAck').length, 1)
+  assert.equal(sent.length, 0)
+
+  await inst.clientPause(client, false)
+  assert.equal(calls.filter((c) => c.method === 'Page.startScreencast').length, 2)
+  assert.ok(calls.some((c) => c.method === 'Page.captureScreenshot'))
+  assert.deepEqual(sent[0], { type: 'frame', data: 'SNAP' })
+})
+
+test('paused client does not restart screencast on rebind or resize; resume uses latest size', async () => {
+  const { inst, calls } = boundInst()
+  const client = await inst.addClient(() => {})
+  await inst.clientPause(client, true)
+  const starts = () => calls.filter((c) => c.method === 'Page.startScreencast').length
+  const n = starts()
+  // tab 切换/页面销毁补绑不恢复推流；resize 只记尺寸、更新布局、不动流
+  await inst.bindClient(client, 't1')
+  await inst.clientResize(client, 1024, 768)
+  assert.equal(starts(), n)
+  assert.ok(calls.some((c) => c.method === 'Emulation.setDeviceMetricsOverride'))
+
+  await inst.clientPause(client, false)
+  const last = calls.filter((c) => c.method === 'Page.startScreencast').pop()!
+  assert.deepEqual([last.params.maxWidth, last.params.maxHeight], [1024, 768])
+})
+
+// resume 的补帧链路含多个 await：attach 给可变 sessionId + captureScreenshot 挂起可控，
+// 用来造"恢复途中又暂停/换绑"的迟到帧竞态
+function deferredShotInst() {
+  const inst = new BrowserInstance()
+  inst.state = 'ready'
+  inst.activeTargetId = 't1'
+  let sidN = 0
+  let resolveShot: ((v: { data: string }) => void) | null = null
+  inst.attach = async () => `sid-${++sidN}`
+  inst.detach = async () => {}
+  inst.cmd = ((method: string) =>
+    method === 'Page.captureScreenshot'
+      ? new Promise<{ data: string }>((r) => {
+          resolveShot = r
+        })
+      : Promise.resolve({})) as BrowserInstance['cmd']
+  return { inst, resolveShot: (v: string) => resolveShot?.({ data: v }), hasShot: () => !!resolveShot }
+}
+
+test('resume snapshot frame is dropped when the client is re-paused mid-capture', async () => {
+  const { inst, resolveShot, hasShot } = deferredShotInst()
+  const sent: Record<string, unknown>[] = []
+  const client = await inst.addClient((m) => sent.push(m))
+  await inst.clientPause(client, true)
+  const resume = inst.clientPause(client, false)
+  await tick()
+  assert.ok(hasShot()) // 截图已在途
+  await inst.clientPause(client, true) // 截图未回又最小化
+  resolveShot('LATE')
+  await resume
+  assert.equal(sent.filter((m) => m.type === 'frame').length, 0)
+})
+
+test('resume snapshot frame is dropped when the client rebound to another session', async () => {
+  const { inst, resolveShot, hasShot } = deferredShotInst()
+  const sent: Record<string, unknown>[] = []
+  const client = await inst.addClient((m) => sent.push(m))
+  await inst.clientPause(client, true)
+  const resume = inst.clientPause(client, false)
+  await tick()
+  assert.ok(hasShot())
+  // 换绑新 session：旧页截图不得发回客户端
+  await inst.bindClient(client, 't1')
+  resolveShot('LATE')
+  await resume
+  assert.equal(sent.filter((m) => m.type === 'frame').length, 0)
+})
