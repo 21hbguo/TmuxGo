@@ -17,7 +17,7 @@ Only use these tools when running inside a TmuxGo pane:
 
 Base: `${GATEWAY_URL%/}/api/v1/control`
 
-薄客户端 `tmuxgo-ctl`（`apps/cli` 自带 bin）已封装以下三个操作：stdout 单行 JSON、退出码 0/1/2，适合脚本拼装；直接 curl 亦可，契约见 [PROTOCOL.md](PROTOCOL.md)。
+薄客户端 `tmuxgo-ctl`（`apps/cli` 自带 bin）已封装以下操作：stdout 单行 JSON、退出码 0/1/2，适合脚本拼装；直接 curl 亦可，契约见 [PROTOCOL.md](PROTOCOL.md)。`tmuxgo-ctl initialize` 做协议版本协商握手，`tmuxgo-ctl schema` 打印正式 JSON Schema（方法/参数/结果/错误码/版本/安全限制，与 `GET /api/v1/control/schema` 一致）。
 
 ```bash
 tmuxgo-ctl panes split --pane-id "local:${TMUX_PANE}" --direction horizontal

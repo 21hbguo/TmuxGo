@@ -21,6 +21,25 @@ function startMockGateway() {
   const requests: RecordedRequest[] = []
   const responses: Record<string, { status: number; body: unknown }> = {
     '/health': { status: 200, body: { status: 'ok', timestamp: '2026-01-01T00:00:00.000Z' } },
+    'POST /api/v1/control/initialize': {
+      status: 200,
+      body: {
+        ok: true,
+        protocolVersion: 'v1',
+        supportedVersions: ['v1'],
+        capabilities: ['initialize', 'schema', 'panes.split', 'agent.wait'],
+      },
+    },
+    'GET /api/v1/control/schema': {
+      status: 200,
+      body: {
+        $schema: 'https://json-schema.org/draft/2020-12/schema',
+        protocolVersion: 'v1',
+        supportedVersions: ['v1'],
+        basePath: '/api/v1/control',
+        methods: { 'panes.read': { http: 'POST', path: '/panes/read' } },
+      },
+    },
     '/api/v1/control/panes/split': { status: 200, body: { ok: true, paneId: 'local:%9' } },
     '/api/v1/control/panes/read': { status: 200, body: { ok: true, paneId: 'local:%0', output: 'line1\nline2' } },
     '/api/v1/control/panes/snapshot': {
@@ -51,7 +70,8 @@ function startMockGateway() {
         headers: req.headers,
         body: raw ? JSON.parse(raw) : undefined,
       })
-      const canned = responses[req.url || '']
+      // 兼容旧键（裸 url）与新键（'METHOD url'）：方法限定键优先，保证 GET/POST 同路径可区分
+      const canned = responses[`${req.method} ${req.url}`] || responses[req.url || '']
       if (!canned) {
         res.writeHead(404, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ message: 'Not found' }))
@@ -110,10 +130,42 @@ test('cli help/initialize contract', async (t) => {
   const init = await runCtl(['initialize'], { TMUXGO_GATEWAY_URL: gateway.url })
   assert.equal(init.status, 0, init.stderr)
   const initBody = stdoutJson(init)
-  assert.deepEqual(Object.keys(initBody).sort(), ['env', 'gateway', 'ok', 'protocolVersion'])
+  assert.deepEqual(Object.keys(initBody).sort(), [
+    'capabilities',
+    'env',
+    'gateway',
+    'ok',
+    'protocolVersion',
+    'supportedVersions',
+  ])
   assert.equal(initBody.ok, true)
   assert.equal(initBody.protocolVersion, 'v1')
+  assert.deepEqual(initBody.supportedVersions, ['v1'])
+  assert.ok(initBody.capabilities.includes('panes.split'))
   assert.equal(initBody.gateway.reachable, true)
+  // 协商请求把客户端版本带上
+  const initReq = gateway.requests.at(-1)!
+  assert.equal(initReq.url, '/api/v1/control/initialize')
+  assert.deepEqual(initReq.body, { protocolVersion: 'v1' })
+
+  // 旧 gateway 无协商端点（404）→ 退回 /health 探测，仍兼容初始化
+  delete gateway.responses['POST /api/v1/control/initialize']
+  const legacy = await runCtl(['initialize'], { TMUXGO_GATEWAY_URL: gateway.url })
+  assert.equal(legacy.status, 0, legacy.stderr)
+  assert.equal(stdoutJson(legacy).protocolVersion, 'v1')
+  assert.equal(stdoutJson(legacy).gateway.reachable, true)
+
+  // 协商被明确拒绝（版本不支持）→ exit 1，错误码透出
+  gateway.responses['POST /api/v1/control/initialize'] = {
+    status: 400,
+    body: { ok: false, code: 'UNSUPPORTED_PROTOCOL_VERSION', message: 'unsupported', supportedVersions: ['v2'] },
+  }
+  const rejected = await runCtl(['initialize'], { TMUXGO_GATEWAY_URL: gateway.url })
+  assert.equal(rejected.status, 1)
+  const rejectedBody = stdoutJson(rejected)
+  assert.equal(rejectedBody.code, 'UNSUPPORTED_PROTOCOL_VERSION')
+  assert.deepEqual(rejectedBody.supportedVersions, ['v2'])
+  assert.equal(rejectedBody.gateway.reachable, true)
 
   // gateway 不可达：ok=false、exit 1、stdout 仍是合法 JSON
   const down = await runCtl(['initialize'], { TMUXGO_GATEWAY_URL: 'http://127.0.0.1:1' })
@@ -121,6 +173,25 @@ test('cli help/initialize contract', async (t) => {
   const downBody = stdoutJson(down)
   assert.equal(downBody.ok, false)
   assert.equal(downBody.gateway.reachable, false)
+})
+
+test('cli schema prints the gateway-exported protocol document', async (t) => {
+  const gateway = await startMockGateway()
+  t.after(() => gateway.close())
+  const schema = await runCtl(['schema'], { TMUXGO_GATEWAY_URL: gateway.url })
+  assert.equal(schema.status, 0, schema.stderr)
+  const doc = stdoutJson(schema)
+  assert.equal(doc.protocolVersion, 'v1')
+  assert.equal(doc.basePath, '/api/v1/control')
+  assert.ok(doc.methods['panes.read'])
+  const req = gateway.requests.at(-1)!
+  assert.equal(req.method, 'GET')
+  assert.equal(req.headers['x-tmuxgo-agent-token'], 'ctl-secret')
+
+  // schema 同样吃 env/token 本地守卫
+  const noEnv = await runCtl(['schema'], { TMUXGO_ENV: '' })
+  assert.equal(noEnv.status, 2)
+  assert.equal(noEnv.stdout, '')
 })
 
 test('cli panes split/read forward contract and surface error envelope', async (t) => {

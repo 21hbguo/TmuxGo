@@ -5,8 +5,36 @@ import { z } from 'zod'
 // 任何破坏性变更（改字段语义/删字段）必须 bump CONTROL_PROTOCOL_VERSION 并同步文档。
 
 export const CONTROL_PROTOCOL_VERSION = 'v1'
+// 协议版本协商：目前只有 v1；新增版本追加到数组尾部，DEFAULT 永远指当前默认
+export const SUPPORTED_CONTROL_PROTOCOL_VERSIONS = ['v1'] as const
+export const DEFAULT_CONTROL_PROTOCOL_VERSION: (typeof SUPPORTED_CONTROL_PROTOCOL_VERSIONS)[number] =
+  CONTROL_PROTOCOL_VERSION
+export type ControlProtocolVersion = (typeof SUPPORTED_CONTROL_PROTOCOL_VERSIONS)[number]
 
 export const paneIdSchema = z.string().min(3).max(256)
+
+// initialize：客户端可声明期望的协议版本；缺省 = 旧客户端，按默认版本兼容应答。
+// 版本本身做宽松 string 校验——未知版本走 UNSUPPORTED_PROTOCOL_VERSION 明确错误
+// 而不是 zod enum 的通用失败（协商语义需要区分「非法输入」与「版本不支持」）
+export const controlInitializeBodySchema = z.object({
+  protocolVersion: z.string().min(1).max(32).optional(),
+})
+
+// capability = 方法名（canonical method name），与 control-schema.ts 的 CONTROL_METHODS 一一对应
+export const CONTROL_CAPABILITIES = [
+  'initialize',
+  'schema',
+  'panes.split',
+  'panes.read',
+  'panes.snapshot',
+  'panes.wait-output',
+  'panes.run',
+  'agent.wait',
+  'agent.start',
+  'agent.prompt',
+  'agent.cancel',
+] as const
+export type ControlCapability = (typeof CONTROL_CAPABILITIES)[number]
 
 export const controlSplitBodySchema = z.object({
   paneId: paneIdSchema,
@@ -125,6 +153,8 @@ export const controlAgentCancelBodySchema = z.object({
 // 409 PANE_MISSING / PANE_DEAD / PANE_IN_MODE / PANE_OCCUPIED
 //     pane 请求时状态不可执行（snapshot/run/wait-output/start/prompt 共用）
 //     PANE_NOT_AGENT / PANE_UNKNOWN / ACK_TIMEOUT / OPERATION_CANCELLED  start/prompt 语义错误
+// 400 AGENT_CONTROL_INITIALIZE_FAILED  initialize body 校验失败
+// 400 UNSUPPORTED_PROTOCOL_VERSION    initialize 声明了不在支持列表的协议版本
 // 429 AGENT_CONTROL_QUOTA_EXCEEDED  每 host 在途操作上界
 export const CONTROL_ERROR_CODES = [
   'AGENT_CONTROL_AUTH_REQUIRED',
@@ -156,5 +186,7 @@ export const CONTROL_ERROR_CODES = [
   'PANE_UNKNOWN',
   'ACK_TIMEOUT',
   'OPERATION_CANCELLED',
+  'AGENT_CONTROL_INITIALIZE_FAILED',
+  'UNSUPPORTED_PROTOCOL_VERSION',
 ] as const
 export type ControlErrorCode = (typeof CONTROL_ERROR_CODES)[number]

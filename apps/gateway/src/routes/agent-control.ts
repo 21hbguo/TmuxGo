@@ -13,9 +13,13 @@ import {
   type AgentWaitTarget,
 } from '../lib/agent-control.js'
 import {
+  CONTROL_CAPABILITIES,
+  SUPPORTED_CONTROL_PROTOCOL_VERSIONS,
+  DEFAULT_CONTROL_PROTOCOL_VERSION,
   controlAgentCancelBodySchema,
   controlAgentPromptBodySchema,
   controlAgentStartBodySchema,
+  controlInitializeBodySchema,
   controlReadBodySchema,
   controlRunBodySchema,
   controlSnapshotBodySchema,
@@ -23,6 +27,7 @@ import {
   controlWaitBodySchema,
   controlWaitOutputBodySchema,
 } from '../lib/control-protocol.js'
+import { buildControlProtocolSchema } from '../lib/control-schema.js'
 import { AgentActionError, cancelAgentOperation, promptAgentInPane, startAgentInPane } from '../lib/agent-actions.js'
 import { assertTargetAllowed } from '../lib/tmux-policy.js'
 import { getHostById } from '../lib/hosts.js'
@@ -77,6 +82,39 @@ async function parsePaneTarget(paneId: string) {
   return { hostId, tmuxPaneId }
 }
 export async function agentControlRoutes(fastify: FastifyInstance) {
+  // initialize：协议版本协商握手。旧客户端不带 protocolVersion → 按默认版本兼容；
+  // 未知版本 → 400 UNSUPPORTED_PROTOCOL_VERSION（协商错误，与 zod 校验失败区分）
+  fastify.post('/v1/control/initialize', { bodyLimit: 64 * 1024 }, async (request, reply) => {
+    if (!guardControlRequest(request, reply)) return
+    try {
+      const body = controlInitializeBodySchema.parse(request.body ?? {})
+      const requested = body.protocolVersion
+      if (requested && !(SUPPORTED_CONTROL_PROTOCOL_VERSIONS as readonly string[]).includes(requested)) {
+        return reply.code(400).send({
+          ok: false,
+          code: 'UNSUPPORTED_PROTOCOL_VERSION',
+          message: `Protocol version "${requested}" is not supported`,
+          supportedVersions: [...SUPPORTED_CONTROL_PROTOCOL_VERSIONS],
+        })
+      }
+      reply.header('cache-control', 'no-store')
+      return {
+        ok: true,
+        protocolVersion: DEFAULT_CONTROL_PROTOCOL_VERSION,
+        supportedVersions: [...SUPPORTED_CONTROL_PROTOCOL_VERSIONS],
+        capabilities: [...CONTROL_CAPABILITIES],
+      }
+    } catch (error) {
+      return controlError(reply, error, 'AGENT_CONTROL_INITIALIZE_FAILED')
+    }
+  })
+  // schema：只读导出正式 JSON Schema 文档（method/params/result/错误码/版本/安全限制），
+  // 供 CLI schema 命令、MCP 工具与第三方客户端引用同一份协议定义
+  fastify.get('/v1/control/schema', async (request, reply) => {
+    if (!guardControlRequest(request, reply)) return
+    reply.header('cache-control', 'no-store')
+    return buildControlProtocolSchema()
+  })
   fastify.post('/v1/control/panes/split', { bodyLimit: 64 * 1024 }, async (request, reply) => {
     if (!guardControlRequest(request, reply)) return
     try {
