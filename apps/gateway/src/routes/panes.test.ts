@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { realpath } from 'node:fs/promises'
 import Fastify from 'fastify'
 import test from 'node:test'
-import { execTmuxFile, killTestTmuxSession, TEST_TMUX_SESSION } from '../test-tmux.js'
+import { execTmuxFile, killTestTmuxSession, sendTmuxKeys, TEST_TMUX_SESSION } from '../test-tmux.js'
 import { paneRoutes } from './panes.js'
 
 // 真实 tmux 用例：只操作隔离 server 上的 test session（test-tmux.ts 约定）
@@ -80,7 +80,7 @@ test('reports tmux copy-mode selection coordinates', async () => {
     await execTmuxFile('tmux', ['new-session', '-d', '-s', sessionName, '-x', '80', '-y', '24'])
     // 先铺几行内容再进 copy-mode：空行上 cursor-right 的选区坐标行为不稳定
     for (const line of ['AAAAAAAAAAAA', 'BBBBBBBBBBBB', 'CCCCCCCCCCCC']) {
-      await execTmuxFile('tmux', ['send-keys', '-t', sessionName, `echo ${line}`, 'Enter'])
+      await sendTmuxKeys(sessionName, `echo ${line}`, 'Enter')
     }
     await new Promise((resolve) => setTimeout(resolve, 300))
     const { stdout } = await execTmuxFile('tmux', ['list-panes', '-t', sessionName, '-F', '#{pane_id}'])
