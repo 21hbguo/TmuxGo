@@ -17,6 +17,14 @@ Only use these tools when running inside a TmuxGo pane:
 
 Base: `${GATEWAY_URL%/}/api/v1/control`
 
+薄客户端 `tmuxgo-ctl`（`apps/cli` 自带 bin）已封装以下三个操作：stdout 单行 JSON、退出码 0/1/2，适合脚本拼装；直接 curl 亦可，契约见 [PROTOCOL.md](PROTOCOL.md)。
+
+```bash
+tmuxgo-ctl panes split --pane-id "local:${TMUX_PANE}" --direction horizontal
+tmuxgo-ctl panes read --pane-id local:%1 --lines 200
+tmuxgo-ctl agent wait --session dev --agent codex --status blocked --timeout-ms 60000
+```
+
 ### Split a pane
 
 ```bash

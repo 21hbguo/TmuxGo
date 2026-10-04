@@ -5,7 +5,8 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "tmuxgo": "bin/tmuxgo.mjs"
+    "tmuxgo": "bin/tmuxgo.mjs",
+    "tmuxgo-ctl": "bin/tmuxgo-ctl.mjs"
   },
   "files": [
     "bin",
