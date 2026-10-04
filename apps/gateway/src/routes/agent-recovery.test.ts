@@ -33,8 +33,8 @@ async function capturePane(paneId: string) {
   const { stdout } = await execTmuxFile('tmux', ['capture-pane', '-p', '-t', paneId])
   return stdout
 }
-function seed(overrides: Partial<Parameters<typeof upsertRecoveryCandidate>[0]> = {}) {
-  return upsertRecoveryCandidate({
+async function seed(overrides: Partial<Parameters<typeof upsertRecoveryCandidate>[0]> = {}) {
+  return (await upsertRecoveryCandidate({
     hostId,
     sessionName: TEST_TMUX_SESSION,
     paneId: `${hostId}:%1`,
@@ -43,7 +43,7 @@ function seed(overrides: Partial<Parameters<typeof upsertRecoveryCandidate>[0]> 
     agentSessionId: 'claude-session-abc123',
     reason: 'pane_exited',
     ...overrides,
-  })!
+  }))!
 }
 test('lists recovery candidates with live occupant inspection', async () => {
   const fastify = Fastify()
@@ -53,7 +53,7 @@ test('lists recovery candidates with live occupant inspection', async () => {
     await execTmuxFile('tmux', ['-f', '/dev/null', 'new-session', '-d', '-s', TEST_TMUX_SESSION])
     const paneId = await firstPaneId()
     await waitForPane(paneId, shellReady)
-    const saved = seed({ paneId: `${hostId}:${paneId}`, tmuxPaneId: paneId })
+    const saved = await seed({ paneId: `${hostId}:${paneId}`, tmuxPaneId: paneId })
     const response = await fastify.inject({ method: 'GET', url: `/hosts/${hostId}/agent-recovery` })
     assert.equal(response.statusCode, 200)
     const body = response.json()
@@ -91,7 +91,7 @@ test('resume types the provider command into an idle shell pane', async () => {
     await execTmuxFile('tmux', ['-f', '/dev/null', 'new-session', '-d', '-s', TEST_TMUX_SESSION])
     const paneId = await firstPaneId()
     await waitForPane(paneId, shellReady)
-    const saved = seed({ paneId: `${hostId}:${paneId}`, tmuxPaneId: paneId })
+    const saved = await seed({ paneId: `${hostId}:${paneId}`, tmuxPaneId: paneId })
     const response = await fastify.inject({
       method: 'POST',
       url: `/hosts/${hostId}/agent-recovery/${saved.id}/resume`,
@@ -117,14 +117,14 @@ test('resume rejects unknown provider, missing session id and mismatched target'
     freshConfigDir()
     await execTmuxFile('tmux', ['-f', '/dev/null', 'new-session', '-d', '-s', TEST_TMUX_SESSION])
     const paneId = await firstPaneId()
-    const unknown = seed({
+    const unknown = await seed({
       paneId: `${hostId}:${paneId}`,
       tmuxPaneId: paneId,
       agent: 'gemini',
       agentSessionId: 'gem-1',
     })
-    const noId = seed({ paneId: `${hostId}:%98`, tmuxPaneId: '%98', agentSessionId: undefined })
-    const valid = seed({ paneId: `${hostId}:%99`, tmuxPaneId: '%99', agent: 'codex', agentSessionId: 't-9' })
+    const noId = await seed({ paneId: `${hostId}:%98`, tmuxPaneId: '%98', agentSessionId: undefined })
+    const valid = await seed({ paneId: `${hostId}:%99`, tmuxPaneId: '%99', agent: 'codex', agentSessionId: 't-9' })
     const post = (id: string, payload: { paneId: string; agentSessionId: string }) =>
       fastify.inject({ method: 'POST', url: `/hosts/${hostId}/agent-recovery/${id}/resume`, payload })
     const provider = await post(unknown.id, { paneId: unknown.paneId, agentSessionId: 'gem-1' })
@@ -154,8 +154,8 @@ test('resume refuses an occupied or missing pane and never runs on its own', asy
     await execTmuxFile('tmux', ['-f', '/dev/null', 'new-session', '-d', '-s', TEST_TMUX_SESSION, 'sleep 300'])
     const paneId = await firstPaneId()
     await waitForPane(paneId, (command) => command === 'sleep')
-    const occupied = seed({ paneId: `${hostId}:${paneId}`, tmuxPaneId: paneId })
-    const gone = seed({ paneId: `${hostId}:%95`, tmuxPaneId: '%95', agentSessionId: 'gone-1' })
+    const occupied = await seed({ paneId: `${hostId}:${paneId}`, tmuxPaneId: paneId })
+    const gone = await seed({ paneId: `${hostId}:%95`, tmuxPaneId: '%95', agentSessionId: 'gone-1' })
     const post = (id: string, payload: { paneId: string; agentSessionId: string }) =>
       fastify.inject({ method: 'POST', url: `/hosts/${hostId}/agent-recovery/${id}/resume`, payload })
     const busy = await post(occupied.id, { paneId: occupied.paneId, agentSessionId: occupied.agentSessionId! })

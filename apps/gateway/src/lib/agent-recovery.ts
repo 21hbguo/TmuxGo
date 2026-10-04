@@ -1,6 +1,6 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync, chmodSync } from 'fs'
 import os from 'os'
 import path from 'path'
+import { JsonStore } from './json-store.js'
 import { execTmux } from './tmux-executor.js'
 
 // Agent restart recovery manifest：pane 进程退出/gateway 重启后用户可见的
@@ -85,36 +85,34 @@ function isCandidate(value: unknown): value is AgentRecoveryCandidate {
     (candidate.status === 'pending' || candidate.status === 'resumed')
   )
 }
-function readCandidates(recoveryPath = getRecoveryPath()) {
-  try {
-    const parsed = JSON.parse(readFileSync(recoveryPath, 'utf8')) as { version?: unknown; candidates?: unknown }
-    if (parsed.version !== candidateFileVersion || !Array.isArray(parsed.candidates)) return []
-    const cutoff = Date.now() - recoveryCandidateTtlMs
-    return parsed.candidates
-      .filter(isCandidate)
-      .filter((candidate) => Date.parse(candidate.lastSeenAt) > cutoff)
-      .slice(0, recoveryCandidateLimit)
-  } catch {
-    return []
-  }
-}
-function writeCandidates(candidates: AgentRecoveryCandidate[], recoveryPath = getRecoveryPath()) {
-  try {
-    mkdirSync(path.dirname(recoveryPath), { recursive: true, mode: 0o700 })
-    const temporary = `${recoveryPath}.${process.pid}.tmp`
-    writeFileSync(temporary, `${JSON.stringify({ version: candidateFileVersion, candidates })}\n`, {
-      encoding: 'utf8',
-      mode: 0o600,
+// 持久化走 JsonStore：0600/原子 temp+rename/.bak 回退/进程内串行 update。
+// store 按 manifest 路径缓存——队列必须按文件共享才有互斥语义
+const recoveryStores = new Map<string, JsonStore<AgentRecoveryCandidate>>()
+function getRecoveryStore(recoveryPath: string) {
+  let store = recoveryStores.get(recoveryPath)
+  if (!store) {
+    store = new JsonStore<AgentRecoveryCandidate>(recoveryPath, {
+      key: 'candidates',
+      expectedVersion: candidateFileVersion,
+      normalize: (input) => {
+        const cutoff = Date.now() - recoveryCandidateTtlMs
+        return (Array.isArray(input) ? input : [])
+          .filter(isCandidate)
+          .filter((candidate) => Date.parse(candidate.lastSeenAt) > cutoff)
+          .slice(0, recoveryCandidateLimit)
+      },
     })
-    chmodSync(temporary, 0o600)
-    renameSync(temporary, recoveryPath)
-    chmodSync(recoveryPath, 0o600)
-  } catch {}
+    recoveryStores.set(recoveryPath, store)
+  }
+  return store
+}
+function readCandidates(recoveryPath = getRecoveryPath()) {
+  return getRecoveryStore(recoveryPath).read()
 }
 function candidateKey(candidate: Pick<AgentRecoveryCandidate, 'hostId' | 'paneId' | 'agentSessionId'>) {
   return `${candidate.hostId}|${candidate.paneId}|${candidate.agentSessionId || ''}`
 }
-export function upsertRecoveryCandidate(input: RecoveryCandidateInput, recoveryPath = getRecoveryPath()) {
+export async function upsertRecoveryCandidate(input: RecoveryCandidateInput, recoveryPath = getRecoveryPath()) {
   const candidate: AgentRecoveryCandidate = {
     id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
     hostId: text(input.hostId, 128),
@@ -130,40 +128,40 @@ export function upsertRecoveryCandidate(input: RecoveryCandidateInput, recoveryP
     createdAt: new Date().toISOString(),
   }
   if (!candidate.hostId || !candidate.paneId || !candidate.tmuxPaneId || !candidate.agent) return null
-  const candidates = readCandidates(recoveryPath)
-  const existing = candidates.find((item) => candidateKey(item) === candidateKey(candidate))
-  if (existing) {
-    // 同 pane/agentSessionId 去重：会话再次退出时刷新元数据并回到待确认
-    existing.sessionName = candidate.sessionName || existing.sessionName
-    existing.agent = candidate.agent || existing.agent
-    existing.cwd = candidate.cwd || existing.cwd
-    existing.lastSeenAt = candidate.lastSeenAt
-    existing.reason = candidate.reason
-    existing.status = 'pending'
-    existing.resumedAt = undefined
-    writeCandidates(candidates, recoveryPath)
-    return existing
-  }
-  candidates.unshift(candidate)
-  writeCandidates(candidates.slice(0, recoveryCandidateLimit), recoveryPath)
-  return candidate
+  return getRecoveryStore(recoveryPath).update((candidates) => {
+    const existing = candidates.find((item) => candidateKey(item) === candidateKey(candidate))
+    if (existing) {
+      // 同 pane/agentSessionId 去重：会话再次退出时刷新元数据并回到待确认
+      existing.sessionName = candidate.sessionName || existing.sessionName
+      existing.agent = candidate.agent || existing.agent
+      existing.cwd = candidate.cwd || existing.cwd
+      existing.lastSeenAt = candidate.lastSeenAt
+      existing.reason = candidate.reason
+      existing.status = 'pending'
+      existing.resumedAt = undefined
+      return { items: candidates, result: existing }
+    }
+    return { items: [candidate, ...candidates].slice(0, recoveryCandidateLimit), result: candidate }
+  })
 }
-export function listRecoveryCandidates(hostId: string, options: { includeResumed?: boolean } = {}) {
-  return readCandidates()
+export async function listRecoveryCandidates(hostId: string, options: { includeResumed?: boolean } = {}) {
+  return (await readCandidates())
     .filter((candidate) => candidate.hostId === hostId && (options.includeResumed || candidate.status === 'pending'))
     .sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt))
 }
-export function getRecoveryCandidate(hostId: string, candidateId: string) {
-  return listRecoveryCandidates(hostId, { includeResumed: true }).find((candidate) => candidate.id === candidateId)
+export async function getRecoveryCandidate(hostId: string, candidateId: string) {
+  return (await listRecoveryCandidates(hostId, { includeResumed: true })).find(
+    (candidate) => candidate.id === candidateId,
+  )
 }
-export function markRecoveryCandidateResumed(hostId: string, candidateId: string) {
-  const candidates = readCandidates()
-  const candidate = candidates.find((item) => item.hostId === hostId && item.id === candidateId)
-  if (!candidate) return null
-  candidate.status = 'resumed'
-  candidate.resumedAt = new Date().toISOString()
-  writeCandidates(candidates)
-  return candidate
+export async function markRecoveryCandidateResumed(hostId: string, candidateId: string) {
+  return getRecoveryStore(getRecoveryPath()).update((candidates) => {
+    const candidate = candidates.find((item) => item.hostId === hostId && item.id === candidateId)
+    if (!candidate) return { items: candidates, result: null }
+    candidate.status = 'resumed'
+    candidate.resumedAt = new Date().toISOString()
+    return { items: candidates, result: candidate }
+  })
 }
 export function buildResumeCommand(agent: string, agentSessionId: string | undefined) {
   if (!agentSessionId || !resumeArgPattern.test(agentSessionId)) return null
@@ -230,7 +228,7 @@ export async function resumeRecoveryCandidate(
   candidateId: string,
   target: { paneId: string; agentSessionId: string },
 ) {
-  const candidate = getRecoveryCandidate(hostId, candidateId)
+  const candidate = await getRecoveryCandidate(hostId, candidateId)
   if (!candidate) throw new RecoveryError('candidate_not_found', 'Recovery candidate not found or expired')
   if (candidate.status !== 'pending') throw new RecoveryError('already_resumed', 'Recovery candidate already resumed')
   if (!candidate.agentSessionId)
@@ -262,6 +260,6 @@ export async function resumeRecoveryCandidate(
       `Failed to send resume command: ${error instanceof Error ? error.message : error}`,
     )
   }
-  markRecoveryCandidateResumed(hostId, candidateId)
+  await markRecoveryCandidateResumed(hostId, candidateId)
   return { ok: true as const, paneId: candidate.paneId, tmuxPaneId: candidate.tmuxPaneId, command }
 }

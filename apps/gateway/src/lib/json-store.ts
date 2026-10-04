@@ -17,6 +17,9 @@ export interface JsonStoreOptions<T> {
   // JSON 能解析但该字段不是数组 → 视为损坏，走 backup/报错，绝不静默当空数据覆盖
   key: string
   normalize: (input: unknown) => T[]
+  // 设置时校验 payload.version：不匹配的版本视为不可读（损坏语义），
+  // 防止旧代码误读新模式文件；未设置则不看 version（保持无版本约束的旧行为）
+  expectedVersion?: number
 }
 
 export class JsonStore<T> {
@@ -47,6 +50,11 @@ export class JsonStore<T> {
       throw new JsonStoreCorruptionError(filePath)
     }
     const parsed = JSON.parse(raw) as Record<string, unknown> | null
+    if (
+      this.options.expectedVersion !== undefined &&
+      (parsed === null || typeof parsed !== 'object' || parsed.version !== this.options.expectedVersion)
+    )
+      throw new JsonStoreCorruptionError(filePath)
     const items = parsed?.[this.options.key]
     if (!Array.isArray(items)) throw new JsonStoreCorruptionError(filePath)
     return this.options.normalize(items)
@@ -73,7 +81,11 @@ export class JsonStore<T> {
     // 先备份当前主文件再替换：写失败/新文件损坏时 .bak 始终持有上一份可读版本
     await copyFile(this.filePath, this.backupPath).catch(() => {})
     const temp = `${this.filePath}.tmp-${process.pid}-${this.tempSeq++}`
-    const payload = { version: 1, updatedAt: new Date().toISOString(), [this.options.key]: items }
+    const payload = {
+      version: this.options.expectedVersion ?? 1,
+      updatedAt: new Date().toISOString(),
+      [this.options.key]: items,
+    }
     try {
       await writeFile(temp, `${JSON.stringify(payload)}\n`, { encoding: 'utf8', mode: 0o600 })
       await rename(temp, this.filePath)

@@ -32,7 +32,7 @@ function recoveryError(reply: FastifyReply, error: unknown) {
 export async function agentRecoveryRoutes(fastify: FastifyInstance) {
   fastify.get('/hosts/:hostId/agent-recovery', async (request) => {
     const { hostId } = request.params as { hostId: string }
-    const candidates = listRecoveryCandidates(hostId)
+    const candidates = await listRecoveryCandidates(hostId)
     const inspections = await inspectRecoveryPanes(hostId)
     return {
       version: apiVersion,
@@ -48,7 +48,7 @@ export async function agentRecoveryRoutes(fastify: FastifyInstance) {
   fastify.post('/hosts/:hostId/agent-recovery/:candidateId/resume', async (request, reply) => {
     const { hostId, candidateId } = request.params as { hostId: string; candidateId: string }
     const body = agentRecoveryResumeBodySchema.parse(request.body)
-    const candidate = getRecoveryCandidate(hostId, candidateId)
+    const candidate = await getRecoveryCandidate(hostId, candidateId)
     if (!candidate)
       return reply.code(404).send({ message: 'Recovery candidate not found or expired', code: 'candidate_not_found' })
     try {
