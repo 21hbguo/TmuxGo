@@ -13,7 +13,9 @@ import {
 } from '../lib/request-validation.js'
 import { consumeWebSocketTicket, isAuthEnabled } from '../lib/auth.js'
 import { appendAuditEvent } from '../lib/audit-log.js'
-import { scopeAllowsHost, scopeAllowsSession } from '../lib/access-scope.js'
+import { scopeAllowsHost, scopeAllowsSession, scopeIsRestricted } from '../lib/access-scope.js'
+import { appendWsMessageAudit, wsMessageTarget, type WsMessageErrorKind } from '../lib/ws-audit.js'
+import { ZodError } from 'zod'
 import { shareLinkStore, type ShareTicket } from '../lib/share-links.js'
 import { StreamSession } from '../lib/stream/stream-session.js'
 import { applyPasteDataFrame } from '../lib/stream/paste-binary.js'
@@ -69,6 +71,20 @@ export async function streamRoutes(fastify: FastifyInstance) {
         (sessionName === undefined ||
           (typeof sessionName === 'string' && scopeAllowsSession(userScope, hostId, sessionName))))
     let agentId: string | null = null
+    // 消息级审计：只记 action/标识 target/result/错误类别，正文/击键/payload 不落盘。
+    // input/resize 等无 sessionName 字段的消息回退到当前 attach 会话作 target
+    const auditMsg = (type: unknown, data: unknown, result: 'success' | 'failure', error?: WsMessageErrorKind) =>
+      appendWsMessageAudit({
+        actor: wsActor,
+        source: shareTicket ? 'share' : 'ws',
+        channel: 'stream',
+        type,
+        data,
+        target: wsMessageTarget(data) || session.attachedSessionName || undefined,
+        result,
+        error,
+        hostId: agentId || undefined,
+      })
     const shareStateTimer = shareTicket
       ? setInterval(() => {
           if (shareLinkStore.isTicketActive(shareTicket)) return
@@ -104,7 +120,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
         const separator = message.indexOf(0x0a)
         const header = separator >= 0 ? message.toString('ascii', 0, separator) : ''
         if (header.startsWith('paste-data ')) {
+          // paste-data 是写入动作必须审计；vnc-data 批量帧不记（高频、非用户动作）
+          // target 只取 header 声明的 host/session 标识，粘贴正文不落盘
+          const [claimHost, claimSession] = header.slice('paste-data '.length).split(' ')
+          const claim = { hostId: claimHost, sessionName: claimSession }
           if (readOnly) {
+            auditMsg('paste-data', claim, 'failure', 'denied')
             if (shareTicket && !shareLinkStore.isTicketActive(shareTicket)) {
               socket.close(1008, 'Share link is unavailable')
               return
@@ -113,6 +134,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
             return
           }
           const result = applyPasteDataFrame(session, message)
+          auditMsg(
+            'paste-data',
+            claim,
+            result === 'ok' ? 'success' : 'failure',
+            result === 'ok' ? undefined : 'invalid',
+          )
           if (result === 'mismatch') session.send({ type: 'error', message: 'paste-data target mismatch' })
           else if (result === 'too_large') session.send({ type: 'error', message: 'paste-data too large' })
           else if (result === 'invalid') session.send({ type: 'error', message: 'paste-data invalid frame' })
@@ -121,11 +148,20 @@ export async function streamRoutes(fastify: FastifyInstance) {
         if (agentId) agentManager.handleVncBinary(agentId, agentSocket, message)
         return
       }
+      let auditType = 'message'
+      let auditData: unknown
       try {
         const data: any = streamMessageSchema.parse(JSON.parse(message.toString()))
-        if (agentId && agentManager.handleMessage(agentId, agentSocket, data)) return
+        auditData = data
+        if (typeof data.type === 'string' && data.type) auditType = data.type
+        if (agentId && agentManager.handleMessage(agentId, agentSocket, data)) {
+          // agent 通道内部协议回复（tmux/shell/file-upload 结果、中继帧）：高频
+          // 且非用户动作不记审计——对应动作已由 REST 侧 recordAuditRequest 覆盖
+          return
+        }
         if (readOnly) {
           if (shareTicket && !shareLinkStore.isTicketActive(shareTicket)) {
+            auditMsg(auditType, auditData, 'failure', 'denied')
             socket.close(1008, 'Share link is unavailable')
             return
           }
@@ -139,10 +175,14 @@ export async function streamRoutes(fastify: FastifyInstance) {
               'stream_backpressure_suppressed',
             ].includes(data.type)
           ) {
+            auditMsg(auditType, auditData, 'failure', 'denied')
             session.send({ type: 'error', code: 'SHARE_READ_ONLY', message: 'Shared terminal is read-only' })
             return
           }
         }
+        // keepalive（ping/heartbeat）不记审计；未知 type 记 invalid 协议错误
+        const auditSkip = auditType === 'ping' || auditType === 'heartbeat'
+        let auditOutcome: 'success' | 'invalid' = 'success'
         switch (data.type) {
           case 'register': {
             const register = streamRegisterMessageSchema.parse(data)
@@ -272,9 +312,21 @@ export async function streamRoutes(fastify: FastifyInstance) {
             session.send({ type: 'pong', timestamp: data.timestamp || Date.now() })
             break
           default:
+            auditOutcome = 'invalid'
             session.send({ type: 'error', message: `Unknown message type: ${data.type}` })
         }
+        if (auditOutcome === 'invalid') auditMsg(auditType, auditData, 'failure', 'invalid')
+        else if (!auditSkip) auditMsg(auditType, auditData, 'success')
       } catch (err) {
+        // 协议错误（JSON 解析失败/zod 校验失败）与下游异常都落审计，
+        // message 只写类别词不回显下游细节；scope 越权归 denied(403)
+        const scopeDenied = err instanceof Error && err.message.startsWith('Access scope')
+        auditMsg(
+          auditType,
+          auditData,
+          'failure',
+          scopeDenied ? 'denied' : err instanceof ZodError || err instanceof SyntaxError ? 'invalid' : 'error',
+        )
         const errorMessage = err instanceof Error && err.message ? err.message : 'Invalid message format'
         console.error('Stream message error', errorMessage)
         const payload: Record<string, unknown> = { type: 'error', message: errorMessage }
@@ -301,11 +353,18 @@ export async function streamRoutes(fastify: FastifyInstance) {
     })
     session.send({ type: 'connected', timestamp: Date.now() })
     // share-link 只读观众不能收 agent/inbox 事件：消息正文、title、route
-    // 全在内，扇出等于把用户收件箱泄露给持分享链接者
+    // 全在内，扇出等于把用户收件箱泄露给持分享链接者；受限身份同理按 host 过滤
     let unsubscribeAgentMonitor: (() => void) | null = shareTicket
       ? null
-      : agentMonitor.subscribe((event) => session.send(event))
+      : agentMonitor.subscribe((event) => {
+          const hostId = (event as { hostId?: unknown } | undefined)?.hostId
+          if (scopeIsRestricted(userScope) && (typeof hostId !== 'string' || !scopeAllowsHost(userScope!, hostId)))
+            return
+          session.send(event)
+        })
     // agent 推送收件箱事件与 monitor 同通道扇出（metadata-only，内容走 /api/inbox REST）
-    let unsubscribeInbox: (() => void) | null = shareTicket ? null : subscribeInbox((event) => session.send(event))
+    // /api/inbox 对受限身份整体关闭，扇出同步关闭
+    let unsubscribeInbox: (() => void) | null =
+      shareTicket || scopeIsRestricted(userScope) ? null : subscribeInbox((event) => session.send(event))
   })
 }

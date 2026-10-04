@@ -26,7 +26,8 @@ function failUsage(message) {
 const USAGE = `tmuxgo-ctl — TmuxGo agent control client (protocol ${PROTOCOL_VERSION})
 
 Usage:
-  tmuxgo-ctl initialize                 握手：探测 gateway /health + 上报本地 env 状态
+  tmuxgo-ctl initialize                 握手：协商协议版本 + 探测 gateway + 上报本地 env 状态
+  tmuxgo-ctl schema                     打印 gateway 导出的协议 JSON Schema（单行 JSON）
   tmuxgo-ctl panes split --pane-id <host:%n> [--direction horizontal|vertical] [--cwd <dir>]
   tmuxgo-ctl panes read --pane-id <host:%n> [--lines 1-2000]
   tmuxgo-ctl panes snapshot --pane-id <host:%n> [--lines 1-100]
@@ -63,16 +64,16 @@ function requireEnv(command) {
   if (!TOKEN) failUsage(`${command}: TMUXGO_AGENT_EVENT_TOKEN is not set`)
 }
 
-async function post(pathname, body, timeoutMs = 30000) {
+async function request(method, pathname, body, timeoutMs = 30000) {
   try {
     const res = await fetch(`${GATEWAY_URL}/api/v1/control${pathname}`, {
-      method: 'POST',
+      method,
       headers: {
         'content-type': 'application/json',
         'x-tmuxgo-env': '1',
         'x-tmuxgo-agent-token': TOKEN,
       },
-      body: JSON.stringify(body),
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       // wait 服务端挂起最长 600s，client 超时按其放宽 +10s 余量
       signal: AbortSignal.timeout(timeoutMs),
     })
@@ -84,28 +85,67 @@ async function post(pathname, body, timeoutMs = 30000) {
       return { ok: false, code: 'BAD_GATEWAY_RESPONSE', message: `HTTP ${res.status}: non-JSON response` }
     }
     if (res.ok && payload && payload.ok !== false) return payload
+    // 错误 envelope 保留服务端附加字段（如 supportedVersions），code/message 兜底
+    const extra = payload && typeof payload === 'object' ? payload : {}
     return {
+      ...extra,
       ok: false,
-      code: payload?.code || `HTTP_${res.status}`,
-      message: payload?.message || text || `HTTP ${res.status}`,
+      code: extra.code || `HTTP_${res.status}`,
+      message: extra.message || text || `HTTP ${res.status}`,
     }
   } catch (error) {
     return { ok: false, code: 'GATEWAY_UNREACHABLE', message: error instanceof Error ? error.message : String(error) }
   }
 }
+const post = (pathname, body, timeoutMs = 30000) => request('POST', pathname, body, timeoutMs)
+const get = (pathname, timeoutMs = 30000) => request('GET', pathname, undefined, timeoutMs)
 
-async function initialize() {
-  const env = { tmuxgoEnv: process.env.TMUXGO_ENV === '1', token: !!TOKEN, gatewayUrl: GATEWAY_URL }
-  let gateway
+// /health 探测：旧 gateway（无 initialize 协商端点）的兼容路径
+async function probeHealth() {
   try {
     const res = await fetch(`${GATEWAY_URL}/health`, { signal: AbortSignal.timeout(5000) })
     const body = await res.json().catch(() => ({}))
-    gateway = { reachable: res.ok, status: body.status || `HTTP_${res.status}` }
+    return { reachable: res.ok, status: body.status || `HTTP_${res.status}` }
   } catch (error) {
-    gateway = { reachable: false, message: error instanceof Error ? error.message : String(error) }
+    return { reachable: false, message: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+async function initialize() {
+  const env = { tmuxgoEnv: process.env.TMUXGO_ENV === '1', token: !!TOKEN, gatewayUrl: GATEWAY_URL }
+  // 版本协商：上报本地版本，gateway 返回协商结果（版本/capability/支持列表）
+  const negotiated = await post('/initialize', { protocolVersion: PROTOCOL_VERSION }, 5000)
+  let protocolVersion = PROTOCOL_VERSION
+  let supportedVersions = [PROTOCOL_VERSION]
+  let capabilities = []
+  let gateway
+  if (negotiated.ok !== false) {
+    protocolVersion = negotiated.protocolVersion || PROTOCOL_VERSION
+    supportedVersions = negotiated.supportedVersions || supportedVersions
+    capabilities = negotiated.capabilities || []
+    gateway = { reachable: true, status: 'ok' }
+  } else if (negotiated.code === 'HTTP_404') {
+    gateway = await probeHealth() // 旧 gateway 无协商端点，退回 /health 探测
+  } else if (negotiated.code === 'GATEWAY_UNREACHABLE' || negotiated.code === 'BAD_GATEWAY_RESPONSE') {
+    gateway = { reachable: false, message: negotiated.message }
+  } else {
+    // 协商被明确拒绝（含 UNSUPPORTED_PROTOCOL_VERSION）：gateway 可达但握手失败
+    writeSync(
+      1,
+      JSON.stringify({
+        ok: false,
+        code: negotiated.code,
+        message: negotiated.message,
+        protocolVersion,
+        supportedVersions: negotiated.supportedVersions || supportedVersions,
+        gateway: { reachable: true, status: negotiated.code },
+        env,
+      }) + '\n',
+    )
+    process.exit(1)
   }
   const ok = gateway.reachable && env.tmuxgoEnv && env.token
-  writeSync(1, JSON.stringify({ ok, protocolVersion: PROTOCOL_VERSION, gateway, env }) + '\n')
+  writeSync(1, JSON.stringify({ ok, protocolVersion, supportedVersions, capabilities, gateway, env }) + '\n')
   process.exit(ok ? 0 : 1)
 }
 
@@ -117,6 +157,13 @@ async function main() {
     return
   }
   if (group === 'initialize') await initialize()
+  if (group === 'schema') {
+    requireEnv('schema')
+    const doc = await get('/schema', 10000)
+    if (doc.ok === false) finish(doc)
+    writeSync(1, JSON.stringify(doc) + '\n')
+    process.exit(0)
+  }
   const flags = parseFlags(argv)
   if (group === 'panes' && (action === 'split' || action === 'read' || action === 'snapshot')) {
     requireEnv(`panes ${action}`)

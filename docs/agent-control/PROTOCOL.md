@@ -8,11 +8,33 @@ Also defines the display-metadata patch protocol for `/api/agent-events`: semant
 
 ## Contract stability
 
-- 协议版本：`v1`（base path `/api/v1/control`）。实现侧单一事实源是 `apps/gateway/src/lib/control-protocol.ts` 的 zod schema。
+- 协议版本：`v1`（base path `/api/v1/control`）。实现侧单一事实源是 `apps/gateway/src/lib/control-protocol.ts` 的 zod schema；对外正式 JSON Schema 由 `apps/gateway/src/lib/control-schema.ts` 从这些 zod 定义生成（同一事实源，非第二套请求模型）。
 - 请求 envelope：每个端点的 body 是 JSON object；**未知字段被服务端剥离忽略**——client 端新增可选字段向后兼容，旧 client 不受新增字段影响。破坏性变更（改字段语义、删字段、改 code 值）必须 bump 版本并更新本文档。
 - 成功响应：`{ "ok": true, ... }`（agent/wait 为 `{ ok, waitId, elapsedMs, pane }`）。
 - 错误响应：非 2xx + `{ "ok": false|"undefined", "message": string, "code": string }`——`code` 是契约（见下表），`message` 仅供人读、不得依赖。
 - 响应带 `cache-control: no-store`。
+
+### Version negotiation
+
+`POST /v1/control/initialize` 是握手端点：client 可声明 `protocolVersion`，gateway 返回协商结果 `{ ok, protocolVersion, supportedVersions, capabilities }`。
+
+| client `protocolVersion` | gateway 行为                                                   |
+| ------------------------ | -------------------------------------------------------------- |
+| 缺省（旧客户端）         | 200，按当前默认版本 `v1` 应答                                  |
+| `v1`                     | 200，协商为 `v1`                                               |
+| 其他值                   | 400 `UNSUPPORTED_PROTOCOL_VERSION`，响应附 `supportedVersions` |
+
+capability = 方法名（`initialize`/`schema`/`panes.*`/`agent.*`）。旧 client 不调用 initialize 也不受影响——协商是可选握手，其余端点行为不变。
+
+### JSON Schema export
+
+正式 versioned JSON Schema（draft 2020-12，覆盖 method/params/result/错误码/版本/安全限制）三个等价入口：
+
+- `GET /api/v1/control/schema`（同双守卫，只读）
+- `tmuxgo-ctl schema`（stdout 单行 JSON）
+- 静态文件 `docs/agent-control/control-protocol.v1.schema.json`（`npx tsx scripts/generate-control-schema.ts` 重新生成；contract 测试断言三者一致）
+
+文档不含 token 值、环境变量名与终端输出样例；`security.headers` 只描述头部名称与来源。
 
 ### Error codes
 
@@ -37,6 +59,8 @@ Also defines the display-metadata patch protocol for `/api/agent-events`: semant
 | 400  | `PROVIDER_NOT_SUPPORTED`                                                                                                                                                                     | `provider` 不在 allowlist（仅 `claude`/`codex`）                                                                     |
 | 400  | `AGENT_CONTROL_SEND_FAILED`                                                                                                                                                                  | `send-keys` 下发失败（tmux 错误透传于 message）                                                                      |
 | 400  | `AGENT_CONTROL_START_FAILED` / `AGENT_CONTROL_PROMPT_FAILED` / `AGENT_CONTROL_CANCEL_FAILED`                                                                                                 | 对应端点 body zod 校验失败或未归类下游失败                                                                           |
+| 400  | `AGENT_CONTROL_INITIALIZE_FAILED`                                                                                                                                                            | `initialize` body zod 校验失败（如 protocolVersion 非字符串）                                                        |
+| 400  | `UNSUPPORTED_PROTOCOL_VERSION`                                                                                                                                                               | `initialize` 声明了不在支持列表的协议版本（响应附 `supportedVersions`）                                              |
 
 ## Guard
 
@@ -46,6 +70,23 @@ Also defines the display-metadata patch protocol for `/api/agent-events`: semant
 ## Endpoints
 
 Base path: `/api/v1/control`
+
+### POST /initialize
+
+协议握手（可选）：版本协商 + capability 发现。Body:
+
+```json
+{ "protocolVersion": "v1" }
+```
+
+Response: `{ "ok": true, "protocolVersion": "v1", "supportedVersions": ["v1"], "capabilities": [...] }`
+
+- `protocolVersion` 可省略（旧客户端按默认版本兼容）；未知版本 → 400 `UNSUPPORTED_PROTOCOL_VERSION` + `supportedVersions`。
+- 不影响其他端点：不握手直接调用其余端点行为不变。
+
+### GET /schema
+
+只读导出正式 JSON Schema 文档（同双守卫）。Response 见「JSON Schema export」一节。
 
 ### POST /panes/split
 
@@ -195,10 +236,11 @@ Errors: HTTP 409 with `code` in `OCCUPANT_CHANGED | PANE_REMOVED | TIMEOUT | INV
 
 ## Thin client: `tmuxgo-ctl`
 
-随 `apps/cli` 一起发布的零依赖薄客户端（`bin/tmuxgo-ctl.mjs`），覆盖 initialize/panes split·read·snapshot·wait-output·run/agent wait（MCP bridge 暴露 `tmuxgo_pane_snapshot`/`tmuxgo_pane_wait_output`/`tmuxgo_pane_run` 三个同名语义工具）：
+随 `apps/cli` 一起发布的零依赖薄客户端（`bin/tmuxgo-ctl.mjs`），覆盖 initialize/schema/panes split·read·snapshot·wait-output·run/agent wait（MCP bridge 暴露 `tmuxgo_pane_snapshot`/`tmuxgo_pane_wait_output`/`tmuxgo_pane_run`/`tmuxgo_control_schema` 同名语义工具）：
 
 ```bash
-tmuxgo-ctl initialize                 # 握手：探测 gateway /health + 上报本地 env
+tmuxgo-ctl initialize                 # 握手：协商协议版本（旧 gateway 退回 /health 探测）
+tmuxgo-ctl schema                     # 打印协议 JSON Schema（单行 JSON）
 tmuxgo-ctl panes split --pane-id local:%0 --direction horizontal
 tmuxgo-ctl panes read --pane-id local:%0 --lines 200
 tmuxgo-ctl panes snapshot --pane-id local:%0 --lines 20

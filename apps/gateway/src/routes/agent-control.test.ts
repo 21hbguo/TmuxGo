@@ -1,9 +1,13 @@
 import '../test-env.js'
 import assert from 'node:assert/strict'
+import { request as httpRequest, type IncomingMessage, type ServerResponse } from 'node:http'
+import { setTimeout as delay } from 'node:timers/promises'
 import Fastify from 'fastify'
 import test from 'node:test'
 import { agentControlRoutes } from './agent-control.js'
 import { agentMonitor } from '../lib/agent-monitor.js'
+import { agentControl } from '../lib/agent-control.js'
+import { execTmuxFile, killTestTmuxSession, TEST_TMUX_SESSION } from '../test-tmux.js'
 
 test('protects control routes with token and TMUXGO_ENV guard', async (t) => {
   const previousToken = process.env.TMUXGO_AGENT_EVENT_TOKEN
@@ -210,3 +214,83 @@ test('agent start/prompt/cancel: auth, guard, validation and semantic envelopes'
   assert.ok(audit.includes('agent.prompt'), 'expected agent.prompt audit event')
   assert.ok(!audit.includes('secret-prompt-body-do-not-log'), 'audit must not contain prompt text')
 })
+
+for (const route of ['agent/wait', 'panes/wait-output']) {
+  test(`${route} cancels when a client disconnects after sending the POST body`, { timeout: 10000 }, async (t) => {
+    const previousToken = process.env.TMUXGO_AGENT_EVENT_TOKEN
+    process.env.TMUXGO_AGENT_EVENT_TOKEN = 'agent-control-secret'
+    const fastify = Fastify()
+    t.after(async () => {
+      await fastify.close()
+      agentMonitor.stop()
+      await killTestTmuxSession()
+      if (previousToken === undefined) delete process.env.TMUXGO_AGENT_EVENT_TOKEN
+      else process.env.TMUXGO_AGENT_EVENT_TOKEN = previousToken
+    })
+    await killTestTmuxSession()
+    const { stdout } = await execTmuxFile('tmux', [
+      'new-session',
+      '-d',
+      '-s',
+      TEST_TMUX_SESSION,
+      '-P',
+      '-F',
+      '#{pane_id}',
+      '/bin/sh',
+    ])
+    const paneId = `local:${stdout.trim()}`
+    let rawRequest: IncomingMessage | undefined
+    let rawReply: ServerResponse | undefined
+    let requestAbortListeners = 0
+    let responseCloseListeners = 0
+    let envelope: { ok: boolean; code: string } | undefined
+    fastify.addHook('preHandler', async (request, reply) => {
+      rawRequest = request.raw
+      rawReply = reply.raw
+      requestAbortListeners = request.raw.listenerCount('aborted')
+      responseCloseListeners = reply.raw.listenerCount('close')
+    })
+    fastify.addHook('onSend', async (_request, _reply, payload) => {
+      envelope = JSON.parse(String(payload))
+      return payload
+    })
+    await fastify.register(agentControlRoutes)
+    const address = await fastify.listen({ port: 0, host: '127.0.0.1' })
+    const body =
+      route === 'agent/wait'
+        ? { target: { paneId }, condition: { status: 'done' }, timeoutMs: 30000 }
+        : { paneId, match: 'never-match-task15', timeoutMs: 30000 }
+    const client = httpRequest(`${address}/v1/control/${route}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-tmuxgo-agent-token': 'agent-control-secret',
+        'x-tmuxgo-env': '1',
+      },
+    })
+    client.on('error', () => {})
+    t.after(() => client.destroy())
+    client.end(JSON.stringify(body))
+    const startedAt = Date.now()
+    while (
+      !rawReply ||
+      rawReply.listenerCount('close') <= responseCloseListeners ||
+      (route === 'agent/wait' && agentControl.activeWaitCount() === 0)
+    ) {
+      assert.ok(Date.now() - startedAt < 3000, 'wait handler must start')
+      await delay(10)
+    }
+    assert.equal(rawRequest?.complete, true)
+    assert.equal(rawRequest?.aborted, false)
+    client.destroy()
+    while (!envelope) {
+      assert.ok(Date.now() - startedAt < 4000, 'disconnect must cancel without waiting for the timeout')
+      await delay(10)
+    }
+    assert.equal(envelope.ok, false)
+    assert.equal(envelope.code, 'CLIENT_DISCONNECTED')
+    assert.equal(agentControl.activeWaitCount(), 0)
+    assert.equal(rawRequest?.listenerCount('aborted'), requestAbortListeners)
+    assert.equal(rawReply.listenerCount('close'), responseCloseListeners)
+  })
+}

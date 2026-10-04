@@ -79,6 +79,7 @@ test('mcp handshake, tools/list and no-token tool-call contract', async (t) => {
     'tmuxgo_pane_snapshot',
     'tmuxgo_pane_wait_output',
     'tmuxgo_pane_run',
+    'tmuxgo_control_schema',
   ]) {
     assert.ok(names.includes(name), `tools/list is missing ${name}`)
   }
@@ -98,12 +99,17 @@ test('mcp handshake, tools/list and no-token tool-call contract', async (t) => {
 
 test('mcp tools/call proxies to isolated gateway with contract headers', async (t) => {
   // 随机端口 mock gateway：验证 tools/call 的 HTTP 契约（头、body、响应透出），不触 :3001
-  const received: { url: string; headers: Record<string, unknown>; body: any }[] = []
+  const received: { method: string; url: string; headers: Record<string, unknown>; body: any }[] = []
   const gateway: Server = createServer((req, res) => {
     let raw = ''
     req.on('data', (chunk) => (raw += chunk))
     req.on('end', () => {
-      received.push({ url: req.url || '', headers: req.headers, body: raw ? JSON.parse(raw) : undefined })
+      received.push({
+        method: req.method || '',
+        url: req.url || '',
+        headers: req.headers,
+        body: raw ? JSON.parse(raw) : undefined,
+      })
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ ok: true, messageId: 'msg-1' }))
     })
@@ -129,6 +135,14 @@ test('mcp tools/call proxies to isolated gateway with contract headers', async (
   assert.equal(req.headers['x-tmuxgo-agent-token'], 'mcp-secret')
   assert.equal(req.body.type, 'text')
   assert.equal(req.body.text, 'hello')
+
+  // schema 导出工具：GET 透传同守卫头
+  const schema = await server.rpc(6, 'tools/call', { name: 'tmuxgo_control_schema', arguments: {} })
+  assert.notEqual(schema.result.isError, true, JSON.stringify(schema.result))
+  const schemaReq = received.at(-1)!
+  assert.equal(schemaReq.method, 'GET')
+  assert.equal(schemaReq.url, '/api/v1/control/schema')
+  assert.equal(schemaReq.headers['x-tmuxgo-agent-token'], 'mcp-secret')
 
   // gateway 错误 → isError + 状态码/正文透出（不吞错）
   const failGateway: Server = createServer((_req, res) => {

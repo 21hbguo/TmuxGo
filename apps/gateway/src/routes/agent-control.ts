@@ -13,9 +13,13 @@ import {
   type AgentWaitTarget,
 } from '../lib/agent-control.js'
 import {
+  CONTROL_CAPABILITIES,
+  SUPPORTED_CONTROL_PROTOCOL_VERSIONS,
+  DEFAULT_CONTROL_PROTOCOL_VERSION,
   controlAgentCancelBodySchema,
   controlAgentPromptBodySchema,
   controlAgentStartBodySchema,
+  controlInitializeBodySchema,
   controlReadBodySchema,
   controlRunBodySchema,
   controlSnapshotBodySchema,
@@ -23,6 +27,7 @@ import {
   controlWaitBodySchema,
   controlWaitOutputBodySchema,
 } from '../lib/control-protocol.js'
+import { buildControlProtocolSchema } from '../lib/control-schema.js'
 import { AgentActionError, cancelAgentOperation, promptAgentInPane, startAgentInPane } from '../lib/agent-actions.js'
 import { assertTargetAllowed } from '../lib/tmux-policy.js'
 import { getHostById } from '../lib/hosts.js'
@@ -51,7 +56,13 @@ function guardControlRequest(request: FastifyRequest, reply: FastifyReply) {
 // pane 请求时状态错误 → 409 语义码；输入/模式校验 → 400 各自 code；
 // 其余（zod/下游执行失败）→ 400 failedCode。code 值是协议契约
 const paneStateCodes = new Set(['PANE_MISSING', 'PANE_DEAD', 'PANE_IN_MODE', 'PANE_OCCUPIED'])
-const waitSemanticCodes = new Set(['OCCUPANT_CHANGED', 'PANE_REMOVED', 'TIMEOUT', 'INVALID_TARGET'])
+const waitSemanticCodes = new Set([
+  'OCCUPANT_CHANGED',
+  'PANE_REMOVED',
+  'TIMEOUT',
+  'INVALID_TARGET',
+  'CLIENT_DISCONNECTED',
+])
 const inputCodes = new Set(['INVALID_INPUT', 'INVALID_PATTERN'])
 function controlError(reply: FastifyReply, error: unknown, failedCode: string) {
   const code = error instanceof Error && 'code' in error ? (error as { code: string }).code : ''
@@ -77,6 +88,39 @@ async function parsePaneTarget(paneId: string) {
   return { hostId, tmuxPaneId }
 }
 export async function agentControlRoutes(fastify: FastifyInstance) {
+  // initialize：协议版本协商握手。旧客户端不带 protocolVersion → 按默认版本兼容；
+  // 未知版本 → 400 UNSUPPORTED_PROTOCOL_VERSION（协商错误，与 zod 校验失败区分）
+  fastify.post('/v1/control/initialize', { bodyLimit: 64 * 1024 }, async (request, reply) => {
+    if (!guardControlRequest(request, reply)) return
+    try {
+      const body = controlInitializeBodySchema.parse(request.body ?? {})
+      const requested = body.protocolVersion
+      if (requested && !(SUPPORTED_CONTROL_PROTOCOL_VERSIONS as readonly string[]).includes(requested)) {
+        return reply.code(400).send({
+          ok: false,
+          code: 'UNSUPPORTED_PROTOCOL_VERSION',
+          message: `Protocol version "${requested}" is not supported`,
+          supportedVersions: [...SUPPORTED_CONTROL_PROTOCOL_VERSIONS],
+        })
+      }
+      reply.header('cache-control', 'no-store')
+      return {
+        ok: true,
+        protocolVersion: DEFAULT_CONTROL_PROTOCOL_VERSION,
+        supportedVersions: [...SUPPORTED_CONTROL_PROTOCOL_VERSIONS],
+        capabilities: [...CONTROL_CAPABILITIES],
+      }
+    } catch (error) {
+      return controlError(reply, error, 'AGENT_CONTROL_INITIALIZE_FAILED')
+    }
+  })
+  // schema：只读导出正式 JSON Schema 文档（method/params/result/错误码/版本/安全限制），
+  // 供 CLI schema 命令、MCP 工具与第三方客户端引用同一份协议定义
+  fastify.get('/v1/control/schema', async (request, reply) => {
+    if (!guardControlRequest(request, reply)) return
+    reply.header('cache-control', 'no-store')
+    return buildControlProtocolSchema()
+  })
   fastify.post('/v1/control/panes/split', { bodyLimit: 64 * 1024 }, async (request, reply) => {
     if (!guardControlRequest(request, reply)) return
     try {
@@ -115,6 +159,12 @@ export async function agentControlRoutes(fastify: FastifyInstance) {
   })
   fastify.post('/v1/control/panes/wait-output', { bodyLimit: 64 * 1024 }, async (request, reply) => {
     if (!guardControlRequest(request, reply)) return
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    request.raw.once('aborted', abort)
+    // POST body 已读完时 request.aborted 不再可靠；响应 close 捕获等待期间断连。
+    reply.raw.once('close', abort)
+    if (request.raw.aborted || reply.raw.destroyed) abort()
     try {
       const body = controlWaitOutputBodySchema.parse(request.body)
       const { hostId, tmuxPaneId } = await parsePaneTarget(body.paneId)
@@ -123,11 +173,15 @@ export async function agentControlRoutes(fastify: FastifyInstance) {
         regex: body.regex,
         lines: body.lines,
         timeoutMs: body.timeoutMs,
+        signal: controller.signal,
       })
       reply.header('cache-control', 'no-store')
       return { ok: true, ...result }
     } catch (error) {
       return controlError(reply, error, 'AGENT_CONTROL_WAIT_OUTPUT_FAILED')
+    } finally {
+      request.raw.off('aborted', abort)
+      reply.raw.off('close', abort)
     }
   })
   fastify.post('/v1/control/panes/run', { bodyLimit: 64 * 1024 }, async (request, reply) => {
@@ -148,17 +202,30 @@ export async function agentControlRoutes(fastify: FastifyInstance) {
   })
   fastify.post('/v1/control/agent/wait', { bodyLimit: 64 * 1024 }, async (request, reply) => {
     if (!guardControlRequest(request, reply)) return
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    request.raw.once('aborted', abort)
+    // POST body 已读完时 request.aborted 不再可靠；响应 close 捕获等待期间断连。
+    reply.raw.once('close', abort)
+    if (request.raw.aborted || reply.raw.destroyed) abort()
     try {
       const body = controlWaitBodySchema.parse(request.body)
       const target = body.target as AgentWaitTarget
       const { hostId } = resolveAgentWaitTarget(target, body.hostId || 'local')
       await assertKnownHost(hostId)
       const condition = body.condition as AgentWaitCondition
-      const result = await agentControl.wait(target, condition, { hostId, timeoutMs: body.timeoutMs })
+      const result = await agentControl.wait(target, condition, {
+        hostId,
+        timeoutMs: body.timeoutMs,
+        signal: controller.signal,
+      })
       reply.header('cache-control', 'no-store')
       return { ok: true, waitId: result.waitId, elapsedMs: result.elapsedMs, pane: result.pane }
     } catch (error) {
       return controlError(reply, error, 'AGENT_CONTROL_WAIT_FAILED')
+    } finally {
+      request.raw.off('aborted', abort)
+      reply.raw.off('close', abort)
     }
   })
 
@@ -206,7 +273,9 @@ export async function agentControlRoutes(fastify: FastifyInstance) {
     if (
       error instanceof Error &&
       'code' in error &&
-      ['OCCUPANT_CHANGED', 'PANE_REMOVED', 'TIMEOUT', 'INVALID_TARGET'].includes((error as { code: string }).code)
+      ['OCCUPANT_CHANGED', 'PANE_REMOVED', 'TIMEOUT', 'INVALID_TARGET', 'CLIENT_DISCONNECTED'].includes(
+        (error as { code: string }).code,
+      )
     )
       return 409
     return 400

@@ -1,0 +1,783 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tmuxgo-agent-control/v1",
+  "title": "TmuxGo Agent Control Protocol",
+  "protocolVersion": "v1",
+  "supportedVersions": ["v1"],
+  "basePath": "/api/v1/control",
+  "transport": {
+    "method": "POST",
+    "contentType": "application/json",
+    "note": "All methods are POST except schema (GET /schema). Response envelope is a single JSON object."
+  },
+  "security": {
+    "headers": {
+      "x-tmuxgo-env": {
+        "const": "1",
+        "description": "Environment guard; injected by the gateway into agent panes"
+      },
+      "x-tmuxgo-agent-token": {
+        "type": "string",
+        "description": "Same credential as /api/agent-events; never logged or embedded in this document"
+      }
+    },
+    "limits": {
+      "bodyLimitBytes": 65536,
+      "inFlightOpsPerHost": 8,
+      "ackTimeoutMs": {
+        "minimum": 250,
+        "maximum": 30000
+      },
+      "waitTimeoutMs": {
+        "minimum": 250,
+        "maximum": 600000
+      }
+    }
+  },
+  "capabilities": [
+    "initialize",
+    "schema",
+    "panes.split",
+    "panes.read",
+    "panes.snapshot",
+    "panes.wait-output",
+    "panes.run",
+    "agent.wait",
+    "agent.start",
+    "agent.prompt",
+    "agent.cancel"
+  ],
+  "methods": {
+    "initialize": {
+      "http": "POST",
+      "path": "/initialize",
+      "params": {
+        "type": "object",
+        "properties": {
+          "protocolVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          }
+        },
+        "additionalProperties": true
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "protocolVersion": {
+            "type": "string",
+            "enum": ["v1"]
+          },
+          "supportedVersions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "initialize",
+                "schema",
+                "panes.split",
+                "panes.read",
+                "panes.snapshot",
+                "panes.wait-output",
+                "panes.run",
+                "agent.wait",
+                "agent.start",
+                "agent.prompt",
+                "agent.cancel"
+              ]
+            }
+          }
+        },
+        "required": ["ok", "protocolVersion", "supportedVersions", "capabilities"]
+      },
+      "errors": [
+        "AGENT_CONTROL_INITIALIZE_FAILED",
+        "UNSUPPORTED_PROTOCOL_VERSION",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
+    },
+    "schema": {
+      "http": "GET",
+      "path": "/schema",
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["ok"]
+      },
+      "errors": ["AGENT_CONTROL_AUTH_REQUIRED", "TMUXGO_ENV_GUARD"]
+    },
+    "panes.split": {
+      "http": "POST",
+      "path": "/panes/split",
+      "params": {
+        "type": "object",
+        "properties": {
+          "paneId": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 256
+          },
+          "direction": {
+            "type": "string",
+            "enum": ["horizontal", "vertical"],
+            "default": "horizontal"
+          },
+          "cwd": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "additionalProperties": true,
+        "required": ["paneId"]
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "paneId": {
+            "type": "string",
+            "examples": ["local:%0"]
+          }
+        },
+        "required": ["ok"]
+      },
+      "errors": [
+        "AGENT_CONTROL_SPLIT_FAILED",
+        "PANE_MISSING",
+        "PANE_UNKNOWN",
+        "INVALID_TARGET",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
+    },
+    "panes.read": {
+      "http": "POST",
+      "path": "/panes/read",
+      "params": {
+        "type": "object",
+        "properties": {
+          "paneId": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 256
+          },
+          "lines": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2000
+          }
+        },
+        "additionalProperties": true,
+        "required": ["paneId"]
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "paneId": {
+            "type": "string"
+          },
+          "output": {
+            "type": "string"
+          }
+        },
+        "required": ["ok", "paneId", "output"]
+      },
+      "errors": [
+        "AGENT_CONTROL_READ_FAILED",
+        "PANE_MISSING",
+        "PANE_UNKNOWN",
+        "INVALID_TARGET",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
+    },
+    "panes.snapshot": {
+      "http": "POST",
+      "path": "/panes/snapshot",
+      "params": {
+        "type": "object",
+        "properties": {
+          "paneId": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 256
+          },
+          "lines": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": true,
+        "required": ["paneId"]
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "paneId": {
+            "type": "string"
+          },
+          "snapshot": {
+            "type": "object",
+            "description": "Non-sensitive pane state: command/title/cwd/dead/inMode/active/size plus a bounded tail. No env vars, tokens or unbounded history."
+          }
+        },
+        "required": ["ok", "paneId", "snapshot"]
+      },
+      "errors": [
+        "AGENT_CONTROL_SNAPSHOT_FAILED",
+        "PANE_MISSING",
+        "PANE_DEAD",
+        "PANE_IN_MODE",
+        "PANE_UNKNOWN",
+        "INVALID_TARGET",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
+    },
+    "panes.wait-output": {
+      "http": "POST",
+      "path": "/panes/wait-output",
+      "params": {
+        "type": "object",
+        "properties": {
+          "paneId": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 256
+          },
+          "match": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "regex": {
+            "type": "boolean",
+            "default": false
+          },
+          "lines": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 250,
+            "maximum": 600000
+          }
+        },
+        "additionalProperties": true,
+        "required": ["paneId"]
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "waitId": {
+            "type": "string"
+          },
+          "elapsedMs": {
+            "type": "integer"
+          },
+          "matched": {
+            "type": "boolean"
+          },
+          "changed": {
+            "type": "boolean"
+          },
+          "output": {
+            "type": "string",
+            "description": "Capped recent tail"
+          }
+        },
+        "required": ["ok"]
+      },
+      "errors": [
+        "AGENT_CONTROL_WAIT_OUTPUT_FAILED",
+        "INVALID_PATTERN",
+        "PANE_MISSING",
+        "PANE_DEAD",
+        "PANE_REMOVED",
+        "OCCUPANT_CHANGED",
+        "TIMEOUT",
+        "PANE_UNKNOWN",
+        "INVALID_TARGET",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
+    },
+    "panes.run": {
+      "http": "POST",
+      "path": "/panes/run",
+      "params": {
+        "type": "object",
+        "properties": {
+          "paneId": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 256
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "enter": {
+            "type": "boolean",
+            "default": true
+          },
+          "allowOccupied": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "additionalProperties": true,
+        "required": ["paneId", "text"]
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "paneId": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          }
+        },
+        "required": ["ok"]
+      },
+      "errors": [
+        "AGENT_CONTROL_RUN_FAILED",
+        "INVALID_INPUT",
+        "PANE_MISSING",
+        "PANE_DEAD",
+        "PANE_IN_MODE",
+        "PANE_OCCUPIED",
+        "PANE_UNKNOWN",
+        "INVALID_TARGET",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
+    },
+    "agent.wait": {
+      "http": "POST",
+      "path": "/agent/wait",
+      "params": {
+        "type": "object",
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "paneId": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 256
+                  }
+                },
+                "additionalProperties": true,
+                "required": ["paneId"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "sessionName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "agent": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "additionalProperties": true,
+                "required": ["sessionName", "agent"]
+              }
+            ]
+          },
+          "condition": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": ["idle", "working", "blocked", "done", "unknown"]
+              },
+              "phase": {
+                "type": "string",
+                "enum": [
+                  "idle",
+                  "working",
+                  "needs_input",
+                  "permission_required",
+                  "retrying",
+                  "failed",
+                  "ended",
+                  "disconnected",
+                  "unknown"
+                ]
+              },
+              "lastEvent": {
+                "type": "string",
+                "enum": [
+                  "started",
+                  "permission_required",
+                  "question_required",
+                  "completed",
+                  "failed",
+                  "retrying",
+                  "ended",
+                  "disconnected",
+                  "reconnected"
+                ]
+              }
+            },
+            "additionalProperties": true,
+            "anyOf": [
+              {
+                "required": ["status"]
+              },
+              {
+                "required": ["phase"]
+              },
+              {
+                "required": ["lastEvent"]
+              }
+            ]
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 250,
+            "maximum": 600000
+          }
+        },
+        "additionalProperties": true,
+        "required": ["target", "condition"]
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "waitId": {
+            "type": "string"
+          },
+          "elapsedMs": {
+            "type": "integer"
+          },
+          "pane": {
+            "type": "object",
+            "description": "AgentPaneState at the moment the condition was met"
+          }
+        },
+        "required": ["ok"]
+      },
+      "errors": [
+        "AGENT_CONTROL_WAIT_FAILED",
+        "OCCUPANT_CHANGED",
+        "PANE_REMOVED",
+        "TIMEOUT",
+        "INVALID_TARGET",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
+    },
+    "agent.start": {
+      "http": "POST",
+      "path": "/agent/start",
+      "params": {
+        "type": "object",
+        "properties": {
+          "paneId": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 256
+          },
+          "provider": {
+            "type": "string",
+            "enum": ["claude", "codex"]
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^-{0,2}[A-Za-z0-9][A-Za-z0-9._:/=-]{0,126}$"
+            },
+            "maxItems": 8
+          },
+          "ackTimeoutMs": {
+            "type": "integer",
+            "minimum": 250,
+            "maximum": 30000
+          },
+          "opId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+          }
+        },
+        "additionalProperties": true,
+        "required": ["paneId", "provider"]
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "opId": {
+            "type": "string"
+          },
+          "acked": {
+            "type": "boolean"
+          },
+          "pane": {
+            "type": "object",
+            "description": "AgentPaneState when acked=true"
+          }
+        },
+        "required": ["ok", "opId", "acked"]
+      },
+      "errors": [
+        "AGENT_CONTROL_START_FAILED",
+        "INVALID_ARGUMENT",
+        "PROVIDER_NOT_SUPPORTED",
+        "AGENT_CONTROL_SEND_FAILED",
+        "AGENT_CONTROL_QUOTA_EXCEEDED",
+        "PANE_MISSING",
+        "PANE_DEAD",
+        "PANE_IN_MODE",
+        "PANE_OCCUPIED",
+        "PANE_UNKNOWN",
+        "ACK_TIMEOUT",
+        "OPERATION_CANCELLED",
+        "INVALID_TARGET",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
+    },
+    "agent.prompt": {
+      "http": "POST",
+      "path": "/agent/prompt",
+      "params": {
+        "type": "object",
+        "properties": {
+          "paneId": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 256
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "ackTimeoutMs": {
+            "type": "integer",
+            "minimum": 250,
+            "maximum": 30000
+          },
+          "opId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+          }
+        },
+        "additionalProperties": true,
+        "required": ["paneId", "prompt"]
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "opId": {
+            "type": "string"
+          },
+          "acked": {
+            "type": "boolean"
+          }
+        },
+        "required": ["ok", "opId", "acked"]
+      },
+      "errors": [
+        "AGENT_CONTROL_PROMPT_FAILED",
+        "INVALID_ARGUMENT",
+        "AGENT_CONTROL_SEND_FAILED",
+        "AGENT_CONTROL_QUOTA_EXCEEDED",
+        "PANE_MISSING",
+        "PANE_DEAD",
+        "PANE_IN_MODE",
+        "PANE_NOT_AGENT",
+        "PANE_UNKNOWN",
+        "ACK_TIMEOUT",
+        "OPERATION_CANCELLED",
+        "INVALID_TARGET",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
+    },
+    "agent.cancel": {
+      "http": "POST",
+      "path": "/agent/cancel",
+      "params": {
+        "type": "object",
+        "properties": {
+          "opId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "additionalProperties": true,
+        "required": ["opId"]
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "opId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["cancelled", "already_settled", "not_found"]
+          }
+        },
+        "required": ["ok", "opId", "state"]
+      },
+      "errors": ["AGENT_CONTROL_CANCEL_FAILED", "AGENT_CONTROL_AUTH_REQUIRED", "TMUXGO_ENV_GUARD"]
+    }
+  },
+  "errorCodes": [
+    "AGENT_CONTROL_AUTH_REQUIRED",
+    "TMUXGO_ENV_GUARD",
+    "AGENT_CONTROL_SPLIT_FAILED",
+    "AGENT_CONTROL_READ_FAILED",
+    "AGENT_CONTROL_WAIT_FAILED",
+    "AGENT_CONTROL_SNAPSHOT_FAILED",
+    "AGENT_CONTROL_WAIT_OUTPUT_FAILED",
+    "AGENT_CONTROL_RUN_FAILED",
+    "INVALID_INPUT",
+    "INVALID_PATTERN",
+    "AGENT_CONTROL_START_FAILED",
+    "AGENT_CONTROL_PROMPT_FAILED",
+    "AGENT_CONTROL_CANCEL_FAILED",
+    "AGENT_CONTROL_QUOTA_EXCEEDED",
+    "AGENT_CONTROL_SEND_FAILED",
+    "OCCUPANT_CHANGED",
+    "PANE_REMOVED",
+    "TIMEOUT",
+    "INVALID_TARGET",
+    "INVALID_ARGUMENT",
+    "PROVIDER_NOT_SUPPORTED",
+    "PANE_MISSING",
+    "PANE_DEAD",
+    "PANE_IN_MODE",
+    "PANE_OCCUPIED",
+    "PANE_NOT_AGENT",
+    "PANE_UNKNOWN",
+    "ACK_TIMEOUT",
+    "OPERATION_CANCELLED",
+    "AGENT_CONTROL_INITIALIZE_FAILED",
+    "UNSUPPORTED_PROTOCOL_VERSION"
+  ],
+  "errorEnvelope": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "type": "boolean",
+        "const": false
+      },
+      "code": {
+        "type": "string",
+        "enum": [
+          "AGENT_CONTROL_AUTH_REQUIRED",
+          "TMUXGO_ENV_GUARD",
+          "AGENT_CONTROL_SPLIT_FAILED",
+          "AGENT_CONTROL_READ_FAILED",
+          "AGENT_CONTROL_WAIT_FAILED",
+          "AGENT_CONTROL_SNAPSHOT_FAILED",
+          "AGENT_CONTROL_WAIT_OUTPUT_FAILED",
+          "AGENT_CONTROL_RUN_FAILED",
+          "INVALID_INPUT",
+          "INVALID_PATTERN",
+          "AGENT_CONTROL_START_FAILED",
+          "AGENT_CONTROL_PROMPT_FAILED",
+          "AGENT_CONTROL_CANCEL_FAILED",
+          "AGENT_CONTROL_QUOTA_EXCEEDED",
+          "AGENT_CONTROL_SEND_FAILED",
+          "OCCUPANT_CHANGED",
+          "PANE_REMOVED",
+          "TIMEOUT",
+          "INVALID_TARGET",
+          "INVALID_ARGUMENT",
+          "PROVIDER_NOT_SUPPORTED",
+          "PANE_MISSING",
+          "PANE_DEAD",
+          "PANE_IN_MODE",
+          "PANE_OCCUPIED",
+          "PANE_NOT_AGENT",
+          "PANE_UNKNOWN",
+          "ACK_TIMEOUT",
+          "OPERATION_CANCELLED",
+          "AGENT_CONTROL_INITIALIZE_FAILED",
+          "UNSUPPORTED_PROTOCOL_VERSION"
+        ]
+      },
+      "message": {
+        "type": "string",
+        "description": "Human-readable only; not part of the contract"
+      }
+    },
+    "required": ["code", "message"]
+  }
+}

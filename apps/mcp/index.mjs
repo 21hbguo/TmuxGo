@@ -234,6 +234,8 @@ const TOOLS = [
       properties: { targetId: { type: 'string', description: 'Tab target id (default: active tab)' } },
     },
   },
+  // pane 系列 inputSchema 的约束值与 control-protocol.ts 的 zod 定义一一对应
+  // （tests/control-schema-contract.test.ts 断言两者相等，改协议侧须同步这里）
   {
     name: 'tmuxgo_pane_snapshot',
     description:
@@ -241,8 +243,13 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        paneId: { type: 'string', description: 'Host-scoped pane id like local:%3 (required)' },
-        lines: { type: 'number', description: 'Tail lines 1-100 (default 12)' },
+        paneId: {
+          type: 'string',
+          minLength: 3,
+          maxLength: 256,
+          description: 'Host-scoped pane id like local:%3 (required)',
+        },
+        lines: { type: 'integer', minimum: 1, maximum: 100, description: 'Tail lines 1-100 (default 12)' },
       },
       required: ['paneId'],
     },
@@ -254,11 +261,26 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        paneId: { type: 'string', description: 'Host-scoped pane id like local:%3 (required)' },
-        match: { type: 'string', description: 'Literal substring or regex to match (omit = any output change)' },
-        regex: { type: 'boolean', description: 'Treat match as a regular expression' },
-        lines: { type: 'number', description: 'Tail window 1-200 lines (default 50)' },
-        timeoutMs: { type: 'number', description: 'Max wait 250-600000 ms (default 60000)' },
+        paneId: {
+          type: 'string',
+          minLength: 3,
+          maxLength: 256,
+          description: 'Host-scoped pane id like local:%3 (required)',
+        },
+        match: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 512,
+          description: 'Literal substring or regex to match (omit = any output change)',
+        },
+        regex: { type: 'boolean', default: false, description: 'Treat match as a regular expression' },
+        lines: { type: 'integer', minimum: 1, maximum: 200, description: 'Tail window 1-200 lines (default 50)' },
+        timeoutMs: {
+          type: 'integer',
+          minimum: 250,
+          maximum: 600000,
+          description: 'Max wait 250-600000 ms (default 60000)',
+        },
       },
       required: ['paneId'],
     },
@@ -270,13 +292,33 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        paneId: { type: 'string', description: 'Host-scoped pane id like local:%3 (required)' },
-        text: { type: 'string', description: 'Literal text to send (1-4096 chars, no control codes/newlines)' },
-        enter: { type: 'boolean', description: 'Send Enter after text (default true)' },
-        allowOccupied: { type: 'boolean', description: 'Confirm typing into a non-shell occupant' },
+        paneId: {
+          type: 'string',
+          minLength: 3,
+          maxLength: 256,
+          description: 'Host-scoped pane id like local:%3 (required)',
+        },
+        text: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 4096,
+          description: 'Literal text to send (1-4096 chars, no control codes/newlines)',
+        },
+        enter: { type: 'boolean', default: true, description: 'Send Enter after text (default true)' },
+        allowOccupied: {
+          type: 'boolean',
+          default: false,
+          description: 'Confirm typing into a non-shell occupant',
+        },
       },
       required: ['paneId', 'text'],
     },
+  },
+  {
+    name: 'tmuxgo_control_schema',
+    description:
+      'Fetch the TmuxGo agent control protocol JSON Schema (versioned methods/params/results/error codes/security limits) from the gateway. Read-only; use it to validate or generate client requests.',
+    inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'tmuxgo_inbox_list',
@@ -330,7 +372,7 @@ function defaultRoute(args) {
   return route
 }
 
-async function callGateway(pathname, body, timeoutMs = 30000) {
+async function callGateway(pathname, body, timeoutMs = 30000, method = 'POST') {
   if (!TOKEN) {
     return {
       ok: false,
@@ -340,13 +382,13 @@ async function callGateway(pathname, body, timeoutMs = 30000) {
   }
   try {
     const res = await fetch(`${GATEWAY_URL}/api${pathname}`, {
-      method: 'POST',
+      method,
       headers: {
         'content-type': 'application/json',
         'x-tmuxgo-env': '1',
         'x-tmuxgo-agent-token': TOKEN,
       },
-      body: JSON.stringify(body),
+      ...(method === 'GET' ? {} : { body: JSON.stringify(body) }),
       // gateway 挂起时 client 侧 MCP 调用也要能超时返回
       signal: AbortSignal.timeout(timeoutMs),
     })
@@ -454,6 +496,8 @@ async function handleToolCall(id, params) {
       enter: args.enter !== false,
       allowOccupied: args.allowOccupied === true ? true : undefined,
     })
+  } else if (name === 'tmuxgo_control_schema') {
+    result = await callGateway('/v1/control/schema', undefined, 10000, 'GET')
   } else if (name === 'tmuxgo_inbox_list') {
     result = await callGateway('/v1/control/inbox', {
       id: typeof args.messageId === 'string' ? args.messageId : undefined,
