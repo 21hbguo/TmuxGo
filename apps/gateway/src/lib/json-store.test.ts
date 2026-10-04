@@ -82,6 +82,33 @@ test('reads legacy payload format unchanged', async (t) => {
   assert.deepEqual(await store.read(), [{ id: 'legacy' }])
 })
 
+test('expectedVersion gates reads and stamps the written payload', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-store-'))
+  const file = path.join(dir, 'items.json')
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new JsonStore<Item>(file, {
+    key: 'items',
+    expectedVersion: 1,
+    normalize: (input) => (Array.isArray(input) ? (input as Item[]) : []),
+  })
+  // 版本不符的主文件回落 .bak 中的合规版本
+  await writeFile(`${file}.bak`, JSON.stringify({ version: 1, items: [{ id: 'from-bak' }] }), 'utf8')
+  await writeFile(file, JSON.stringify({ version: 2, items: [{ id: 'newer' }] }), 'utf8')
+  assert.deepEqual(await store.read(), [{ id: 'from-bak' }])
+  // 双损坏（主版本不符 + .bak 也不符）→ 报错且不清盘
+  await writeFile(`${file}.bak`, JSON.stringify({ version: 3, items: [{ id: 'v3' }] }), 'utf8')
+  await assert.rejects(store.read(), JsonStoreCorruptionError)
+  // 写出的 payload 带声明版本
+  const versioned = new JsonStore<Item>(path.join(dir, 'v9.json'), {
+    key: 'items',
+    expectedVersion: 9,
+    normalize: (input) => (Array.isArray(input) ? (input as Item[]) : []),
+  })
+  await versioned.write([{ id: 'x' }])
+  const written = JSON.parse(await readFile(path.join(dir, 'v9.json'), 'utf8')) as { version: number }
+  assert.equal(written.version, 9)
+})
+
 test('mutate errors propagate without writing and do not poison the queue', async (t) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-store-'))
   t.after(() => rm(dir, { recursive: true, force: true }))

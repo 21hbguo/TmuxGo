@@ -1,6 +1,6 @@
 import '../test-env.js'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'fs/promises'
+import { mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import test from 'node:test'
@@ -172,4 +172,62 @@ test('stores and dedupes worktree provenance records', async (t) => {
   await removeWorktreeRecord('local', '/repo', '/repo/wt')
   records = await readWorktreeRecords()
   assert.equal(records.length, 0)
+})
+
+test('serializes concurrent upserts without losing provenance', async (t) => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-wt-conc-'))
+  const previous = process.env.TMUXGO_CONFIG_DIR
+  process.env.TMUXGO_CONFIG_DIR = configDir
+  t.after(async () => {
+    if (previous === undefined) delete process.env.TMUXGO_CONFIG_DIR
+    else process.env.TMUXGO_CONFIG_DIR = previous
+    await rm(configDir, { recursive: true, force: true })
+  })
+  const count = 15
+  await Promise.all(
+    Array.from({ length: count }, (_, index) =>
+      upsertWorktreeRecord({ hostId: 'local', repoPath: '/repo', worktreePath: `/repo/wt-${index}` }),
+    ),
+  )
+  const records = await readWorktreeRecords()
+  assert.equal(records.length, count)
+  assert.equal(new Set(records.map((item) => item.id)).size, count)
+  assert.equal((await stat(path.join(configDir, 'git-worktrees.json'))).mode & 0o777, 0o600)
+})
+
+test('reads legacy manifest and recovers from backup on corruption', async (t) => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-wt-legacy-'))
+  const file = path.join(configDir, 'git-worktrees.json')
+  const previous = process.env.TMUXGO_CONFIG_DIR
+  process.env.TMUXGO_CONFIG_DIR = configDir
+  t.after(async () => {
+    if (previous === undefined) delete process.env.TMUXGO_CONFIG_DIR
+    else process.env.TMUXGO_CONFIG_DIR = previous
+    await rm(configDir, { recursive: true, force: true })
+  })
+  // 旧格式 {version:1, worktrees:[...]} 原样可读
+  await writeFile(
+    file,
+    JSON.stringify({
+      version: 1,
+      worktrees: [
+        { id: 'w1', hostId: 'local', repoPath: '/repo', worktreePath: '/repo/wt', createdAt: 'x', updatedAt: 'x' },
+        { garbage: true },
+      ],
+    }),
+    'utf8',
+  )
+  let records = await readWorktreeRecords()
+  assert.equal(records.length, 1)
+  assert.equal(records[0].id, 'w1')
+  // 主文件损坏 → 回落 .bak；双损坏 → 报错不清盘
+  const first = await upsertWorktreeRecord({ hostId: 'local', repoPath: '/repo', worktreePath: '/repo/wt2' })
+  await upsertWorktreeRecord({ hostId: 'local', repoPath: '/repo', worktreePath: '/repo/wt3' })
+  await writeFile(file, '{ not json', 'utf8')
+  records = await readWorktreeRecords()
+  assert.equal(records.length, 2)
+  assert.equal(records[0].id, first.id)
+  await writeFile(`${file}.bak`, 'broken', 'utf8')
+  await assert.rejects(readWorktreeRecords(), { code: 'JSON_STORE_CORRUPT' })
+  assert.equal(await readFile(file, 'utf8'), '{ not json')
 })

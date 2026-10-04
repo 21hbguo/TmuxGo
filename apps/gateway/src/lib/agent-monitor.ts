@@ -234,7 +234,8 @@ export class AgentMonitor {
     this.hostRefreshMs = Math.max(this.intervalMs, options.hostRefreshMs || 5000)
     this.now = options.now || (() => Date.now())
     this.onNotification = options.onNotification
-    this.onRecoveryCandidate = options.onRecoveryCandidate || ((candidate) => void upsertRecoveryCandidate(candidate))
+    this.onRecoveryCandidate =
+      options.onRecoveryCandidate || ((candidate) => void upsertRecoveryCandidate(candidate).catch(() => {}))
   }
   private recordRecoveryCandidate(hostId: string, pane: AgentPaneState, reason: string) {
     try {

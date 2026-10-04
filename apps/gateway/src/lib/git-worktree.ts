@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
-import { mkdir, readFile, rename, writeFile } from 'fs/promises'
 import os from 'os'
 import path from 'path'
+import { JsonStore } from './json-store.js'
 
 export interface GitWorktreeInfo {
   path: string
@@ -156,24 +156,27 @@ function normalizeRecord(input: unknown): GitWorktreeRecord | null {
     updatedAt: str(raw.updatedAt, 64) || now,
   }
 }
-export async function readWorktreeRecords(): Promise<GitWorktreeRecord[]> {
-  try {
-    const parsed = JSON.parse(await readFile(getWorktreeStorePath(), 'utf8'))
-    if (!Array.isArray(parsed?.worktrees)) return []
-    return parsed.worktrees.slice(0, MAX_WORKTREE_RECORDS).map(normalizeRecord).filter(Boolean) as GitWorktreeRecord[]
-  } catch {
-    return []
-  }
-}
-async function writeWorktreeRecords(records: GitWorktreeRecord[]) {
+// 持久化走 JsonStore（0600/原子写/.bak/串行 update）；按解析后路径缓存
+// store——config dir 变更时仍各自成队，队列按文件共享才有互斥语义
+const worktreeStores = new Map<string, JsonStore<GitWorktreeRecord>>()
+function getWorktreeStore() {
   const file = getWorktreeStorePath()
-  await mkdir(path.dirname(file), { recursive: true })
-  const temp = `${file}.tmp-${Date.now()}`
-  await writeFile(temp, JSON.stringify({ version: 1, worktrees: records.slice(0, MAX_WORKTREE_RECORDS) }), {
-    encoding: 'utf8',
-    mode: 0o600,
-  })
-  await rename(temp, file)
+  let store = worktreeStores.get(file)
+  if (!store) {
+    store = new JsonStore<GitWorktreeRecord>(file, {
+      key: 'worktrees',
+      normalize: (input) =>
+        (Array.isArray(input) ? input : [])
+          .map(normalizeRecord)
+          .filter(Boolean)
+          .slice(0, MAX_WORKTREE_RECORDS) as GitWorktreeRecord[],
+    })
+    worktreeStores.set(file, store)
+  }
+  return store
+}
+export function readWorktreeRecords(): Promise<GitWorktreeRecord[]> {
+  return getWorktreeStore().read()
 }
 export function worktreeRecordKey(hostId: string, repoPath: string, worktreePath: string) {
   return `${hostId}|${repoPath}|${worktreePath}`
@@ -181,26 +184,29 @@ export function worktreeRecordKey(hostId: string, repoPath: string, worktreePath
 export async function upsertWorktreeRecord(
   entry: Omit<GitWorktreeRecord, 'id' | 'createdAt' | 'updatedAt'>,
 ): Promise<GitWorktreeRecord> {
-  const records = await readWorktreeRecords()
-  const now = new Date().toISOString()
-  const key = worktreeRecordKey(entry.hostId, entry.repoPath, entry.worktreePath)
-  const existing = records.find((item) => worktreeRecordKey(item.hostId, item.repoPath, item.worktreePath) === key)
-  const record: GitWorktreeRecord = {
-    ...existing,
-    ...entry,
-    id: existing?.id || randomUUID(),
-    createdAt: existing?.createdAt || now,
-    updatedAt: now,
-  }
-  const next = existing ? records.map((item) => (item.id === existing.id ? record : item)) : [record, ...records]
-  await writeWorktreeRecords(next)
-  return record
+  return getWorktreeStore().update((records) => {
+    const now = new Date().toISOString()
+    const key = worktreeRecordKey(entry.hostId, entry.repoPath, entry.worktreePath)
+    const existing = records.find((item) => worktreeRecordKey(item.hostId, item.repoPath, item.worktreePath) === key)
+    const record: GitWorktreeRecord = {
+      ...existing,
+      ...entry,
+      id: existing?.id || randomUUID(),
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    }
+    const items = (
+      existing ? records.map((item) => (item.id === existing.id ? record : item)) : [record, ...records]
+    ).slice(0, MAX_WORKTREE_RECORDS)
+    return { items, result: record }
+  })
 }
 export async function removeWorktreeRecord(hostId: string, repoPath: string, worktreePath: string) {
-  const records = await readWorktreeRecords()
   const key = worktreeRecordKey(hostId, repoPath, worktreePath)
-  const next = records.filter((item) => worktreeRecordKey(item.hostId, item.repoPath, item.worktreePath) !== key)
-  if (next.length !== records.length) await writeWorktreeRecords(next)
+  await getWorktreeStore().update((records) => {
+    const items = records.filter((item) => worktreeRecordKey(item.hostId, item.repoPath, item.worktreePath) !== key)
+    return { items, result: items.length !== records.length }
+  })
 }
 export async function mergeWorktreeProvenance(hostId: string, repoPath: string, worktrees: GitWorktreeInfo[]) {
   const records = await readWorktreeRecords()
