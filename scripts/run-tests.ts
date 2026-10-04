@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, readdirSync, statSync } from 'node:f
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawnSync } from 'node:child_process'
+import { prepareTmuxSocketDir, tmuxSocketPath, tmuxTestEnv } from './tmux-isolation'
 
 function assertSupportedNode() {
   const [major, minor] = process.versions.node.split('.').map(Number)
@@ -29,9 +30,14 @@ function collectTests(dir: string, acc: string[] = []) {
 assertSupportedNode()
 
 const root = process.cwd()
-const files = collectTests(join(root, 'apps/gateway/src')).concat(collectTests(join(root, 'tests')))
+// 可选过滤：`pnpm test <路径子串>…` 只跑匹配文件。跑单文件一律走这里——
+// 自造 TMUX/TMUX_TMPDIR env 直跑 tsx --test 曾漏清 TMUX，kill-server 误杀
+// 用户默认 server（TMUX 已设置时 tmux 忽略 TMUX_TMPDIR）
+const patterns = process.argv.slice(2)
+const collected = collectTests(join(root, 'apps/gateway/src')).concat(collectTests(join(root, 'tests')))
+const files = patterns.length ? collected.filter((f) => patterns.some((p) => f.includes(p))) : collected
 if (files.length === 0) {
-  console.error('No test files found')
+  console.error(patterns.length ? `No test files match: ${patterns.join(', ')}` : 'No test files found')
   process.exit(1)
 }
 
@@ -57,6 +63,7 @@ const configDir = mkdtempSync(join(tmpdir(), 'tmuxgo-unit-tests-'))
 // 测试专用 tmux server：独立 socket 目录，清空 TMUX 避免继承外层 pane 的
 // socket 路径（run-e2e.ts 同款做法）。直接命令与应用子进程走同一 server
 const tmuxDir = mkdtempSync(join(tmpdir(), 'tmuxgo-test-tmux-'))
+prepareTmuxSocketDir(tmuxDir)
 process.env.TMUXGO_CONFIG_DIR = configDir
 process.env.TMUXGO_PREFERENCES_DIR = join(configDir, 'preferences')
 process.env.TMUXGO_TMP_DIR = join(configDir, 'tmp')
@@ -70,7 +77,7 @@ function cleanup() {
   if (cleaned) return
   cleaned = true
   // 只 kill 测试专用 server（独立 socket 目录内）；禁止默认 socket kill-server
-  spawnSync('tmux', ['kill-server'], { stdio: 'ignore', env: { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir } })
+  spawnSync('tmux', ['-S', tmuxSocketPath(tmuxDir), 'kill-server'], { stdio: 'ignore', env: tmuxTestEnv(tmuxDir) })
   if (previousConfigDir === undefined) delete process.env.TMUXGO_CONFIG_DIR
   else process.env.TMUXGO_CONFIG_DIR = previousConfigDir
   if (previousPreferencesDir === undefined) delete process.env.TMUXGO_PREFERENCES_DIR
