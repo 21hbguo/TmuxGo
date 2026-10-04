@@ -13,6 +13,7 @@ import {
 } from '../lib/request-validation.js'
 import { consumeWebSocketTicket, isAuthEnabled } from '../lib/auth.js'
 import { appendAuditEvent } from '../lib/audit-log.js'
+import { scopeAllowsHost, scopeAllowsSession } from '../lib/access-scope.js'
 import { shareLinkStore, type ShareTicket } from '../lib/share-links.js'
 import { StreamSession } from '../lib/stream/stream-session.js'
 import { applyPasteDataFrame } from '../lib/stream/paste-binary.js'
@@ -34,8 +35,11 @@ export async function streamRoutes(fastify: FastifyInstance) {
       terminate: () => void
     }
     const wsUser = isAuthEnabled() && !shareTicket ? consumeWebSocketTicket(ticket) : null
-    // WS 走 ticket 而非 HTTP bearer：actor 取 ticket 用户名 / share 访客 / anonymous
+    // WS 走 ticket 而非 HTTP bearer：actor 取 ticket 用户名 / share 访客 / anonymous；
+    // userScope 为 ticket 携带的 host/session 权限边界（与 HTTP principal 同一份 scope）
     const wsActor = wsUser?.username || (shareTicket ? 'share' : 'anonymous')
+    const userScope = shareTicket ? undefined : wsUser?.scope
+    const readOnly = !!shareTicket || userScope?.readOnly === true
     const auditWsConnect = (result: 'success' | 'failure', statusCode: number) =>
       void appendAuditEvent({
         id: `${Date.now().toString(36)}-ws`,
@@ -57,7 +61,13 @@ export async function streamRoutes(fastify: FastifyInstance) {
     auditWsConnect('success', 101)
     console.log('Client connected to stream')
     const agentSocket = socket
-    const session = new StreamSession(socket, shareTicket)
+    const session = new StreamSession(socket, shareTicket, userScope)
+    const targetAllowed = (hostId: unknown, sessionName?: unknown) =>
+      !userScope ||
+      (typeof hostId === 'string' &&
+        scopeAllowsHost(userScope, hostId) &&
+        (sessionName === undefined ||
+          (typeof sessionName === 'string' && scopeAllowsSession(userScope, hostId, sessionName))))
     let agentId: string | null = null
     const shareStateTimer = shareTicket
       ? setInterval(() => {
@@ -94,8 +104,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
         const separator = message.indexOf(0x0a)
         const header = separator >= 0 ? message.toString('ascii', 0, separator) : ''
         if (header.startsWith('paste-data ')) {
-          if (shareTicket) {
-            if (!shareLinkStore.isTicketActive(shareTicket)) {
+          if (readOnly) {
+            if (shareTicket && !shareLinkStore.isTicketActive(shareTicket)) {
               socket.close(1008, 'Share link is unavailable')
               return
             }
@@ -114,8 +124,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
       try {
         const data: any = streamMessageSchema.parse(JSON.parse(message.toString()))
         if (agentId && agentManager.handleMessage(agentId, agentSocket, data)) return
-        if (shareTicket) {
-          if (!shareLinkStore.isTicketActive(shareTicket)) {
+        if (readOnly) {
+          if (shareTicket && !shareLinkStore.isTicketActive(shareTicket)) {
             socket.close(1008, 'Share link is unavailable')
             return
           }
@@ -136,6 +146,9 @@ export async function streamRoutes(fastify: FastifyInstance) {
         switch (data.type) {
           case 'register': {
             const register = streamRegisterMessageSchema.parse(data)
+            // agent 通道注册同样受限：scope 不允许的 hostId 直接拒绝
+            if (userScope && !scopeAllowsHost(userScope, register.host.id))
+              throw new Error('Access scope does not allow this host')
             agentId = register.host.id
             // agent 通道只生产事件不消费 UI 事件：注册后即退订 monitor/inbox 扇出，
             // 否则 agent 会收到它不认识的 agent_monitor_* 刷屏，且白占一个 listener
@@ -172,6 +185,13 @@ export async function streamRoutes(fastify: FastifyInstance) {
               throw new Error('Agent WebSocket is not registered')
             const paneId = typeof data.paneId === 'string' ? data.paneId : undefined
             if (paneId && !paneId.startsWith(`${agentId}:`)) throw new Error('Agent event pane does not belong to host')
+            // session 白名单 scope 对事件上报同样生效（host 已在 register 时校验）
+            if (
+              userScope?.sessions &&
+              typeof data.sessionName === 'string' &&
+              !scopeAllowsSession(userScope, agentId, data.sessionName)
+            )
+              throw new Error('Access scope does not allow this session')
             const event = ingestAgentEvent(payload, {
               hostId: agentId,
               provider: typeof data.provider === 'string' ? data.provider : undefined,
@@ -198,6 +218,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
             break
           }
           case 'redraw':
+            if (!targetAllowed(data.hostId, data.sessionName))
+              throw new Error('Access scope does not allow this session')
             session.requestRedraw(data.sessionName, data.hostId)
             break
           case 'input': {
@@ -227,10 +249,14 @@ export async function streamRoutes(fastify: FastifyInstance) {
           case 'pane_scroll': {
             const scrollLines = Number(data.lines) || 0
             if (scrollLines === 0) break
+            if (!targetAllowed(data.hostId, data.sessionName))
+              throw new Error('Access scope does not allow this session')
             session.queueScroll(data.sessionName, data.hostId, scrollLines)
             break
           }
           case 'copy_mode_cancel':
+            if (!targetAllowed(data.hostId, data.sessionName))
+              throw new Error('Access scope does not allow this session')
             session.cancelCopyMode(data.sessionName, data.hostId)
             break
           case 'detach':

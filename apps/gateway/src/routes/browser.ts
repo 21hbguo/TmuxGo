@@ -132,8 +132,14 @@ export async function browserRoutes(fastify: FastifyInstance) {
     const socket = rawSocket as unknown as StreamSocket
     const query = request.query as { ticket?: unknown }
     const ticket = typeof query.ticket === 'string' ? query.ticket : ''
-    if (isAuthEnabled() && !consumeWebSocketTicket(ticket)) {
+    const wsUser = isAuthEnabled() ? consumeWebSocketTicket(ticket) : null
+    if (isAuthEnabled() && !wsUser) {
       socket.close(1008, 'Authentication required')
+      return
+    }
+    // 内嵌浏览器是 gateway 本机实例级资源：受限身份（scoped token/scope 用户）禁入
+    if (wsUser?.scope) {
+      socket.close(1008, 'Forbidden')
       return
     }
     const inst = instance()

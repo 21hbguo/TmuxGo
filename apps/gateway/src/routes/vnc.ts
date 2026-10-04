@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { agentManager, type AgentSocket } from '../agent-manager.js'
 import { consumeWebSocketTicket, isAuthEnabled } from '../lib/auth.js'
 import { appendAuditEvent } from '../lib/audit-log.js'
+import { scopeAllowsHost } from '../lib/access-scope.js'
 import { execHostShell, openVncSshTunnel } from '../lib/tmux-executor.js'
 import {
   normalizeVncPort,
@@ -106,8 +107,15 @@ export async function vncRoutes(fastify: FastifyInstance) {
       socket.close(1008, 'Authentication required')
       return
     }
-    auditWsConnect('success', 101)
     const hostId = typeof query.hostId === 'string' && query.hostId ? query.hostId : 'local'
+    // 受限身份的 VNC 画面边界：目标 host 必须在 ticket scope 内
+    if (wsUser?.scope && !scopeAllowsHost(wsUser.scope, hostId)) {
+      dbg('vnc ws rejected: host outside scope', { hostId })
+      auditWsConnect('failure', 1008)
+      socket.close(1008, 'Forbidden')
+      return
+    }
+    auditWsConnect('success', 101)
     const port = normalizeVncPort(query.port)
     if (port === null) {
       dbg('vnc ws rejected: invalid port', { port: query.port })

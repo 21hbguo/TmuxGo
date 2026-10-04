@@ -2,7 +2,7 @@ import { appendFile, mkdir, readFile, rename, stat } from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import type { FastifyReply, FastifyRequest } from 'fastify'
-import { getRequestPrincipal, type AuditSource } from './principal.js'
+import { describeScope, getRequestPrincipal, type AuditSource } from './principal.js'
 
 export interface AuditEvent {
   id: string
@@ -17,6 +17,8 @@ export interface AuditEvent {
   method: string
   statusCode: number
   hostId?: string
+  // scope 判定摘要（access-scope.describeScope 产出，如 "hosts=a,b;ro"）；全权身份不出现
+  scope?: string
   message?: string
 }
 const MAX_FILE_BYTES = 8 * 1024 * 1024
@@ -87,6 +89,8 @@ export async function recordAuditRequest(request: FastifyRequest, reply: Fastify
   const params = request.params as Record<string, unknown> | undefined
   const hostId = safeValue(params?.hostId || params?.id)
   if (hostId) event.hostId = hostId
+  // 受限身份的 scope 摘要随请求留痕，便于事后核对判定依据
+  if (principal.scope) event.scope = describeScope(principal.scope)
   if (statusCode >= 400) event.message = reply.statusCode >= 500 ? 'Request failed' : `HTTP ${statusCode}`
   await appendAuditEvent(event).catch(() => {})
 }

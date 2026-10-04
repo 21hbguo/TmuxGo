@@ -28,6 +28,7 @@ import {
 } from '../lib/ssh-config.js'
 import { execHostShell, verifyHostConnectivity } from '../lib/tmux-executor.js'
 import { hostIdParamsSchema, remoteHostBodySchema } from '../lib/request-validation.js'
+import { scopeAllowsHost } from '../lib/access-scope.js'
 import { taskManager, type TaskExecutionContext, type TaskManager } from '../lib/task-manager.js'
 interface HostTestTaskInput {
   hostId: string
@@ -127,15 +128,18 @@ async function runHostTestTask(input: unknown, context: TaskExecutionContext) {
 export async function hostRoutes(fastify: FastifyInstance, options: { taskManager?: TaskManager } = {}) {
   const backgroundTasks = options.taskManager || taskManager
   backgroundTasks.register('host-test', runHostTestTask)
-  fastify.get('/hosts', async () => {
-    const configHosts = await listAllHosts()
+  fastify.get('/hosts', async (request) => {
+    // 受限身份只见授权 host：列表按 scope 过滤，不暴露其余 host 的存在
+    const scope = request.principal?.scope
+    const visible = (id: string) => !scope || scopeAllowsHost(scope, id)
+    const configHosts = (await listAllHosts()).filter((host) => visible(host.id))
     const configIds = new Set(configHosts.map((host) => host.id))
     const configEntries = await Promise.all(configHosts.map((host) => hostResponse(host)))
     return [
       ...configEntries,
       ...agentManager
         .getAllAgentStatuses()
-        .filter((agent) => !configIds.has(agent.id))
+        .filter((agent) => !configIds.has(agent.id) && visible(agent.id))
         .map((agent) => ({
           id: agent.id,
           name: agent.name,

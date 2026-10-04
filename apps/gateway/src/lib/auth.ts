@@ -3,6 +3,7 @@ import os from 'os'
 import path from 'path'
 import { chmod, mkdir, readFile, rename, writeFile } from 'fs/promises'
 import type { FastifyRequest } from 'fastify'
+import { subjectScope, verifyScopedApiToken, type AccessScope } from './access-scope.js'
 
 const ACCESS_TTL_SECONDS = 15 * 60
 const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60
@@ -13,9 +14,9 @@ const AUTH_VERSION = 1
 const COOKIE_NAME = 'tmuxgo_refresh_token'
 const ACCESS_COOKIE_NAME = 'tmuxgo_access_token'
 const ACCESS_SECRET_CONTEXT = 'access'
-const WS_TICKET_CONTEXT = 'ws-ticket'
 
-export type AuthUser = { username: string }
+// scope：受限身份的 host/session 边界（access-scope.ts）；缺省 = 全权用户/旧行为
+export type AuthUser = { username: string; scope?: AccessScope }
 export type AccessTokenPayload = { username: string; sessionId: string; exp: number }
 export type AuthSession = {
   id: string
@@ -55,7 +56,7 @@ let initialized = false
 let initPromise: Promise<void> | null = null
 let defaultPasswordInUse = false
 const accessTokens = new Map<string, AccessTokenPayload>()
-const wsTickets = new Map<string, { username: string; sessionId: string; expiresAt: number }>()
+const wsTickets = new Map<string, { username: string; sessionId?: string; scope?: AccessScope; expiresAt: number }>()
 const loginAttempts = new Map<string, LoginAttempt>()
 
 function hash(value: string) {
@@ -215,8 +216,9 @@ function getValidAccessToken(token: string) {
   accessTokens.delete(token)
   return verifyAccessToken(token)
 }
-// HTTP 认证入口（bearer 优先、access cookie 兜底）；命中即写 request.principal
-// 供审计使用。request.principal 的类型由 lib/principal.ts 的 fastify 扩展声明
+// HTTP 认证入口（bearer 优先、access cookie 兜底，scoped API token 末位回退）；
+// 命中即写 request.principal 供审计/scope 判定使用。
+// request.principal 的类型由 lib/principal.ts 的 fastify 扩展声明
 export function authenticateHttpRequest(request: FastifyRequest): AccessTokenPayload | null {
   const authorization = request.headers.authorization
   const bearer =
@@ -229,8 +231,17 @@ export function authenticateHttpRequest(request: FastifyRequest): AccessTokenPay
       .find((part) => part.startsWith(cookiePrefix))
       ?.slice(cookiePrefix.length) || ''
   const payload = verifyAccessToken(bearer) || verifyAccessToken(cookieToken)
-  if (payload) request.principal = { actor: payload.username, source: 'http', sessionId: payload.sessionId }
-  return payload
+  if (payload) {
+    request.principal = { actor: payload.username, source: 'http', sessionId: payload.sessionId }
+    return payload
+  }
+  // scoped API token（access-scopes.json）：以最小权限身份接入，actor 记为 token:<name>
+  const scoped = bearer ? verifyScopedApiToken(bearer) : null
+  if (scoped) {
+    request.principal = { actor: `token:${scoped.name}`, source: 'http', scope: scoped.scope }
+    return { username: `token:${scoped.name}`, sessionId: '', exp: 0 }
+  }
+  return null
 }
 function checkLoginRateLimit(identifier: string) {
   const current = loginAttempts.get(identifier)
@@ -344,6 +355,9 @@ export async function changePassword(currentPassword: string, newPassword: strin
   accessTokens.clear()
   await writeStore()
 }
+// WS ticket 与 HTTP principal 同一身份：session access token → 用户名+sessionId，
+// 并继承 subjects["user:<name>"] 的 scope 覆盖；scoped token → 自带 scope。
+// ticket 只存身份快照（60s TTL），scope 变化下一次签发即生效
 export async function issueWebSocketTicket(accessToken: string) {
   await initializeAuthStore()
   const payload = getValidAccessToken(accessToken)
@@ -352,6 +366,17 @@ export async function issueWebSocketTicket(accessToken: string) {
   wsTickets.set(ticket, {
     username: payload.username,
     sessionId: payload.sessionId,
+    scope: subjectScope(`user:${payload.username}`),
+    expiresAt: now() + WS_TICKET_TTL_SECONDS * 1000,
+  })
+  return { ticket, expiresIn: WS_TICKET_TTL_SECONDS }
+}
+export async function issueScopedWebSocketTicket(name: string, scope: AccessScope) {
+  await initializeAuthStore()
+  const ticket = randomBytes(32).toString('base64url')
+  wsTickets.set(ticket, {
+    username: `token:${name}`,
+    scope,
     expiresAt: now() + WS_TICKET_TTL_SECONDS * 1000,
   })
   return { ticket, expiresIn: WS_TICKET_TTL_SECONDS }
@@ -362,10 +387,14 @@ export function consumeWebSocketTicket(ticket: string): AuthUser | null {
     wsTickets.delete(ticket)
     return null
   }
-  if (!store?.sessions.some((session) => session.id === entry.sessionId && Date.parse(session.expiresAt) > now())) {
+  // scoped token ticket 无 sessionId，不查 session 存活（60s TTL 即有效期边界）
+  if (
+    entry.sessionId &&
+    !store?.sessions.some((session) => session.id === entry.sessionId && Date.parse(session.expiresAt) > now())
+  ) {
     wsTickets.delete(ticket)
     return null
   }
   wsTickets.delete(ticket)
-  return getAuthUser(entry.username)
+  return { username: entry.username, ...(entry.scope ? { scope: entry.scope } : {}) }
 }

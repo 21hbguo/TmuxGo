@@ -497,6 +497,28 @@ npm run test:ssh-e2e
 
 Gateway 默认启用账号认证。未登录访问受保护 API（如 `/api/hosts`）返回 `401`。认证状态与设备会话保存在 `~/.tmuxgo/auth.json`，浏览器首次登录后会自动续期；使用默认 `admin/admin123` 登录时必须修改密码，修改密码会撤销所有设备会话。认证是密码认证，不等同于 TLS；生产环境仍必须使用 HTTPS/WSS 或加密网络。
 
+### Host/Session 访问范围（RBAC）
+
+多用户部署时可以给登录用户、Agent 凭证或 API token 限定可访问的 host/session 边界，配置集中在 `~/.tmuxgo/access-scopes.json`（`TMUXGO_CONFIG_DIR` 下）：
+
+```json
+{
+  "version": 1,
+  "subjects": {
+    "user:alice": { "hosts": ["local", "dev-1"] },
+    "agent": { "hosts": ["runner-1"] }
+  },
+  "tokens": []
+}
+```
+
+- `subjects["user:<登录名>"]`：覆盖该登录用户的默认全权范围；`subjects["agent"]`：覆盖 Agent event token（`TMUXGO_AGENT_EVENT_TOKEN`）的默认范围。
+- `scope.hosts`：host id 白名单或 `"*"`；`scope.sessions`（可选）：session 名白名单，只作用于 `hosts` 已允许的 host；`scope.readOnly`（可选）：只读，所有写操作返回 `403`。
+- 越权访问一律返回 `403`（不区分资源是否存在），`GET /api/hosts` 只回授权 host；受限身份不能触及实例管理面（审计、分享、插件、Inbox、workspaces 等）。
+- 文件缺失或为空即没有任何受限身份——admin/本机单用户行为与旧版完全一致。
+
+API token（`tgk_` 前缀）由 admin 通过 `POST /api/auth/tokens` 签发并在创建时绑定 scope，支持 `GET /api/auth/tokens` 列表与 `DELETE /api/auth/tokens/:id` 吊销；文件内只存 SHA-256 哈希，token 原文仅在创建响应中出现一次，以 `Authorization: Bearer tgk_...` 使用，同样可经 `/api/auth/ws-ticket` 换 WS 票据（HTTP 与 WebSocket 身份一致）。审计日志记录每次越权判定的 actor/source/host/scope 摘要（`action=scope.deny`），不记录 token 明文、密码或终端内容。
+
 ### 数据落点
 
 - 远端主机配置：`~/.tmuxgo/hosts.json`

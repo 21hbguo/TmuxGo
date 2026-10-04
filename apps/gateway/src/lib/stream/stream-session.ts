@@ -20,6 +20,7 @@ import {
 } from '../stream-binary.js'
 import { StreamRouteDictionary } from './stream-route.js'
 import { shareLinkStore, type ShareTicket } from '../share-links.js'
+import { scopeAllowsSession, type AccessScope } from '../access-scope.js'
 import { StreamCellEncoder } from './stream-cell.js'
 import { applyScroll, getSessionWindowSize, refreshAttachedClient, resizeSessionWindow } from './stream-tmux.js'
 import { acquireSharedTerminal, type SharedTerminal } from './shared-terminal.js'
@@ -298,6 +299,8 @@ export class StreamSession {
   constructor(
     private socket: StreamSocketLike,
     private shareTicket: ShareTicket | null,
+    // 受限身份的 host/session scope（ws ticket 携带）；缺省 = 全权
+    private accessScope: AccessScope | undefined = undefined,
   ) {
     this.syncOutputProfile('foreground')
   }
@@ -1068,11 +1071,15 @@ export class StreamSession {
     const { hostId, sessionName } = await this.resolveAttachTarget(attach)
     if (this.shareTicket && (hostId !== this.shareTicket.hostId || sessionName !== this.shareTicket.sessionName))
       throw new Error('Share scope does not allow this session')
+    // 受限身份 attach 边界：host+session 都需在 scope 内，403 等价语义不回显细节
+    if (this.accessScope && !scopeAllowsSession(this.accessScope, hostId, sessionName))
+      throw new Error('Access scope does not allow this session')
     if (hostId === 'local') await prepareSessionAttach(sessionName)
     const requestedCols = attach.cols || 80
     const requestedRows = attach.rows || 24
-    const exclusive = this.shareTicket ? false : !!attach.exclusive
-    const passive = this.shareTicket ? true : !!attach.passive
+    const readOnly = !!this.shareTicket || this.accessScope?.readOnly === true
+    const exclusive = readOnly ? false : !!attach.exclusive
+    const passive = readOnly ? true : !!attach.passive
     if (
       STREAM_FANOUT_ENABLED &&
       this.sharedHub &&

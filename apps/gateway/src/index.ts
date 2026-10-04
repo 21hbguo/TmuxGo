@@ -31,6 +31,7 @@ import { createFastifyLoggerConfig } from './lib/process-log.js'
 import { authRoutes } from './routes/auth.js'
 import { shareRoutes } from './routes/shares.js'
 import { authenticateHttpRequest, initializeAuthStore, isAuthEnabled, isPasswordChangeRequired } from './lib/auth.js'
+import { accessScopeGuard } from './lib/access-scope.js'
 import { agentManager } from './agent-manager.js'
 import { agentMonitor } from './lib/agent-monitor.js'
 import { agentEventRoutes } from './routes/agent-events.js'
@@ -99,6 +100,9 @@ fastify.addHook('onRequest', async (request, reply) => {
   if (isPasswordChangeRequired() && routePath !== '/api/auth/change-password')
     return reply.code(403).send({ message: 'Password change is required', code: 'PASSWORD_CHANGE_REQUIRED' })
 })
+// host/session scope（Task16）：preHandler 阶段 body 已解析，可统一抽取 params/query/body
+// 里的 host/session 目标做判定；受限身份越权一律 403 且不回显资源信息
+fastify.addHook('preHandler', accessScopeGuard)
 fastify.addHook('onSend', recordAuditRequest)
 fastify.setErrorHandler((error, _request, reply) => {
   if (error instanceof ZodError)
