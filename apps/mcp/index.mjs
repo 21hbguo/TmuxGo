@@ -25,6 +25,14 @@ const PROTOCOL_VERSION = '2025-06-18'
 
 const TOOLS = [
   {
+    name: 'tmuxgo_control_initialize',
+    description: 'Negotiate the TmuxGo control protocol and discover the gateway capabilities.',
+    inputSchema: {
+      type: 'object',
+      properties: { protocolVersion: { type: 'string', minLength: 1, maxLength: 32 } },
+    },
+  },
+  {
     name: 'tmuxgo_push_text',
     description:
       'Push a text/markdown message to the TmuxGo inbox. The UI shows it in a searchable list and a preview tab with copy/forward/share actions. Returns messageId (usable with tmuxgo_inbox_list for delivery/read receipts).',
@@ -393,7 +401,22 @@ async function callGateway(pathname, body, timeoutMs = 30000, method = 'POST') {
       signal: AbortSignal.timeout(timeoutMs),
     })
     const text = await res.text()
-    return { ok: res.ok, status: res.status, body: text }
+    let payload
+    try {
+      payload = JSON.parse(text)
+    } catch {
+      payload = text
+    }
+    // 只透传正式 envelope 的 code/message，避免把请求正文、token 或终端输出
+    // 拼进 MCP 错误；成功响应仍完整返回给调用方。
+    if (!res.ok && payload && typeof payload === 'object') {
+      payload = {
+        ok: false,
+        code: typeof payload.code === 'string' ? payload.code : `HTTP_${res.status}`,
+        message: typeof payload.message === 'string' ? payload.message : `HTTP ${res.status}`,
+      }
+    }
+    return { ok: res.ok, status: res.status, body: payload }
   } catch (error) {
     return {
       ok: false,
@@ -408,7 +431,15 @@ async function handleToolCall(id, params) {
   const args = params?.arguments || {}
   const route = defaultRoute(args)
   let result
-  if (name === 'tmuxgo_push_text') {
+  if (name === 'tmuxgo_control_initialize') {
+    result = await callGateway(
+      '/v1/control/initialize',
+      {
+        protocolVersion: typeof args.protocolVersion === 'string' ? args.protocolVersion : 'v1',
+      },
+      10000,
+    )
+  } else if (name === 'tmuxgo_push_text') {
     result = await callGateway('/v1/control/push', {
       type: 'text',
       title: args.title,
@@ -509,7 +540,12 @@ async function handleToolCall(id, params) {
   } else {
     return toolResult(id, `Unknown tool: ${name}`, true)
   }
-  if (!result.ok) return toolResult(id, `TmuxGo push failed (${result.status}): ${result.body}`, true)
+  if (!result.ok)
+    return toolResult(
+      id,
+      `TmuxGo control request failed (${result.status}): ${typeof result.body === 'string' ? result.body : JSON.stringify(result.body)}`,
+      true,
+    )
   toolResult(id, result.body)
 }
 

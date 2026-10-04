@@ -45,7 +45,11 @@
     "agent.wait",
     "agent.start",
     "agent.prompt",
-    "agent.cancel"
+    "agent.cancel",
+    "push",
+    "open-target",
+    "inbox",
+    "browser"
   ],
   "methods": {
     "initialize": {
@@ -94,7 +98,11 @@
                 "agent.wait",
                 "agent.start",
                 "agent.prompt",
-                "agent.cancel"
+                "agent.cancel",
+                "push",
+                "open-target",
+                "inbox",
+                "browser"
               ]
             }
           }
@@ -695,6 +703,565 @@
         "required": ["ok", "opId", "state"]
       },
       "errors": ["AGENT_CONTROL_CANCEL_FAILED", "AGENT_CONTROL_AUTH_REQUIRED", "TMUXGO_ENV_GUARD"]
+    },
+    "push": {
+      "http": "POST",
+      "path": "/push",
+      "params": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["text", "image", "video", "file", "link"]
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 262144
+          },
+          "linkUrl": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "base64": {
+            "type": "string",
+            "maxLength": 44739244
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "mime": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "open": {
+            "type": "boolean"
+          },
+          "dedupeKey": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "route": {
+            "type": "object",
+            "properties": {
+              "hostId": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "sessionName": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "paneId": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "tmuxPaneId": {
+                "type": "string",
+                "pattern": "^%[0-9]+$"
+              }
+            },
+            "additionalProperties": true
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "agent": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "agentSessionId": {
+                "type": "string",
+                "maxLength": 128
+              }
+            },
+            "additionalProperties": true
+          },
+          "expiresInMs": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 2592000000
+          }
+        },
+        "additionalProperties": true,
+        "required": ["type"]
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "deduplicated": {
+            "type": "boolean"
+          },
+          "messageId": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["text", "image", "video", "file", "link"]
+          },
+          "name": {
+            "type": "string"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "route": {
+            "type": "object"
+          },
+          "revision": {
+            "type": "integer"
+          }
+        },
+        "required": ["ok", "messageId", "createdAt", "type", "revision"]
+      },
+      "errors": ["AGENT_PUSH_FAILED", "INVALID_TARGET", "AGENT_CONTROL_AUTH_REQUIRED", "TMUXGO_ENV_GUARD"]
+    },
+    "open-target": {
+      "http": "POST",
+      "path": "/open-target",
+      "params": {
+        "type": "object",
+        "properties": {
+          "route": {
+            "type": "object",
+            "properties": {
+              "hostId": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "sessionName": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "paneId": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "tmuxPaneId": {
+                "type": "string",
+                "pattern": "^%[0-9]+$"
+              }
+            },
+            "additionalProperties": true
+          },
+          "messageId": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        "additionalProperties": true
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["ok"]
+      },
+      "errors": ["AGENT_OPEN_TARGET_FAILED", "INVALID_TARGET", "AGENT_CONTROL_AUTH_REQUIRED", "TMUXGO_ENV_GUARD"]
+    },
+    "inbox": {
+      "http": "POST",
+      "path": "/inbox",
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "sessionName": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "paneId": {
+            "type": "string",
+            "maxLength": 256
+          }
+        },
+        "additionalProperties": true
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["ok"]
+      },
+      "errors": [
+        "AGENT_INBOX_QUERY_FAILED",
+        "INBOX_MESSAGE_NOT_FOUND",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
+    },
+    "browser": {
+      "http": "POST",
+      "path": "/browser",
+      "params": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "status"
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "launch"
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "stop"
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "navigate"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "targetId": {
+                "type": "string",
+                "maxLength": 256
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op", "url"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "back"
+              },
+              "targetId": {
+                "type": "string",
+                "maxLength": 256
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "forward"
+              },
+              "targetId": {
+                "type": "string",
+                "maxLength": 256
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "reload"
+              },
+              "targetId": {
+                "type": "string",
+                "maxLength": 256
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "snapshot"
+              },
+              "targetId": {
+                "type": "string",
+                "maxLength": 256
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "click"
+              },
+              "ref": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "targetId": {
+                "type": "string",
+                "maxLength": 256
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op", "ref"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "type"
+              },
+              "ref": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "text": {
+                "type": "string",
+                "maxLength": 8192
+              },
+              "targetId": {
+                "type": "string",
+                "maxLength": 256
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op", "ref", "text"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "press"
+              },
+              "key": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "targetId": {
+                "type": "string",
+                "maxLength": 256
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op", "key"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "scroll"
+              },
+              "dx": {
+                "type": "number",
+                "default": 0
+              },
+              "dy": {
+                "type": "number",
+                "default": 0
+              },
+              "targetId": {
+                "type": "string",
+                "maxLength": 256
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "screenshot"
+              },
+              "targetId": {
+                "type": "string",
+                "maxLength": 256
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "eval"
+              },
+              "expression": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 65536
+              },
+              "targetId": {
+                "type": "string",
+                "maxLength": 256
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op", "expression"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "pick"
+              },
+              "targetId": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 120000
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "pickCancel"
+              },
+              "targetId": {
+                "type": "string",
+                "maxLength": 256
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "tabs"
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "open"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op", "url"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "close"
+              },
+              "targetId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op", "targetId"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "activate"
+              },
+              "targetId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            },
+            "additionalProperties": true,
+            "required": ["op", "targetId"]
+          }
+        ]
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["ok"]
+      },
+      "errors": ["BROWSER_BAD_OP", "BROWSER_OP_FAILED", "AGENT_CONTROL_AUTH_REQUIRED", "TMUXGO_ENV_GUARD"]
     }
   },
   "errorCodes": [
@@ -728,7 +1295,13 @@
     "ACK_TIMEOUT",
     "OPERATION_CANCELLED",
     "AGENT_CONTROL_INITIALIZE_FAILED",
-    "UNSUPPORTED_PROTOCOL_VERSION"
+    "UNSUPPORTED_PROTOCOL_VERSION",
+    "AGENT_PUSH_FAILED",
+    "AGENT_OPEN_TARGET_FAILED",
+    "AGENT_INBOX_QUERY_FAILED",
+    "INBOX_MESSAGE_NOT_FOUND",
+    "BROWSER_BAD_OP",
+    "BROWSER_OP_FAILED"
   ],
   "errorEnvelope": {
     "type": "object",
@@ -770,7 +1343,13 @@
           "ACK_TIMEOUT",
           "OPERATION_CANCELLED",
           "AGENT_CONTROL_INITIALIZE_FAILED",
-          "UNSUPPORTED_PROTOCOL_VERSION"
+          "UNSUPPORTED_PROTOCOL_VERSION",
+          "AGENT_PUSH_FAILED",
+          "AGENT_OPEN_TARGET_FAILED",
+          "AGENT_INBOX_QUERY_FAILED",
+          "INBOX_MESSAGE_NOT_FOUND",
+          "BROWSER_BAD_OP",
+          "BROWSER_OP_FAILED"
         ]
       },
       "message": {

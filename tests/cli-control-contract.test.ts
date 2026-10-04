@@ -55,6 +55,8 @@ function startMockGateway() {
       body: { ok: true, matched: true, changed: false, waitId: 'w-2', elapsedMs: 3, output: 'done\n' },
     },
     '/api/v1/control/panes/run': { status: 200, body: { ok: true, paneId: 'local:%0', target: 'dev:0.1' } },
+    '/api/v1/control/push': { status: 200, body: { ok: true, messageId: 'msg-1', type: 'text', revision: 1 } },
+    '/api/v1/control/browser': { status: 200, body: { ok: true, state: 'ready', pages: [] } },
     '/api/v1/control/agent/wait': {
       status: 200,
       body: { ok: true, waitId: 'w-1', elapsedMs: 5, pane: { paneId: 'local:%1' } },
@@ -238,6 +240,16 @@ test('cli panes split/read forward contract and surface error envelope', async (
   assert.equal(run.status, 0, run.stderr)
   assert.equal(stdoutJson(run).ok, true)
   assert.deepEqual(gateway.requests.at(-1)!.body, { paneId: 'local:%0', text: 'echo hi', enter: false })
+
+  const push = await runCtl(['push', 'text', '--text', 'hello', '--title', 't', '--open'], env)
+  assert.equal(push.status, 0, push.stderr)
+  assert.equal(stdoutJson(push).messageId, 'msg-1')
+  assert.deepEqual(gateway.requests.at(-1)!.body, { type: 'text', title: 't', open: true, text: 'hello' })
+
+  const browser = await runCtl(['browser', 'status'], env)
+  assert.equal(browser.status, 0, browser.stderr)
+  assert.equal(stdoutJson(browser).state, 'ready')
+  assert.deepEqual(gateway.requests.at(-1)!.body, { op: 'status' })
 
   // 远端错误 envelope 原样透出：exit 1、code/message 稳定
   gateway.responses['/api/v1/control/agent/wait'] = {

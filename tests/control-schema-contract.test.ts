@@ -32,6 +32,10 @@ test('every control method (Task9/Task12 included) is present in the schema doc'
     'panes.split',
     'panes.read',
     'agent.wait',
+    'push',
+    'open-target',
+    'inbox',
+    'browser',
   ]) {
     assert.ok(methods[name], `schema doc missing method ${name}`)
     assert.ok(methods[name].http && methods[name].path, `${name} incomplete`)

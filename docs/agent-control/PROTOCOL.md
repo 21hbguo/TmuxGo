@@ -18,13 +18,15 @@ Also defines the display-metadata patch protocol for `/api/agent-events`: semant
 
 `POST /v1/control/initialize` 是握手端点：client 可声明 `protocolVersion`，gateway 返回协商结果 `{ ok, protocolVersion, supportedVersions, capabilities }`。
 
-| client `protocolVersion` | gateway 行为                                                   |
-| ------------------------ | -------------------------------------------------------------- |
-| 缺省（旧客户端）         | 200，按当前默认版本 `v1` 应答                                  |
-| `v1`                     | 200，协商为 `v1`                                               |
-| 其他值                   | 400 `UNSUPPORTED_PROTOCOL_VERSION`，响应附 `supportedVersions` |
+| client `protocolVersion` | gateway 行为                                                                                              |
+| ------------------------ | --------------------------------------------------------------------------------------------------------- |
+| 缺省（旧客户端）         | 200，按当前默认版本 `v1` 应答                                                                             |
+| `v1`                     | 200，协商为 `v1`                                                                                          |
+| 其他值                   | 400 `UNSUPPORTED_PROTOCOL_VERSION`，响应附 `supportedVersions`                                            |
+| 400                      | `AGENT_PUSH_FAILED` / `AGENT_OPEN_TARGET_FAILED` / `AGENT_INBOX_QUERY_FAILED` / `INBOX_MESSAGE_NOT_FOUND` | push、UI 导航或 inbox 查询失败                 |
+| 400                      | `BROWSER_BAD_OP` / `BROWSER_OP_FAILED`                                                                    | browser op 不在 allowlist 或下游浏览器操作失败 |
 
-capability = 方法名（`initialize`/`schema`/`panes.*`/`agent.*`）。旧 client 不调用 initialize 也不受影响——协商是可选握手，其余端点行为不变。
+capability = 方法名（`initialize`/`schema`/`panes.*`/`agent.*`/`push`/`open-target`/`inbox`/`browser`）。旧 client 不调用 initialize 也不受影响——协商是可选握手，其余端点行为不变。
 
 ### JSON Schema export
 
@@ -61,6 +63,20 @@ capability = 方法名（`initialize`/`schema`/`panes.*`/`agent.*`）。旧 clie
 | 400  | `AGENT_CONTROL_START_FAILED` / `AGENT_CONTROL_PROMPT_FAILED` / `AGENT_CONTROL_CANCEL_FAILED`                                                                                                 | 对应端点 body zod 校验失败或未归类下游失败                                                                           |
 | 400  | `AGENT_CONTROL_INITIALIZE_FAILED`                                                                                                                                                            | `initialize` body zod 校验失败（如 protocolVersion 非字符串）                                                        |
 | 400  | `UNSUPPORTED_PROTOCOL_VERSION`                                                                                                                                                               | `initialize` 声明了不在支持列表的协议版本（响应附 `supportedVersions`）                                              |
+
+### POST /push, /open-target, /inbox
+
+这些 agent → UI 能力与 MCP 工具共用同一 control-plane guard、JSON 错误 envelope 和协议 schema：
+
+- `/push` 接受 `text`、`link` 或受安全路径检查保护的 `file` 内容，支持 `title`、`open`、`dedupeKey`、`route`、`source`；不会把 token、prompt 或终端输出写入审计/协议文档。
+- `/open-target` 只广播 UI 导航请求，不执行浏览器或 shell 操作。
+- `/inbox` 只返回消息 metadata/回执查询结果，不直接暴露 token 或未授权文件内容。
+
+### POST /browser
+
+浏览器控制统一为显式 `op` 联合：`status`、`launch`、`stop`、`tabs`、`navigate`、`back`、`forward`、`reload`、`snapshot`、`click`、`type`、`press`、`scroll`、`screenshot`、`eval`、`pick`、`pickCancel`、`open`、`close`、`activate`。MCP 与 `tmuxgo-ctl browser` 均只调用这些 allowlist op，禁止 shell fallback。
+
+`pick` 最长等待 120s；客户端应在 `timeoutMs + 10s` 后放弃，断开/超时不留下长期订阅。错误仍使用 `{ok:false,code,message}`。
 
 ## Guard
 
@@ -236,7 +252,7 @@ Errors: HTTP 409 with `code` in `OCCUPANT_CHANGED | PANE_REMOVED | TIMEOUT | INV
 
 ## Thin client: `tmuxgo-ctl`
 
-随 `apps/cli` 一起发布的零依赖薄客户端（`bin/tmuxgo-ctl.mjs`），覆盖 initialize/schema/panes split·read·snapshot·wait-output·run/agent wait（MCP bridge 暴露 `tmuxgo_pane_snapshot`/`tmuxgo_pane_wait_output`/`tmuxgo_pane_run`/`tmuxgo_control_schema` 同名语义工具）：
+随 `apps/cli` 一起发布的零依赖薄客户端（`bin/tmuxgo-ctl.mjs`），覆盖 initialize/schema/panes split·read·snapshot·wait-output·run/agent wait/push/browser（MCP bridge 暴露同一 control-plane 的 push/browser/schema 工具）：
 
 ```bash
 tmuxgo-ctl initialize                 # 握手：协商协议版本（旧 gateway 退回 /health 探测）
@@ -247,6 +263,9 @@ tmuxgo-ctl panes snapshot --pane-id local:%0 --lines 20
 tmuxgo-ctl panes wait-output --pane-id local:%0 --match 'build complete' --timeout-ms 120000
 tmuxgo-ctl panes run --pane-id local:%0 --text 'make test'   # [--no-enter] [--allow-occupied]
 tmuxgo-ctl agent wait --session dev --agent codex --status blocked --timeout-ms 60000
+tmuxgo-ctl push text --text 'build complete' --open
+tmuxgo-ctl browser status
+tmuxgo-ctl browser navigate --url https://example.com
 ```
 
 契约（对脚本/第三方调用方稳定）：

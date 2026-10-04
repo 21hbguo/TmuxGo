@@ -73,6 +73,7 @@ test('mcp handshake, tools/list and no-token tool-call contract', async (t) => {
   const list = await server.rpc(2, 'tools/list')
   const names = list.result.tools.map((tool: { name: string }) => tool.name)
   for (const name of [
+    'tmuxgo_control_initialize',
     'tmuxgo_push_text',
     'tmuxgo_push_file',
     'tmuxgo_inbox_list',
@@ -124,12 +125,20 @@ test('mcp tools/call proxies to isolated gateway with contract headers', async (
   })
   t.after(() => server.close())
 
-  const call = await server.rpc(1, 'tools/call', { name: 'tmuxgo_push_text', arguments: { text: 'hello', title: 't' } })
+  const handshake = await server.rpc(1, 'tools/call', {
+    name: 'tmuxgo_control_initialize',
+    arguments: { protocolVersion: 'v1' },
+  })
+  assert.notEqual(handshake.result.isError, true, JSON.stringify(handshake.result))
+  assert.equal(received[0].url, '/api/v1/control/initialize')
+  assert.deepEqual(received[0].body, { protocolVersion: 'v1' })
+
+  const call = await server.rpc(2, 'tools/call', { name: 'tmuxgo_push_text', arguments: { text: 'hello', title: 't' } })
   assert.notEqual(call.result.isError, true, JSON.stringify(call.result))
   assert.match(call.result.content[0].text, /msg-1/)
 
-  assert.equal(received.length, 1)
-  const req = received[0]
+  assert.equal(received.length, 2)
+  const req = received[1]
   assert.equal(req.url, '/api/v1/control/push')
   assert.equal(req.headers['x-tmuxgo-env'], '1')
   assert.equal(req.headers['x-tmuxgo-agent-token'], 'mcp-secret')

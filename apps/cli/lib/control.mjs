@@ -37,6 +37,12 @@ Usage:
   tmuxgo-ctl agent wait (--pane-id <host:%n> | --session <name> --agent <name>)
                         [--status idle|working|blocked|done|unknown] [--phase <p>]
                         [--last-event <e>] [--host-id <h>] [--timeout-ms 250-600000]
+  tmuxgo-ctl push text --text <text> [--title <t>] [--open] [--dedupe-key <k>]
+  tmuxgo-ctl push link --url <http(s) URL> [--title <t>] [--open] [--dedupe-key <k>]
+  tmuxgo-ctl push file --path <file> [--name <n>] [--mime <m>] [--title <t>] [--open]
+  tmuxgo-ctl browser status|launch|stop|tabs|snapshot|screenshot
+  tmuxgo-ctl browser navigate --url <url> [--target-id <id>]
+  tmuxgo-ctl browser click|type|press|scroll|eval|pick|pick-cancel|open|close|activate [flags]
   tmuxgo-ctl help
 
 Env: TMUXGO_ENV=1 (required), TMUXGO_AGENT_EVENT_TOKEN, TMUXGO_GATEWAY_URL
@@ -237,6 +243,89 @@ async function main() {
       body.timeoutMs = timeoutMs
     }
     finish(await post('/agent/wait', body, timeoutMs + 10000))
+  } else if (group === 'push') {
+    requireEnv(`push ${action || ''}`.trim())
+    if (!['text', 'link', 'file'].includes(action)) failUsage('push: action must be text|link|file')
+    const body = { type: action }
+    if (typeof flags.title === 'string') body.title = flags.title
+    if (flags.open === true) body.open = true
+    if (typeof flags.dedupeKey === 'string') body.dedupeKey = flags.dedupeKey
+    if (action === 'text') {
+      if (typeof flags.text !== 'string' || !flags.text) failUsage('push text: --text is required')
+      body.text = flags.text
+    } else if (action === 'link') {
+      if (typeof flags.url !== 'string' || !/^https?:\/\//i.test(flags.url))
+        failUsage('push link: --url must be an http(s) URL')
+      body.linkUrl = flags.url
+    } else {
+      if (typeof flags.path !== 'string' || !flags.path) failUsage('push file: --path is required')
+      body.path = flags.path
+      if (typeof flags.name === 'string') body.name = flags.name
+      if (typeof flags.mime === 'string') body.mime = flags.mime
+    }
+    finish(await post('/push', body, action === 'file' ? 60000 : 30000))
+  } else if (group === 'browser') {
+    requireEnv(`browser ${action || ''}`.trim())
+    const ops = [
+      'status',
+      'launch',
+      'stop',
+      'tabs',
+      'snapshot',
+      'screenshot',
+      'navigate',
+      'back',
+      'forward',
+      'reload',
+      'click',
+      'type',
+      'press',
+      'scroll',
+      'eval',
+      'pick',
+      'pick-cancel',
+      'open',
+      'close',
+      'activate',
+    ]
+    if (!ops.includes(action)) failUsage(`browser: unknown action ${action || ''}`)
+    const op = action === 'pick-cancel' ? 'pickCancel' : action
+    const body = { op }
+    if (typeof flags.targetId === 'string') body.targetId = flags.targetId
+    if (action === 'navigate' || action === 'open') {
+      if (typeof flags.url !== 'string' || !flags.url) failUsage(`browser ${action}: --url is required`)
+      body.url = flags.url
+    }
+    if (action === 'click' || action === 'type') {
+      if (typeof flags.ref !== 'string' || !flags.ref) failUsage(`browser ${action}: --ref is required`)
+      body.ref = flags.ref
+    }
+    if (action === 'type') {
+      if (typeof flags.text !== 'string' || !flags.text) failUsage('browser type: --text is required')
+      body.text = flags.text
+    }
+    if (action === 'press') {
+      if (typeof flags.key !== 'string' || !flags.key) failUsage('browser press: --key is required')
+      body.key = flags.key
+    }
+    if (action === 'scroll') {
+      body.dx = flags.dx === undefined ? 0 : Number(flags.dx)
+      body.dy = flags.dy === undefined ? 0 : Number(flags.dy)
+      if (![body.dx, body.dy].every(Number.isFinite)) failUsage('browser scroll: --dx/--dy must be numbers')
+    }
+    if (action === 'eval') {
+      if (typeof flags.expression !== 'string' || !flags.expression) failUsage('browser eval: --expression is required')
+      body.expression = flags.expression
+    }
+    if (action === 'pick' && flags.timeoutMs !== undefined) {
+      body.timeoutMs = Number(flags.timeoutMs)
+      if (!Number.isInteger(body.timeoutMs) || body.timeoutMs < 1 || body.timeoutMs > 120000)
+        failUsage('browser pick: --timeout-ms must be an integer 1-120000')
+    }
+    if (['close', 'activate'].includes(action) && (typeof flags.targetId !== 'string' || !flags.targetId))
+      failUsage(`browser ${action}: --target-id is required`)
+    const timeoutMs = action === 'pick' ? Math.min((body.timeoutMs || 60000) + 10000, 130000) : 30000
+    finish(await post('/browser', body, timeoutMs))
   } else {
     failUsage(`Unknown command: ${[group, action].filter(Boolean).join(' ')}`)
   }

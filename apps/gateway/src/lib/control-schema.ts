@@ -7,6 +7,10 @@ import {
   controlAgentCancelBodySchema,
   controlAgentPromptBodySchema,
   controlAgentStartBodySchema,
+  controlBrowserBodySchema,
+  controlInboxBodySchema,
+  controlOpenTargetBodySchema,
+  controlPushBodySchema,
   controlInitializeBodySchema,
   controlReadBodySchema,
   controlRunBodySchema,
@@ -29,6 +33,7 @@ type ZodDef = {
   typeName: string
   checks?: { kind: string; value?: number; inclusive?: boolean; regex?: RegExp }[]
   values?: string[]
+  value?: unknown
   options?: z.ZodTypeAny[]
   innerType?: z.ZodTypeAny
   defaultValue?: () => unknown
@@ -84,6 +89,8 @@ export function zodToJsonSchema(schema: z.ZodTypeAny): JsonSchema {
     }
     case 'ZodBoolean':
       return { type: 'boolean' }
+    case 'ZodLiteral':
+      return typeof d.value === 'string' ? { const: d.value } : { const: d.value }
     case 'ZodEnum':
       return { type: 'string', enum: d.values }
     case 'ZodUnion':
@@ -188,6 +195,26 @@ const RESULT_SCHEMAS: Record<string, JsonSchema> = {
     },
     required: ['opId', 'state'],
   },
+  push: {
+    type: 'object',
+    properties: {
+      deduplicated: { type: 'boolean' },
+      messageId: { type: 'string' },
+      assetId: { type: 'string' },
+      createdAt: { type: 'string' },
+      type: { type: 'string', enum: ['text', 'image', 'video', 'file', 'link'] },
+      name: { type: 'string' },
+      mime: { type: 'string' },
+      size: { type: 'integer' },
+      sha256: { type: 'string' },
+      route: { type: 'object' },
+      revision: { type: 'integer' },
+    },
+    required: ['messageId', 'createdAt', 'type', 'revision'],
+  },
+  'open-target': { type: 'object' },
+  inbox: { type: 'object' },
+  browser: { type: 'object' },
 }
 
 interface ControlMethodDef {
@@ -321,6 +348,30 @@ export const CONTROL_METHODS: Record<string, ControlMethodDef> = {
     path: '/agent/cancel',
     params: controlAgentCancelBodySchema,
     errors: ['AGENT_CONTROL_CANCEL_FAILED'],
+  },
+  push: {
+    http: 'POST',
+    path: '/push',
+    params: controlPushBodySchema,
+    errors: ['AGENT_PUSH_FAILED', 'INVALID_TARGET'],
+  },
+  'open-target': {
+    http: 'POST',
+    path: '/open-target',
+    params: controlOpenTargetBodySchema,
+    errors: ['AGENT_OPEN_TARGET_FAILED', 'INVALID_TARGET'],
+  },
+  inbox: {
+    http: 'POST',
+    path: '/inbox',
+    params: controlInboxBodySchema,
+    errors: ['AGENT_INBOX_QUERY_FAILED', 'INBOX_MESSAGE_NOT_FOUND'],
+  },
+  browser: {
+    http: 'POST',
+    path: '/browser',
+    params: controlBrowserBodySchema,
+    errors: ['BROWSER_BAD_OP', 'BROWSER_OP_FAILED'],
   },
 }
 

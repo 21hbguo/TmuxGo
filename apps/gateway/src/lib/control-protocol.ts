@@ -33,6 +33,10 @@ export const CONTROL_CAPABILITIES = [
   'agent.start',
   'agent.prompt',
   'agent.cancel',
+  'push',
+  'open-target',
+  'inbox',
+  'browser',
 ] as const
 export type ControlCapability = (typeof CONTROL_CAPABILITIES)[number]
 
@@ -62,6 +66,90 @@ export const controlWaitOutputBodySchema = z.object({
   lines: z.number().int().min(1).max(200).optional(),
   timeoutMs: z.number().int().min(250).max(600000).optional(),
 })
+
+const inboxRouteSchema = z.object({
+  hostId: z.string().max(128).optional(),
+  sessionName: z.string().max(64).optional(),
+  paneId: z.string().max(256).optional(),
+  tmuxPaneId: z
+    .string()
+    .regex(/^%[0-9]+$/)
+    .optional(),
+})
+const inboxSourceSchema = z.object({
+  provider: z.string().max(64).optional(),
+  agent: z.string().max(64).optional(),
+  agentSessionId: z.string().max(128).optional(),
+})
+export const controlPushBodySchema = z.object({
+  type: z.enum(['text', 'image', 'video', 'file', 'link']),
+  title: z.string().max(160).optional(),
+  text: z.string().max(262144).optional(),
+  linkUrl: z.string().max(4096).optional(),
+  path: z.string().max(4096).optional(),
+  base64: z.string().max(44739244).optional(),
+  name: z.string().max(256).optional(),
+  mime: z.string().max(128).optional(),
+  open: z.boolean().optional(),
+  dedupeKey: z.string().max(128).optional(),
+  route: inboxRouteSchema.optional(),
+  source: inboxSourceSchema.optional(),
+  expiresInMs: z.number().int().positive().max(2592000000).optional(),
+})
+export const controlOpenTargetBodySchema = z.object({
+  route: inboxRouteSchema.optional(),
+  messageId: z.string().max(128).optional(),
+})
+export const controlInboxBodySchema = z.object({
+  id: z.string().max(128).optional(),
+  cursor: z.string().max(512).optional(),
+  limit: z.number().int().min(1).max(200).optional(),
+  sessionName: z.string().max(64).optional(),
+  paneId: z.string().max(256).optional(),
+})
+
+// Browser agent control uses one guarded endpoint and an explicit op union. The
+// union stays in this protocol source so CLI/MCP clients cannot invent a shell fallback.
+export const controlBrowserBodySchema = z.union([
+  z.object({ op: z.literal('status') }),
+  z.object({ op: z.literal('launch') }),
+  z.object({ op: z.literal('stop') }),
+  z.object({ op: z.literal('navigate'), url: z.string().min(1).max(4096), targetId: z.string().max(256).optional() }),
+  z.object({ op: z.literal('back'), targetId: z.string().max(256).optional() }),
+  z.object({ op: z.literal('forward'), targetId: z.string().max(256).optional() }),
+  z.object({ op: z.literal('reload'), targetId: z.string().max(256).optional() }),
+  z.object({ op: z.literal('snapshot'), targetId: z.string().max(256).optional() }),
+  z.object({ op: z.literal('click'), ref: z.string().max(64), targetId: z.string().max(256).optional() }),
+  z.object({
+    op: z.literal('type'),
+    ref: z.string().max(64),
+    text: z.string().max(8192),
+    targetId: z.string().max(256).optional(),
+  }),
+  z.object({ op: z.literal('press'), key: z.string().max(64), targetId: z.string().max(256).optional() }),
+  z.object({
+    op: z.literal('scroll'),
+    dx: z.number().default(0),
+    dy: z.number().default(0),
+    targetId: z.string().max(256).optional(),
+  }),
+  z.object({ op: z.literal('screenshot'), targetId: z.string().max(256).optional() }),
+  z.object({
+    op: z.literal('eval'),
+    expression: z.string().min(1).max(65536),
+    targetId: z.string().max(256).optional(),
+  }),
+  z.object({
+    op: z.literal('pick'),
+    targetId: z.string().max(256).optional(),
+    timeoutMs: z.number().int().min(1).max(120000).optional(),
+  }),
+  z.object({ op: z.literal('pickCancel'), targetId: z.string().max(256).optional() }),
+  z.object({ op: z.literal('tabs') }),
+  z.object({ op: z.literal('open'), url: z.string().min(1).max(4096) }),
+  z.object({ op: z.literal('close'), targetId: z.string().min(1).max(256) }),
+  z.object({ op: z.literal('activate'), targetId: z.string().min(1).max(256) }),
+])
 
 // run：只向经过 pane target 校验的 pane 送字面按键。enter 默认 true；
 // 目标 pane 非 shell occupant 时必须显式 allowOccupied 确认（往运行中
@@ -188,5 +276,11 @@ export const CONTROL_ERROR_CODES = [
   'OPERATION_CANCELLED',
   'AGENT_CONTROL_INITIALIZE_FAILED',
   'UNSUPPORTED_PROTOCOL_VERSION',
+  'AGENT_PUSH_FAILED',
+  'AGENT_OPEN_TARGET_FAILED',
+  'AGENT_INBOX_QUERY_FAILED',
+  'INBOX_MESSAGE_NOT_FOUND',
+  'BROWSER_BAD_OP',
+  'BROWSER_OP_FAILED',
 ] as const
 export type ControlErrorCode = (typeof CONTROL_ERROR_CODES)[number]
