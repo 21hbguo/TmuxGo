@@ -16,6 +16,23 @@ if (!process.env.TMUXGO_TEST_TMUX_ISOLATED) {
 
 export const TEST_TMUX_SESSION = 'test'
 export const execTmuxFile = promisify(execFile)
+
+// tmux may accept new-session before the detached pane is ready to process keys.
+// Retry only the transient startup error; other failures stay fatal.
+export async function sendTmuxKeys(target: string, ...keys: string[]) {
+  let lastError: unknown
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      return await execTmuxFile('tmux', ['send-keys', '-t', target, ...keys])
+    } catch (error) {
+      lastError = error
+      const message = error instanceof Error ? error.message : String(error)
+      if (!message.includes('not in a mode') || attempt === 19) throw error
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+  }
+  throw lastError
+}
 // 用例收尾只删 test session（最后一个 session 消失时隔离 server 自然退出），
 // 绝不在默认 socket 上 kill-server——那是用户日常 server
 export const killTestTmuxSession = () => execTmuxFile('tmux', ['kill-session', '-t', TEST_TMUX_SESSION]).catch(() => {})
