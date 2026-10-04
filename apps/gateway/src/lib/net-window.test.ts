@@ -20,10 +20,10 @@ test('tracks day and rolling 24h network deltas', () => {
 })
 test('resets day baseline after local midnight', () => {
   resetNetWindowState()
-  const before = Date.parse('2026-07-24T23:50:00+08:00')
+  const before = new Date(2026, 6, 24, 23, 50).getTime()
   observeNetWindow('h1', { sentBytes: 10_000, recvBytes: 20_000 }, before)
   observeNetWindow('h1', { sentBytes: 12_000, recvBytes: 21_000 }, before + 60_000)
-  const after = Date.parse('2026-07-25T00:10:00+08:00')
+  const after = new Date(2026, 6, 25, 0, 10).getTime()
   const day = observeNetWindow('h1', { sentBytes: 12_500, recvBytes: 21_400 }, after)
   assert.equal(day.daySentBytes, 0)
   assert.equal(day.dayRecvBytes, 0)
