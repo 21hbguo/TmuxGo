@@ -94,3 +94,107 @@ test('control contract: stable error envelope, codes and unknown-field tolerance
   assert.equal(timeout.json().ok, false)
   await fastify.close()
 })
+
+test('agent start/prompt/cancel: auth, guard, validation and semantic envelopes', async (t) => {
+  const previousToken = process.env.TMUXGO_AGENT_EVENT_TOKEN
+  const previousAudit = process.env.TMUXGO_AUDIT_LOG
+  const auditPath = `${process.env.TMUXGO_CONFIG_DIR}/task12-audit-${Date.now()}.ndjson`
+  process.env.TMUXGO_AGENT_EVENT_TOKEN = 'agent-control-secret'
+  process.env.TMUXGO_AUDIT_LOG = auditPath
+  t.after(() => {
+    if (previousToken === undefined) delete process.env.TMUXGO_AGENT_EVENT_TOKEN
+    else process.env.TMUXGO_AGENT_EVENT_TOKEN = previousToken
+    if (previousAudit === undefined) delete process.env.TMUXGO_AUDIT_LOG
+    else process.env.TMUXGO_AUDIT_LOG = previousAudit
+    agentMonitor.stop()
+  })
+  const fastify = Fastify()
+  await fastify.register(agentControlRoutes)
+  const headers = { 'x-tmuxgo-agent-token': 'agent-control-secret', 'x-tmuxgo-env': '1' }
+
+  for (const url of ['/v1/control/agent/start', '/v1/control/agent/prompt', '/v1/control/agent/cancel']) {
+    const auth = await fastify.inject({ method: 'POST', url, payload: {} })
+    assert.equal(auth.statusCode, 401, url)
+    assert.equal(auth.json().code, 'AGENT_CONTROL_AUTH_REQUIRED')
+    const guard = await fastify.inject({
+      method: 'POST',
+      url,
+      headers: { 'x-tmuxgo-agent-token': 'agent-control-secret' },
+      payload: {},
+    })
+    assert.equal(guard.statusCode, 403, url)
+    assert.equal(guard.json().code, 'TMUXGO_ENV_GUARD')
+  }
+
+  // zod 拒绝 → 400 稳定码
+  const badStart = await fastify.inject({ method: 'POST', url: '/v1/control/agent/start', headers, payload: {} })
+  assert.equal(badStart.statusCode, 400)
+  assert.equal(badStart.json().code, 'AGENT_CONTROL_START_FAILED')
+  const badPrompt = await fastify.inject({
+    method: 'POST',
+    url: '/v1/control/agent/prompt',
+    headers,
+    payload: { paneId: 'local:%1' },
+  })
+  assert.equal(badPrompt.statusCode, 400)
+  assert.equal(badPrompt.json().code, 'AGENT_CONTROL_PROMPT_FAILED')
+  const badCancel = await fastify.inject({ method: 'POST', url: '/v1/control/agent/cancel', headers, payload: {} })
+  assert.equal(badCancel.statusCode, 400)
+  assert.equal(badCancel.json().code, 'AGENT_CONTROL_CANCEL_FAILED')
+
+  // provider 不在 allowlist → zod enum 400
+  const badProvider = await fastify.inject({
+    method: 'POST',
+    url: '/v1/control/agent/start',
+    headers,
+    payload: { paneId: 'local:%1', provider: 'bash' },
+  })
+  assert.equal(badProvider.statusCode, 400)
+  assert.equal(badProvider.json().code, 'AGENT_CONTROL_START_FAILED')
+
+  // 未注册 host → 400 START_FAILED；unknown fields 容忍
+  const ghostHost = await fastify.inject({
+    method: 'POST',
+    url: '/v1/control/agent/start',
+    headers,
+    payload: { paneId: 'ghost:%1', provider: 'claude', futureField: 1 },
+  })
+  assert.equal(ghostHost.statusCode, 400)
+  assert.equal(ghostHost.json().code, 'AGENT_CONTROL_START_FAILED')
+
+  // 不存在 pane → 409 语义码（隔离 tmux 下 PANE_MISSING；无 tmux 为 PANE_UNKNOWN）
+  const missingPane = await fastify.inject({
+    method: 'POST',
+    url: '/v1/control/agent/start',
+    headers,
+    payload: { paneId: 'local:%4096', provider: 'claude' },
+  })
+  assert.equal(missingPane.statusCode, 409)
+  assert.ok(['PANE_MISSING', 'PANE_UNKNOWN'].includes(missingPane.json().code))
+
+  const promptMissing = await fastify.inject({
+    method: 'POST',
+    url: '/v1/control/agent/prompt',
+    headers,
+    payload: { paneId: 'local:%4096', prompt: 'secret-prompt-body-do-not-log' },
+  })
+  assert.equal(promptMissing.statusCode, 409)
+  assert.ok(['PANE_MISSING', 'PANE_UNKNOWN', 'PANE_NOT_AGENT'].includes(promptMissing.json().code))
+
+  // cancel：未知 opId → not_found（幂等 200）
+  const cancel = await fastify.inject({
+    method: 'POST',
+    url: '/v1/control/agent/cancel',
+    headers,
+    payload: { opId: 'never-existed' },
+  })
+  assert.equal(cancel.statusCode, 200)
+  assert.deepEqual(cancel.json(), { ok: true, opId: 'never-existed', state: 'not_found' })
+  await fastify.close()
+
+  // 审计落盘且不含 prompt 正文
+  const { readFile } = await import('node:fs/promises')
+  const audit = await readFile(auditPath, 'utf8').catch(() => '')
+  assert.ok(audit.includes('agent.prompt'), 'expected agent.prompt audit event')
+  assert.ok(!audit.includes('secret-prompt-body-do-not-log'), 'audit must not contain prompt text')
+})

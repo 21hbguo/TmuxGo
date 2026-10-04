@@ -61,21 +61,66 @@ export const controlWaitBodySchema = z.object({
   timeoutMs: z.number().int().min(250).max(600000).optional(),
 })
 
+const actionAckTimeout = z.number().int().min(250).max(30000)
+// 客户端可自带 opId 作幂等键：ack 等待期间请求未返回，仍可按已知 opId cancel
+const actionOpId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)
+export const controlAgentStartBodySchema = z.object({
+  paneId: paneIdSchema,
+  provider: z.enum(['claude', 'codex']),
+  // 单 token 参数（--resume xxx 形态）；逐 token 再经 actionArgPattern 复核，
+  // 与 lib/agent-actions.ts 的 allowlist 是同一契约
+  args: z
+    .array(z.string().regex(/^-{0,2}[A-Za-z0-9][A-Za-z0-9._:/=-]{0,126}$/))
+    .max(8)
+    .optional(),
+  ackTimeoutMs: actionAckTimeout.optional(),
+  opId: actionOpId.optional(),
+})
+export const controlAgentPromptBodySchema = z.object({
+  paneId: paneIdSchema,
+  prompt: z.string().min(1).max(8192),
+  ackTimeoutMs: actionAckTimeout.optional(),
+  opId: actionOpId.optional(),
+})
+export const controlAgentCancelBodySchema = z.object({
+  opId: z.string().min(1).max(128),
+})
+
 // 稳定错误码表（HTTP status + code 是契约的一部分，文档保持同步）：
 // 401 AGENT_CONTROL_AUTH_REQUIRED  缺少/错误 agent token
 // 403 TMUXGO_ENV_GUARD             缺少 x-tmuxgo-env: 1 守卫头
 // 400 AGENT_CONTROL_SPLIT_FAILED / AGENT_CONTROL_READ_FAILED / AGENT_CONTROL_WAIT_FAILED
-//     请求体校验失败或下游 tmux/目标解析失败（message 携带原因）
+//     AGENT_CONTROL_START_FAILED / AGENT_CONTROL_PROMPT_FAILED / AGENT_CONTROL_CANCEL_FAILED
+//     AGENT_CONTROL_SEND_FAILED / INVALID_ARGUMENT / PROVIDER_NOT_SUPPORTED
+//     请求体校验失败或下游执行失败（message 携带原因）
 // 409 OCCUPANT_CHANGED / PANE_REMOVED / TIMEOUT / INVALID_TARGET  agent/wait 语义错误
+//     PANE_MISSING / PANE_DEAD / PANE_IN_MODE / PANE_OCCUPIED / PANE_NOT_AGENT / PANE_UNKNOWN
+//     ACK_TIMEOUT / OPERATION_CANCELLED                            start/prompt 语义错误
+// 429 AGENT_CONTROL_QUOTA_EXCEEDED  每 host 在途操作上界
 export const CONTROL_ERROR_CODES = [
   'AGENT_CONTROL_AUTH_REQUIRED',
   'TMUXGO_ENV_GUARD',
   'AGENT_CONTROL_SPLIT_FAILED',
   'AGENT_CONTROL_READ_FAILED',
   'AGENT_CONTROL_WAIT_FAILED',
+  'AGENT_CONTROL_START_FAILED',
+  'AGENT_CONTROL_PROMPT_FAILED',
+  'AGENT_CONTROL_CANCEL_FAILED',
+  'AGENT_CONTROL_QUOTA_EXCEEDED',
+  'AGENT_CONTROL_SEND_FAILED',
   'OCCUPANT_CHANGED',
   'PANE_REMOVED',
   'TIMEOUT',
   'INVALID_TARGET',
+  'INVALID_ARGUMENT',
+  'PROVIDER_NOT_SUPPORTED',
+  'PANE_MISSING',
+  'PANE_DEAD',
+  'PANE_IN_MODE',
+  'PANE_OCCUPIED',
+  'PANE_NOT_AGENT',
+  'PANE_UNKNOWN',
+  'ACK_TIMEOUT',
+  'OPERATION_CANCELLED',
 ] as const
 export type ControlErrorCode = (typeof CONTROL_ERROR_CODES)[number]
