@@ -196,7 +196,7 @@ Host plain
     const hosts = await import(`./hosts.js?merge-test=${Date.now()}-${Math.random()}`)
     await hosts.upsertRemoteHost({
       id: 'devbox',
-      name: 'HL SJ',
+      name: 'Dev Box',
       address: 'stale.example',
       user: 'stale',
       port: 1,
@@ -212,7 +212,7 @@ Host plain
     assert.equal(devbox.user, 'dev')
     assert.equal(devbox.port, 22)
     assert.equal(devbox.identityFile, '~/.ssh/id_ed25519_devbox')
-    assert.equal(devbox.name, 'HL SJ')
+    assert.equal(devbox.name, 'Dev Box')
     assert.equal(devbox.favorite, true)
     assert.deepEqual(devbox.groups, ['prod'])
     assert.equal(devbox.tmuxPath, '/opt/tmux')
