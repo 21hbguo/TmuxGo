@@ -142,7 +142,8 @@ export function AgentRecoveryBadge({
                         {candidate.blockReason ? ` · ${blockLabel(candidate.blockReason)}` : ''}
                       </div>
                     </div>
-                    {/* pane_* 阻断只影响原 pane 恢复；session id/provider 类硬阻断两种入口都禁 */}
+                    {/* pane_* 阻断只影响原 pane 恢复；id/provider 类硬阻断两种入口都禁——
+                        无 id 但 provider 支持 continue-last 时仍可从激活 pane 恢复 */}
                     <Button
                       variant="primary"
                       size="sm"
@@ -155,12 +156,9 @@ export function AgentRecoveryBadge({
                     <Button
                       variant="ghost"
                       size="sm"
-                      disabled={
-                        !candidate.agentSessionId ||
-                        ['missing_session_id', 'provider_not_supported', 'invalid_session_id'].includes(
-                          candidate.blockReason || '',
-                        )
-                      }
+                      disabled={['missing_session_id', 'provider_not_supported', 'invalid_session_id'].includes(
+                        candidate.blockReason || '',
+                      )}
                       title={t('agent.recovery.resumeActiveHint')}
                       onClick={() => setPending({ candidate, active: true })}
                     >

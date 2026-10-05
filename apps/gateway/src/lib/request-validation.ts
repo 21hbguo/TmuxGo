@@ -58,7 +58,8 @@ export const sessionRenameBodySchema = z.object({
 // session 恢复到非预期 pane，也防止仅凭列表 id 猜目标发起恢复
 export const agentRecoveryResumeBodySchema = z.object({
   paneId: z.string().min(1).max(256),
-  agentSessionId: z.string().min(1).max(256),
+  // cont 型 provider（continue-last）允许无原生 id 的候选，agentSessionId 可空
+  agentSessionId: z.string().max(256).optional(),
   // active=恢复到候选 session 的当前激活 pane；缺省恢复到原 pane
   targetMode: z.enum(['pane', 'active']).optional(),
 })

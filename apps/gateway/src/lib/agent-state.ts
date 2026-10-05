@@ -133,6 +133,10 @@ const directAgents: Record<string, string> = {
   reasonix: 'reasonix',
   'cursor-agent': 'cursor',
   copilot: 'copilot',
+  devin: 'devin',
+  'dsh-tui': 'dsh-tui',
+  dst: 'dsh-tui',
+  mimo: 'mimo',
 }
 const indirectCommands = new Set(['node', 'bun', 'deno', 'python', 'python3'])
 const spinnerPattern = /(?:^|\s)[\u2800-\u28ff](?:\s|$)/u

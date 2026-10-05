@@ -63,11 +63,18 @@ const candidateFileVersion = 1
 // resume 只往空闲 shell pane 里打字；pane 当前跑着其他进程（含别的 agent）一律拒绝
 const shellCommands = new Set(['sh', 'bash', 'zsh', 'fish', 'dash', 'ksh', 'csh', 'tcsh', 'nu', 'xonsh', 'login'])
 // provider allowlist：仅协议/实现明确的 provider 可拼 resume 命令；
-// agentSessionId 走严格白名单字符集，杜绝 shell 注入面
+// agentSessionId 走严格白名单字符集，杜绝 shell 注入面。
+// byId=按原生 session id 精准恢复；cont=无 id 时续该 pane cwd 的最近一次会话
+// （CLI 自带 continue-last 语义），缺 agentSessionId 不再是硬阻断
 const resumeArgPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
-const resumeProviders: Record<string, (id: string) => string> = {
-  claude: (id) => `claude --resume ${id}`,
-  codex: (id) => `codex resume ${id}`,
+const resumeProviders: Record<string, { byId?: (id: string) => string; cont?: string }> = {
+  claude: { byId: (id) => `claude --resume ${id}` },
+  codex: { byId: (id) => `codex resume ${id}` },
+  'dsh-tui': { byId: (id) => `dsh-tui --resume ${id}`, cont: 'dsh-tui --resume' },
+  opencode: { byId: (id) => `opencode --session ${id}`, cont: 'opencode -c' },
+  kimi: { byId: (id) => `kimi --session ${id}`, cont: 'kimi -c' },
+  // mimo 为 opencode 同系 CLI，旗标已核实（-c/--session）
+  mimo: { byId: (id) => `mimo --session ${id}`, cont: 'mimo -c' },
 }
 function getRecoveryPath() {
   return path.join(process.env.TMUXGO_CONFIG_DIR?.trim() || path.join(os.homedir(), '.tmuxgo'), 'agent-recovery.json')
@@ -172,9 +179,11 @@ export async function markRecoveryCandidateResumed(hostId: string, candidateId: 
   })
 }
 export function buildResumeCommand(agent: string, agentSessionId: string | undefined) {
-  if (!agentSessionId || !resumeArgPattern.test(agentSessionId)) return null
-  const builder = resumeProviders[agent]
-  return builder ? builder(agentSessionId) : null
+  const provider = resumeProviders[agent]
+  if (!provider) return null
+  // 有合法原生 id 优先 byId 精准恢复；否则退化 cont 续最近会话
+  if (agentSessionId && resumeArgPattern.test(agentSessionId) && provider.byId) return provider.byId(agentSessionId)
+  return provider.cont || null
 }
 // 尾部 pane_active/window_active 供 active 模式定位「session 当前激活 pane」
 const paneInspectFormat =
@@ -230,12 +239,15 @@ export function describeRecoveryCandidate(candidate: AgentRecoveryCandidate, ins
   const state = inspection?.state || 'unknown'
   if (state !== 'shell' && state !== 'unknown')
     return { resumable: false, blockReason: `pane_${state}` as const, occupant: state }
-  if (!candidate.agentSessionId)
-    return { resumable: false, blockReason: 'missing_session_id' as const, occupant: state }
   if (!resumeProviders[candidate.agent])
     return { resumable: false, blockReason: 'provider_not_supported' as const, occupant: state }
-  if (!resumeArgPattern.test(candidate.agentSessionId))
-    return { resumable: false, blockReason: 'invalid_session_id' as const, occupant: state }
+  // cont 型 provider 无 id 也可续最近会话；只缺 byId 且没 cont 时才因 id 受阻
+  if (!buildResumeCommand(candidate.agent, candidate.agentSessionId))
+    return {
+      resumable: false,
+      blockReason: (candidate.agentSessionId ? 'invalid_session_id' : 'missing_session_id') as const,
+      occupant: state,
+    }
   return { resumable: state === 'shell', blockReason: state === 'shell' ? undefined : 'pane_unknown', occupant: state }
 }
 // 显式 resume：逐级校验，任一步失败抛带 code 的可解释错误；通过后只把
@@ -244,14 +256,18 @@ export async function resumeRecoveryCandidate(hostId: string, candidateId: strin
   const candidate = await getRecoveryCandidate(hostId, candidateId)
   if (!candidate) throw new RecoveryError('candidate_not_found', 'Recovery candidate not found or expired')
   if (candidate.status !== 'pending') throw new RecoveryError('already_resumed', 'Recovery candidate already resumed')
-  if (!candidate.agentSessionId)
-    throw new RecoveryError('missing_session_id', 'Agent did not report a native session id; cannot resume')
   if (!resumeProviders[candidate.agent])
     throw new RecoveryError('provider_not_supported', `Provider "${candidate.agent}" does not support resume`)
-  if (target.paneId !== candidate.paneId || target.agentSessionId !== candidate.agentSessionId)
-    throw new RecoveryError('target_mismatch', 'Resume target does not match the recovery candidate')
   const command = buildResumeCommand(candidate.agent, candidate.agentSessionId)
-  if (!command) throw new RecoveryError('invalid_session_id', 'Agent session id is not a safe resume argument')
+  if (!command)
+    throw new RecoveryError(
+      candidate.agentSessionId ? 'invalid_session_id' : 'missing_session_id',
+      'Agent session id is not a safe resume argument and provider has no continue fallback',
+    )
+  // 客户端回传的 '' 等价于未携带 id（cont 型 provider 允许无 id 候选）
+  const sentId = target.agentSessionId || undefined
+  if (target.paneId !== candidate.paneId || sentId !== candidate.agentSessionId)
+    throw new RecoveryError('target_mismatch', 'Resume target does not match the recovery candidate')
   const rows = await inspectRecoveryPanes(hostId)
   // active 模式：原 pane 可能已死/被占，目标改为候选 session 的当前激活 pane；
   // 目标限定在同一 session 内，路由侧 session scope 校验天然覆盖

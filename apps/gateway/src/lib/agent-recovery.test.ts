@@ -135,12 +135,27 @@ test('corrupted manifest falls back to .bak instead of wiping candidates', async
 test('resume commands only build for allowlisted providers and safe ids', () => {
   assert.equal(buildResumeCommand('claude', 'abc-123'), 'claude --resume abc-123')
   assert.equal(buildResumeCommand('codex', 't-1'), 'codex resume t-1')
+  assert.equal(buildResumeCommand('dsh-tui', 's-1'), 'dsh-tui --resume s-1')
+  assert.equal(buildResumeCommand('opencode', 'oc-1'), 'opencode --session oc-1')
+  assert.equal(buildResumeCommand('kimi', 'k-1'), 'kimi --session k-1')
+  assert.equal(buildResumeCommand('mimo', 'm-1'), 'mimo --session m-1')
   assert.equal(buildResumeCommand('gemini', 'abc'), null)
   assert.equal(buildResumeCommand('claude', ''), null)
   assert.equal(buildResumeCommand('claude', undefined), null)
   for (const hostile of ['x; rm -rf /', 'x`id`', 'x && y', 'x$(id)', 'x"q"', 'x q']) {
     assert.equal(buildResumeCommand('claude', hostile), null, hostile)
   }
+})
+test('continue providers resume without a native session id', () => {
+  // 无 id → continue-last 固定命令；恶意 id 同样落到安全的固定命令而非被拼进命令
+  assert.equal(buildResumeCommand('dsh-tui', undefined), 'dsh-tui --resume')
+  assert.equal(buildResumeCommand('opencode', undefined), 'opencode -c')
+  assert.equal(buildResumeCommand('kimi', undefined), 'kimi -c')
+  assert.equal(buildResumeCommand('mimo', undefined), 'mimo -c')
+  assert.equal(buildResumeCommand('opencode', 'x; rm -rf /'), 'opencode -c')
+  assert.equal(buildResumeCommand('kimi', ''), 'kimi -c')
+  // claude/codex 没有 continue 兜底：无 id 依旧不可恢复
+  assert.equal(buildResumeCommand('claude', undefined), null)
 })
 test('describe gates resumability on occupant, native id and provider', () => {
   const rows = new Map([
@@ -163,6 +178,15 @@ test('describe gates resumability on occupant, native id and provider', () => {
   assert.equal(
     describeRecoveryCandidate(candidate({ agentSessionId: undefined }), inspect('%5')).blockReason,
     'missing_session_id',
+  )
+  // cont 型 provider：无原生 id 不再硬阻断，pane 空闲即可恢复
+  assert.equal(
+    describeRecoveryCandidate(candidate({ agent: 'opencode', agentSessionId: undefined }), inspect('%5')).resumable,
+    true,
+  )
+  assert.equal(
+    describeRecoveryCandidate(candidate({ agent: 'kimi', agentSessionId: undefined }), inspect('%6')).blockReason,
+    'pane_occupied',
   )
   assert.equal(
     describeRecoveryCandidate(candidate({ agent: 'gemini' }), inspect('%5')).blockReason,
