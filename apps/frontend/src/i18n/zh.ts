@@ -1064,6 +1064,13 @@ export const zh = {
   'window.batchDeletePartial': '部分删除：{success} 个成功，{failed} 个失败',
   'window.batchDeleteFailed': '{count} 个窗口删除失败',
   'window.cannotDeleteActive': '当前活动窗口不可删除',
+  'window.rename': '重命名',
+  'window.renameTitle': '重命名窗口',
+  'window.renameFailed': '重命名失败',
+  'window.close': '关闭',
+  'window.closeOthers': '关闭其他窗口',
+  'window.closeFailed': '关闭窗口失败',
+  'window.lastWindow': '最后一个窗口不可关闭',
 
   // TerminalPane
   'terminal.dropUpload': '拖放文件以上传',

@@ -1071,6 +1071,13 @@ export const en = {
   'window.batchDeletePartial': 'Partial: {success} deleted, {failed} failed',
   'window.batchDeleteFailed': '{count} windows failed to delete',
   'window.cannotDeleteActive': 'Active window cannot be deleted',
+  'window.rename': 'Rename',
+  'window.renameTitle': 'Rename window',
+  'window.renameFailed': 'Rename failed',
+  'window.close': 'Close',
+  'window.closeOthers': 'Close other windows',
+  'window.closeFailed': 'Failed to close window',
+  'window.lastWindow': 'Cannot close the last window',
 
   // TerminalPane
   'terminal.dropUpload': 'Drop files to upload',

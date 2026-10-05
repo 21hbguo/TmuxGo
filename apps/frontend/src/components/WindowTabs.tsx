@@ -362,18 +362,10 @@ export function WindowTabs() {
                 event.preventDefault()
                 event.stopPropagation()
                 const dragId = event.dataTransfer.getData(WINDOW_TAB_DRAG_MIME) || dragWindowId
+                const side = dropTarget && dropTarget.id === window.id ? dropTarget.side : 'before'
                 setDragWindowId(null)
                 setDropTarget(null)
-                if (dragId)
-                  void handleTabDrop(
-                    dragId,
-                    window.id,
-                    event.clientX <
-                      event.currentTarget.getBoundingClientRect().left +
-                        event.currentTarget.getBoundingClientRect().width / 2
-                      ? 'before'
-                      : 'after',
-                  )
+                if (dragId) void handleTabDrop(dragId, window.id, side)
               }}
               onDragEnd={(event) => {
                 event.stopPropagation()
@@ -403,7 +395,7 @@ export function WindowTabs() {
               >
                 ×
               </button>
-              {dropTarget?.id === window.id && (
+              {dropTarget && dropTarget.id === window.id && (
                 <span
                   className={`pointer-events-none absolute inset-y-1 z-20 w-[2px] rounded-full bg-accent shadow-[0_0_0_1px_rgba(30,200,255,0.2)] ${dropTarget.side === 'before' ? 'left-0' : 'right-0'}`}
                 />
