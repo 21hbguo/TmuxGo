@@ -153,8 +153,11 @@ async function getHostTmuxSessions(hostId: string): Promise<HostTmuxSession[]> {
   } catch (err: any) {
     const message = String(err?.message || '').toLowerCase()
     if (
+      // socket 文件已删（server 刚 exit-empty）时报 "error connecting to
+      // <socket> (No such file or directory)"，socket 路径不固定（隔离测试
+      // 用自定义 TMUX_TMPDIR），只按错误语义判定不等具体路径
       emptySessionErrorMarkers.some((marker) => message.includes(marker)) ||
-      (message.includes('error connecting to /tmp/tmux-') && message.includes('no such file or directory'))
+      (message.includes('error connecting to') && message.includes('no such file or directory'))
     )
       return []
     console.error('Failed to list tmux sessions:', err)
@@ -266,7 +269,17 @@ function getBatchDeleteSelection(hostId: string, sessions: HostTmuxSession[], bo
   return { matched, eligible, skipped }
 }
 async function runSendKeys(hostId: string, target: string, command: string) {
-  await execTmux(hostId, ['send-keys', '-t', target, command, 'C-m'])
+  // 目标 pane 若处于 copy/view-mode（如 conf 里 run -b 失败的 run-shell 错误
+  // 视图、restore 回放残留），send-keys 会被 mode 按键表拦截派发：绑定命令
+  // 在无 client 的 server 上报 "no current client"，且不报错时文本也进 mode
+  // 而非 shell。先 best-effort 退 mode（非 mode 时报 not in a mode，吞掉）。
+  try {
+    await execTmux(hostId, ['send-keys', '-X', '-t', target, 'cancel'])
+  } catch {}
+  // 文本走 -l 字面模式 + 独立 Enter：非字面 send-keys 把整串按 key name
+  // 逐段解析，空格/--/路径段同样会踩无 client 的派发路径（agent-recovery 同款）
+  await execTmux(hostId, ['send-keys', '-l', '-t', target, command])
+  await execTmux(hostId, ['send-keys', '-t', target, 'Enter'])
 }
 function quoteShellValue(value: string) {
   return `'${value.replace(/'/g, `'\\''`)}'`
@@ -475,7 +488,8 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       const existingSession = existingSessions.find((s) => s.name === name)
       if (existingSession) {
         await safePrepareSessionAttach(hostId, existingSession.name)
-        return { ...existingSession, cwd: normalizedCwd }
+        // existed 标记给前端区分"命中已有会话"与"真新建"，避免误报"已创建"
+        return { ...existingSession, cwd: normalizedCwd, existed: true }
       }
       assertSessionAllowed(name)
       if (normalizedCwd) await assertCwdExists(hostId, normalizedCwd)
@@ -515,7 +529,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       if (String(err?.message || '').includes('duplicate session')) {
         const sessions = await getHostTmuxSessions(hostId)
         const existingSession = sessions.find((s) => s.name === name)
-        if (existingSession) return { ...existingSession, cwd: normalizedCwd }
+        if (existingSession) return { ...existingSession, cwd: normalizedCwd, existed: true }
       }
       throw new Error(err.message)
     }

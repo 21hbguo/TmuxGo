@@ -1108,6 +1108,7 @@ export const zh = {
 
   // Session CRUD
   'session.created': '会话 {name} 已创建',
+  'session.alreadyExists': '会话 {name} 已存在，已为你切换',
   'session.deleted': '会话 {name} 已结束',
   'session.layoutExported': '已导出 {name} 的布局',
   'session.layoutImported': '已应用布局到 {name}',

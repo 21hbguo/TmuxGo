@@ -156,7 +156,10 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
           } catch {}
         }
         setActiveSession(created.id)
-        pushToast({ type: 'success', message: t('session.created', { name }) })
+        pushToast({
+          type: created.existed ? 'info' : 'success',
+          message: t(created.existed ? 'session.alreadyExists' : 'session.created', { name }),
+        })
         onClose()
       }
     } catch (err) {

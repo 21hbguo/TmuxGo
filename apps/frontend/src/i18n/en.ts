@@ -1115,6 +1115,7 @@ export const en = {
 
   // Session CRUD
   'session.created': 'Session {name} created',
+  'session.alreadyExists': 'Session {name} already exists, switched to it',
   'session.deleted': 'Session {name} ended',
   'session.layoutExported': 'Layout for {name} exported',
   'session.layoutImported': 'Layout applied to {name}',

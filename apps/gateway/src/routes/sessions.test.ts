@@ -62,6 +62,44 @@ test('creating a session with a valid cwd starts in that directory', async () =>
     await killTestTmuxSession()
   }
 })
+test('creating a session with cwd + layout delivers startup commands to panes', async () => {
+  // 回归：无 client server 上非字面 send-keys 报 "no current client"（选工作区
+  // 建会话必现），修复后为 send-keys -l 字面 + 独立 Enter
+  const sessionName = TEST_TMUX_SESSION
+  const cwd = process.cwd()
+  const fastify = Fastify()
+  await fastify.register(sessionRoutes)
+  try {
+    const response = await fastify.inject({
+      method: 'POST',
+      url: '/hosts/local/sessions',
+      payload: {
+        name: sessionName,
+        cwd,
+        layout: { windows: [{ name: 'main', panes: [{ command: 'cd /tmp' }] }] },
+      },
+    })
+    assert.equal(response.statusCode, 200, response.body)
+    // startup 串为 `cd -- '<cwd>'; cd /tmp`，整串执行完 pane 才落到 /tmp——
+    // 同时证明 -l 字面输入与独立 Enter 都送达
+    let paneCwd = ''
+    for (let attempt = 0; attempt < 50 && paneCwd !== '/tmp'; attempt += 1) {
+      const { stdout } = await execTmuxFile('tmux', [
+        'display-message',
+        '-p',
+        '-t',
+        sessionName,
+        '#{pane_current_path}',
+      ])
+      paneCwd = stdout.trim()
+      if (paneCwd !== '/tmp') await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    assert.equal(paneCwd, '/tmp')
+  } finally {
+    await fastify.close()
+    await killTestTmuxSession()
+  }
+})
 test('exports a session layout and re-imports it as a new session', async () => {
   const sessionName = TEST_TMUX_SESSION
   const importedName = `${sessionName}-imported`

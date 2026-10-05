@@ -777,10 +777,10 @@ export const api = {
         })
         if (created?.id) return created
         const existing = await findHostSessionByName(hostId, name).catch(() => null)
-        return existing || buildSessionFallback(hostId, name, created)
+        return existing ? { ...existing, existed: true } : buildSessionFallback(hostId, name, created)
       } catch (error) {
         const existing = await findHostSessionByName(hostId, name).catch(() => null)
-        if (existing) return existing
+        if (existing) return { ...existing, existed: true }
         throw error
       }
     },

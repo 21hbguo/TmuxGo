@@ -232,7 +232,10 @@ export function SessionPanel() {
           } catch {}
         }
         setActiveSession(created.id)
-        pushToast({ type: 'success', message: t('session.created', { name }) })
+        pushToast({
+          type: created.existed ? 'info' : 'success',
+          message: t(created.existed ? 'session.alreadyExists' : 'session.created', { name }),
+        })
       }
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
