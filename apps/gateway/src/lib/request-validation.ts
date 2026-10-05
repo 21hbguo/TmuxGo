@@ -59,6 +59,8 @@ export const sessionRenameBodySchema = z.object({
 export const agentRecoveryResumeBodySchema = z.object({
   paneId: z.string().min(1).max(256),
   agentSessionId: z.string().min(1).max(256),
+  // active=恢复到候选 session 的当前激活 pane；缺省恢复到原 pane
+  targetMode: z.enum(['pane', 'active']).optional(),
 })
 export const sessionLayoutApplyBodySchema = z.object({
   layout: z.unknown(),

@@ -637,7 +637,11 @@ export const api = {
       fetchApi<{ version: number; candidates: AgentRecoveryCandidate[] }>(
         `/api/hosts/${encodeURIComponent(hostId)}/agent-recovery`,
       ),
-    resume: (hostId: string, candidateId: string, payload: { paneId: string; agentSessionId: string }) =>
+    resume: (
+      hostId: string,
+      candidateId: string,
+      payload: { paneId: string; agentSessionId: string; targetMode?: 'active' },
+    ) =>
       fetchApi<{ ok: boolean; paneId: string; command: string }>(
         `/api/hosts/${encodeURIComponent(hostId)}/agent-recovery/${encodeURIComponent(candidateId)}/resume`,
         { method: 'POST', body: JSON.stringify(payload) },

@@ -85,6 +85,35 @@ describe('AgentRecoveryBadge', () => {
     await waitFor(() => expect(pushToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'success' })))
     expect(onResumed).toHaveBeenCalled()
   })
+  it('offers resume-to-active-pane even when the origin pane is blocked', async () => {
+    resumeMock.mockResolvedValue({ ok: true, paneId: 'local:%5', tmuxPaneId: '%9', command: 'claude --resume sess-1' })
+    const pushToast = vi.fn()
+    const onResumed = vi.fn()
+    useConsoleStore.setState({ pushToast, toasts: [] })
+    // 原 pane 被占（pane_occupied）只禁「恢复」，不禁「当前面板」
+    renderBadge([candidate({ resumable: false, blockReason: 'pane_occupied' })], onResumed)
+    fireEvent.click(await badgeButton())
+    const originButton = (await screen.findAllByRole('button', { name: '恢复' }))[0] as HTMLButtonElement
+    expect(originButton.disabled).toBe(true)
+    const activeButton = (await screen.findByRole('button', { name: '当前面板' })) as HTMLButtonElement
+    expect(activeButton.disabled).toBe(false)
+    fireEvent.click(activeButton)
+    fireEvent.click(await lastResumeButton())
+    await waitFor(() =>
+      expect(resumeMock).toHaveBeenCalledWith('local', 'c1', {
+        paneId: 'local:%5',
+        agentSessionId: 'sess-1',
+        targetMode: 'active',
+      }),
+    )
+    expect(onResumed).toHaveBeenCalled()
+  })
+  it('disables resume-to-active-pane on hard blocks without a session id', async () => {
+    renderBadge([candidate({ agentSessionId: undefined, resumable: false, blockReason: 'missing_session_id' })])
+    fireEvent.click(await badgeButton())
+    const activeButton = (await screen.findByRole('button', { name: '当前面板' })) as HTMLButtonElement
+    expect(activeButton.disabled).toBe(true)
+  })
   it('reports resume failure without silently retrying', async () => {
     resumeMock.mockRejectedValue(new Error('pane occupied'))
     const pushToast = vi.fn()

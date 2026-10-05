@@ -145,6 +145,54 @@ test('resume rejects unknown provider, missing session id and mismatched target'
     await killTestTmuxSession()
   }
 })
+test('resume targetMode=active types into the session active pane even if origin pane is gone', async () => {
+  const fastify = Fastify()
+  await fastify.register(agentRecoveryRoutes)
+  try {
+    freshConfigDir()
+    await execTmuxFile('tmux', ['-f', '/dev/null', 'new-session', '-d', '-s', TEST_TMUX_SESSION])
+    const paneId = await firstPaneId()
+    await waitForPane(paneId, shellReady)
+    // 原 pane 已不存在：默认模式 pane_missing，active 模式打到 session 当前激活 pane
+    const saved = await seed({ paneId: `${hostId}:%97`, tmuxPaneId: '%97' })
+    const post = (payload: Record<string, unknown>) =>
+      fastify.inject({ method: 'POST', url: `/hosts/${hostId}/agent-recovery/${saved.id}/resume`, payload })
+    const origin = await post({ paneId: saved.paneId, agentSessionId: saved.agentSessionId })
+    assert.equal(origin.statusCode, 400)
+    assert.equal(origin.json().code, 'pane_missing')
+    const active = await post({ paneId: saved.paneId, agentSessionId: saved.agentSessionId, targetMode: 'active' })
+    assert.equal(active.statusCode, 200)
+    assert.equal(active.json().tmuxPaneId, paneId)
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    assert.match(await capturePane(paneId), /claude --resume claude-session-abc123/)
+  } finally {
+    await fastify.close()
+    await killTestTmuxSession()
+  }
+})
+test('resume targetMode=active refuses when the session active pane is occupied', async () => {
+  const fastify = Fastify()
+  await fastify.register(agentRecoveryRoutes)
+  try {
+    freshConfigDir()
+    await execTmuxFile('tmux', ['-f', '/dev/null', 'new-session', '-d', '-s', TEST_TMUX_SESSION, 'sleep 300'])
+    const paneId = await firstPaneId()
+    await waitForPane(paneId, (command) => command === 'sleep')
+    const saved = await seed({ paneId: `${hostId}:%96`, tmuxPaneId: '%96' })
+    const response = await fastify.inject({
+      method: 'POST',
+      url: `/hosts/${hostId}/agent-recovery/${saved.id}/resume`,
+      payload: { paneId: saved.paneId, agentSessionId: saved.agentSessionId, targetMode: 'active' },
+    })
+    assert.equal(response.statusCode, 409)
+    assert.equal(response.json().code, 'pane_occupied')
+    // 激活 pane 被占时不得误回退到原 pane 或其他 pane
+    assert.doesNotMatch(await capturePane(paneId), /claude --resume/)
+  } finally {
+    await fastify.close()
+    await killTestTmuxSession()
+  }
+})
 test('resume refuses an occupied or missing pane and never runs on its own', async () => {
   const fastify = Fastify()
   await fastify.register(agentRecoveryRoutes)

@@ -60,22 +60,23 @@ export function AgentRecoveryBadge({
   const { t } = useTranslation()
   const pushToast = useConsoleStore((state) => state.pushToast)
   const [open, setOpen] = useState(false)
-  const [pendingCandidate, setPendingCandidate] = useState<AgentRecoveryCandidate | null>(null)
+  const [pending, setPending] = useState<{ candidate: AgentRecoveryCandidate; active: boolean } | null>(null)
   if (!candidates?.length) return null
-  const resume = async (candidate: AgentRecoveryCandidate) => {
+  const resume = async (candidate: AgentRecoveryCandidate, active: boolean) => {
     await api.agentRecovery.resume(hostId, candidate.id, {
       paneId: candidate.paneId,
       agentSessionId: candidate.agentSessionId || '',
+      targetMode: active ? 'active' : undefined,
     })
     pushToast({ type: 'success', message: t('agent.recovery.resumed', { agent: candidate.agent }) })
-    setPendingCandidate(null)
+    setPending(null)
     if (candidates.length <= 1) setOpen(false)
     onResumed()
   }
   const confirmResume = async () => {
-    if (!pendingCandidate) return
+    if (!pending) return
     try {
-      await resume(pendingCandidate)
+      await resume(pending.candidate, pending.active)
     } catch (error) {
       pushToast({
         type: 'error',
@@ -143,14 +144,29 @@ export function AgentRecoveryBadge({
                         {candidate.blockReason ? ` · ${blockLabel(candidate.blockReason)}` : ''}
                       </div>
                     </div>
+                    {/* pane_* 阻断只影响原 pane 恢复；session id/provider 类硬阻断两种入口都禁 */}
                     <Button
                       variant="primary"
                       size="sm"
                       disabled={!candidate.resumable}
                       title={candidate.blockReason ? blockLabel(candidate.blockReason) : undefined}
-                      onClick={() => setPendingCandidate(candidate)}
+                      onClick={() => setPending({ candidate, active: false })}
                     >
                       {t('agent.recovery.resume')}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={
+                        !candidate.agentSessionId ||
+                        ['missing_session_id', 'provider_not_supported', 'invalid_session_id'].includes(
+                          candidate.blockReason || '',
+                        )
+                      }
+                      title={t('agent.recovery.resumeActiveHint')}
+                      onClick={() => setPending({ candidate, active: true })}
+                    >
+                      {t('agent.recovery.resumeActive')}
                     </Button>
                   </div>
                 ))}
@@ -165,16 +181,16 @@ export function AgentRecoveryBadge({
         </ModalPortal>
       )}
       <ConfirmDialog
-        open={!!pendingCandidate}
+        open={!!pending}
         title={t('agent.recovery.confirmTitle')}
         message={t('agent.recovery.confirmMessage', {
-          agent: pendingCandidate?.agent || '',
-          pane: pendingCandidate?.tmuxPaneId || '',
+          agent: pending?.candidate.agent || '',
+          pane: pending?.active ? t('agent.recovery.activePane') : pending?.candidate.tmuxPaneId || '',
         })}
         confirmLabel={t('agent.recovery.resume')}
         cancelLabel={t('common.cancel')}
         onConfirm={confirmResume}
-        onCancel={() => setPendingCandidate(null)}
+        onCancel={() => setPending(null)}
       />
     </>
   )

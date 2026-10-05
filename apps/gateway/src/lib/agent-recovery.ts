@@ -33,6 +33,14 @@ export interface RecoveryCandidateInput {
   lastSeenAt?: string
   reason: string
 }
+// resume 目标：pane=候选原 pane；active=候选 session 的当前激活 pane
+// （用户在 tmux 里新开 pane 聚焦即可换目标，前端无需感知 pane 身份）
+export type RecoveryTargetMode = 'pane' | 'active'
+export interface RecoveryResumeTarget {
+  paneId: string
+  agentSessionId: string
+  targetMode?: RecoveryTargetMode
+}
 export type RecoveryPaneState = 'shell' | 'occupied' | 'dead' | 'missing' | 'in_mode' | 'unknown'
 export interface RecoveryPaneInspection {
   state: RecoveryPaneState
@@ -168,8 +176,9 @@ export function buildResumeCommand(agent: string, agentSessionId: string | undef
   const builder = resumeProviders[agent]
   return builder ? builder(agentSessionId) : null
 }
+// 尾部 pane_active/window_active 供 active 模式定位「session 当前激活 pane」
 const paneInspectFormat =
-  '#{pane_id}\t#{pane_current_command}\t#{pane_dead}\t#{pane_current_path}\t#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_in_mode}'
+  '#{pane_id}\t#{pane_current_command}\t#{pane_dead}\t#{pane_current_path}\t#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_in_mode}\t#{pane_active}\t#{window_active}'
 function inspectPaneRow(row: string[] | undefined): RecoveryPaneInspection {
   if (!row) return { state: 'missing' }
   const [, command, dead, cwd, session, windowIndex, paneIndex, inMode] = row
@@ -209,6 +218,14 @@ export function inspectPaneRowFromList(rows: Map<string, string[]> | null, tmuxP
   if (!rows) return { state: 'unknown' as const }
   return inspectPaneRow(rows.get(tmuxPaneId))
 }
+// session 当前激活 pane = 激活窗口里的激活 pane；找不到返回 undefined
+export function findSessionActivePaneRow(rows: Map<string, string[]> | null, sessionName: string) {
+  if (!rows) return undefined
+  for (const row of rows.values()) {
+    if (row[4] === sessionName && row[8] === '1' && row[9] === '1') return row
+  }
+  return undefined
+}
 export function describeRecoveryCandidate(candidate: AgentRecoveryCandidate, inspection?: RecoveryPaneInspection) {
   const state = inspection?.state || 'unknown'
   if (state !== 'shell' && state !== 'unknown')
@@ -223,11 +240,7 @@ export function describeRecoveryCandidate(candidate: AgentRecoveryCandidate, ins
 }
 // 显式 resume：逐级校验，任一步失败抛带 code 的可解释错误；通过后只把
 // provider allowlist 拼出的固定命令 send-keys 进 pane（用户在终端里可见）
-export async function resumeRecoveryCandidate(
-  hostId: string,
-  candidateId: string,
-  target: { paneId: string; agentSessionId: string },
-) {
+export async function resumeRecoveryCandidate(hostId: string, candidateId: string, target: RecoveryResumeTarget) {
   const candidate = await getRecoveryCandidate(hostId, candidateId)
   if (!candidate) throw new RecoveryError('candidate_not_found', 'Recovery candidate not found or expired')
   if (candidate.status !== 'pending') throw new RecoveryError('already_resumed', 'Recovery candidate already resumed')
@@ -240,7 +253,13 @@ export async function resumeRecoveryCandidate(
   const command = buildResumeCommand(candidate.agent, candidate.agentSessionId)
   if (!command) throw new RecoveryError('invalid_session_id', 'Agent session id is not a safe resume argument')
   const rows = await inspectRecoveryPanes(hostId)
-  const inspection = inspectPaneRow(rows?.get(candidate.tmuxPaneId))
+  // active 模式：原 pane 可能已死/被占，目标改为候选 session 的当前激活 pane；
+  // 目标限定在同一 session 内，路由侧 session scope 校验天然覆盖
+  const targetRow =
+    target.targetMode === 'active'
+      ? findSessionActivePaneRow(rows, candidate.sessionName)
+      : rows?.get(candidate.tmuxPaneId)
+  const inspection = inspectPaneRow(targetRow)
   if (inspection.state === 'missing') throw new RecoveryError('pane_missing', 'Target pane no longer exists')
   if (inspection.state === 'dead') throw new RecoveryError('pane_dead', 'Target pane is dead')
   if (inspection.state === 'in_mode')
@@ -248,6 +267,7 @@ export async function resumeRecoveryCandidate(
   if (inspection.state !== 'shell')
     throw new RecoveryError('pane_occupied', `Target pane is occupied by ${inspection.command || 'another process'}`)
   const sendTarget = inspection.target || candidate.sessionName
+  const targetTmuxPaneId = targetRow?.[0] || candidate.tmuxPaneId
   try {
     // %0 触发 tmux 3.4 pane-id 解析 bug，统一发坐标 target（session:win.pane）；
     // 文本走 -l 字面模式再单独发 Enter——不分两段时 tmux 会把整串当 key name
@@ -261,5 +281,5 @@ export async function resumeRecoveryCandidate(
     )
   }
   await markRecoveryCandidateResumed(hostId, candidateId)
-  return { ok: true as const, paneId: candidate.paneId, tmuxPaneId: candidate.tmuxPaneId, command }
+  return { ok: true as const, paneId: candidate.paneId, tmuxPaneId: targetTmuxPaneId, command }
 }

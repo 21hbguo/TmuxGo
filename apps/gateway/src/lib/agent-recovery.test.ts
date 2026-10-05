@@ -7,6 +7,7 @@ import test from 'node:test'
 import {
   buildResumeCommand,
   describeRecoveryCandidate,
+  findSessionActivePaneRow,
   getRecoveryCandidate,
   inspectPaneRowFromList,
   listRecoveryCandidates,
@@ -168,4 +169,21 @@ test('describe gates resumability on occupant, native id and provider', () => {
     'provider_not_supported',
   )
   assert.equal(describeRecoveryCandidate(candidate(), inspectPaneRowFromList(null, '%5')).blockReason, 'pane_unknown')
+})
+test('findSessionActivePaneRow picks the active pane of the session active window', () => {
+  // 列序对齐 paneInspectFormat：id cmd dead cwd session winIdx paneIdx in_mode pane_active window_active
+  const rows = new Map([
+    ['%5', ['%5', 'zsh', '0', '/repo', 'dev', '1', '1', '0', '0', '1']],
+    ['%6', ['%6', 'zsh', '0', '/repo', 'dev', '1', '2', '0', '1', '1']],
+    ['%7', ['%7', 'zsh', '0', '/repo', 'dev', '2', '1', '0', '1', '0']],
+    ['%8', ['%8', 'zsh', '0', '/repo', 'other', '1', '1', '0', '1', '1']],
+  ])
+  // dev session 激活窗口是 win1，激活 pane 是 %6（不是 win2 的 %7，也不是别的 session）
+  assert.equal(findSessionActivePaneRow(rows, 'dev')?.[0], '%6')
+  assert.equal(findSessionActivePaneRow(rows, 'other')?.[0], '%8')
+  assert.equal(findSessionActivePaneRow(rows, 'nosuch'), undefined)
+  assert.equal(findSessionActivePaneRow(null, 'dev'), undefined)
+  // 无激活标记（旧格式行只有 8 列）→ 不命中而不是误选首个
+  const legacy = new Map([['%5', ['%5', 'zsh', '0', '/repo', 'dev', '1', '1', '0']]])
+  assert.equal(findSessionActivePaneRow(legacy, 'dev'), undefined)
 })
