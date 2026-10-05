@@ -41,7 +41,7 @@ npm run verify            # 全量：test + frontend test + e2e + build
 ## 不进仓库的内容
 
 - 凭据、token、本机 `~/.tmuxgo/` 数据与日志
-- 个人工作文件、临时排查脚本（`TmuxEmil/`、`docs/` 下的过程稿按仓库约定归档，勿混入正式目录）
+- 个人工作文件、临时排查脚本（过程稿归档到本地 `TmuxEmil/` 或 `notes/`，勿混入 `docs/` 正式目录）
 - 构建产物 `apps/frontend/dist` 由发布流程生成，不手改提交
 
 ## npm scope 说明（`@21hbguo`）

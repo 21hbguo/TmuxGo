@@ -27,6 +27,7 @@ uploads
 uploads-rate-test
 TmuxEmil/
 .dbg/
+notes/
 apps/*/pnpm-lock.yaml
 apps/*/pnpm-workspace.yaml
 apps/gateway/render-all.cjs
