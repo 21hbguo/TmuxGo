@@ -46,7 +46,7 @@ test('every control method (Task9/Task12 included) is present in the schema doc'
 })
 
 test('checked-in schema doc is fresh (regenerate with scripts/generate-control-schema.ts)', () => {
-  const file = join(root, 'docs/agent-control', `control-protocol.${doc.protocolVersion}.schema.json`)
+  const file = join(root, 'skills/tmuxgo-control', `control-protocol.${doc.protocolVersion}.schema.json`)
   assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), doc)
 })
 

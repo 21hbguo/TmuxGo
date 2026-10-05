@@ -1,5 +1,5 @@
 // TmuxGo agent control 薄客户端（零依赖）：把 /api/v1/control 包成脚本可调用命令。
-// 契约（docs/agent-control/PROTOCOL.md）：
+// 契约（skills/tmuxgo-control/PROTOCOL.md）：
 //   stdout 只输出单行 JSON 结果（成功 {ok:true,...} / 失败 {ok:false,code,message}），
 //   诊断信息只走 stderr；退出码 0=成功 1=远端/协议错误 2=本地用法或环境错误。
 // 环境：TMUXGO_ENV=1（gateway 注入 pane 的守卫，help 除外全员强制）、

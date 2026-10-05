@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-// /api/v1/control 协议契约单一事实源（docs/agent-control/PROTOCOL.md 契约章节的实现侧）。
+// /api/v1/control 协议契约单一事实源（skills/tmuxgo-control/PROTOCOL.md 契约章节的实现侧）。
 // 兼容性约定：zod object 默认剥离未知字段，新增可选字段向后兼容；
 // 任何破坏性变更（改字段语义/删字段）必须 bump CONTROL_PROTOCOL_VERSION 并同步文档。
 

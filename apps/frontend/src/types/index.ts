@@ -710,7 +710,7 @@ export interface GitWorktreeMutationResponse {
   message?: string
   worktree?: GitWorktreeProvenance
 }
-// Agent inbox：与 docs/agent-inbox/PROTOCOL.md 的 wire schema 对齐（metadata-only）
+// Agent inbox：与 skills/tmuxgo-control/agent-inbox-protocol.md 的 wire schema 对齐（metadata-only）
 export type InboxMessageType = 'text' | 'image' | 'video' | 'file' | 'link'
 export interface InboxMessageRoute {
   hostId?: string
