@@ -38,7 +38,7 @@ export interface RecoveryCandidateInput {
 export type RecoveryTargetMode = 'pane' | 'active'
 export interface RecoveryResumeTarget {
   paneId: string
-  agentSessionId: string
+  agentSessionId?: string
   targetMode?: RecoveryTargetMode
 }
 export type RecoveryPaneState = 'shell' | 'occupied' | 'dead' | 'missing' | 'in_mode' | 'unknown'
@@ -245,7 +245,7 @@ export function describeRecoveryCandidate(candidate: AgentRecoveryCandidate, ins
   if (!buildResumeCommand(candidate.agent, candidate.agentSessionId))
     return {
       resumable: false,
-      blockReason: (candidate.agentSessionId ? 'invalid_session_id' : 'missing_session_id') as const,
+      blockReason: candidate.agentSessionId ? ('invalid_session_id' as const) : ('missing_session_id' as const),
       occupant: state,
     }
   return { resumable: state === 'shell', blockReason: state === 'shell' ? undefined : 'pane_unknown', occupant: state }
