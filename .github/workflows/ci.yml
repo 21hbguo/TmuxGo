@@ -97,7 +97,7 @@ jobs:
         env:
           CI: '1'
   # 完整 e2e：PR/默认分支 push 均跑，通过 gate job 进入合并门禁（required check
-  # 建议只配 "merge-gate"，见 docs/ci.md）。串行运行、45min 硬超时，不并行共享 tmux/端口
+  # 建议只配 "merge-gate"，见 CONTRIBUTING.md）。串行运行、45min 硬超时，不并行共享 tmux/端口
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -181,7 +181,7 @@ jobs:
           CI: '1'
           TMUXGO_SSH_E2E_PRIVATE_KEY_PATH: ${{ steps.key.outputs.key_path }}
   # 合并门禁聚合：分支保护只需把 merge-gate 标为 required check；
-  # ssh-e2e 为可选信号不进 needs（见 docs/ci.md）
+  # ssh-e2e 为可选信号不进 needs（见 CONTRIBUTING.md）
   gate:
     name: merge-gate
     needs: [lint-typecheck, test, build, smoke, e2e]
