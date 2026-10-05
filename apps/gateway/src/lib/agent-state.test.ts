@@ -159,3 +159,31 @@ test('detects reasonix working state from in-pane braille spinner', () => {
     'working',
   )
 })
+test('per-agent screen rules classify kimi/devin/opencode states', () => {
+  // kimi：月相 spinner→working；审批面板→blocked；提问面板→needs_input
+  assert.equal(detectAgentEvidence('kimi', '', 'some output\n🌕\n')?.phase, 'working')
+  assert.equal(
+    detectAgentEvidence('kimi', '', 'run this command?\n↵ confirm · esc cancel\n▶ approve · 1/2/3 choose')?.phase,
+    'permission_required',
+  )
+  assert.equal(detectAgentEvidence('kimi', '', 'question\n↵ choose · ↑↓ select · esc cancel')?.phase, 'needs_input')
+  // devin：running tools 页脚→working；approve once 共存时 blocked 优先；❭ 提示框→idle
+  assert.equal(
+    detectAgentEvidence('devin', '', 'doing stuff\nrunning tools · esc to interrupt\nx\ny\nz')?.phase,
+    'working',
+  )
+  assert.equal(
+    detectAgentEvidence('devin', '', 'running tools · esc to interrupt\napprove once · select · confirm · esc cancel')
+      ?.phase,
+    'permission_required',
+  )
+  assert.equal(detectAgentEvidence('devin', '', 'context: 3%\n❭ ')?.phase, 'idle')
+  // opencode/mimo（同源 TUI 词面）：权限条→blocked；进度条/esc hint→working
+  assert.equal(detectAgentEvidence('opencode', '', '△ Permission required\nesc dismiss')?.phase, 'permission_required')
+  assert.equal(detectAgentEvidence('opencode', '', 'working hard\nesc to interrupt')?.phase, 'working')
+  assert.equal(detectAgentEvidence('mimo', '', '■■■■■▸ building')?.phase, 'working')
+})
+test('detects dsh launcher binary as dsh-tui agent', () => {
+  assert.equal(detectProcessAgent('dsh --profile dsh-tui'), 'dsh-tui')
+  assert.equal(detectProcessAgent('dst'), 'dsh-tui')
+})

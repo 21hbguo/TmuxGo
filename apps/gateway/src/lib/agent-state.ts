@@ -11,6 +11,7 @@ import {
   type TmuxAgentHookName,
 } from './tmux-hooks.js'
 import { getHostById, type HostRecord } from './hosts.js'
+import { matchAgentScreenRule, type ScreenRule } from './agent-screen-rules.js'
 
 export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown'
 export type AgentPhase =
@@ -134,9 +135,14 @@ const directAgents: Record<string, string> = {
   'cursor-agent': 'cursor',
   copilot: 'copilot',
   devin: 'devin',
+  'devin-cli': 'devin',
   'dsh-tui': 'dsh-tui',
   dst: 'dsh-tui',
+  // dsh-tui 是 launcher：实际前台进程是 `dsh --profile dsh-tui`，comm 名为 dsh
+  dsh: 'dsh-tui',
   mimo: 'mimo',
+  'kimi-code': 'kimi',
+  opencode2: 'opencode',
 }
 const indirectCommands = new Set(['node', 'bun', 'deno', 'python', 'python3'])
 const spinnerPattern = /(?:^|\s)[\u2800-\u28ff](?:\s|$)/u
@@ -184,7 +190,13 @@ function detectRawStatus(title: string, output: string): AgentStatus {
   if (spinnerPattern.test(title) || spinnerPattern.test(recent) || workingPattern.test(recent)) return 'working'
   return 'idle'
 }
-function detectRawPhase(candidate: PaneCandidate, title: string, output: string, processAgent?: string | null) {
+function detectRawPhase(
+  candidate: PaneCandidate,
+  title: string,
+  output: string,
+  processAgent?: string | null,
+  ruleHit?: ScreenRule | null,
+) {
   const recent = getVisibleTerminalLines(output).slice(-16).join('\n')
   const visible = title + '\n' + recent
   const command = normalizeCommand(candidate.currentCommand)
@@ -214,6 +226,14 @@ function detectRawPhase(candidate: PaneCandidate, title: string, output: string,
       source: 'hook' as const,
       confidence: 'high' as const,
       message: 'Agent process ended',
+    }
+  // per-agent 屏幕规则（herdr manifest 移植）优先于通用词面：词面按各家 TUI 抠过
+  if (ruleHit)
+    return {
+      phase: ruleHit.state === 'blocked' ? (ruleHit.phase ?? 'permission_required') : ruleHit.state,
+      source,
+      confidence: 'medium' as const,
+      message: ruleHit.state === 'blocked' ? 'Agent is waiting for input' : undefined,
     }
   if (permissionPattern.test(visible))
     return { phase: 'permission_required' as const, source, confidence, message: 'Agent is waiting for permission' }
@@ -280,13 +300,19 @@ function detectAgentObservation(
   output: string,
   processAgent?: string | null,
 ): AgentDetection | null {
-  const detected =
-    processAgent === undefined
-      ? detectAgentPaneState(candidate.currentCommand, candidate.title, output)
-      : detectAgentPaneState(candidate.currentCommand, candidate.title, output, processAgent)
-  if (!detected) return null
-  const raw = detectRawPhase(candidate, candidate.title, output, processAgent)
-  return { ...detected, ...raw }
+  const agent = detectAgent(candidate.currentCommand, candidate.title, output, processAgent)
+  if (!agent) return null
+  const ruleHit = matchAgentScreenRule(agent, candidate.title, output)
+  // 规则命中时 status 与 phase 同源（都出自 manifest 词面）；未命中回退通用正则
+  const agentStatus = ruleHit
+    ? ruleHit.state === 'idle'
+      ? ('idle' as const)
+      : ruleHit.state === 'working'
+        ? ('working' as const)
+        : ('blocked' as const)
+    : detectRawStatus(candidate.title, output)
+  const raw = detectRawPhase(candidate, candidate.title, output, processAgent, ruleHit)
+  return { agent, agentStatus, ...raw }
 }
 export function detectAgentEvidence(
   currentCommand: string,
