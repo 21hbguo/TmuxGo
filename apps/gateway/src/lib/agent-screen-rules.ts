@@ -123,7 +123,9 @@ const rawManifests: Record<string, RawRule[]> = {
       state: 'working',
       priority: 200,
       region: 'bottom_non_empty_lines(8)',
-      contains: ['running tools', 'esc to interrupt'],
+      // 真机页脚实为 "Running tools · 19s (esc twice to interrupt)"：interrupt 前有 twice
+      contains: ['running tools'],
+      any: [{ contains: ['esc to interrupt'] }, { contains: ['esc twice to interrupt'] }],
       not: [{ contains: ['approve once', 'esc cancel'] }],
     },
     {
@@ -239,10 +241,12 @@ const manifests: Record<string, ScreenRule[]> = Object.fromEntries(
   ]),
 )
 
+// herdr 语义：contains 两边统一小写匹配；regex/line_regex 用原文且要求 all 命中
 function clauseMatches(clause: Clause, text: string, lines: string[]): boolean {
-  if (clause.contains && !clause.contains.every((item) => text.includes(item))) return false
-  if (clause.lineRegex && !clause.lineRegex.some((pattern) => lines.some((line) => pattern.test(line)))) return false
-  if (clause.regex && !clause.regex.some((pattern) => pattern.test(text))) return false
+  const lowerText = text.toLowerCase()
+  if (clause.contains && !clause.contains.every((item) => lowerText.includes(item.toLowerCase()))) return false
+  if (clause.lineRegex && !clause.lineRegex.every((pattern) => lines.some((line) => pattern.test(line)))) return false
+  if (clause.regex && !clause.regex.every((pattern) => pattern.test(text))) return false
   if (clause.any && !clause.any.some((item) => clauseMatches(item, text, lines))) return false
   if (clause.all && !clause.all.every((item) => clauseMatches(item, text, lines))) return false
   if (clause.not && clause.not.some((item) => clauseMatches(item, text, lines))) return false

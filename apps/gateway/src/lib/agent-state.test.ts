@@ -166,7 +166,10 @@ test('per-agent screen rules classify kimi/devin/opencode states', () => {
     detectAgentEvidence('kimi', '', 'run this command?\n↵ confirm · esc cancel\n▶ approve · 1/2/3 choose')?.phase,
     'permission_required',
   )
-  assert.equal(detectAgentEvidence('kimi', '', 'question\n↵ choose · ↑↓ select · esc cancel')?.phase, 'needs_input')
+  assert.equal(
+    detectAgentEvidence('kimi', '', 'question\n? pick an option\n↵ choose · ↑↓ select · esc cancel')?.phase,
+    'needs_input',
+  )
   // devin：running tools 页脚→working；approve once 共存时 blocked 优先；❭ 提示框→idle
   assert.equal(
     detectAgentEvidence('devin', '', 'doing stuff\nrunning tools · esc to interrupt\nx\ny\nz')?.phase,
@@ -217,4 +220,24 @@ line_regex = ['(?i)^\\s*spin-kimi$']
   // 坏 TOML 不炸、不影响其它 agent
   await writeFile(path.join(dir, 'devin.toml'), '[[rules]\nnot valid at all {{{')
   assert.equal(detectAgentEvidence('devin', '', 'context: 3%\n❭ ')?.phase, 'idle')
+})
+test('devin rules match real TUI casing and wording', () => {
+  // 真机截图词面（含大写与 "esc twice"）：working 页脚
+  assert.equal(
+    detectAgentEvidence(
+      'devin',
+      '',
+      '○ Running command\n⠈⠃ Running tools · 19s (esc twice to interrupt)\n───\n❭ Guide Devin while it works\n───\nSWE-2 Max   Context: 111k / 262k',
+    )?.phase,
+    'working',
+  )
+  // idle 提示框：Ask/Context 大写仍应命中（contains 大小写不敏感）
+  assert.equal(
+    detectAgentEvidence(
+      'devin',
+      '',
+      'some output\n───\n❭ Ask Devin to build features, fix bugs, or work on your code\n───\nSWE-2 Max   Context: 96k / 262k tokens (36%)',
+    )?.phase,
+    'idle',
+  )
 })
