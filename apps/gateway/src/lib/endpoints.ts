@@ -151,6 +151,25 @@ def tailscale_eps():
    if m and cur:
     rows.append({'source':'tailscale','listen':cur,'name':'','target':'','detail':'tailscale serve','locations':[{'path':m.group(1),'target':m.group(3),'kind':'proxy' if m.group(2)=='proxy' else 'root' if m.group(2)=='path' else 'other'}]})
  return rows,'ok'
+def proc_detail(pid):
+ # ss 只给进程 comm 名（node/python…），服务身份要看 cgroup 里的 systemd 单元；
+ # 非 systemd 进程退化用 cmdline 脚本路径尾段（如 gateway/dist/index.js）
+ parts=['pid '+pid]
+ unit=''
+ try:
+  cg=open('/proc/%s/cgroup'%pid).read()
+  us=[u for u in re.findall(r'[\\w@.\\-]+\\.service',cg) if not u.startswith('user@')]
+  if us:unit=us[-1]
+  elif re.search(r'docker-[\\da-f]+',cg):unit='docker container'
+ except:pass
+ if unit:parts.append(unit)
+ else:
+  try:
+   argv=[a for a in open('/proc/%s/cmdline'%pid).read().split('\\0') if a]
+   for a in argv[1:]:
+    if '/' in a and not a.startswith('-'):parts.append('/'.join(a.split('/')[-3:]));break
+  except:pass
+ return ' \\u00b7 '.join(parts)
 def socket_eps(claimed):
  out,rc=run(['ss','-tlnp'])
  if rc!=0:return [],'unavailable'
@@ -168,7 +187,7 @@ def socket_eps(claimed):
   rest=' '.join(p[idx+5:])
   name=re.search(r'"([^"]+)"',rest)
   pid=re.search(r'pid=(\\d+)',rest)
-  rows.append({'source':'socket','listen':local,'name':name.group(1) if name else '?','target':'','detail':('pid '+pid.group(1)) if pid else ''})
+  rows.append({'source':'socket','listen':local,'name':name.group(1) if name else '?','target':'','detail':proc_detail(pid.group(1)) if pid else ''})
  return rows,'ok'
 srcs={}
 all_rows=[]

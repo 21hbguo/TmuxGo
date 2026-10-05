@@ -971,6 +971,9 @@ export const en = {
   'endpoints.group.tailscale': 'Tailscale',
   'endpoints.group.docker': 'Docker containers',
   'endpoints.group.socket': 'Listeners',
+  'endpoints.copyUrl': 'Copy URL',
+  'endpoints.copyListen': 'Copy listen address',
+  'endpoints.openUrl': 'Open in new tab',
 
   // Favorites
   'favorites.title': 'Favorites',

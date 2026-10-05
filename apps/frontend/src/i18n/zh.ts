@@ -964,6 +964,9 @@ export const zh = {
   'endpoints.group.tailscale': 'Tailscale',
   'endpoints.group.docker': 'Docker 容器',
   'endpoints.group.socket': '进程监听',
+  'endpoints.copyUrl': '复制链接',
+  'endpoints.copyListen': '复制监听地址',
+  'endpoints.openUrl': '新标签打开',
 
   // Favorites
   'favorites.title': '收藏',
