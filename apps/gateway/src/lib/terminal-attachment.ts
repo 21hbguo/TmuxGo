@@ -71,8 +71,14 @@ function adaptPtyProcess(process: pty.IPty): TerminalAttachment {
     },
   }
 }
-// attach -f ignore-size,active-pane 需要 tmux 3.2+；按 hostId 缓存探测结果，
-// 远端升级 tmux 后需重启 gateway 才会重新探测
+// attach -f ignore-size 需要 tmux 3.2+；按 hostId 缓存探测结果，
+// 远端升级 tmux 后需重启 gateway 才会重新探测。
+// 不要加 active-pane：该 flag 会让 client 经鼠标点击后私记活动 pane
+// （cw->pane），此后 CLI select-pane（api.panes.select）只改
+// window->active、动不了该私有 pane——输入持续落到旧 pane，而 UI 的
+// pane_active 快照已指向新 pane，表现为「快捷键打不进选中 pane」。
+// 共享 window->active 才是输入/REST select/快照的一致事实源
+// （exclusive attach 本来就没有此 flag）
 const attachFlagSupport = new Map<string, boolean>()
 async function probeAttachFlagSupport(hostId: string, host: HostRecord | null) {
   const cached = attachFlagSupport.get(hostId)
@@ -126,7 +132,7 @@ export async function createTerminalAttachment(options: CreateTerminalAttachment
       host.tmuxPath || 'tmux',
       'attach',
     ]
-    if (!exclusive && (await attachFlagProbe(hostId, host))) sshBaseArgs.push('-f', 'ignore-size,active-pane')
+    if (!exclusive && (await attachFlagProbe(hostId, host))) sshBaseArgs.push('-f', 'ignore-size')
     sshBaseArgs.push('-t', sessionName)
     const hostPassword = resolveHostPassword(credentials)
     if (hostPassword) {
@@ -150,7 +156,7 @@ export async function createTerminalAttachment(options: CreateTerminalAttachment
     )
   }
   const attachArgs = ['attach']
-  if (!exclusive && (await attachFlagProbe('local', null))) attachArgs.push('-f', 'ignore-size,active-pane')
+  if (!exclusive && (await attachFlagProbe('local', null))) attachArgs.push('-f', 'ignore-size')
   attachArgs.push('-t', sessionName)
   return adaptPtyProcess(
     ptySpawn('tmux', attachArgs, {

@@ -5,8 +5,11 @@ import * as pty from 'node-pty'
 
 const execAsync = promisify(exec)
 const execFileAsync = promisify(execFile)
-// attach -f ignore-size,active-pane 需要 tmux 3.2+；探测一次缓存，
-// 失败/不可解析维持原行为带 -f（与 gateway 侧探针语义一致）
+// attach -f ignore-size 需要 tmux 3.2+；探测一次缓存，
+// 失败/不可解析维持原行为带 -f（与 gateway 侧探针语义一致）。
+// 不带 active-pane：该 flag 让 client 经点击私记活动 pane（cw->pane），
+// CLI select-pane 只能改 window->active、动不了私有 pane，输入会钉在旧
+// pane 上与 UI pane_active 发散；共享 window->active 才对齐（与 gateway 一致）
 let attachFlagSupport: boolean | null = null
 function supportsAttachFlags() {
   if (attachFlagSupport === null) {
@@ -171,7 +174,7 @@ export class TmuxManager {
   attach(name: string, cols: number, rows: number, exclusive: boolean) {
     assertSessionAllowed(name)
     const args = ['attach']
-    if (!exclusive && supportsAttachFlags()) args.push('-f', 'ignore-size,active-pane')
+    if (!exclusive && supportsAttachFlags()) args.push('-f', 'ignore-size')
     args.push('-t', name)
     return pty.spawn('tmux', args, {
       name: 'xterm-256color',
