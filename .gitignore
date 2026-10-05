@@ -25,7 +25,12 @@ tmp
 .tmuxgo
 uploads
 uploads-rate-test
+TmuxEmil/
+.dbg/
+apps/*/pnpm-lock.yaml
+apps/*/pnpm-workspace.yaml
 apps/gateway/render-all.cjs
 apps/gateway/DINOTTY_LEARNING.md
+apps/gateway/herdr-*.md
 docs/stream-transport-opt/results-*.tsv
 /tmp/autoresearch
