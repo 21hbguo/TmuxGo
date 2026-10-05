@@ -131,13 +131,24 @@ def tailscale_eps():
  if rc==0 and out:
   try:
    st=json.loads(out)
+   web_ports=set()
    for web,cfg in (st.get('Web') or {}).items():
+    m=re.search(r':(\\d+)$',web)
+    if m:web_ports.add(m.group(1))
     for path,h in ((cfg.get('Handlers') or {}).items()):
      target=h.get('Proxy') or h.get('Path') or h.get('Text') or ''
      kind='proxy' if h.get('Proxy') else 'root' if h.get('Path') else 'other'
      rows.append({'source':'tailscale','listen':web,'name':'','target':'','detail':'tailscale serve','locations':[{'path':path,'target':target,'kind':kind}]})
     if cfg and not cfg.get('Handlers'):
      rows.append({'source':'tailscale','listen':web,'name':'','target':'','detail':'tailscale serve'})
+   # serve --tcp/--tls-terminated-tcp 转发无 Web handlers，单独列行；
+   # listen 形如 tailnet:PORT，端口供下方 claimed 提取去重
+   for port,tcfg in (st.get('TCP') or {}).items():
+    if port in web_ports or not isinstance(tcfg,dict):continue
+    tgt=tcfg.get('TCPForward') or ''
+    tls=tcfg.get('TLSTerminatedTCP')
+    if isinstance(tls,dict):tgt=tls.get('TCPForward') or tgt
+    rows.append({'source':'tailscale','listen':'tailnet:'+port,'name':'','target':tgt,'detail':'tailscale serve'})
   except ValueError:
    pass
  if not rows:
@@ -197,6 +208,14 @@ for r in ng:
  for tok in re.findall(r'(?:^|\\s)(?:\\[::\\]|[\\w.*:-]+:)?(\\d+)(?=\\s|$)',r['listen']):
   claimed.add(int(tok))
 ts,st=tailscale_eps();srcs['tailscale']=st
+# tailscaled 会为每条 serve 配置在 tailnet IP 上实际绑定监听——端口认领去重，
+# 否则 socket 源把同一监听再报一次（ss 无权看 root 进程名，name 落成 ?）
+for r in ts:
+ ps=re.findall(r':(\\d+)',r['listen'])
+ for hm in ps:claimed.add(int(hm))
+ if not ps:
+  if r['listen'].startswith('https:'):claimed.add(443)
+  elif r['listen'].startswith('http:'):claimed.add(80)
 dk,st=docker_eps();srcs['docker']=st
 for r in dk:
  for hm in re.findall(r':(\\d+)',r['listen']):
