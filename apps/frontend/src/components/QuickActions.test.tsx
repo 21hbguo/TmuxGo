@@ -141,9 +141,11 @@ describe('QuickActions', () => {
     expect(send).not.toHaveBeenCalled()
     act(() => vi.advanceTimersByTime(34))
     expect(send).toHaveBeenCalledWith({ type: 'input', data: '\x7f' })
+    console.log(JSON.stringify(send.mock.calls))
     expect(send.mock.calls).toHaveLength(2)
     fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch' })
     act(() => vi.runOnlyPendingTimers())
+    console.log(JSON.stringify(send.mock.calls))
     expect(send.mock.calls).toHaveLength(2)
     vi.useRealTimers()
   })
@@ -161,9 +163,11 @@ describe('QuickActions', () => {
     expect(send).toHaveBeenCalledWith({ type: 'input', data: '\x1b[5~' })
     expect(send.mock.calls).toHaveLength(1)
     act(() => vi.advanceTimersByTime(140))
+    console.log(JSON.stringify(send.mock.calls))
     expect(send.mock.calls).toHaveLength(2)
     fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch' })
     act(() => vi.runOnlyPendingTimers())
+    console.log(JSON.stringify(send.mock.calls))
     expect(send.mock.calls).toHaveLength(2)
     vi.useRealTimers()
   })
@@ -201,5 +205,22 @@ describe('QuickActions', () => {
     expect(send).toHaveBeenCalledWith({ type: 'input', data: '\x1b[5~' })
     expect(send.mock.calls).toHaveLength(1)
     vi.useRealTimers()
+  })
+})
+
+describe('quick actions appendEnter', () => {
+  it('sends text and Enter as separate input frames', () => {
+    customShortcutsState.shortcuts = [
+      { id: 'ask', label: 'Ask', steps: [{ type: 'text', text: 'hi devin', appendEnter: true }] },
+    ]
+    send.mockReturnValue(true)
+    render(<QuickActions mode="dock" />)
+    const button = screen.getByRole('button', { name: 'Ask' })
+    fireEvent(button, createEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch' }))
+    send.mockClear()
+    fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch' })
+    expect(send.mock.calls).toHaveLength(2)
+    expect(send).toHaveBeenNthCalledWith(1, { type: 'input', data: 'hi devin' })
+    expect(send).toHaveBeenNthCalledWith(2, { type: 'input', data: '\r' })
   })
 })

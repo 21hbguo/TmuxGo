@@ -144,7 +144,13 @@ function useQuickActionController() {
               await new Promise((resolve) => setTimeout(resolve, step.ms || 0))
               continue
             }
-            if (!sendKey(stepToInput(step))) return
+            // text+appendEnter 分两次发：尾随 \r 与文本同块写入时，devin 等 TUI
+            // 会把 CR 并入输入而非提交；独立一帧等价 tmux send-keys Enter
+            const payload = stepToInput(step)
+            if (step.type === 'text' && step.appendEnter === true && payload.endsWith('\r')) {
+              const body = payload.slice(0, -1)
+              if ((body && !sendKey(body)) || !sendKey('\r')) return
+            } else if (!sendKey(payload)) return
           }
         } finally {
           if (runId === macroRunIdRef.current) setRunningShortcutId(null)
