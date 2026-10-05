@@ -109,9 +109,7 @@ export function AgentRecoveryBadge({
         className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full border border-accent-2/30 bg-accent-2/10 px-1.5 text-caption font-medium text-accent-2 transition-opacity hover:opacity-80"
       >
         <FiRefreshCw aria-hidden="true" size={10} />
-        <span>
-          {candidates.length} {t('agent.recovery.badge')}
-        </span>
+        <span>{candidates.length}</span>
       </button>
       {open && (
         <ModalPortal modal onEscape={() => setOpen(false)}>

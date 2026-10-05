@@ -61,12 +61,11 @@ export function AgentStatusBadge({
               type="button"
               onClick={() => onStatusClick?.(item)}
               title={t(`agent.status.${item}`)}
+              aria-label={t(`agent.status.${item}`)}
               className={`inline-flex h-5 shrink-0 items-center gap-1 rounded-full border px-1.5 text-caption font-medium transition-opacity hover:opacity-80 ${tone[item]}`}
             >
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot[item]}`} />
-              <span>
-                {summary[item]} {t(`agent.status.${item}`)}
-              </span>
+              <span>{summary[item]}</span>
             </button>
             {item === 'done' ? clearDoneButton : null}
           </Fragment>
@@ -81,15 +80,11 @@ export function AgentStatusBadge({
   return (
     <span
       title={label}
+      aria-label={label}
       className={`inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full border ${compact && !(resolved === 'done' && clearDoneButton) ? 'w-5 justify-center px-0' : 'px-2'} text-caption font-medium ${tone[resolved]}`}
     >
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot[resolved]}`} />
-      {!compact && (
-        <span>
-          {count > 1 ? `${count} ` : ''}
-          {label}
-        </span>
-      )}
+      {!compact && count > 0 && <span>{count}</span>}
       {resolved === 'done' ? clearDoneButton : null}
     </span>
   )

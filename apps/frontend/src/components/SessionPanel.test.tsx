@@ -234,8 +234,9 @@ describe('SessionPanel session actions', () => {
     expect(screen.getByText('Sessions')).toBeInTheDocument()
     expect(screen.getByText('dev')).toBeInTheDocument()
     expect(screen.getByText('2 windows')).toHaveClass('whitespace-nowrap')
-    expect(screen.getByText('2 空闲')).toBeInTheDocument()
-    expect(screen.getByText('1 工作中')).toBeInTheDocument()
+    // 徽标只渲染颜色点+数字，状态名移到 title/aria-label
+    expect(screen.getByTitle('空闲')).toHaveTextContent('2')
+    expect(screen.getAllByTitle('工作中').some((el) => el.textContent === '1')).toBe(true)
     expect(screen.queryByText('0 等待处理')).not.toBeInTheDocument()
   })
   it('shows session loading errors and retries', () => {
