@@ -50,6 +50,25 @@ describe('useTerminalTouchScroll', () => {
     expect(props.onSwipeRight).not.toHaveBeenCalled()
   })
 
+  // 横滑必须标记 moved：否则 TerminalPane 的 onTouchEnd 会把滑动终点当 tap，
+  // 派发合成 mouse 事件 → handlePointerSync 裸 select-pane（无 keepZoom），
+  // 与 swipe 的 select-pane -Z 竞争导致 unzoom
+  it('marks a horizontal swipe as moved so it cannot fall through to tap dispatch', () => {
+    const props = makeProps()
+    const { result } = renderHook((p) => useTerminalTouchScroll(p), { initialProps: props })
+    const t = result.current
+    t.handleTouchStart(touchEvent([{ clientX: 300, clientY: 200, identifier: 1 }]))
+    t.handleTouchMove(touchEvent([{ clientX: 200, clientY: 205, identifier: 1 }]))
+    t.handleTouchEnd({
+      touches: [],
+      changedTouches: [{ clientX: 200, clientY: 205, identifier: 1 }],
+      preventDefault: vi.fn(),
+    } as unknown as TouchEvent)
+    expect(props.onSwipeLeft).toHaveBeenCalledTimes(1)
+    expect(props.onTouchMovedChange).toHaveBeenLastCalledWith(true)
+    expect(props.onTap).not.toHaveBeenCalled()
+  })
+
   it('does not fire swipe when a second finger joined the gesture', () => {
     const props = makeProps()
     const { result } = renderHook((p) => useTerminalTouchScroll(p), { initialProps: props })

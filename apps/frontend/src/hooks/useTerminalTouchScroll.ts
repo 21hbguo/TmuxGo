@@ -240,7 +240,14 @@ export function useTerminalTouchScroll({
         stateRef.current.direction = dx > dy ? 'horizontal' : 'vertical'
       }
       if (stateRef.current.direction !== 'vertical') {
+        // 横向手势同样属于 moved：touchend 侧按 touchMovedRef 决定是否派发
+        // 合成 tap——漏置位会让滑动终点触发假点击（含 pane select/键盘弹起），
+        // zoom 态下还会与 swipe 的 select-pane -Z 竞争导致 unzoom
         if (stateRef.current.direction === 'horizontal') e.preventDefault()
+        if (!stateRef.current.moved) {
+          stateRef.current.moved = true
+          callbacksRef.current.onTouchMovedChange(true)
+        }
         return
       }
       if (dy < 10) return
