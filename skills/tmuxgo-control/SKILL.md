@@ -79,7 +79,7 @@ curl -sS -X POST "$BASE/push" \
 
 For images, video, or files, use the same endpoint with multipart. v1 supports a single streamed multipart upload (existing file limit: 200 MiB); small payloads may use `contentBase64` up to 32 MiB. A local `path` is accepted only after gateway workspace/realpath and sensitive-path checks. Binary content never goes through the WebSocket.
 
-Push routing priority is `hostId + paneId` → `hostId + tmuxPaneId` → `hostId + sessionName` → the authenticated agent's global inbox. Use `dedupeKey` for retries; a duplicate returns the original message id. See [`docs/agent-inbox/PROTOCOL.md`](../agent-inbox/PROTOCOL.md) for the complete schema, read endpoints, events, limits, and errors.
+Push routing priority is `hostId + paneId` → `hostId + tmuxPaneId` → `hostId + sessionName` → the authenticated agent's global inbox. Use `dedupeKey` for retries; a duplicate returns the original message id. See [`agent-inbox-protocol.md`](agent-inbox-protocol.md) for the complete schema, read endpoints, events, limits, and errors.
 
 ### Open the pushed item in the UI
 

@@ -3,7 +3,9 @@
   "$id": "tmuxgo-agent-control/v1",
   "title": "TmuxGo Agent Control Protocol",
   "protocolVersion": "v1",
-  "supportedVersions": ["v1"],
+  "supportedVersions": [
+    "v1"
+  ],
   "basePath": "/api/v1/control",
   "transport": {
     "method": "POST",
@@ -75,7 +77,9 @@
           },
           "protocolVersion": {
             "type": "string",
-            "enum": ["v1"]
+            "enum": [
+              "v1"
+            ]
           },
           "supportedVersions": {
             "type": "array",
@@ -107,7 +111,12 @@
             }
           }
         },
-        "required": ["ok", "protocolVersion", "supportedVersions", "capabilities"]
+        "required": [
+          "ok",
+          "protocolVersion",
+          "supportedVersions",
+          "capabilities"
+        ]
       },
       "errors": [
         "AGENT_CONTROL_INITIALIZE_FAILED",
@@ -127,9 +136,14 @@
             "const": true
           }
         },
-        "required": ["ok"]
+        "required": [
+          "ok"
+        ]
       },
-      "errors": ["AGENT_CONTROL_AUTH_REQUIRED", "TMUXGO_ENV_GUARD"]
+      "errors": [
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
     },
     "panes.split": {
       "http": "POST",
@@ -144,7 +158,10 @@
           },
           "direction": {
             "type": "string",
-            "enum": ["horizontal", "vertical"],
+            "enum": [
+              "horizontal",
+              "vertical"
+            ],
             "default": "horizontal"
           },
           "cwd": {
@@ -153,7 +170,9 @@
           }
         },
         "additionalProperties": true,
-        "required": ["paneId"]
+        "required": [
+          "paneId"
+        ]
       },
       "result": {
         "type": "object",
@@ -164,10 +183,14 @@
           },
           "paneId": {
             "type": "string",
-            "examples": ["local:%0"]
+            "examples": [
+              "local:%0"
+            ]
           }
         },
-        "required": ["ok"]
+        "required": [
+          "ok"
+        ]
       },
       "errors": [
         "AGENT_CONTROL_SPLIT_FAILED",
@@ -196,7 +219,9 @@
           }
         },
         "additionalProperties": true,
-        "required": ["paneId"]
+        "required": [
+          "paneId"
+        ]
       },
       "result": {
         "type": "object",
@@ -212,7 +237,11 @@
             "type": "string"
           }
         },
-        "required": ["ok", "paneId", "output"]
+        "required": [
+          "ok",
+          "paneId",
+          "output"
+        ]
       },
       "errors": [
         "AGENT_CONTROL_READ_FAILED",
@@ -241,7 +270,9 @@
           }
         },
         "additionalProperties": true,
-        "required": ["paneId"]
+        "required": [
+          "paneId"
+        ]
       },
       "result": {
         "type": "object",
@@ -258,7 +289,11 @@
             "description": "Non-sensitive pane state: command/title/cwd/dead/inMode/active/size plus a bounded tail. No env vars, tokens or unbounded history."
           }
         },
-        "required": ["ok", "paneId", "snapshot"]
+        "required": [
+          "ok",
+          "paneId",
+          "snapshot"
+        ]
       },
       "errors": [
         "AGENT_CONTROL_SNAPSHOT_FAILED",
@@ -303,7 +338,9 @@
           }
         },
         "additionalProperties": true,
-        "required": ["paneId"]
+        "required": [
+          "paneId"
+        ]
       },
       "result": {
         "type": "object",
@@ -329,7 +366,9 @@
             "description": "Capped recent tail"
           }
         },
-        "required": ["ok"]
+        "required": [
+          "ok"
+        ]
       },
       "errors": [
         "AGENT_CONTROL_WAIT_OUTPUT_FAILED",
@@ -371,7 +410,10 @@
           }
         },
         "additionalProperties": true,
-        "required": ["paneId", "text"]
+        "required": [
+          "paneId",
+          "text"
+        ]
       },
       "result": {
         "type": "object",
@@ -387,7 +429,9 @@
             "type": "string"
           }
         },
-        "required": ["ok"]
+        "required": [
+          "ok"
+        ]
       },
       "errors": [
         "AGENT_CONTROL_RUN_FAILED",
@@ -425,7 +469,9 @@
                   }
                 },
                 "additionalProperties": true,
-                "required": ["paneId"]
+                "required": [
+                  "paneId"
+                ]
               },
               {
                 "type": "object",
@@ -442,7 +488,10 @@
                   }
                 },
                 "additionalProperties": true,
-                "required": ["sessionName", "agent"]
+                "required": [
+                  "sessionName",
+                  "agent"
+                ]
               }
             ]
           },
@@ -451,7 +500,13 @@
             "properties": {
               "status": {
                 "type": "string",
-                "enum": ["idle", "working", "blocked", "done", "unknown"]
+                "enum": [
+                  "idle",
+                  "working",
+                  "blocked",
+                  "done",
+                  "unknown"
+                ]
               },
               "phase": {
                 "type": "string",
@@ -485,13 +540,19 @@
             "additionalProperties": true,
             "anyOf": [
               {
-                "required": ["status"]
+                "required": [
+                  "status"
+                ]
               },
               {
-                "required": ["phase"]
+                "required": [
+                  "phase"
+                ]
               },
               {
-                "required": ["lastEvent"]
+                "required": [
+                  "lastEvent"
+                ]
               }
             ]
           },
@@ -502,7 +563,10 @@
           }
         },
         "additionalProperties": true,
-        "required": ["target", "condition"]
+        "required": [
+          "target",
+          "condition"
+        ]
       },
       "result": {
         "type": "object",
@@ -522,7 +586,9 @@
             "description": "AgentPaneState at the moment the condition was met"
           }
         },
-        "required": ["ok"]
+        "required": [
+          "ok"
+        ]
       },
       "errors": [
         "AGENT_CONTROL_WAIT_FAILED",
@@ -547,7 +613,10 @@
           },
           "provider": {
             "type": "string",
-            "enum": ["claude", "codex"]
+            "enum": [
+              "claude",
+              "codex"
+            ]
           },
           "args": {
             "type": "array",
@@ -568,7 +637,10 @@
           }
         },
         "additionalProperties": true,
-        "required": ["paneId", "provider"]
+        "required": [
+          "paneId",
+          "provider"
+        ]
       },
       "result": {
         "type": "object",
@@ -588,7 +660,11 @@
             "description": "AgentPaneState when acked=true"
           }
         },
-        "required": ["ok", "opId", "acked"]
+        "required": [
+          "ok",
+          "opId",
+          "acked"
+        ]
       },
       "errors": [
         "AGENT_CONTROL_START_FAILED",
@@ -635,7 +711,10 @@
           }
         },
         "additionalProperties": true,
-        "required": ["paneId", "prompt"]
+        "required": [
+          "paneId",
+          "prompt"
+        ]
       },
       "result": {
         "type": "object",
@@ -651,7 +730,11 @@
             "type": "boolean"
           }
         },
-        "required": ["ok", "opId", "acked"]
+        "required": [
+          "ok",
+          "opId",
+          "acked"
+        ]
       },
       "errors": [
         "AGENT_CONTROL_PROMPT_FAILED",
@@ -683,7 +766,9 @@
           }
         },
         "additionalProperties": true,
-        "required": ["opId"]
+        "required": [
+          "opId"
+        ]
       },
       "result": {
         "type": "object",
@@ -697,12 +782,24 @@
           },
           "state": {
             "type": "string",
-            "enum": ["cancelled", "already_settled", "not_found"]
+            "enum": [
+              "cancelled",
+              "already_settled",
+              "not_found"
+            ]
           }
         },
-        "required": ["ok", "opId", "state"]
+        "required": [
+          "ok",
+          "opId",
+          "state"
+        ]
       },
-      "errors": ["AGENT_CONTROL_CANCEL_FAILED", "AGENT_CONTROL_AUTH_REQUIRED", "TMUXGO_ENV_GUARD"]
+      "errors": [
+        "AGENT_CONTROL_CANCEL_FAILED",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
     },
     "push": {
       "http": "POST",
@@ -712,7 +809,13 @@
         "properties": {
           "type": {
             "type": "string",
-            "enum": ["text", "image", "video", "file", "link"]
+            "enum": [
+              "text",
+              "image",
+              "video",
+              "file",
+              "link"
+            ]
           },
           "title": {
             "type": "string",
@@ -796,7 +899,9 @@
           }
         },
         "additionalProperties": true,
-        "required": ["type"]
+        "required": [
+          "type"
+        ]
       },
       "result": {
         "type": "object",
@@ -819,7 +924,13 @@
           },
           "type": {
             "type": "string",
-            "enum": ["text", "image", "video", "file", "link"]
+            "enum": [
+              "text",
+              "image",
+              "video",
+              "file",
+              "link"
+            ]
           },
           "name": {
             "type": "string"
@@ -840,9 +951,20 @@
             "type": "integer"
           }
         },
-        "required": ["ok", "messageId", "createdAt", "type", "revision"]
+        "required": [
+          "ok",
+          "messageId",
+          "createdAt",
+          "type",
+          "revision"
+        ]
       },
-      "errors": ["AGENT_PUSH_FAILED", "INVALID_TARGET", "AGENT_CONTROL_AUTH_REQUIRED", "TMUXGO_ENV_GUARD"]
+      "errors": [
+        "AGENT_PUSH_FAILED",
+        "INVALID_TARGET",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
     },
     "open-target": {
       "http": "POST",
@@ -887,9 +1009,16 @@
             "const": true
           }
         },
-        "required": ["ok"]
+        "required": [
+          "ok"
+        ]
       },
-      "errors": ["AGENT_OPEN_TARGET_FAILED", "INVALID_TARGET", "AGENT_CONTROL_AUTH_REQUIRED", "TMUXGO_ENV_GUARD"]
+      "errors": [
+        "AGENT_OPEN_TARGET_FAILED",
+        "INVALID_TARGET",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
     },
     "inbox": {
       "http": "POST",
@@ -929,7 +1058,9 @@
             "const": true
           }
         },
-        "required": ["ok"]
+        "required": [
+          "ok"
+        ]
       },
       "errors": [
         "AGENT_INBOX_QUERY_FAILED",
@@ -951,7 +1082,9 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op"]
+            "required": [
+              "op"
+            ]
           },
           {
             "type": "object",
@@ -961,7 +1094,9 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op"]
+            "required": [
+              "op"
+            ]
           },
           {
             "type": "object",
@@ -971,7 +1106,9 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op"]
+            "required": [
+              "op"
+            ]
           },
           {
             "type": "object",
@@ -990,7 +1127,10 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op", "url"]
+            "required": [
+              "op",
+              "url"
+            ]
           },
           {
             "type": "object",
@@ -1004,7 +1144,9 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op"]
+            "required": [
+              "op"
+            ]
           },
           {
             "type": "object",
@@ -1018,7 +1160,9 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op"]
+            "required": [
+              "op"
+            ]
           },
           {
             "type": "object",
@@ -1032,7 +1176,9 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op"]
+            "required": [
+              "op"
+            ]
           },
           {
             "type": "object",
@@ -1046,7 +1192,9 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op"]
+            "required": [
+              "op"
+            ]
           },
           {
             "type": "object",
@@ -1064,7 +1212,10 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op", "ref"]
+            "required": [
+              "op",
+              "ref"
+            ]
           },
           {
             "type": "object",
@@ -1086,7 +1237,11 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op", "ref", "text"]
+            "required": [
+              "op",
+              "ref",
+              "text"
+            ]
           },
           {
             "type": "object",
@@ -1104,7 +1259,10 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op", "key"]
+            "required": [
+              "op",
+              "key"
+            ]
           },
           {
             "type": "object",
@@ -1126,7 +1284,9 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op"]
+            "required": [
+              "op"
+            ]
           },
           {
             "type": "object",
@@ -1140,7 +1300,9 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op"]
+            "required": [
+              "op"
+            ]
           },
           {
             "type": "object",
@@ -1159,7 +1321,10 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op", "expression"]
+            "required": [
+              "op",
+              "expression"
+            ]
           },
           {
             "type": "object",
@@ -1178,7 +1343,9 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op"]
+            "required": [
+              "op"
+            ]
           },
           {
             "type": "object",
@@ -1192,7 +1359,9 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op"]
+            "required": [
+              "op"
+            ]
           },
           {
             "type": "object",
@@ -1202,7 +1371,9 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op"]
+            "required": [
+              "op"
+            ]
           },
           {
             "type": "object",
@@ -1217,7 +1388,10 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op", "url"]
+            "required": [
+              "op",
+              "url"
+            ]
           },
           {
             "type": "object",
@@ -1232,7 +1406,10 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op", "targetId"]
+            "required": [
+              "op",
+              "targetId"
+            ]
           },
           {
             "type": "object",
@@ -1247,7 +1424,10 @@
               }
             },
             "additionalProperties": true,
-            "required": ["op", "targetId"]
+            "required": [
+              "op",
+              "targetId"
+            ]
           }
         ]
       },
@@ -1259,9 +1439,16 @@
             "const": true
           }
         },
-        "required": ["ok"]
+        "required": [
+          "ok"
+        ]
       },
-      "errors": ["BROWSER_BAD_OP", "BROWSER_OP_FAILED", "AGENT_CONTROL_AUTH_REQUIRED", "TMUXGO_ENV_GUARD"]
+      "errors": [
+        "BROWSER_BAD_OP",
+        "BROWSER_OP_FAILED",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
     }
   },
   "errorCodes": [
@@ -1357,6 +1544,9 @@
         "description": "Human-readable only; not part of the contract"
       }
     },
-    "required": ["code", "message"]
+    "required": [
+      "code",
+      "message"
+    ]
   }
 }
