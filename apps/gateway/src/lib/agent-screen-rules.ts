@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { getVisibleTerminalLines } from './terminal-output.js'
 
 // 借鉴 herdr 的 per-agent detection manifest：每家一份按 priority 降序的规则，
@@ -256,8 +259,178 @@ function resolveRegion(region: string | undefined, title: string, visible: strin
   const lines = [title, ...visible.slice(-16)]
   return { text: lines.join('\n'), lines }
 }
+// --- 本地 TOML override（herdr 语义：~/.tmuxgo/agent-detection/<agent>.toml 整体覆盖 bundled）---
+// 只支持 manifest 用得到的 TOML 子集：key=value、[[rules]]、字符串/数字/布尔、
+// 数组、内联表；value 解析器自带终止，空白/换行统一视作分隔符
+function tomlStripComments(src: string) {
+  let out = ''
+  let quote: string | null = null
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i]
+    if (quote === '"' && c === '\\') {
+      out += c + (src[++i] ?? '')
+      continue
+    }
+    if (quote) {
+      if (c === quote) quote = null
+      out += c
+    } else if (c === '"' || c === "'") {
+      quote = c
+      out += c
+    } else if (c === '#') {
+      while (i < src.length && src[i] !== '\n') i++
+    } else out += c
+  }
+  return out
+}
+function parseTomlSubset(src: string): Record<string, unknown> {
+  const text = tomlStripComments(src)
+  let i = 0
+  const root: Record<string, unknown> = {}
+  let table: Record<string, unknown> = root
+  const skip = () => {
+    while (i < text.length && /\s/.test(text[i])) i++
+  }
+  const bare = () => {
+    const start = i
+    while (i < text.length && !/[\s=\],{}#]/.test(text[i])) i++
+    return text.slice(start, i)
+  }
+  const parseValue = (): unknown => {
+    skip()
+    const c = text[i]
+    if (c === '"' || c === "'") {
+      const quote = c
+      i++
+      let value = ''
+      while (i < text.length && text[i] !== quote) {
+        if (quote === '"' && text[i] === '\\') {
+          i++
+          const esc = text[i++]
+          value += esc === 'n' ? '\n' : esc === 't' ? '\t' : esc === 'r' ? '\r' : esc
+        } else value += text[i++]
+      }
+      i++
+      return value
+    }
+    if (c === '[') {
+      i++
+      const arr: unknown[] = []
+      for (;;) {
+        skip()
+        if (text[i] === ']') {
+          i++
+          return arr
+        }
+        if (i >= text.length) return arr
+        arr.push(parseValue())
+        skip()
+        if (text[i] === ',') i++
+      }
+    }
+    if (c === '{') {
+      i++
+      const obj: Record<string, unknown> = {}
+      for (;;) {
+        skip()
+        if (text[i] === '}') {
+          i++
+          return obj
+        }
+        if (i >= text.length) return obj
+        const key = bare()
+        skip()
+        i++ // '='
+        obj[key] = parseValue()
+        skip()
+        if (text[i] === ',') i++
+      }
+    }
+    const token = bare()
+    if (token === 'true') return true
+    if (token === 'false') return false
+    const num = Number(token)
+    return Number.isNaN(num) ? token : num
+  }
+  while (true) {
+    skip()
+    if (i >= text.length) return root
+    if (text.startsWith('[[', i)) {
+      i += 2
+      const name = bare()
+      i += text.startsWith(']]', i) ? 2 : 0
+      const arr = (root[name] ??= []) as unknown[]
+      table = {}
+      arr.push(table)
+      continue
+    }
+    if (text[i] === '[') {
+      i++
+      const name = bare()
+      i++
+      table = (root[name] ??= {}) as Record<string, unknown>
+      continue
+    }
+    const key = bare()
+    if (!key) {
+      // 容错前进：遇到无法识别的裸字符（如坏文件的 `]`）必须推进 i，否则死循环
+      i++
+      continue
+    }
+    skip()
+    if (text[i] === '=') {
+      i++
+      table[key] = parseValue()
+    }
+  }
+}
+// 每次调用按 mtime 校验文件：扫一轮本来就有磁盘 IO，stat 开销可忽略且行为确定
+const overrideFileCache = new Map<string, { mtimeMs: number; rules: ScreenRule[] }>()
+function agentDetectionDir() {
+  return path.join(process.env.TMUXGO_CONFIG_DIR?.trim() || path.join(os.homedir(), '.tmuxgo'), 'agent-detection')
+}
+function compileOverrideFile(filePath: string, mtimeMs: number): ScreenRule[] {
+  const cached = overrideFileCache.get(filePath)
+  if (cached && cached.mtimeMs === mtimeMs) return cached.rules
+  const doc = parseTomlSubset(readFileSync(filePath, 'utf8'))
+  const rules = (Array.isArray(doc.rules) ? (doc.rules as RawRule[]) : [])
+    .filter((rule) => rule && typeof rule.id === 'string' && typeof rule.priority === 'number')
+    .map((rule) => ({
+      ...compileClause(rule),
+      id: rule.id,
+      state: rule.state,
+      phase: rule.phase,
+      priority: rule.priority,
+      region: rule.region,
+    }))
+    .sort((a, b) => b.priority - a.priority)
+  overrideFileCache.set(filePath, { mtimeMs, rules })
+  return rules
+}
+function overrideManifests() {
+  const next = new Map<string, ScreenRule[]>()
+  let files: string[]
+  try {
+    files = readdirSync(agentDetectionDir()).filter((file) => file.endsWith('.toml'))
+  } catch {
+    return next
+  }
+  for (const file of files) {
+    const filePath = path.join(agentDetectionDir(), file)
+    try {
+      const rules = compileOverrideFile(filePath, statSync(filePath).mtimeMs)
+      if (rules.length) next.set(path.basename(file, '.toml'), rules)
+    } catch {
+      // 坏文件跳过该 agent 的 override，回落 bundled manifest
+    }
+  }
+  return next
+}
 export function matchAgentScreenRule(agent: string, title: string, output: string): ScreenRule | null {
-  const rules = manifests[ruleAliases[agent] ?? agent]
+  const id = ruleAliases[agent] ?? agent
+  const overrides = overrideManifests()
+  // 查找序：本名 override > 别名 override > 本名 bundled > 别名 bundled
+  const rules = overrides.get(agent) ?? overrides.get(id) ?? manifests[agent] ?? manifests[id]
   if (!rules) return null
   const visible = getVisibleTerminalLines(output)
   const nonEmpty = visible.filter((line) => line.trim())

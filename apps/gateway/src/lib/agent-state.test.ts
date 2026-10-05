@@ -1,6 +1,6 @@
 import '../test-env.js'
 import assert from 'node:assert/strict'
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import test from 'node:test'
 import os from 'node:os'
 import path from 'node:path'
@@ -186,4 +186,35 @@ test('per-agent screen rules classify kimi/devin/opencode states', () => {
 test('detects dsh launcher binary as dsh-tui agent', () => {
   assert.equal(detectProcessAgent('dsh --profile dsh-tui'), 'dsh-tui')
   assert.equal(detectProcessAgent('dst'), 'dsh-tui')
+})
+test('TOML override manifest replaces bundled rules for its agent', async () => {
+  const dir = path.join(process.env.TMUXGO_CONFIG_DIR!, 'agent-detection')
+  await mkdir(dir, { recursive: true })
+  // herdr 原版 TOML 格式（含 [[rules]]/inline table/(?i) 旗标/'literal' 字符串）应可直接落库
+  await writeFile(
+    path.join(dir, 'kimi.toml'),
+    `id = "kimi"
+version = "test"
+[[rules]]
+id = "custom_blocker"
+state = "blocked"
+priority = 500
+region = "whole_recent"
+contains = ["my custom blocker"]
+[[rules]]
+id = "custom_working"
+state = "working"
+priority = 100
+line_regex = ['(?i)^\\s*spin-kimi$']
+`,
+  )
+  assert.equal(detectAgentEvidence('kimi', '', 'blah\nmy custom blocker\n')?.phase, 'permission_required')
+  assert.equal(detectAgentEvidence('kimi', '', 'spin-kimi')?.phase, 'working')
+  // override 整体替换 bundled：月相 spinner 规则被覆盖后不再命中
+  assert.notEqual(detectAgentEvidence('kimi', '', '🌕')?.phase, 'working')
+  // devin 无 override 文件，仍走 bundled manifest
+  assert.equal(detectAgentEvidence('devin', '', 'context: 3%\n❭ ')?.phase, 'idle')
+  // 坏 TOML 不炸、不影响其它 agent
+  await writeFile(path.join(dir, 'devin.toml'), '[[rules]\nnot valid at all {{{')
+  assert.equal(detectAgentEvidence('devin', '', 'context: 3%\n❭ ')?.phase, 'idle')
 })
