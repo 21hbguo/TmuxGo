@@ -235,12 +235,12 @@ describe('MobileNav', () => {
     window.localStorage.setItem('tmuxgo-mobile-nav-compact', 'true')
     window.localStorage.setItem(
       'tmuxgo-mobile-nav-bar-items',
-      JSON.stringify(['inbox', 'upload', 'files', 'git', 'desktop', 'browser', 'settings']),
+      JSON.stringify(['inbox', 'upload', 'files', 'git', 'desktop', 'browser', 'endpoints', 'settings']),
     )
     const { container } = renderNav()
     expect(screen.queryByRole('button', { name: 'More' })).toBeNull()
-    // 固定3 + 全部7个可调配项
-    expect(container.querySelectorAll('.tmuxgo-mobile-nav-button')).toHaveLength(10)
+    // 固定3 + 全部8个可调配项
+    expect(container.querySelectorAll('.tmuxgo-mobile-nav-button')).toHaveLength(11)
   })
 
   it('upload entry stays in More by default and ignores unknown persisted keys', () => {

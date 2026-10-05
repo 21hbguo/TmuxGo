@@ -209,6 +209,14 @@ export function useStartAppUpdate() {
     },
   })
 }
+export function useEndpoints(hostId: string, enabled = true) {
+  return useQuery({
+    queryKey: ['endpoints', hostId],
+    queryFn: () => api.endpoints.list(hostId),
+    enabled: enabled && !!hostId,
+    staleTime: 15000,
+  })
+}
 export function useSystemTasks(enabled = true, refetchIntervalInBackground = false) {
   return useQuery({
     queryKey: ['system-tasks'],

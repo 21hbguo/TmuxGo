@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { NAV_BAR_ITEMS_EVENT, readNavBarItems, type NavBarItemKey } from '@/lib/mobile-nav-items'
 import { useTranslation } from '@/i18n'
-import { FiCompass, FiGitBranch, FiInbox, FiMonitor, FiMoreHorizontal, FiUpload } from 'react-icons/fi'
+import { FiCompass, FiGitBranch, FiInbox, FiMonitor, FiMoreHorizontal, FiShare2, FiUpload } from 'react-icons/fi'
 
 const NAV_COMPACT_KEY = 'tmuxgo-mobile-nav-compact'
 function readNavCompact() {
@@ -23,6 +23,7 @@ interface MobileNavProps {
   onOpenDesktop: () => void
   onOpenInbox: () => void
   onOpenBrowser?: () => void
+  onOpenEndpoints?: () => void
   onOpenUpload?: () => void
   gitOpen?: boolean
   sessionsOpen?: boolean
@@ -31,6 +32,7 @@ interface MobileNavProps {
   filesOpen?: boolean
   desktopOpen?: boolean
   browserOpen?: boolean
+  endpointsOpen?: boolean
   settingsOpen?: boolean
   inboxOpen?: boolean
   inboxUnread?: number
@@ -71,6 +73,7 @@ export function MobileNav({
   onOpenGit,
   onOpenDesktop,
   onOpenBrowser,
+  onOpenEndpoints,
   onOpenInbox,
   onOpenUpload,
   gitOpen = false,
@@ -80,6 +83,7 @@ export function MobileNav({
   filesOpen = false,
   desktopOpen = false,
   browserOpen = false,
+  endpointsOpen = false,
   settingsOpen = false,
   inboxOpen = false,
   inboxUnread = 0,
@@ -190,6 +194,13 @@ export function MobileNav({
       open: browserOpen,
       icon: <FiCompass aria-hidden="true" size={18} />,
       onClick: () => onOpenBrowser?.(),
+    },
+    {
+      key: 'endpoints',
+      label: t('endpoints.title'),
+      open: endpointsOpen,
+      icon: <FiShare2 aria-hidden="true" size={18} />,
+      onClick: () => onOpenEndpoints?.(),
     },
     {
       key: 'settings',

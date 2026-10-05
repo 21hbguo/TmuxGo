@@ -49,6 +49,7 @@ const NAV_ITEM_LABEL_KEYS: Record<NavBarItemKey, Parameters<ReturnType<typeof us
   git: 'nav.git',
   desktop: 'vnc.title',
   browser: 'browser.title',
+  endpoints: 'endpoints.title',
   settings: 'nav.settings',
 }
 

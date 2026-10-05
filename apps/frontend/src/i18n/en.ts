@@ -961,6 +961,16 @@ export const en = {
   'activity.search': 'Search',
   'activity.settings': 'Settings',
   'activity.ssh': 'SSH',
+  'endpoints.title': 'Endpoints',
+  'endpoints.searchPlaceholder': 'Search domains, ports or targets…',
+  'endpoints.empty': 'No exposed endpoints detected',
+  'endpoints.loadError': 'Failed to collect endpoints',
+  'endpoints.unsupported': 'Endpoint collection unsupported on this host (python3 required)',
+  'endpoints.locations': '{count} paths',
+  'endpoints.group.nginx': 'Nginx sites',
+  'endpoints.group.tailscale': 'Tailscale',
+  'endpoints.group.docker': 'Docker containers',
+  'endpoints.group.socket': 'Listeners',
 
   // Favorites
   'favorites.title': 'Favorites',

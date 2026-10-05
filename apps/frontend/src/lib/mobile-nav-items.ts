@@ -3,7 +3,16 @@
 export const NAV_BAR_ITEMS_KEY = 'tmuxgo-mobile-nav-bar-items'
 export const NAV_BAR_ITEMS_EVENT = 'tmuxgo-nav-bar-items-changed'
 
-export const NAV_BAR_ITEM_KEYS = ['inbox', 'upload', 'files', 'git', 'desktop', 'browser', 'settings'] as const
+export const NAV_BAR_ITEM_KEYS = [
+  'inbox',
+  'upload',
+  'files',
+  'git',
+  'desktop',
+  'browser',
+  'endpoints',
+  'settings',
+] as const
 export type NavBarItemKey = (typeof NAV_BAR_ITEM_KEYS)[number]
 
 // 内存兜底：localStorage 写不进（隐私模式等）时同会话内仍保持一致

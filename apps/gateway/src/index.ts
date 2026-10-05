@@ -40,6 +40,7 @@ import { agentControlRoutes } from './routes/agent-control.js'
 import { agentRecoveryRoutes } from './routes/agent-recovery.js'
 import { agentPushRoutes } from './routes/agent-push.js'
 import { inboxRoutes } from './routes/inbox.js'
+import { endpointsRoutes } from './routes/endpoints.js'
 import { inboxPublicRoutes } from './routes/inbox-public.js'
 import { agentRoutes } from './routes/agents.js'
 import {
@@ -78,16 +79,9 @@ fastify.addHook('onRequest', async (request, reply) => {
     routePath === '/api/vnc' ||
     routePath === '/api/browser/stream' ||
     routePath === '/api/agent-events' ||
-    routePath === '/api/v1/control/panes/split' ||
-    routePath === '/api/v1/control/panes/read' ||
-    routePath === '/api/v1/control/panes/snapshot' ||
-    routePath === '/api/v1/control/panes/wait-output' ||
-    routePath === '/api/v1/control/panes/run' ||
-    routePath === '/api/v1/control/agent/wait' ||
-    routePath === '/api/v1/control/push' ||
-    routePath === '/api/v1/control/open-target' ||
-    routePath === '/api/v1/control/inbox' ||
-    routePath === '/api/v1/control/browser' ||
+    // 控制面端点全部自带 agent token + x-tmuxgo-env 双守卫（agent-control/agent-push/browser），
+    // 按前缀豁免用户认证——逐路径列名会在新增端点时漏配，agent token 在到达路由守卫前被 401
+    routePath.startsWith('/api/v1/control/') ||
     routePath === '/api/auth/status' ||
     routePath === '/api/auth/login' ||
     routePath === '/api/auth/refresh' ||
@@ -151,6 +145,7 @@ await fastify.register(agentControlRoutes, { prefix: '/api' })
 await fastify.register(agentRecoveryRoutes, { prefix: '/api' })
 await fastify.register(agentPushRoutes, { prefix: '/api' })
 await fastify.register(inboxRoutes, { prefix: '/api' })
+await fastify.register(endpointsRoutes, { prefix: '/api' })
 // 收件箱附件公开分享下载（/s/i/:token）：刻意不带 /api 前缀以绕开登录 hook，
 // 自身用不可猜 token + 有效期 + 撤销做访问控制
 await fastify.register(inboxPublicRoutes)

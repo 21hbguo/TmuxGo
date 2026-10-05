@@ -64,6 +64,7 @@ const CommandPalette = dynamic(() => import('./CommandPalette').then((m) => ({ d
 })
 const FilePanel = dynamic(() => import('./FilePanel').then((m) => ({ default: m.FilePanel })))
 const GitPanel = dynamic(() => import('./GitPanel').then((m) => ({ default: m.GitPanel })))
+const EndpointsPanel = dynamic(() => import('./EndpointsPanel').then((m) => ({ default: m.EndpointsPanel })))
 const PluginView = dynamic(() => import('./PluginView').then((m) => ({ default: m.PluginView })))
 const DesktopView = dynamic(() => import('./DesktopView').then((m) => ({ default: m.DesktopView })))
 const BrowserView = dynamic(() => import('./BrowserView').then((m) => ({ default: m.BrowserView })))
@@ -154,6 +155,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   const [showSettings, setShowSettings] = useState(false)
   const [showTasks, setShowTasks] = useState(false)
   const [mobileGitSheetOpen, setMobileGitSheetOpen] = useState(false)
+  const [mobileEndpointsSheetOpen, setMobileEndpointsSheetOpen] = useState(false)
   const [mobilePluginView, setMobilePluginView] = useState<{ pluginId: string; viewId: string } | null>(null)
   const activeDesktop = useConsoleStore((s) => s.activeDesktop)
   const activeBrowser = useConsoleStore((s) => s.activeBrowser)
@@ -280,6 +282,11 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
     setMobileGitSheetOpen(true)
     pushOverlay('mobile-git')
   }, [mobileGitSheetOpen, pushOverlay])
+  const openMobileEndpoints = useCallback(() => {
+    if (mobileEndpointsSheetOpen) return
+    setMobileEndpointsSheetOpen(true)
+    pushOverlay('mobile-endpoints')
+  }, [mobileEndpointsSheetOpen, pushOverlay])
   // 上传页：flag 与 history 配对——closeOverlay 可能在 palette 竞态下无对应栈项，
   // 因此 closeUpload 兜底清 flag；openUpload 幂等
   const uploadPanelOpen = useConsoleStore((s) => s.uploadPanelOpen)
@@ -684,6 +691,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
       } else if (top === 'mobile-git-level') {
         window.dispatchEvent(new CustomEvent('tmuxgo-mobile-git-back', { detail: { handled: false } }))
       } else if (top === 'mobile-git') setMobileGitSheetOpen(false)
+      else if (top === 'mobile-endpoints') setMobileEndpointsSheetOpen(false)
       else if (top === 'inbox-preview') setInboxPreviewOpen(false)
       else if (top === 'inbox') {
         useInboxStore.getState().setPanelOpen(false)
@@ -916,6 +924,8 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
               uploadOpen={uploadPanelOpen}
               onOpenDesktop={() => useConsoleStore.getState().toggleDesktop(activeHostId || 'local')}
               onOpenBrowser={() => useConsoleStore.getState().toggleBrowser(activeHostId || 'local')}
+              onOpenEndpoints={openMobileEndpoints}
+              endpointsOpen={mobileEndpointsSheetOpen}
             />
           </div>
           <div className={keyboardOpen ? 'block' : 'hidden'}>
@@ -1031,6 +1041,29 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         </div>
         <div className="min-h-0 flex-1">
           <GitPanel mode="mobile" />
+        </div>
+      </MobileBottomSheet>
+      <MobileBottomSheet
+        open={mobileEndpointsSheetOpen}
+        onClose={() => closeOverlay('mobile-endpoints')}
+        zClass="z-[80]"
+        heightClass="flex h-[75%] flex-col"
+        ariaLabel={t('endpoints.title')}
+      >
+        <div className="relative flex h-11 shrink-0 items-center justify-center border-b border-[var(--line)]">
+          <div className="absolute top-2 h-1 w-10 rounded-full bg-text-3/30" />
+          <span className="pt-1 text-body font-medium text-text-1">{t('endpoints.title')}</span>
+          <button
+            aria-label={t('common.close')}
+            title={t('common.close')}
+            onClick={() => closeOverlay('mobile-endpoints')}
+            className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--lg absolute right-1 top-0 text-text-3"
+          >
+            <FiX aria-hidden="true" size={18} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1">
+          <EndpointsPanel mode="mobile" />
         </div>
       </MobileBottomSheet>
       <MobileBottomSheet

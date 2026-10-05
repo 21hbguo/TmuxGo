@@ -22,6 +22,7 @@ const FilePanel = dynamic(() => import('./FilePanel').then((m) => ({ default: m.
 const GitPanel = dynamic(() => import('./GitPanel').then((m) => ({ default: m.GitPanel })))
 const SshPanel = dynamic(() => import('./SshPanel').then((m) => ({ default: m.SshPanel })))
 const PluginView = dynamic(() => import('./PluginView').then((m) => ({ default: m.PluginView })))
+const EndpointsPanel = dynamic(() => import('./EndpointsPanel').then((m) => ({ default: m.EndpointsPanel })))
 
 const ACTIVITY_BAR_WIDTH = 56
 const SESSION_RAIL_WIDTH = 109
@@ -45,6 +46,7 @@ export function DesktopWorkbench() {
   const filePanelOpen = useConsoleStore((state) => state.filePanelOpen)
   const gitPanelOpen = useConsoleStore((state) => state.gitPanelOpen)
   const sshPanelOpen = useConsoleStore((state) => state.sshPanelOpen)
+  const endpointsPanelOpen = useConsoleStore((state) => state.endpointsPanelOpen)
   const activeSplitGroupId = useConsoleStore((state) => state.activeSplitGroupId)
   const activePluginView = useConsoleStore((state) => state.activePluginView)
   const setActivePluginView = useConsoleStore((state) => state.setActivePluginView)
@@ -98,6 +100,8 @@ export function DesktopWorkbench() {
   const sshPanelMin = 260
   const sshPanelMax = Math.max(sshPanelMin, Math.min(480, viewportWidth - leftWidth - minWorkspaceWidth))
   const renderedSshPanelWidth = clampValue(previewSshWidth ?? sshPanelWidth, sshPanelMin, sshPanelMax)
+  // 端点面板定宽（参照 PluginView 不做拖拽调宽），随视口收缩让位主工作区
+  const endpointsPanelWidth = clampValue(Math.floor(viewportWidth * 0.28), 280, 400)
   const filePanelAvailable =
     viewportWidth -
     leftWidth -
@@ -117,7 +121,8 @@ export function DesktopWorkbench() {
       leftWidth -
       (filePanelOpen ? renderedFilePanelWidth : 0) -
       (gitPanelOpen ? renderedGitPanelWidth : 0) -
-      (sshPanelOpen ? renderedSshPanelWidth : 0),
+      (sshPanelOpen ? renderedSshPanelWidth : 0) -
+      (endpointsPanelOpen ? endpointsPanelWidth : 0),
   )
   const terminalMinWidth = clampValue(Math.floor(viewportWidth * 0.18), 260, 440)
   // 侧向停靠时给编辑区保留 ≥160px 即可，终端可以拉到接近全宽
@@ -505,6 +510,14 @@ export function DesktopWorkbench() {
                 document.body.style.userSelect = 'none'
               }}
             />
+          </div>
+        )}
+        {endpointsPanelOpen && (
+          <div
+            className="tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)]"
+            style={{ width: endpointsPanelWidth }}
+          >
+            <EndpointsPanel mode="panel" onClose={() => useConsoleStore.getState().toggleEndpointsPanel()} />
           </div>
         )}
         {activePluginView && (

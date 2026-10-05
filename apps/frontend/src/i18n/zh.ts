@@ -954,6 +954,16 @@ export const zh = {
   'activity.search': '搜索',
   'activity.settings': '设置',
   'activity.ssh': 'SSH',
+  'endpoints.title': '端点',
+  'endpoints.searchPlaceholder': '搜索域名、端口或目标…',
+  'endpoints.empty': '未检测到对外绑定的端点',
+  'endpoints.loadError': '端点采集失败',
+  'endpoints.unsupported': '该主机不支持端点采集（需要 python3）',
+  'endpoints.locations': '{count} 条路径',
+  'endpoints.group.nginx': 'Nginx 站点',
+  'endpoints.group.tailscale': 'Tailscale',
+  'endpoints.group.docker': 'Docker 容器',
+  'endpoints.group.socket': '进程监听',
 
   // Favorites
   'favorites.title': '收藏',

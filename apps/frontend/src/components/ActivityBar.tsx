@@ -13,6 +13,7 @@ import {
   FiDatabase,
   FiGlobe,
   FiMonitor,
+  FiShare2,
   FiTerminal,
   FiTool,
   FiZap,
@@ -40,6 +41,8 @@ export function ActivityBar() {
   const gitPanelOpen = useConsoleStore((state) => state.gitPanelOpen)
   const toggleSshPanel = useConsoleStore((state) => state.toggleSshPanel)
   const sshPanelOpen = useConsoleStore((state) => state.sshPanelOpen)
+  const endpointsPanelOpen = useConsoleStore((state) => state.endpointsPanelOpen)
+  const toggleEndpointsPanel = useConsoleStore((state) => state.toggleEndpointsPanel)
   const activePluginView = useConsoleStore((state) => state.activePluginView)
   const setActivePluginView = useConsoleStore((state) => state.setActivePluginView)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
@@ -60,6 +63,7 @@ export function ActivityBar() {
   const items = [
     { id: 'sessions', label: t('activity.sessions'), icon: FiServer, onClick: toggleSessionPanel },
     { id: 'ssh', label: t('activity.ssh'), icon: FiGlobe, onClick: toggleSshPanel },
+    { id: 'endpoints', label: t('endpoints.title'), icon: FiShare2, onClick: toggleEndpointsPanel },
     { id: 'files', label: t('activity.explorer'), icon: FiFolder, onClick: toggleFilePanel },
     { id: 'git', label: t('git.title'), icon: FiGitBranch, onClick: toggleGitPanel },
     { id: 'desktop', label: t('vnc.title'), icon: FiMonitor, onClick: () => toggleDesktop(activeHostId || 'local') },
@@ -103,19 +107,21 @@ export function ActivityBar() {
             ? sessionPanelExpanded
             : item.id === 'ssh'
               ? sshPanelOpen
-              : item.id === 'files'
-                ? filePanelOpen
-                : item.id === 'git'
-                  ? gitPanelOpen
-                  : item.id === 'desktop'
-                    ? !!activeDesktop
-                    : item.id === 'browser'
-                      ? !!activeBrowser
-                      : item.id === 'inbox'
-                        ? inboxPanelOpen
-                        : item.id === 'picker'
-                          ? pickerActive
-                          : false
+              : item.id === 'endpoints'
+                ? endpointsPanelOpen
+                : item.id === 'files'
+                  ? filePanelOpen
+                  : item.id === 'git'
+                    ? gitPanelOpen
+                    : item.id === 'desktop'
+                      ? !!activeDesktop
+                      : item.id === 'browser'
+                        ? !!activeBrowser
+                        : item.id === 'inbox'
+                          ? inboxPanelOpen
+                          : item.id === 'picker'
+                            ? pickerActive
+                            : false
         const Icon = item.icon
         const unread = item.id === 'inbox' ? inboxUnread : 0
         return (

@@ -106,6 +106,28 @@ export interface NetTopResponse {
   mode?: 'sock' | 'nopy' | 'nodiag'
   processes: { name: string; pid: number; conns: number; txBps: number; rxBps: number }[]
 }
+export type EndpointSource = 'nginx' | 'docker' | 'tailscale' | 'socket'
+export interface EndpointLocation {
+  path: string
+  target: string
+  kind: 'proxy' | 'root' | 'return' | 'other'
+}
+export interface EndpointItem {
+  id: string
+  source: EndpointSource
+  listen: string
+  name: string
+  target: string
+  detail?: string
+  locations?: EndpointLocation[]
+}
+export interface EndpointsResponse {
+  hostId: string
+  collectedAt: string
+  supported: boolean
+  sources: Record<EndpointSource, 'ok' | 'unavailable' | 'error'>
+  endpoints: EndpointItem[]
+}
 export interface RestartRebuildTaskResponse {
   status: 'idle' | 'running' | 'success' | 'error' | 'cancelled'
   startedAt: string | null
@@ -929,6 +951,9 @@ export const api = {
       fetchApi<SystemTaskResponse>(`/api/system/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' }),
     retryTask: (taskId: string) =>
       fetchApi<SystemTaskResponse>(`/api/system/tasks/${encodeURIComponent(taskId)}/retry`, { method: 'POST' }),
+  },
+  endpoints: {
+    list: (hostId = 'local') => fetchApi<EndpointsResponse>(`/api/hosts/${encodeURIComponent(hostId)}/endpoints`),
   },
   files: {
     roots: (hostId: string) => fetchApi<FileRoot[]>(`/api/hosts/${encodeURIComponent(hostId)}/files/roots`),

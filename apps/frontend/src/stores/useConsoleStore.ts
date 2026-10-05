@@ -366,6 +366,7 @@ interface ConsoleState {
   filePanelOpen: boolean
   gitPanelOpen: boolean
   sshPanelOpen: boolean
+  endpointsPanelOpen: boolean
   activeSplitGroupId: string | null
   activePluginView: { pluginId: string; viewId: string } | null
   activeDesktop: ActiveDesktop | null
@@ -419,6 +420,7 @@ interface ConsoleState {
   setGitPanelOpen: (open: boolean) => void
   toggleGitPanel: () => void
   toggleSshPanel: () => void
+  toggleEndpointsPanel: () => void
   setActivePluginView: (view: { pluginId: string; viewId: string } | null) => void
   toggleDesktop: (hostId: string, port?: number) => void
   setActiveDesktop: (desktop: { hostId: string; port: number } | null) => void
@@ -587,6 +589,7 @@ export const useConsoleStore = create<ConsoleState>()(
       filePanelOpen: false,
       gitPanelOpen: false,
       sshPanelOpen: false,
+      endpointsPanelOpen: false,
       activeSplitGroupId: null,
       activePluginView: null,
       activeDesktop: null,
@@ -626,6 +629,7 @@ export const useConsoleStore = create<ConsoleState>()(
             ? {
                 sessionPanelExpanded: true,
                 sshPanelOpen: false,
+                endpointsPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
                 activeBrowser: parkBrowser(state.activeBrowser),
@@ -640,6 +644,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 sessionPanelExpanded: true,
                 gitPanelOpen: false,
                 sshPanelOpen: false,
+                endpointsPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
                 activeBrowser: parkBrowser(state.activeBrowser),
@@ -653,6 +658,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 filePanelOpen: true,
                 gitPanelOpen: false,
                 sshPanelOpen: false,
+                endpointsPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
                 activeBrowser: parkBrowser(state.activeBrowser),
@@ -667,6 +673,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 filePanelOpen: true,
                 gitPanelOpen: false,
                 sshPanelOpen: false,
+                endpointsPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
                 activeBrowser: parkBrowser(state.activeBrowser),
@@ -692,6 +699,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 sessionPanelExpanded: false,
                 filePanelOpen: false,
                 sshPanelOpen: false,
+                endpointsPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
                 activeBrowser: parkBrowser(state.activeBrowser),
@@ -707,6 +715,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 sessionPanelExpanded: false,
                 filePanelOpen: false,
                 sshPanelOpen: false,
+                endpointsPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
                 activeBrowser: parkBrowser(state.activeBrowser),
@@ -721,6 +730,22 @@ export const useConsoleStore = create<ConsoleState>()(
                 filePanelOpen: false,
                 sessionPanelExpanded: false,
                 gitPanelOpen: false,
+                endpointsPanelOpen: false,
+                activePluginView: null,
+                activeDesktop: parkDesktop(state.activeDesktop),
+                activeBrowser: parkBrowser(state.activeBrowser),
+              },
+        ),
+      toggleEndpointsPanel: () =>
+        set((state) =>
+          state.endpointsPanelOpen
+            ? { endpointsPanelOpen: false }
+            : {
+                endpointsPanelOpen: true,
+                filePanelOpen: false,
+                sessionPanelExpanded: false,
+                gitPanelOpen: false,
+                sshPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
                 activeBrowser: parkBrowser(state.activeBrowser),
@@ -737,6 +762,7 @@ export const useConsoleStore = create<ConsoleState>()(
                   sessionPanelExpanded: false,
                   gitPanelOpen: false,
                   sshPanelOpen: false,
+                  endpointsPanelOpen: false,
                   activeDesktop: parkDesktop(state.activeDesktop),
                   activeBrowser: parkBrowser(state.activeBrowser),
                 }
@@ -757,6 +783,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 sessionPanelExpanded: false,
                 gitPanelOpen: false,
                 sshPanelOpen: false,
+                endpointsPanelOpen: false,
                 activePluginView: null,
                 activeBrowser: parkBrowser(state.activeBrowser),
               }
@@ -773,6 +800,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 sessionPanelExpanded: false,
                 gitPanelOpen: false,
                 sshPanelOpen: false,
+                endpointsPanelOpen: false,
                 activePluginView: null,
                 activeBrowser: parkBrowser(state.activeBrowser),
               }
@@ -794,6 +822,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 sessionPanelExpanded: false,
                 gitPanelOpen: false,
                 sshPanelOpen: false,
+                endpointsPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
               }
@@ -810,6 +839,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 sessionPanelExpanded: false,
                 gitPanelOpen: false,
                 sshPanelOpen: false,
+                endpointsPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
               }
@@ -1238,6 +1268,7 @@ export const useConsoleStore = create<ConsoleState>()(
           filePanelOpen: state.filePanelOpen,
           gitPanelOpen: state.gitPanelOpen,
           sshPanelOpen: state.sshPanelOpen,
+          endpointsPanelOpen: state.endpointsPanelOpen,
           gitPanelWidth: state.gitPanelWidth,
           sshPanelWidth: state.sshPanelWidth,
           sessionPanelWidth: state.sessionPanelWidth,
@@ -1286,6 +1317,7 @@ export const useConsoleStore = create<ConsoleState>()(
           filePanelOpen: persistedState.filePanelOpen ?? current.filePanelOpen,
           gitPanelOpen: persistedState.gitPanelOpen ?? current.gitPanelOpen,
           sshPanelOpen: persistedState.sshPanelOpen ?? current.sshPanelOpen,
+          endpointsPanelOpen: persistedState.endpointsPanelOpen ?? current.endpointsPanelOpen,
           gitPanelWidth: persistedState.gitPanelWidth ?? current.gitPanelWidth,
           sshPanelWidth: persistedState.sshPanelWidth ?? current.sshPanelWidth,
           sessionPanelWidth: persistedState.sessionPanelWidth ?? current.sessionPanelWidth,
