@@ -131,6 +131,7 @@ http://localhost:3001
 | **Mobile / PWA**         | 触控导航、虚拟按键、快捷条、剪贴板保护、添加到主屏幕                            |
 | **Persistence**          | 主题、快捷键、收藏、会话顺序、工作区状态和恢复信息持久化                        |
 | **Security**             | 本地监听默认值、账号认证、一次性 WebSocket ticket、HTTPS/Tailscale 部署路径     |
+| **Agent Control**        | pane 内 agent 反向操作工作台：分屏、读屏、跨 agent 等待、Inbox 推送、MCP 接入   |
 
 <details>
 <summary><strong>完整功能说明</strong></summary>
@@ -190,6 +191,7 @@ TMUXGO_ENABLE_AGENT=1 ./install.sh
 | :----------------------------------- | :------------------------------------------------------ |
 | TmuxGo 在生产和开发模式下如何运行    | [运行模式与重启规则](#traffic_light-运行模式与重启规则) |
 | 如何管理本地与 SSH 远端机器          | [多主机与远程 SSH](#satellite-多主机与远程-ssh)         |
+| Agent 控制面、tmuxgo-ctl 与 MCP      | [Agent 控制面与 MCP](#robot-agent-控制面与-mcp)         |
 | 如何部署到 Linux / macOS / Docker    | [生产部署](#shield-生产部署)                            |
 | 如何使用 HTTPS、Tailscale、WireGuard | [安全部署](#lock-安全部署)                              |
 | 系统和依赖要求                       | [依赖要求](#package-依赖要求)                           |
@@ -219,6 +221,28 @@ TMUXGO_ENABLE_AGENT=1 ./install.sh
 - 主机 `useAgent: true` 表示用 SSH Agent 认证，要求部署端已有可用的 SSH Agent（`SSH_AUTH_SOCK`）
 - TmuxGo Agent 组件默认不安装（`TMUXGO_ENABLE_AGENT` 默认 `0`）；需要 Agent 能力时显式启用
 - 主机配置默认保存在 `~/.tmuxgo/hosts.json`，也可以通过 `TMUXGO_CONFIG_DIR` 改位置
+
+## :robot: Agent 控制面与 MCP
+
+TmuxGo 为 pane 内运行的 coding agent 提供控制面（`/api/v1/control/*`），让 agent 反向操作工作台：拆分窗格、读取其他 pane 输出、阻塞等待另一个 agent 到达指定状态、向 Inbox 推送产物、驱动内嵌浏览器。
+
+- **凭据注入**：Gateway 创建的 pane 自动携带 `TMUXGO_ENV=1`、`TMUXGO_AGENT_EVENT_TOKEN`、`TMUXGO_GATEWAY_URL`、`TMUXGO_PANE_ID`；token 持久化在 `~/.tmuxgo/agent-event-token`（0600），pane 外同 uid 进程也可自取。
+- **薄客户端 `tmuxgo-ctl`**：随 `@21hbguo/tmuxgo` 一并安装，stdout 单行 JSON、退出码 0/1/2，适合脚本拼装：
+
+```bash
+tmuxgo-ctl panes split --pane-id "local:${TMUX_PANE}" --direction horizontal
+tmuxgo-ctl agent wait --session dev --agent codex --status blocked --timeout-ms 60000
+```
+
+- **MCP**：`apps/mcp`（`tmuxgo-mcp`）是零依赖 stdio bridge，把控制面暴露为 MCP tools（`push_*` 推 Inbox、`browser_*` 驱动内嵌浏览器、`pane_*` 读屏/等待/注入）。源码部署下在 agent 的 MCP 配置中注册即可原生调用，鉴权走已注入的环境变量，无需另行配置 token：
+
+```json
+{ "mcpServers": { "tmuxgo": { "command": "node", "args": ["<repo>/apps/mcp/index.mjs"] } } }
+```
+
+- **协议契约**：`initialize` 做版本协商，`GET /api/v1/control/schema` 导出正式 JSON Schema；`agent/wait` 是服务端持有、occupant-pinned 的事件等待——pane 被其他进程复用时返回 `OCCUPANT_CHANGED`，不会把替换进程误报为满足条件。
+- **权限**：agent token 的 host/session 范围可在 `~/.tmuxgo/access-scopes.json` 的 `subjects["agent"]` 中限定（见 [Host/Session 访问范围](#hostsession-访问范围rbac)），控制面端点同样经过该判定。
+- agent 使用手册与完整协议定义见 [skills/tmuxgo-control/](skills/tmuxgo-control/SKILL.md)。
 
 ## :shield: 生产部署
 

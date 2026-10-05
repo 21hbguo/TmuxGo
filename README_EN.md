@@ -131,6 +131,7 @@ http://localhost:3001
 | **Mobile / PWA**         | Touch navigation, virtual keys, shortcut bar, clipboard safety, add-to-home-screen                             |
 | **Persistence**          | Theme, shortcuts, favorites, session order, workspace state, and resume information                            |
 | **Security**             | Loopback default, account auth, one-time WebSocket tickets, HTTPS/Tailscale deployment paths                   |
+| **Agent Control**        | In-pane agents operate the workbench: split, read, cross-agent waits, inbox pushes, MCP bridge                 |
 
 <details>
 <summary><strong>Full capability overview</strong></summary>
@@ -190,6 +191,7 @@ TMUXGO_ENABLE_AGENT=1 ./install.sh
 | :----------------------------------------- | :-------------------------------------------------------------------------------- |
 | Production vs development runtime behavior | [Runtime modes and restart rules](#traffic_light-runtime-modes-and-restart-rules) |
 | Local and SSH remote hosts                 | [Multi-host and remote SSH](#satellite-multi-host-and-remote-ssh)                 |
+| Agent control plane, tmuxgo-ctl, MCP       | [Agent control plane and MCP](#robot-agent-control-plane-and-mcp)                 |
 | Linux / macOS / Docker deployment          | [Production deploy](#shield-production-deploy)                                    |
 | HTTPS, Tailscale, WireGuard, SSH tunneling | [Secure deployment](#lock-secure-deployment)                                      |
 | System and dependency requirements         | [Requirements](#package-requirements)                                             |
@@ -219,6 +221,28 @@ TMUXGO_ENABLE_AGENT=1 ./install.sh
 - Host `useAgent: true` means SSH-agent authentication and requires a working SSH Agent on the deploy host (`SSH_AUTH_SOCK`)
 - The TmuxGo Agent component is not installed by default (`TMUXGO_ENABLE_AGENT` defaults to `0`); enable it explicitly when needed
 - Host definitions are stored in `~/.tmuxgo/hosts.json` by default, or under `TMUXGO_CONFIG_DIR`
+
+## :robot: Agent Control Plane and MCP
+
+TmuxGo exposes a control plane (`/api/v1/control/*`) for coding agents running inside its panes, letting them operate the workbench in reverse: split panes, read other panes' output, block until another agent reaches a state, push artifacts to the Inbox, and drive the embedded browser.
+
+- **Credential injection**: panes created by the Gateway automatically carry `TMUXGO_ENV=1`, `TMUXGO_AGENT_EVENT_TOKEN`, `TMUXGO_GATEWAY_URL`, and `TMUXGO_PANE_ID`. The token also persists at `~/.tmuxgo/agent-event-token` (0600), so same-uid processes outside panes can pick it up.
+- **Thin client `tmuxgo-ctl`**: installed alongside `@21hbguo/tmuxgo`; emits single-line JSON on stdout with exit codes 0/1/2 for scripting:
+
+```bash
+tmuxgo-ctl panes split --pane-id "local:${TMUX_PANE}" --direction horizontal
+tmuxgo-ctl agent wait --session dev --agent codex --status blocked --timeout-ms 60000
+```
+
+- **MCP**: `apps/mcp` (`tmuxgo-mcp`) is a zero-dependency stdio bridge that exposes the control plane as MCP tools (`push_*` to the Inbox, `browser_*` for the embedded browser, `pane_*` for snapshot/wait/input). With a source deployment, register it in your agent's MCP config; auth uses the already-injected environment variables, so no token setup is needed:
+
+```json
+{ "mcpServers": { "tmuxgo": { "command": "node", "args": ["<repo>/apps/mcp/index.mjs"] } } }
+```
+
+- **Protocol contract**: `initialize` negotiates versions; `GET /api/v1/control/schema` exports the formal JSON Schema. `agent/wait` is a server-held, occupant-pinned event wait — if the pane is reused by another process first, it fails with `OCCUPANT_CHANGED` rather than treating the replacement as satisfying the wait.
+- **Permissions**: the agent token's host/session range can be restricted via `subjects["agent"]` in `~/.tmuxgo/access-scopes.json` (see [Host/Session access scope](#hostsession-access-scope-rbac)); control-plane endpoints go through the same check.
+- The agent manual and full protocol live in [skills/tmuxgo-control/](skills/tmuxgo-control/SKILL.md).
 
 ## :shield: Production Deploy
 
@@ -481,9 +505,32 @@ Recommended delivery checklist:
 | `TMUX_WEB_FILE_ROOTS`        | `workspace=<repo>:home=<home>`   | File tree roots, for example `workspace=/srv/code:home=/home/user`                                |
 | `TMUXGO_PREFERENCES_DIR`     | `~/.tmuxgo/preferences`          | Synced store for preferences, favorites, and session continuity                                  |
 | `TMUXGO_CONFIG_DIR`          | `~/.tmuxgo`                      | Host configuration directory, including `hosts.json`                                             |
+| `TMUXGO_ALLOWED_ORIGINS`     | empty                            | Additional browser Origins allowed to reach the Gateway, comma-separated                         |
 | `TMUX_WEB_ALLOWED_SESSIONS`  | empty                            | Comma-separated tmux session allowlist                                                           |
 
 Gateway authentication is enabled by default. Unauthenticated access to protected APIs such as `/api/hosts` returns `401`. Authentication state and device sessions are stored in `~/.tmuxgo/auth.json`; browsers refresh their session automatically after the first login. The default `admin/admin123` password must be changed on first use, and changing the password revokes all device sessions. Password authentication does not replace TLS; production deployments still require HTTPS/WSS or an encrypted network.
+
+### Host/Session access scope (RBAC)
+
+In multi-user deployments, a login user, Agent credential, or API token can be limited to a host/session boundary. Configuration lives in `~/.tmuxgo/access-scopes.json` (under `TMUXGO_CONFIG_DIR`):
+
+```json
+{
+  "version": 1,
+  "subjects": {
+    "user:alice": { "hosts": ["local", "dev-1"] },
+    "agent": { "hosts": ["runner-1"] }
+  },
+  "tokens": []
+}
+```
+
+- `subjects["user:<login>"]` overrides that user's default full-access range; `subjects["agent"]` overrides the Agent event token's (`TMUXGO_AGENT_EVENT_TOKEN`) default range.
+- `scope.hosts`: host-id allowlist or `"*"`; `scope.sessions` (optional): session-name allowlist, applied only to hosts already allowed by `hosts`; `scope.readOnly` (optional): read-only, all writes return `403`.
+- Out-of-scope access always returns `403` (without distinguishing whether the resource exists); `GET /api/hosts` only returns authorized hosts; scoped identities cannot reach instance-admin surfaces (audit, shares, plugins, Inbox, workspaces, etc.).
+- A missing or empty file means no scoped identities — admin/single-user behavior is identical to previous versions.
+
+API tokens (`tgk_` prefix) are issued by an admin via `POST /api/auth/tokens` and bound to a scope at creation; they support `GET /api/auth/tokens` listing and `DELETE /api/auth/tokens/:id` revocation. Only the SHA-256 hash is stored on disk; the raw token appears once in the create response and is used as `Authorization: Bearer tgk_...`, and can also be exchanged for a WS ticket via `/api/auth/ws-ticket` (HTTP and WebSocket share the same identity). The audit log records each scope-deny decision with actor/source/host/scope digest (`action=scope.deny`) — never raw tokens, passwords, or terminal content.
 
 ### Where Data Lives
 
