@@ -80,8 +80,11 @@ type UiPreferences = {
   autoReconnect?: boolean
   reconnectInterval?: number
   terminalPadding?: number
+  editorWheelScrollLines?: number
   language?: string
   attachExclusive?: boolean
+  showShortcutBar?: boolean
+  activityBarOrder?: string[]
 }
 type PreferencesStore = {
   version: 1
@@ -135,6 +138,8 @@ const MAX_SESSION_ID_LEN = 128
 const MAX_SESSION_NAME_LEN = 128
 const MAX_WINDOW_ID_LEN = 128
 const MAX_PANE_ID_LEN = 128
+const MAX_ACTIVITY_BAR_ITEMS = 64
+const MAX_ACTIVITY_BAR_ID_LEN = 128
 const MAX_SNIPPET_NAME_LEN = 128
 const MAX_SNIPPET_COMMAND_LEN = 4096
 const MAX_SNIPPET_DESC_LEN = 512
@@ -503,8 +508,26 @@ function normalizeUiPreferences(input: unknown): UiPreferences {
     result.reconnectInterval = raw.reconnectInterval
   if (typeof raw.terminalPadding === 'number' && raw.terminalPadding >= 0 && raw.terminalPadding <= 32)
     result.terminalPadding = raw.terminalPadding
+  // editorWheelScrollLines=0 表示 Monaco 原生按平台 delta；前端可选范围 0-10
+  if (
+    typeof raw.editorWheelScrollLines === 'number' &&
+    raw.editorWheelScrollLines >= 0 &&
+    raw.editorWheelScrollLines <= 100
+  )
+    result.editorWheelScrollLines = Math.round(raw.editorWheelScrollLines)
   if (typeof raw.language === 'string' && VALID_LANGUAGE.includes(raw.language)) result.language = raw.language
   if (typeof raw.attachExclusive === 'boolean') result.attachExclusive = raw.attachExclusive
+  if (typeof raw.showShortcutBar === 'boolean') result.showShortcutBar = raw.showShortcutBar
+  if (Array.isArray(raw.activityBarOrder)) {
+    const order: string[] = []
+    for (const item of raw.activityBarOrder) {
+      const id = safeString(item, MAX_ACTIVITY_BAR_ID_LEN)
+      if (!id || order.includes(id)) continue
+      order.push(id)
+      if (order.length >= MAX_ACTIVITY_BAR_ITEMS) break
+    }
+    result.activityBarOrder = order
+  }
   return result
 }
 function normalizeUploadRateLimitKBps(input: unknown) {

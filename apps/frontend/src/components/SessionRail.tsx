@@ -5,7 +5,7 @@ import { useCreateSession, useDeleteSession, useRenameSession } from '@/hooks/us
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { ModalPortal } from './ModalPortal'
-import { getTemplateSessionName } from '@/lib/session-template'
+import { getDefaultSessionName } from '@/lib/session-template'
 import { ConfirmDialog } from './ConfirmDialog'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
@@ -35,7 +35,7 @@ export function SessionRail() {
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
   const handleTemplateSelect = async (template: Template) => {
     if (!activeHostId) return
-    const name = await prompt(t('drawer.sessionName'), getTemplateSessionName(template))
+    const name = await prompt(t('drawer.sessionName'), getDefaultSessionName(template, sessions))
     if (!name) {
       setShowTemplates(false)
       return

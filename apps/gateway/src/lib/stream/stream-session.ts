@@ -2,7 +2,7 @@ import { recordStreamMetric, updateStreamMetric } from '../perf-metrics.js'
 import { createTerminalAttachment } from '../terminal-attachment.js'
 import { createTerminalOutputSanitizer, hasSubstantiveTerminalContent } from '../terminal-output.js'
 import { getAttachSnapshotDelays } from '../attach-snapshot.js'
-import { execTmux } from '../tmux-executor.js'
+import { execTmux, tmuxSessionExists } from '../tmux-executor.js'
 import { agentMonitor } from '../agent-monitor.js'
 import { markAgentPaneSeen } from '../agent-state.js'
 import { assertSessionAllowed, prepareSessionAttach } from '../tmux-policy.js'
@@ -82,6 +82,11 @@ function peerKey(hostId: string, sessionName: string) {
 let windowSizeQuery: typeof getSessionWindowSize = getSessionWindowSize
 export function setWindowSizeQueryForTest(fn: typeof getSessionWindowSize | null) {
   windowSizeQuery = fn ?? getSessionWindowSize
+}
+// 测试缝：session- 前缀名的字面存在性探测可注入
+let sessionExistsProbe: typeof tmuxSessionExists = tmuxSessionExists
+export function setSessionExistsProbeForTest(fn: typeof tmuxSessionExists | null) {
+  sessionExistsProbe = fn ?? tmuxSessionExists
 }
 export function resetExclusiveOwnershipForTest() {
   exclusiveOwners.clear()
@@ -1041,6 +1046,11 @@ export class StreamSession {
     const sessionNameRaw = String(data.sessionName || '').trim()
     if (!sessionNameRaw) throw new Error('Missing session name')
     if (sessionNameRaw.startsWith('session-')) {
+      // session-{name} 旧编码与字面 session- 前缀名歧义：同名 session 存在时按字面处理
+      if (await sessionExistsProbe(hostId, sessionNameRaw)) {
+        assertSessionAllowed(sessionNameRaw)
+        return { hostId, sessionName: sessionNameRaw }
+      }
       const parsed = parseSessionRef(hostId, sessionNameRaw)
       return { hostId: parsed.hostId, sessionName: parsed.sessionName }
     }

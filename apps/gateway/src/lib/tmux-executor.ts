@@ -345,6 +345,17 @@ export async function execTmux(
   await retrySetEnvIfNeeded(deferSetEnv, hostId)
   return { ...result, host }
 }
+// session-{name} 旧编码 / session-{host}-{name} id 与字面 session- 前缀名存在歧义，
+// 解析前先探测同名 session 是否真实存在；'=' 前缀强制 tmux 精确匹配，
+// 裸 -t 在目标缺失时会回退前缀/模式匹配造成误命中
+export async function tmuxSessionExists(hostId: string, sessionName: string) {
+  try {
+    await execTmux(hostId, ['has-session', '-t', `=${sessionName}`])
+    return true
+  } catch {
+    return false
+  }
+}
 async function retrySetEnvIfNeeded(deferSetEnv: boolean, hostIdRaw: string) {
   if (!deferSetEnv) return
   try {

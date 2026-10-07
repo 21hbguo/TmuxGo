@@ -20,7 +20,7 @@ import { useSplitGroups } from '@/hooks/useSplitGroups'
 import { SessionTemplates, templates as builtinTemplates, type Template } from './SessionTemplates'
 import { SessionLayoutImportDialog } from './SessionLayoutImportDialog'
 import { CreateSessionDialog } from './CreateSessionDialog'
-import { getTemplateSessionName } from '@/lib/session-template'
+import { getDefaultSessionName } from '@/lib/session-template'
 import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
 import { QuickActions } from './QuickActions'
@@ -892,13 +892,17 @@ export function SessionPanel() {
                   headerClassName: groupHeaderClassName,
                 }))}
               />
-              <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.22,1,0.36,1)' }}>
-                {dragSession ? (
-                  <div className={sessionItemClassName({ session: dragSession, isDragging: true, isOverlay: true })}>
-                    {renderSessionItem({ session: dragSession, isDragging: true, isOverlay: true })}
-                  </div>
-                ) : null}
-              </DragOverlay>
+              {/* DragOverlay 必须 portal 出容器：内联 fixed 会被 backdrop-filter/
+                  transform 祖先当作包含块，top 按面板坐标解析导致位置大幅偏移 */}
+              <ModalPortal>
+                <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.22,1,0.36,1)' }}>
+                  {dragSession ? (
+                    <div className={sessionItemClassName({ session: dragSession, isDragging: true, isOverlay: true })}>
+                      {renderSessionItem({ session: dragSession, isDragging: true, isOverlay: true })}
+                    </div>
+                  ) : null}
+                </DragOverlay>
+              </ModalPortal>
             </DndContext>
           )}
         </div>
@@ -953,9 +957,7 @@ export function SessionPanel() {
         template={createDialogTemplate}
         defaultName={
           createDialogTemplate
-            ? createDialogInitialWorkspace
-              ? `${createDialogInitialWorkspace.name}-${getTemplateSessionName(createDialogTemplate)}`
-              : getTemplateSessionName(createDialogTemplate)
+            ? getDefaultSessionName(createDialogTemplate, sessions, createDialogInitialWorkspace?.name)
             : ''
         }
         hostId={activeHostId || ''}

@@ -22,7 +22,7 @@ import { useWorkspaces } from '@/hooks/useWorkspaces'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { CreateSessionDialog } from './CreateSessionDialog'
 import { ModalPortal } from './ModalPortal'
-import { getTemplateSessionName } from '@/lib/session-template'
+import { getDefaultSessionName } from '@/lib/session-template'
 import { useTranslation } from '@/i18n'
 import { FiChevronRight, FiPlus, FiTrash2 } from 'react-icons/fi'
 import { Button } from './Button'
@@ -178,6 +178,8 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   // 列表滚动容器：到顶继续下拉 = 关抽屉（iOS 惯例）；非到顶时让位原生滚动
   const scrollRef = useRef<HTMLDivElement>(null)
   const pullActiveRef = useRef(false)
+  // session 行排序拖拽进行中：同一手势禁止再驱动下拉关抽屉（dnd TouchSensor 220ms 激活）
+  const sortableDragRef = useRef(false)
 
   const resetPanelPosition = useCallback(() => {
     if (!panelRef.current) return
@@ -243,6 +245,14 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   }
 
   const handleTouchMove = (e: React.TouchEvent) => {
+    if (sortableDragRef.current) {
+      // 排序拖拽已接管手势：吸回激活前可能产生的位移后不再跟手
+      if (translateYRef.current) {
+        translateYRef.current = 0
+        resetPanelPosition()
+      }
+      return
+    }
     if (!pullActiveRef.current) return
     const dy = e.touches[0].clientY - startYRef.current
     if (dy <= 0 || (scrollRef.current?.scrollTop ?? 0) > 0) {
@@ -255,6 +265,13 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   }
 
   const handleTouchEnd = () => {
+    // 拖拽排序的收手：dnd dragEnd 走 document 层晚于此处理器，此时 ref 仍为 true，
+    // 跳过关抽屉判定只复位，避免拖行末尾惯性误关
+    if (sortableDragRef.current) {
+      translateYRef.current = 0
+      resetPanelPosition()
+      return
+    }
     if (translateYRef.current > 80) {
       handleClose()
       return
@@ -586,6 +603,9 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
                 <SessionStandaloneSortableList
                   sessions={sessions}
                   onMove={moveSession}
+                  onDragActiveChange={(active) => {
+                    sortableDragRef.current = active
+                  }}
                   listClassName="space-y-2"
                   getItemClassName={({ session, isDragging, isOverlay }) =>
                     `tmuxgo-list-row rounded-apple ${batchMode ? (selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : '') : ''} ${isDragging && !isOverlay ? 'opacity-40' : ''}`
@@ -785,7 +805,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
       <CreateSessionDialog
         open={createDialogOpen}
         template={createDialogTemplate}
-        defaultName={createDialogTemplate ? getTemplateSessionName(createDialogTemplate) : ''}
+        defaultName={createDialogTemplate ? getDefaultSessionName(createDialogTemplate, sessions) : ''}
         hostId={activeHostId || ''}
         workspaces={workspaces}
         onCreate={handleCreateSession}

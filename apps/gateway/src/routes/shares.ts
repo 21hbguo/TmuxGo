@@ -5,6 +5,7 @@ import { getHostById } from '../lib/hosts.js'
 import { markRequestPrincipal } from '../lib/principal.js'
 import { shareLinkStore } from '../lib/share-links.js'
 import { assertSessionAllowed } from '../lib/tmux-policy.js'
+import { tmuxSessionExists } from '../lib/tmux-executor.js'
 import { parseSessionRef } from '../lib/tmux-target.js'
 
 function sendError(reply: FastifyReply, message: string, code = 'INVALID_REQUEST', status = 400) {
@@ -20,6 +21,11 @@ async function resolveScope(hostIdValue: unknown, sessionNameValue: unknown) {
   }
   if (hostId !== 'local' && !(await getHostById(hostId)) && !agentManager.getAgent(hostId))
     throw new Error('Host not found')
+  // 字面 session- 前缀名与 session-{name} 旧编码歧义：同名 session 存在时按字面处理
+  if (raw.startsWith('session-') && (await tmuxSessionExists(hostId, raw))) {
+    assertSessionAllowed(raw)
+    return { hostId, sessionName: raw }
+  }
   const parsed = parseSessionRef(hostId, raw)
   return { hostId: parsed.hostId, sessionName: parsed.sessionName }
 }

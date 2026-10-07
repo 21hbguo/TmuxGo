@@ -34,6 +34,8 @@ export interface Preferences {
   attachExclusive: boolean
   uploadRateLimitKBps: number
   downloadRateLimitKBps: number
+  // ActivityBar 图标排序：固定项 id + plugin:{pluginId}:{viewId}
+  activityBarOrder: string[]
 }
 
 const defaultPreferences: Preferences = {
@@ -56,6 +58,7 @@ const defaultPreferences: Preferences = {
   attachExclusive: true,
   uploadRateLimitKBps: 5120,
   downloadRateLimitKBps: 5120,
+  activityBarOrder: [],
 }
 
 export function resolveFontId(_fontFamily?: string): AppFontId {
@@ -116,6 +119,7 @@ function toUiPreferences(p: Preferences): UiPreferences {
     editorWheelScrollLines: p.editorWheelScrollLines,
     language: p.language,
     attachExclusive: p.attachExclusive,
+    activityBarOrder: p.activityBarOrder,
   }
 }
 
@@ -131,6 +135,7 @@ function readStoredPreferences() {
     const parsed = JSON.parse(stored) as StoredPreferences
     const version = typeof parsed?._v === 'number' ? parsed._v : 1
     const next = { ...defaultPreferences, ...parsed }
+    if (!Array.isArray(next.activityBarOrder)) next.activityBarOrder = []
     if (version < PREFERENCES_VERSION && parsed.terminalPadding === 8) {
       next.terminalPadding = 0
     }

@@ -307,7 +307,7 @@ describe('SessionPanel session actions', () => {
         updatedAt: '',
       },
     ]
-    mutateCreateSession.mockResolvedValueOnce({ id: 'session-default', name: 'tmuxgo-default', windowCount: 1 })
+    mutateCreateSession.mockResolvedValueOnce({ id: 'session-new-1', name: 'tmuxgo-1', windowCount: 1 })
     render(<SessionPanel />)
     fireEvent.click(screen.getByText('New'))
     fireEvent.click(screen.getByText('select-template'))
@@ -315,12 +315,12 @@ describe('SessionPanel session actions', () => {
     await waitFor(() =>
       expect(mutateCreateSession).toHaveBeenCalledWith({
         hostId: 'local',
-        name: 'tmuxgo-default',
+        name: 'tmuxgo-1',
         layout: expect.any(Object),
         cwd: '/workspace/tmuxgo',
       }),
     )
-    await waitFor(() => expect(useConsoleStore.getState().activeSessionId).toBe('session-default'))
+    await waitFor(() => expect(useConsoleStore.getState().activeSessionId).toBe('session-new-1'))
   })
   it('uses the configured workspace template', () => {
     workspacesState.data = [
@@ -428,7 +428,7 @@ describe('SessionPanel session actions', () => {
     await waitFor(() =>
       expect(mutateCreateSession).toHaveBeenCalledWith({
         hostId: 'local',
-        name: 'default',
+        name: 'session-1',
         layout: expect.any(Object),
         cwd: undefined,
       }),
@@ -651,7 +651,7 @@ describe('SessionPanel session actions', () => {
         updatedAt: '',
       },
     ]
-    mutateCreateSession.mockResolvedValueOnce({ id: 'session-new', name: 'tmuxgo-default', windowCount: 1 })
+    mutateCreateSession.mockResolvedValueOnce({ id: 'session-new', name: 'tmuxgo-1', windowCount: 1 })
     render(<SessionPanel />)
     fireEvent.click(screen.getByLabelText('workspace.newSession'))
     fireEvent.click(screen.getByText('select-template'))
@@ -659,7 +659,7 @@ describe('SessionPanel session actions', () => {
     await waitFor(() =>
       expect(mutateCreateSession).toHaveBeenCalledWith({
         hostId: 'local',
-        name: 'tmuxgo-default',
+        name: 'tmuxgo-1',
         layout: expect.any(Object),
         cwd: '/workspace/tmuxgo',
       }),

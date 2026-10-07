@@ -429,6 +429,7 @@ export interface UiPreferences {
   editorWheelScrollLines?: number
   language?: string
   attachExclusive?: boolean
+  activityBarOrder?: string[]
 }
 export type SessionCaptureMode = 'none' | 'visible' | 'history'
 export interface SessionResumePoint {

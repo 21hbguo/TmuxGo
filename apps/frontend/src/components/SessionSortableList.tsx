@@ -24,6 +24,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Session } from '@/types'
+import { ModalPortal } from './ModalPortal'
 
 export type RenderSessionArgs = {
   session: Session
@@ -214,12 +215,14 @@ export function SessionSortableList({
 export function SessionStandaloneSortableList({
   sessions,
   onMove,
+  onDragActiveChange,
   listClassName,
   getItemClassName,
   renderItem,
 }: {
   sessions: Session[]
   onMove: (orderedSessionIds: string[]) => void
+  onDragActiveChange?: (active: boolean) => void
   listClassName?: string
   getItemClassName?: (args: GetClassNameArgs) => string
   renderItem: (args: RenderSessionArgs) => ReactNode
@@ -241,6 +244,7 @@ export function SessionStandaloneSortableList({
     const nextActiveId = String(event.active.id)
     setActiveId(nextActiveId)
     setPreviewIds(sessionIds)
+    onDragActiveChange?.(true)
   }
   const handleDragOver = (event: DragOverEvent) => {
     const overId = event.over?.id ? String(event.over.id) : null
@@ -256,6 +260,7 @@ export function SessionStandaloneSortableList({
   const resetDrag = () => {
     setActiveId(null)
     setPreviewIds(sessionIds)
+    onDragActiveChange?.(false)
   }
   const handleDragEnd = (_event: DragEndEvent) => {
     if (previewIds.length && !arraysEqual(previewIds, sessionIds)) onMove(previewIds)
@@ -276,13 +281,19 @@ export function SessionStandaloneSortableList({
         getItemClassName={getItemClassName}
         renderItem={renderItem}
       />
-      <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.22,1,0.36,1)' }}>
-        {activeSession ? (
-          <div className={getItemClassName?.({ session: activeSession, isDragging: true, isOverlay: true })}>
-            {renderItem({ session: activeSession, isDragging: true, isOverlay: true })}
-          </div>
-        ) : null}
-      </DragOverlay>
+      {/* DragOverlay 必须 portal 出容器：其内联渲染 position:fixed，落在带
+          backdrop-filter/transform 的祖先（如玻璃面板、抽屉）内时 fixed 会相对
+          该祖先解析而非视口，top 偏移到「非常下面」；dragOverlay.rect 亦随之测错
+          污染碰撞检测 */}
+      <ModalPortal>
+        <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.22,1,0.36,1)' }}>
+          {activeSession ? (
+            <div className={getItemClassName?.({ session: activeSession, isDragging: true, isOverlay: true })}>
+              {renderItem({ session: activeSession, isDragging: true, isOverlay: true })}
+            </div>
+          ) : null}
+        </DragOverlay>
+      </ModalPortal>
     </DndContext>
   )
 }

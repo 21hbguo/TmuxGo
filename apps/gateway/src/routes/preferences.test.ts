@@ -143,6 +143,42 @@ test('normalizes macro shortcut steps and drops invalid ones', async (t) => {
   await fastify.close()
 })
 
+test('persists uiPreferences activityBarOrder with dedupe and caps', async (t) => {
+  const preferencesDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-preferences-activitybar-'))
+  const previousPreferencesDir = process.env.TMUXGO_PREFERENCES_DIR
+  process.env.TMUXGO_PREFERENCES_DIR = preferencesDir
+  t.after(async () => {
+    if (previousPreferencesDir === undefined) delete process.env.TMUXGO_PREFERENCES_DIR
+    else process.env.TMUXGO_PREFERENCES_DIR = previousPreferencesDir
+    await rm(preferencesDir, { recursive: true, force: true })
+  })
+  const { preferencesRoutes } = await import('./preferences.js?activitybar-test=' + Date.now() + '-' + Math.random())
+  const fastify = Fastify()
+  await fastify.register(preferencesRoutes)
+  const updatedAt = new Date(Date.now() + 1000).toISOString()
+  const response = await fastify.inject({
+    method: 'PUT',
+    url: '/preferences?profile=default',
+    payload: {
+      uiPreferences: {
+        activityBarOrder: ['git', 'sessions', 'git', '', 42, 'plugin:a:b'],
+        showShortcutBar: true,
+        editorWheelScrollLines: 3,
+      },
+      uiPreferencesUpdatedAt: updatedAt,
+    },
+  })
+  assert.equal(response.statusCode, 200)
+  const stored = await fastify.inject({ method: 'GET', url: '/preferences?profile=default' })
+  const body = stored.json() as {
+    uiPreferences: { activityBarOrder?: string[]; showShortcutBar?: boolean; editorWheelScrollLines?: number }
+  }
+  assert.deepEqual(body.uiPreferences.activityBarOrder, ['git', 'sessions', 'plugin:a:b'])
+  assert.equal(body.uiPreferences.showShortcutBar, true)
+  assert.equal(body.uiPreferences.editorWheelScrollLines, 3)
+  await fastify.close()
+})
+
 test('caps macro shortcut steps at the maximum', async (t) => {
   const preferencesDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-preferences-shortcut-'))
   const previousPreferencesDir = process.env.TMUXGO_PREFERENCES_DIR

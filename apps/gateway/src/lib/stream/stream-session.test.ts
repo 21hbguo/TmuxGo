@@ -2,7 +2,12 @@ import '../../test-env.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { gunzipSync } from 'zlib'
-import { schedulePeerWindowSync, setWindowSizeQueryForTest, StreamSession } from './stream-session.js'
+import {
+  schedulePeerWindowSync,
+  setSessionExistsProbeForTest,
+  setWindowSizeQueryForTest,
+  StreamSession,
+} from './stream-session.js'
 import {
   RESYNC_HYSTERESIS_MS,
   RESYNC_RESET_SEQ,
@@ -448,4 +453,42 @@ test('compressed and tiny frames keep FIFO across concurrent flushes', async () 
   assert.equal(frames[1][3], 3)
   assert.equal(frames[3][3], 3)
   session.cleanup()
+})
+
+function createBareSession() {
+  const socket = {
+    readyState: 1,
+    bufferedAmount: 0,
+    send() {},
+    close() {},
+  }
+  return new StreamSession(socket, null)
+}
+
+test('resolveAttachTarget prefers literal session- prefixed name when it exists', async () => {
+  const session = createBareSession()
+  setSessionExistsProbeForTest(async () => true)
+  try {
+    const target = await session.resolveAttachTarget({ hostId: 'local', sessionName: 'session-1' })
+    assert.deepEqual(target, { hostId: 'local', sessionName: 'session-1' })
+  } finally {
+    setSessionExistsProbeForTest(null)
+  }
+})
+
+test('resolveAttachTarget falls back to legacy session-{name} ref when literal is absent', async () => {
+  const session = createBareSession()
+  setSessionExistsProbeForTest(async () => false)
+  try {
+    assert.deepEqual(await session.resolveAttachTarget({ hostId: 'local', sessionName: 'session-1' }), {
+      hostId: 'local',
+      sessionName: '1',
+    })
+    assert.deepEqual(await session.resolveAttachTarget({ hostId: 'local', sessionName: 'session-local-dev' }), {
+      hostId: 'local',
+      sessionName: 'dev',
+    })
+  } finally {
+    setSessionExistsProbeForTest(null)
+  }
 })
