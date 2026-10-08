@@ -1257,6 +1257,89 @@ describe('FilePanel', () => {
     })
     trash.mockRestore()
   })
+  it('selects via clicks on the chevron/indent area of a row', async () => {
+    render(React.createElement(FilePanel))
+    // ctrl+click 目录 chevron：交给整行做多选，不展开目录
+    const docsRow = (await screen.findByText('docs')).closest('[role="button"]') as HTMLElement
+    const docsChevron = docsRow.querySelector('button') as HTMLButtonElement
+    fireEvent.click(docsChevron, { ctrlKey: true })
+    await waitFor(() => expect(docsRow.dataset.selected).toBe('true'))
+    expect(screen.queryByText('guide.md')).not.toBeInTheDocument()
+    // 文件行左侧占位区（span 代替 disabled button）点击可透传选中
+    fireEvent.click(screen.getByText('src'))
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+    const indexRow = screen.getByText('index.ts').closest('[role="button"]') as HTMLElement
+    fireEvent.click(indexRow.querySelector('span[aria-hidden="true"]') as HTMLElement, { ctrlKey: true })
+    await waitFor(() => expect(indexRow.dataset.selected).toBe('true'))
+    // ctrl+click 并入 selection：src 仍是选中态
+    expect(screen.getByText('src').closest('[data-selected="true"]')).toBeInTheDocument()
+  })
+  it('ctrl+C then ctrl+V copies every selected item into the focused directory', async () => {
+    const copy = vi.mocked(api.files.copy)
+    copy.mockClear()
+    render(React.createElement(FilePanel))
+    const docsRow = (await screen.findByText('docs')).closest('[role="button"]') as HTMLElement
+    fireEvent.click(docsRow, { ctrlKey: true })
+    fireEvent.click(screen.getByText('downloads').closest('[role="button"]') as HTMLElement, { ctrlKey: true })
+    fireEvent.keyDown(docsRow, { key: 'c', ctrlKey: true })
+    await waitFor(() => expect(pushToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'success' })))
+    const projectRow = screen.getByText('project').closest('[role="button"]') as HTMLElement
+    fireEvent.click(projectRow)
+    fireEvent.keyDown(projectRow, { key: 'v', ctrlKey: true })
+    await waitFor(() => expect(copy).toHaveBeenCalledTimes(2))
+    expect(copy).toHaveBeenCalledWith('local', 'root-workspace', 'docs', 'root-workspace', 'project')
+    expect(copy).toHaveBeenCalledWith('local', 'root-workspace', 'downloads', 'root-workspace', 'project')
+  })
+  it('ctrl+X marks every selected item for cut', async () => {
+    const move = vi.mocked(api.files.move)
+    move.mockClear()
+    render(React.createElement(FilePanel))
+    const docsRow = (await screen.findByText('docs')).closest('[role="button"]') as HTMLElement
+    fireEvent.click(docsRow, { ctrlKey: true })
+    fireEvent.click(screen.getByText('downloads').closest('[role="button"]') as HTMLElement, { ctrlKey: true })
+    fireEvent.keyDown(docsRow, { key: 'x', ctrlKey: true })
+    // 剪切态：两项都降透明度
+    await waitFor(() => {
+      expect(docsRow.className).toContain('opacity-50')
+      expect((screen.getByText('downloads').closest('[role="button"]') as HTMLElement).className).toContain(
+        'opacity-50',
+      )
+    })
+    const projectRow = screen.getByText('project').closest('[role="button"]') as HTMLElement
+    fireEvent.click(projectRow)
+    fireEvent.keyDown(projectRow, { key: 'v', ctrlKey: true })
+    await waitFor(() => expect(move).toHaveBeenCalledTimes(2))
+    expect(move).toHaveBeenCalledWith('local', 'root-workspace', 'docs', 'root-workspace', 'project')
+    expect(move).toHaveBeenCalledWith('local', 'root-workspace', 'downloads', 'root-workspace', 'project')
+  })
+  it('shift+ArrowDown extends the selection range from the anchor', async () => {
+    render(React.createElement(FilePanel))
+    const docsRow = (await screen.findByText('docs')).closest('[role="button"]') as HTMLElement
+    fireEvent.click(docsRow)
+    // 顶层可见序 [docs, downloads, project, src]：shift+↓ 扩选 docs→downloads
+    fireEvent.keyDown(docsRow, { key: 'ArrowDown', shiftKey: true })
+    await waitFor(() => {
+      expect(screen.getByText('docs').closest('[data-selected="true"]')).toBeInTheDocument()
+      expect(screen.getByText('downloads').closest('[data-selected="true"]')).toBeInTheDocument()
+    })
+    expect(screen.getByText('project').closest('[data-selected="true"]')).not.toBeInTheDocument()
+    expect(screen.getByText('downloads').closest('[data-focused="true"]')).toBeInTheDocument()
+  })
+  it('clears the selection when clicking empty list space', async () => {
+    render(React.createElement(FilePanel))
+    const docsRow = (await screen.findByText('docs')).closest('[role="button"]') as HTMLElement
+    fireEvent.click(docsRow)
+    await waitFor(() => expect(docsRow.dataset.selected).toBe('true'))
+    fireEvent.click(document.querySelector('.tmuxgo-file-tree') as HTMLElement)
+    await waitFor(() => expect(docsRow.dataset.selected).not.toBe('true'))
+  })
+  it('ctrl+F focuses the search input from the list', async () => {
+    render(React.createElement(FilePanel))
+    const docsRow = (await screen.findByText('docs')).closest('[role="button"]') as HTMLElement
+    fireEvent.click(docsRow)
+    fireEvent.keyDown(docsRow, { key: 'f', ctrlKey: true })
+    expect(screen.getByPlaceholderText('Search file names')).toHaveFocus()
+  })
   it('shows visible content search results when dotfiles are hidden', async () => {
     render(React.createElement(FilePanel))
     fireEvent.click(screen.getByRole('button', { name: 'Search file content' }))

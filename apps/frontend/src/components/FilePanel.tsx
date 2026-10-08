@@ -35,8 +35,10 @@ import {
   FiEye,
   FiEyeOff,
   FiFile,
+  FiFilePlus,
   FiFileText,
   FiFolder,
+  FiFolderPlus,
   FiLayers,
   FiRefreshCw,
   FiSearch,
@@ -197,7 +199,9 @@ function readFileSort(): FileSort {
       const parsed = JSON.parse(stored)
       if (parsed.field && parsed.direction) return parsed as FileSort
     }
-  } catch {}
+  } catch {
+    // localStorage 损坏/被禁用时回退默认排序
+  }
   return { field: 'name', direction: 'asc' }
 }
 function writeFileSort(sort: FileSort) {
@@ -568,13 +572,12 @@ export function FilePanel({
   // 两个浮层菜单各占一层 ESC（回收站走 ModalPortal modal 层）
   useEscapeClose(() => setContextMenu(null), contextMenu !== null)
   useEscapeClose(() => setSortMenu(null), sortMenu !== null)
+  // 文件级剪贴板承载整个 selection：path 为源 root 相对路径（粘贴用），
+  // itemPath 为面板内路径（剪切态高亮用）
   const [fileClipboard, setFileClipboard] = useState<{
     hostId: string
-    rootId: string
-    path: string
-    itemPath: string
-    name: string
     move: boolean
+    items: { rootId: string; path: string; itemPath: string; name: string }[]
   } | null>(null)
   const [imagePreviewUrl, setImagePreviewUrl] = useState('')
   const virtualRoots = useMemo(
@@ -1024,7 +1027,9 @@ export function FilePanel({
             PREFERENCES_PROFILE,
           )
         }
-      } catch {}
+      } catch {
+        // 收藏目录远端同步失败不阻塞面板加载
+      }
     })()
   }, [roots])
   useEffect(() => {
@@ -1254,7 +1259,7 @@ export function FilePanel({
   }
   // shift+click：selection 替换为 anchor→目标项的可见序区间（VSCode 是 setSelection 而非并入）；
   // focus 跟随目标项，anchor 保持不动；无 anchor 退化为单选
-  const selectRangeTo = (item: FileEntry) => {
+  const selectRangeTo = (item: { path: string }) => {
     const order = flatVisibleItems.map((entry) => entry.path)
     const targetIndex = order.indexOf(item.path)
     const anchorIndex = order.indexOf(selectionAnchor)
@@ -1278,6 +1283,33 @@ export function FilePanel({
     }
     return false
   }
+  const markClipboard = (items: FileEntry[], move: boolean) => {
+    if (!items.length) return
+    setFileClipboard({
+      hostId: fileHostId,
+      move,
+      items: items.map((item) => ({
+        rootId: activeRootId,
+        path: resolveRootRelativePath(activeRootBasePath, item.path),
+        itemPath: item.path,
+        name: item.name,
+      })),
+    })
+    pushToast({
+      type: 'success',
+      message:
+        items.length > 1
+          ? t(move ? 'file.markedCutMany' : 'file.markedCopyMany', { count: items.length })
+          : t(move ? 'file.markedCut' : 'file.markedCopy', { name: items[0]!.name }),
+    })
+  }
+  // 剪切态高亮集合：仅统计同源 root 的项（itemPath 是面板内相对路径，跨 root 会撞名）
+  const cutItemPaths = useMemo(() => {
+    const set = new Set<string>()
+    if (fileClipboard?.move && fileClipboard.hostId === fileHostId)
+      for (const item of fileClipboard.items) if (item.rootId === activeRootId) set.add(item.itemPath)
+    return set
+  }, [activeRootId, fileClipboard, fileHostId])
   const handleDesktopDirectoryToggle = (item: FileItem) => {
     let expanding = false
     setOpenDirectories((current) => {
@@ -1426,6 +1458,12 @@ export function FilePanel({
       : {
           draggable: true,
           onDragStart: (event: React.DragEvent<HTMLElement>) => {
+            // 修饰键按下时禁拖：可拖拽行上 shift/ctrl+点击若带轻微位移会吞掉
+            // click 转成拖放，导致多选手势失灵
+            if (event.shiftKey || event.ctrlKey || event.metaKey) {
+              event.preventDefault()
+              return
+            }
             // 拖已选中项 = 拖整个 selection；拖未选中项 = 单拖（VSCode Explorer 语义）
             const draggedItems = selectedPaths.has(item.path) && selectedItems.length > 1 ? selectedItems : [item]
             const handle: FileDocumentHandle & { items?: FileDocumentHandle[] } = {
@@ -1871,30 +1909,51 @@ export function FilePanel({
     }
     return visibleItems.find((item) => item.path === selectedPath) || null
   }, [desktopTreeData, selectedPath, visibleItems])
+  // 批量粘贴：逐项 move/copy 汇总成败；move 成功的项清出剪贴板，失败项暂留可重试
   const pasteFileClipboard = async () => {
     const clip = fileClipboard
-    if (!clip || clip.hostId !== fileHostId) return
+    if (!clip || clip.hostId !== fileHostId || !clip.items.length) return
     const targetDir =
       selectedItem?.type === 'directory'
         ? selectedItem.path
         : selectedItem
           ? getParentPath(selectedItem.path)
           : currentPath
-    try {
-      const call = clip.move ? api.files.move : api.files.copy
-      const result = await call(
-        fileHostId,
-        clip.rootId,
-        clip.path,
-        activeRootId,
-        resolveRootRelativePath(activeRootBasePath, targetDir),
-      )
-      if (clip.move) setFileClipboard(null)
-      refreshFiles()
-      pushToast({ type: 'success', message: t(clip.move ? 'file.moved' : 'file.copied', { name: result.item.name }) })
-    } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('file.transferFailed') })
+    const target = resolveRootRelativePath(activeRootBasePath, targetDir)
+    const call = clip.move ? api.files.move : api.files.copy
+    const failed: typeof clip.items = []
+    let done = 0
+    let lastName = ''
+    for (const item of clip.items) {
+      // 粘贴到自身/子孙目录在同 root 下是递归或原地操作，跳过
+      if (item.rootId === activeRootId && (target === item.path || target.startsWith(`${item.path}/`))) {
+        failed.push(item)
+        continue
+      }
+      try {
+        await call(fileHostId, item.rootId, item.path, activeRootId, target)
+        done += 1
+        lastName = item.name
+      } catch {
+        failed.push(item)
+      }
     }
+    if (clip.move) setFileClipboard(failed.length ? { ...clip, items: failed } : null)
+    if (done) {
+      refreshFiles()
+      pushToast({
+        type: 'success',
+        message:
+          done > 1
+            ? t(clip.move ? 'file.movedMany' : 'file.copiedMany', { count: done })
+            : t(clip.move ? 'file.moved' : 'file.copied', { name: lastName }),
+      })
+    }
+    if (failed.length)
+      pushToast({
+        type: 'error',
+        message: t('file.transferFailedMany', { count: failed.length }),
+      })
   }
   // 对齐 VSCode Explorer：列表聚焦时支持文件级快捷键
   const handleListKeyDown = (e: React.KeyboardEvent) => {
@@ -1916,6 +1975,13 @@ export function FilePanel({
       if (!paths.includes(selectedPath)) setSelectedPath(paths[0] || '')
       return
     }
+    // Ctrl+F：聚焦搜索框（VSCode Explorer 的 list.find）
+    if (mod && key === 'f') {
+      e.preventDefault()
+      searchInputRef.current?.focus()
+      searchInputRef.current?.select()
+      return
+    }
     if (mod && key === 'z' && !e.shiftKey) {
       if (lastTrashedItem) {
         e.preventDefault()
@@ -1931,21 +1997,10 @@ export function FilePanel({
       return
     }
     if (!selectedItem && !selectedPaths.size) return
-    if (selectedItem && mod && (key === 'c' || key === 'x')) {
+    if (mod && (key === 'c' || key === 'x')) {
       e.preventDefault()
-      const move = key === 'x'
-      setFileClipboard({
-        hostId: fileHostId,
-        rootId: activeRootId,
-        path: resolveRootRelativePath(activeRootBasePath, selectedItem.path),
-        itemPath: selectedItem.path,
-        name: selectedItem.name,
-        move,
-      })
-      pushToast({
-        type: 'success',
-        message: t(move ? 'file.markedCut' : 'file.markedCopy', { name: selectedItem.name }),
-      })
+      // Ctrl+C/X 作用于整个 selection；无多选时退化为 focus 项
+      markClipboard(selectedItems.length ? selectedItems : selectedItem ? [selectedItem] : [], key === 'x')
       return
     }
     if (e.key === 'Delete') {
@@ -2165,79 +2220,117 @@ export function FilePanel({
       const selected = selectedPaths.size ? selectedPaths.has(item.path) : selectedPath === item.path
       const focused = selectedPath === item.path
       const row = (
+        // 手势/键盘/右键/拖拽全挂到整行：缩进区与 chevron 占位区不再是选择死区（VSCode 整行可选）
         <div
           key={`${item.path}::__row`}
+          role="button"
+          tabIndex={0}
+          data-row-path={item.path}
           data-selected={selected ? 'true' : undefined}
           data-focused={focused ? 'true' : undefined}
+          title={getItemTooltip(item)}
           {...bindDirectoryDrop(item)}
-          className={`tmuxgo-list-row tmuxgo-file-tree-node group flex min-h-[22px] w-full items-center ${selected ? 'tmuxgo-list-row--active tmuxgo-file-tree-node-selected' : 'tmuxgo-list-row--hover'} ${focused && selectedPaths.size > 1 ? 'outline outline-1 -outline-offset-1 outline-accent/60' : ''} ${dropTargetPath === item.path ? 'tmuxgo-list-row--active' : ''} ${fileClipboard?.move && fileClipboard.rootId === activeRootId && fileClipboard.itemPath === item.path ? 'opacity-50' : ''}`}
-          style={{ paddingLeft: `${depth * 12}px` }}
-        >
-          <button
-            type="button"
-            disabled={item.type !== 'directory'}
-            onClick={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              if (item.type === 'directory') void handleDesktopDirectoryToggle(item)
-            }}
-            className={`flex h-[22px] w-[14px] shrink-0 items-center justify-center font-mono text-caption ${item.type === 'directory' ? 'text-text-3 hover:text-accent' : 'text-transparent'}`}
-          >
-            {item.type === 'directory' ? (expanded ? '▾' : '▸') : ''}
-          </button>
-          <div
-            role="button"
-            tabIndex={0}
-            data-row-path={item.path}
-            title={getItemTooltip(item)}
-            {...bindFileDrag(item)}
-            onClick={(e) => {
+          {...bindFileDrag(item)}
+          onClick={(e) => {
+            e.preventDefault()
+            if (applyRowSelectGesture(item, e)) return
+            if (item.type === 'directory') void handleDesktopDirectoryToggle(item)
+            else openItem(item)
+          }}
+          onKeyDown={(e) => {
+            // 方向键走数据序而非 DOM 序：目录行同样参与，且不受虚拟滚动裁剪影响
+            const order = flatVisibleItems.map((entry) => entry.path)
+            const focusRow = (path: string) =>
+              e.currentTarget
+                .closest('.tmuxgo-file-tree')
+                ?.querySelector<HTMLElement>(`[data-row-path="${CSS.escape(path)}"]`)
+                ?.focus()
+            const moveFocus = (path: string) => {
+              // shift+方向键：selection 扩到 anchor→新焦点区间，anchor 不动（VSCode 语义）
+              if (e.shiftKey) selectRangeTo({ path })
+              else selectSinglePath(path)
+              setSelectedPreviewLine(1)
+              focusRow(path)
+            }
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
               e.preventDefault()
-              if (applyRowSelectGesture(item, e)) return
-              if (item.type === 'directory') void handleDesktopDirectoryToggle(item)
-              else openItem(item)
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-                e.preventDefault()
-                // 方向键走数据序而非 DOM 序：目录行同样参与，且不受虚拟滚动裁剪影响
-                const order = flatVisibleItems.map((entry) => entry.path)
-                const nextPath = order[order.indexOf(item.path) + (e.key === 'ArrowUp' ? -1 : 1)]
-                if (!nextPath) return
-                selectSinglePath(nextPath)
-                setSelectedPreviewLine(1)
-                e.currentTarget
-                  .closest('.tmuxgo-file-tree')
-                  ?.querySelector<HTMLElement>(`[data-row-path="${CSS.escape(nextPath)}"]`)
-                  ?.focus()
-                return
-              }
-              // VSCode 树导航：→ 展开未展开目录，← 收起已展开目录
-              if (item.type === 'directory' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-                const expanded = openDirectories.has(item.path)
-                if ((e.key === 'ArrowRight' && !expanded) || (e.key === 'ArrowLeft' && expanded)) {
+              const nextPath = order[order.indexOf(item.path) + (e.key === 'ArrowUp' ? -1 : 1)]
+              if (nextPath) moveFocus(nextPath)
+              return
+            }
+            if (e.key === 'Home' || e.key === 'End') {
+              const nextPath = order[e.key === 'Home' ? 0 : order.length - 1]
+              if (!nextPath) return
+              e.preventDefault()
+              moveFocus(nextPath)
+              return
+            }
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+              // VSCode 树导航：→ 展开折叠目录/进首个子行；← 收起展开目录/回父目录行
+              const expanded = item.type === 'directory' && openDirectories.has(item.path)
+              if (e.key === 'ArrowRight') {
+                if (item.type === 'directory' && !expanded) {
                   e.preventDefault()
                   void handleDesktopDirectoryToggle(item)
+                } else if (expanded) {
+                  const childPath = order[order.indexOf(item.path) + 1]
+                  if (childPath?.startsWith(`${item.path}/`)) {
+                    e.preventDefault()
+                    moveFocus(childPath)
+                  }
                 }
                 return
               }
-              if (e.key !== 'Enter' && e.key !== ' ') return
-              e.preventDefault()
-              if (item.type === 'directory') void handleDesktopDirectoryToggle(item)
-              else openItem(item)
-            }}
-            onContextMenu={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              // VSCode：右键点在未选中项 → 先把 selection 切到该项再弹菜单
-              if (!selectedPaths.has(item.path)) selectSinglePath(item.path)
-              showContextMenu(e.clientX, e.clientY, item, getParentRelativePath(item, currentPath))
-            }}
-            onDoubleClick={() =>
-              item.type === 'directory' ? void handleDesktopDirectoryToggle(item) : insertItemPath(item)
+              if (expanded) {
+                e.preventDefault()
+                void handleDesktopDirectoryToggle(item)
+                return
+              }
+              const parentPath = getParentPath(item.path)
+              if (parentPath && order.includes(parentPath)) {
+                e.preventDefault()
+                moveFocus(parentPath)
+              }
+              return
             }
-            className="flex min-w-0 flex-1 items-center gap-1.5 py-[2px] pr-2"
-          >
+            if (e.key !== 'Enter' && e.key !== ' ') return
+            e.preventDefault()
+            if (item.type === 'directory') void handleDesktopDirectoryToggle(item)
+            else openItem(item)
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            // VSCode：右键点在未选中项 → 先把 selection 切到该项再弹菜单
+            if (!selectedPaths.has(item.path)) selectSinglePath(item.path)
+            showContextMenu(e.clientX, e.clientY, item, getParentRelativePath(item, currentPath))
+          }}
+          onDoubleClick={() =>
+            item.type === 'directory' ? void handleDesktopDirectoryToggle(item) : insertItemPath(item)
+          }
+          className={`tmuxgo-list-row tmuxgo-file-tree-node group flex min-h-[22px] w-full select-none items-center ${selected ? 'tmuxgo-list-row--active tmuxgo-file-tree-node-selected' : 'tmuxgo-list-row--hover'} ${focused && selectedPaths.size > 1 ? 'outline outline-1 -outline-offset-1 outline-accent/60' : ''} ${dropTargetPath === item.path ? 'tmuxgo-list-row--active' : ''} ${cutItemPaths.has(item.path) ? 'opacity-50' : ''}`}
+          style={{ paddingLeft: `${depth * 12}px` }}
+        >
+          {item.type === 'directory' ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                // 修饰键点击交给整行做多选，不触发展开/收起
+                if (event.shiftKey || event.ctrlKey || event.metaKey) return
+                event.preventDefault()
+                event.stopPropagation()
+                void handleDesktopDirectoryToggle(item)
+              }}
+              onDoubleClick={(event) => event.stopPropagation()}
+              className="flex h-[22px] w-[14px] shrink-0 items-center justify-center font-mono text-caption text-text-3 hover:text-accent"
+            >
+              {expanded ? '▾' : '▸'}
+            </button>
+          ) : (
+            // 文件行 chevron 占位用 span：disabled button 不透传点击，会让行左侧变成死区
+            <span aria-hidden="true" className="flex h-[22px] w-[14px] shrink-0 items-center justify-center" />
+          )}
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 py-[2px] pr-2">
             <span className="shrink-0">{visual.icon}</span>
             <span className={`min-w-0 flex-1 truncate font-mono ${visual.tone}`}>{item.name}</span>
             {item.type === 'directory' && cachedChildren?.length === 0 && (
@@ -2394,7 +2487,7 @@ export function FilePanel({
               if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
               touchTimerRef.current = null
             }}
-            className={`tmuxgo-list-row group w-full border-l-2 px-2 py-[3px] text-left text-meta leading-4 ${rowSelected ? 'tmuxgo-list-row--active border-accent' : 'border-transparent tmuxgo-list-row--hover'} ${dropTargetPath === item.path ? 'tmuxgo-list-row--active' : ''}`}
+            className={`tmuxgo-list-row group w-full select-none border-l-2 px-2 py-[3px] text-left text-meta leading-4 ${rowSelected ? 'tmuxgo-list-row--active border-accent' : 'border-transparent tmuxgo-list-row--hover'} ${dropTargetPath === item.path ? 'tmuxgo-list-row--active' : ''}`}
             style={!isMobile && showSearchResults ? { paddingLeft: `${8 + depth * 14}px` } : undefined}
           >
             <div className="flex items-center gap-1.5">
@@ -2712,6 +2805,22 @@ export function FilePanel({
                   </div>
                   <div className="min-w-0 flex-1" />
                   <button
+                    onClick={() => void createEntry('file', currentPath)}
+                    title={t('file.newFile')}
+                    aria-label={t('file.newFile')}
+                    className="tmuxgo-toolbar-icon h-7 w-7 shrink-0"
+                  >
+                    <FiFilePlus size={14} />
+                  </button>
+                  <button
+                    onClick={() => void createEntry('directory', currentPath)}
+                    title={t('file.newFolder')}
+                    aria-label={t('file.newFolder')}
+                    className="tmuxgo-toolbar-icon h-7 w-7 shrink-0"
+                  >
+                    <FiFolderPlus size={14} />
+                  </button>
+                  <button
                     onClick={refreshFiles}
                     title={`${t('file.refresh')} (F5)`}
                     aria-label={t('file.refresh')}
@@ -2754,6 +2863,11 @@ export function FilePanel({
             <div
               className="min-h-0 flex flex-1 flex-col overflow-hidden"
               onKeyDown={handleListKeyDown}
+              onClick={(e) => {
+                // 点击列表空白区清空 selection（VSCode Explorer 行为）；行/控件点击不受影响
+                if ((e.target as HTMLElement).closest('[data-row-path],button,input,a,select,[role="button"]')) return
+                if (selectedPaths.size || selectedPath) selectSinglePath('')
+              }}
               onContextMenu={(e) => {
                 if (isPicker) return
                 if ((e.target as HTMLElement).closest('button')) return
@@ -3009,7 +3123,12 @@ export function FilePanel({
             ))}
           {!isPicker && (!isMobile || mobileView === 'list') && (
             <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--line)] px-3 py-1.5">
-              <span className="min-w-0 truncate text-meta text-text-3" title={t('file.followActivePathHint')}>
+              {selectedPaths.size > 1 && (
+                <span className="shrink-0 rounded-apple bg-accent/10 px-1.5 text-caption leading-4 text-accent">
+                  {t('file.selectedCount', { count: selectedPaths.size })}
+                </span>
+              )}
+              <span className="min-w-0 flex-1 truncate text-meta text-text-3" title={t('file.followActivePathHint')}>
                 {followActivePath
                   ? followSuspended
                     ? t('file.followSuspended')
@@ -3125,6 +3244,44 @@ export function FilePanel({
                     className="tmuxgo-menu-item py-2 text-xs hover:text-accent"
                   >
                     {t('file.copyPath')}
+                  </button>
+                )}
+                {contextMenu.item && (
+                  <button
+                    onClick={() => {
+                      markClipboard(contextMenuSelection, true)
+                      setContextMenu(null)
+                    }}
+                    className="tmuxgo-menu-item py-2 text-xs hover:text-accent"
+                  >
+                    {contextMenuSelection.length > 1
+                      ? t('file.cutMany', { count: contextMenuSelection.length })
+                      : t('file.cut')}
+                  </button>
+                )}
+                {contextMenu.item && (
+                  <button
+                    onClick={() => {
+                      markClipboard(contextMenuSelection, false)
+                      setContextMenu(null)
+                    }}
+                    className="tmuxgo-menu-item py-2 text-xs hover:text-accent"
+                  >
+                    {contextMenuSelection.length > 1
+                      ? t('file.copyEntryMany', { count: contextMenuSelection.length })
+                      : t('file.copyEntry')}
+                  </button>
+                )}
+                {!isPicker && (
+                  <button
+                    disabled={!fileClipboard || fileClipboard.hostId !== fileHostId || !fileClipboard.items.length}
+                    onClick={() => {
+                      void pasteFileClipboard()
+                      setContextMenu(null)
+                    }}
+                    className="tmuxgo-menu-item py-2 text-xs hover:text-accent disabled:opacity-40"
+                  >
+                    {t('file.paste')}
                   </button>
                 )}
                 {isMobile && contextMenu.item?.type === 'file' && (
