@@ -1,0 +1,15 @@
+{
+  "name": "promo-15s",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "msedge-tts": "^2.0.9"
+  }
+}

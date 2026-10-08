@@ -1,0 +1,90 @@
+// 分段生成 5 段中文配音并拼接为 audio/voice.mp3
+// 用法: node src/tts.js [rate]   rate 例如 +12% （默认不加速）
+const path = require('path')
+const fs = require('fs')
+const { execFileSync } = require('child_process')
+const { MsEdgeTTS, OUTPUT_FORMAT } = require('msedge-tts')
+
+const ROOT = path.resolve(__dirname, '..')
+const AUDIO = path.join(ROOT, 'audio')
+const VOICE = 'zh-CN-XiaoxiaoNeural'
+const RATE = process.argv[2] || 'default'
+const GAP = 0.2 // 段间静音 200ms
+
+// 配音稿（已定稿，逐字使用）
+const LINES = [
+  '浏览器里，直接开 tmux 工作台。',
+  '终端、文件、编辑器、Git，一个界面全都在。',
+  '浏览器关掉，会话还在跑；桌面开始，手机继续，平板接着干。',
+  '本地和远程主机，一键切换；Tailscale 加密，安全访问。',
+  '一条命令安装，开源免费，TmuxGo。',
+]
+
+function probeDuration(file) {
+  const out = execFileSync('/usr/bin/ffprobe', [
+    '-v', 'quiet', '-show_entries', 'format=duration', '-of', 'csv=p=0', file,
+  ]).toString().trim()
+  return parseFloat(out)
+}
+
+function synth(tts, text, outFile) {
+  return new Promise((resolve, reject) => {
+    const { audioStream } = tts.toStream(text, { rate: RATE })
+    const chunks = []
+    audioStream.on('data', (d) => chunks.push(d))
+    audioStream.on('close', () => {
+      const buf = Buffer.concat(chunks)
+      if (!buf.length) return reject(new Error('empty audio for: ' + text))
+      fs.writeFileSync(outFile, buf)
+      resolve(buf.length)
+    })
+    audioStream.on('error', reject)
+  })
+}
+
+;(async () => {
+  fs.mkdirSync(AUDIO, { recursive: true })
+  const tts = new MsEdgeTTS()
+  await tts.setMetadata(VOICE, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3)
+
+  const segs = []
+  for (let i = 0; i < LINES.length; i++) {
+    const f = path.join(AUDIO, `seg${i + 1}.mp3`)
+    const bytes = await synth(tts, LINES[i], f)
+    const dur = probeDuration(f)
+    segs.push({ file: f, dur })
+    console.log(`seg${i + 1}: ${dur.toFixed(3)}s, ${bytes} bytes, rate=${RATE}`)
+  }
+  tts.close()
+
+  // 段间静音
+  const gapFile = path.join(AUDIO, 'gap.mp3')
+  execFileSync('/usr/bin/ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i',
+    'anullsrc=r=24000:cl=mono', '-t', String(GAP), '-c:a', 'libmp3lame', '-b:a', '48k', gapFile])
+
+  // 拼接
+  const listFile = path.join(AUDIO, 'concat.txt')
+  const lines = []
+  segs.forEach((s, i) => {
+    lines.push(`file '${s.file}'`)
+    if (i < segs.length - 1) lines.push(`file '${gapFile}'`)
+  })
+  fs.writeFileSync(listFile, lines.join('\n') + '\n')
+
+  const voice = path.join(AUDIO, 'voice.mp3')
+  execFileSync('/usr/bin/ffmpeg', ['-y', '-v', 'error', '-f', 'concat', '-safe', '0',
+    '-i', listFile, '-c:a', 'libmp3lame', '-b:a', '48k', '-ar', '24000', '-ac', '1', voice])
+
+  const total = probeDuration(voice)
+  // 场景时间表：以每段起点为界
+  let t = 0
+  const timeline = segs.map((s, i) => {
+    const at = t
+    t += s.dur + (i < segs.length - 1 ? GAP : 0)
+    return { seg: i + 1, at: +at.toFixed(3), dur: +s.dur.toFixed(3), end: +t.toFixed(3) }
+  })
+  const meta = { rate: RATE, gap: GAP, total: +total.toFixed(3), timeline, voice }
+  fs.writeFileSync(path.join(AUDIO, 'timeline.json'), JSON.stringify(meta, null, 2))
+  console.log('TOTAL voice.mp3 =', total.toFixed(3), 's')
+  console.log(JSON.stringify(timeline, null, 1))
+})().catch((e) => { console.error('FAIL:', e.message); process.exit(1) })

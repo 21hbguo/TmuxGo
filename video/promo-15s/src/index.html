@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>TmuxGo 15s Promo</title>
+<style>
+  :root {
+    --bg: #070b14;
+    --panel: rgba(15, 23, 42, 0.78);
+    --line: #1e2f4d;
+    --cyan: #22d3ee;
+    --blue: #4ea8ff;
+    --text: #e8eef8;
+    --muted: #8aa0bd;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); }
+  body {
+    font-family: "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: var(--text);
+  }
+  #stage { position: absolute; inset: 0; }
+  /* 背景：网格 + 径向光晕，营造深色科技风 */
+  #bgGrid {
+    position: absolute; inset: -2px;
+    background-image:
+      linear-gradient(rgba(78, 168, 255, 0.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(78, 168, 255, 0.055) 1px, transparent 1px);
+    background-size: 80px 80px;
+  }
+  .glow { position: absolute; border-radius: 50%; filter: blur(90px); opacity: .5; }
+  #g1 { width: 900px; height: 900px; left: -220px; top: -260px; background: rgba(34, 211, 238, .22); }
+  #g2 { width: 820px; height: 820px; right: -200px; bottom: -280px; background: rgba(78, 168, 255, .22); }
+  #coverBg {
+    position: absolute; inset: 0; background: url("cover.png") center/cover no-repeat;
+    opacity: 0; filter: blur(7px) saturate(1.05); transform: scale(1.05);
+  }
+  .scene { position: absolute; inset: 0; padding: 86px 120px; opacity: 0; }
+  .scene.on { opacity: 1; }
+
+  /* 通用小组件 */
+  .brand { display: flex; align-items: baseline; gap: 16px; }
+  .brand .lg { font-size: 76px; font-weight: 800; letter-spacing: -1px; }
+  .brand .lg i { font-style: normal; color: var(--cyan); }
+  .kicker { font-size: 30px; color: var(--blue); letter-spacing: 6px; font-weight: 600; }
+  .sub { font-size: 30px; color: var(--muted); }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 20px;
+    box-shadow: 0 0 0 1px rgba(78,168,255,.06), 0 18px 50px rgba(0,0,0,.45);
+  }
+  .tag {
+    display: inline-block; font-family: ui-monospace, "DejaVu Sans Mono", monospace;
+    background: rgba(34,211,238,.10); border: 1px solid rgba(34,211,238,.35);
+    color: #a8f0ff; border-radius: 10px; padding: 6px 14px; font-size: 26px;
+  }
+
+  /* ---------- S1 ---------- */
+  #s1 { display: flex; flex-direction: column; justify-content: center; }
+  #s1 .row { display: flex; align-items: center; gap: 90px; }
+  #s1 .left { flex: 0 0 900px; }
+  #s1 h1 { margin: 0; font-size: 132px; font-weight: 800; line-height: 1; letter-spacing: -3px; }
+  #s1 h1 i { font-style: normal; color: var(--cyan); }
+  #s1 .line2 { margin-top: 26px; font-size: 46px; font-weight: 600; color: #cfe1ff; }
+  #s1 .line3 { margin-top: 18px; font-size: 28px; color: var(--muted); font-family: ui-monospace, monospace; }
+  .term { width: 760px; height: 420px; overflow: hidden; }
+  .term .bar { height: 54px; display: flex; align-items: center; gap: 10px; padding: 0 20px; border-bottom: 1px solid var(--line); }
+  .dot { width: 14px; height: 14px; border-radius: 50%; }
+  .term .body { padding: 26px 28px; font-family: ui-monospace, "DejaVu Sans Mono", monospace; font-size: 30px; line-height: 1.75; }
+  .term .body .p { color: var(--cyan); }
+  .term .body .cmd { color: #dceaff; }
+  .term .body .ok { color: #4ade80; }
+  .term .body .dim { color: #7c92b0; font-size: 26px; }
+  .caret { display: inline-block; width: 16px; height: 32px; background: var(--cyan); vertical-align: -6px; }
+
+  /* ---------- S2 ---------- */
+  #s2 { display: flex; flex-direction: column; justify-content: center; }
+  #s2 .head { font-size: 62px; font-weight: 800; margin-bottom: 46px; }
+  #s2 .head i { font-style: normal; color: var(--cyan); }
+  #s2 .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 28px; }
+  #s2 .cap { padding: 34px 30px 38px; height: 470px; display: flex; flex-direction: column; }
+  #s2 .ico { width: 96px; height: 96px; border-radius: 22px; display: flex; align-items: center; justify-content: center;
+             background: rgba(78,168,255,.10); border: 1px solid rgba(78,168,255,.3); margin-bottom: 26px; }
+  #s2 .ico span { font-family: ui-monospace, monospace; font-size: 34px; color: var(--cyan); font-weight: 700; }
+  #s2 .cap h3 { margin: 0 0 14px; font-size: 38px; }
+  #s2 .cap p { margin: 0; font-size: 26px; color: var(--muted); line-height: 1.6; }
+  #s2 .mini { margin-top: auto; font-family: ui-monospace, monospace; font-size: 24px; color: #9fd8ff; }
+  #s2 .bars { margin-top: auto; display: flex; flex-direction: column; gap: 9px; }
+  #s2 .bars b { height: 10px; border-radius: 6px; background: rgba(78,168,255,.22); display: block; }
+
+  /* ---------- S3 ---------- */
+  #s3 { display: flex; flex-direction: column; }
+  #s3 .head { font-size: 58px; font-weight: 800; text-align: center; margin-top: 4px; }
+  #s3 .head i { font-style: normal; color: var(--cyan); }
+  #s3 .headsub { text-align: center; font-size: 28px; color: var(--muted); margin-top: 14px; letter-spacing: 2px; }
+  #s3 .devs { position: relative; flex: 1; margin-top: 10px; }
+  .dev { position: absolute; border: 2px solid var(--line); background: rgba(13,21,38,.86); border-radius: 18px;
+         box-shadow: 0 20px 60px rgba(0,0,0,.5); transition: none; }
+  .dev .scr { position: absolute; inset: 14px; border-radius: 10px; background: #08101f; border: 1px solid #16253f; overflow: hidden; }
+  .dev .scr .ln { height: 9px; margin: 14px 16px; border-radius: 5px; background: rgba(78,168,255,.22); }
+  .dev .scr .ln.c { background: rgba(34,211,238,.55); width: 46%; }
+  .dev .scr .ln.s { width: 68%; }
+  #d-desktop { left: 210px; top: 40px; width: 620px; height: 400px; }
+  #d-desktop .stand { position: absolute; left: 50%; transform: translateX(-50%); bottom: -56px; width: 190px; height: 56px;
+                      border: 2px solid var(--line); border-top: none; border-radius: 0 0 14px 14px; background: rgba(13,21,38,.86); }
+  #d-phone { left: 862px; top: 200px; width: 210px; height: 400px; border-radius: 30px; }
+  #d-phone .scr { inset: 12px; border-radius: 20px; }
+  #d-tablet { right: 190px; top: 90px; width: 420px; height: 320px; }
+  .devName { position: absolute; left: 0; right: 0; text-align: center; bottom: -48px; font-size: 28px; color: var(--muted); }
+  #chip {
+    position: absolute; width: 300px; padding: 16px 20px; border-radius: 16px; text-align: center;
+    background: rgba(34,211,238,.14); border: 1px solid rgba(34,211,238,.55); color: #cbf3ff;
+    font-size: 26px; font-weight: 600; box-shadow: 0 0 40px rgba(34,211,238,.28); z-index: 5;
+  }
+  #chip small { display: block; font-size: 21px; color: #8fd8ec; margin-top: 4px; font-family: ui-monospace, monospace; }
+  #s3 .foot { text-align: center; font-size: 30px; color: #b9cde8; }
+  #s3 .foot em { font-style: normal; color: var(--cyan); font-weight: 700; }
+
+  /* ---------- S4 ---------- */
+  #s4 { display: flex; align-items: center; gap: 100px; }
+  #s4 .left { flex: 1; }
+  #s4 h2 { margin: 0 0 30px; font-size: 64px; font-weight: 800; line-height: 1.25; }
+  #s4 h2 i { font-style: normal; color: var(--cyan); }
+  #s4 .pts { display: flex; flex-direction: column; gap: 22px; }
+  #s4 .pt { display: flex; align-items: center; gap: 18px; font-size: 32px; color: #d5e3f7; }
+  #s4 .pt b { width: 12px; height: 12px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 14px var(--cyan); }
+  #s4 .hosts { width: 700px; padding: 34px; }
+  #s4 .hostRow { display: flex; gap: 18px; }
+  #s4 .host { flex: 1; padding: 24px 22px; border-radius: 16px; border: 1px solid var(--line); background: rgba(9,15,28,.9); }
+  #s4 .host .n { font-size: 30px; font-weight: 700; }
+  #s4 .host .a { font-family: ui-monospace, monospace; font-size: 23px; color: var(--muted); margin-top: 8px; }
+  #s4 .host.on { border-color: rgba(34,211,238,.6); background: rgba(34,211,238,.10); box-shadow: 0 0 34px rgba(34,211,238,.22); }
+  #s4 .lockRow { margin-top: 30px; display: flex; align-items: center; gap: 20px; }
+  #shield { width: 74px; height: 84px; }
+  #s4 .lockTxt { font-size: 27px; color: #cbe3ff; line-height: 1.55; }
+  #s4 .lockTxt code { font-family: ui-monospace, monospace; color: #9fe8ff; }
+
+  /* ---------- S5 ---------- */
+  #s5 { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+  #s5 .cmdbox { width: 1180px; padding: 30px 36px; font-family: ui-monospace, "DejaVu Sans Mono", monospace;
+                font-size: 40px; text-align: left; }
+  #s5 .cmdbox .p { color: var(--cyan); }
+  #s5 .url { margin-top: 26px; font-size: 36px; color: #bcd6f5; font-family: ui-monospace, monospace; }
+  #s5 .url em { font-style: normal; color: var(--cyan); }
+  #s5 .endBrand { margin-top: 46px; display: flex; align-items: baseline; gap: 22px; }
+  #s5 .endBrand .t { font-size: 104px; font-weight: 800; letter-spacing: -2px; }
+  #s5 .endBrand .t i { font-style: normal; color: var(--cyan); }
+  #s5 .endBrand .s { font-size: 40px; color: #cfe1ff; font-weight: 600; }
+  #s5 .foot { margin-top: 30px; font-size: 27px; color: var(--muted); }
+  #s5 .foot code { font-family: ui-monospace, monospace; color: #a9c6ea; }
+
+  /* 进度条 */
+  #progWrap { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: rgba(78,168,255,.10); }
+  #prog { height: 100%; width: 0; background: linear-gradient(90deg, var(--cyan), var(--blue)); }
+  #wm { position: absolute; left: 120px; top: 46px; font-size: 30px; font-weight: 700; color: #7fa6d8; letter-spacing: 1px; opacity: 0; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="coverBg"></div>
+  <div id="bgGrid"></div>
+  <div class="glow" id="g1"></div>
+  <div class="glow" id="g2"></div>
+  <div id="wm">TmuxGo</div>
+
+  <!-- S1 开场 -->
+  <div class="scene" id="s1">
+    <div class="row">
+      <div class="left">
+        <div class="kicker">TERMINAL · FILES · EDITOR · GIT</div>
+        <h1>把 <i>tmux</i><br>装进浏览器</h1>
+        <div class="line2">浏览器打开即用 · 任意设备无缝接力</div>
+        <div class="line3">$ npx --yes @21hbguo/tmuxgo install</div>
+      </div>
+      <div class="term card">
+        <div class="bar">
+          <div class="dot" style="background:#ff5f57"></div>
+          <div class="dot" style="background:#febc2e"></div>
+          <div class="dot" style="background:#28c840"></div>
+        </div>
+        <div class="body">
+          <div><span class="p">$</span> <span class="cmd" id="s1cmd"></span><span class="caret" id="s1caret"></span></div>
+          <div class="dim" id="s1ln2">session: work · 3 windows · 2 panes</div>
+          <div class="ok" id="s1ln3">[attached] browser · localhost:3001</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- S2 能力 -->
+  <div class="scene" id="s2">
+    <div class="head">终端、文件、编辑器、Git，<i>全都在</i></div>
+    <div class="grid">
+      <div class="cap card" data-i="0">
+        <div class="ico"><span>&gt;_</span></div>
+        <h3>终端 + tmux</h3>
+        <p>浏览器里的真终端，attach、分屏、多窗口</p>
+        <div class="mini">tmux attach -t work</div>
+      </div>
+      <div class="cap card" data-i="1">
+        <div class="ico"><span>{ }</span></div>
+        <h3>文件 + 编辑器</h3>
+        <p>文件树、搜索、Monaco 编辑、Markdown 预览</p>
+        <div class="bars"><b style="width:82%"></b><b style="width:64%"></b><b style="width:74%"></b></div>
+      </div>
+      <div class="cap card" data-i="2">
+        <div class="ico"><span>⑂</span></div>
+        <h3>Git 工作台</h3>
+        <p>状态、历史、分支、提交、推送与 Diff</p>
+        <div class="mini">main ↑2 · 3 changed</div>
+      </div>
+      <div class="cap card" data-i="3">
+        <div class="ico"><span>▤</span></div>
+        <h3>工作区会话</h3>
+        <p>命名工作区、会话模板、批量管理</p>
+        <div class="bars"><b style="width:56%"></b><b style="width:78%"></b><b style="width:44%"></b></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- S3 跨设备 -->
+  <div class="scene" id="s3">
+    <div class="head">关掉浏览器，<i>会话还在跑</i></div>
+    <div class="headsub">桌面开始 · 手机查看 · 平板继续</div>
+    <div class="devs">
+      <div class="dev" id="d-desktop">
+        <div class="scr"><div class="ln c"></div><div class="ln"></div><div class="ln s"></div><div class="ln"></div><div class="ln s"></div></div>
+        <div class="stand"></div>
+        <div class="devName">桌面 · Desktop</div>
+      </div>
+      <div class="dev" id="d-phone">
+        <div class="scr"><div class="ln c"></div><div class="ln"></div><div class="ln s"></div><div class="ln"></div></div>
+        <div class="devName">手机 · PWA</div>
+      </div>
+      <div class="dev" id="d-tablet">
+        <div class="scr"><div class="ln c"></div><div class="ln s"></div><div class="ln"></div><div class="ln s"></div></div>
+        <div class="devName">平板 · Tablet</div>
+      </div>
+      <div id="chip">同一个 tmux 会话<small>session: work · 常驻不丢</small></div>
+    </div>
+    <div class="foot">断线不丢上下文，回来<em>接着干</em></div>
+  </div>
+
+  <!-- S4 多主机 + 安全 -->
+  <div class="scene" id="s4">
+    <div class="left">
+      <h2>本地远程主机<b></b>一键切换<br><i>加密安全</i>访问</h2>
+      <div class="pts">
+        <div class="pt"><b></b><span>Local 与 SSH 远端统一管理</span></div>
+        <div class="pt"><b></b><span>主机切换，会话 / 文件 / Git 同步切换</span></div>
+        <div class="pt"><b></b><span>默认只监听本机，内置账号认证</span></div>
+      </div>
+    </div>
+    <div class="hosts card">
+      <div class="hostRow">
+        <div class="host" id="h1"><div class="n">Local</div><div class="a">127.0.0.1 · 本机</div></div>
+        <div class="host" id="h2"><div class="n">SSH Remote</div><div class="a">dev-box · 22</div></div>
+      </div>
+      <div class="lockRow">
+        <svg id="shield" viewBox="0 0 74 84" fill="none">
+          <path d="M37 3 6 15v26c0 20 13 34 31 40 18-6 31-20 31-40V15L37 3Z"
+                stroke="#22d3ee" stroke-width="3" fill="rgba(34,211,238,0.10)"/>
+          <path d="M25 41v-7a12 12 0 0 1 24 0v7" stroke="#22d3ee" stroke-width="3"/>
+          <rect x="21" y="41" width="32" height="22" rx="5" stroke="#22d3ee" stroke-width="3" fill="rgba(34,211,238,0.08)"/>
+        </svg>
+        <div class="lockTxt">Tailscale / WireGuard / SSH 隧道<br><code>HTTPS · WSS · 反向代理</code></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- S5 安装 + 结尾 -->
+  <div class="scene" id="s5">
+    <div class="cmdbox card"><span class="p">$</span> <span id="s5cmd"></span><span class="caret" id="s5caret"></span></div>
+    <div class="url">打开 <em>http://localhost:3001</em> · 一条命令开始</div>
+    <div class="endBrand"><div class="t">Tmux<i>Go</i></div><div class="s">浏览器打开即用</div></div>
+    <div class="foot">开源免费 · <code>github.com/21hbguo/TmuxGo</code></div>
+  </div>
+
+  <div id="progWrap"><div id="prog"></div></div>
+</div>
+
+<script>
+(function () {
+  const TOTAL = 15.192 // 配音总时长（ffprobe 实测）
+  const audio = new Audio('voice.mp3')
+  audio.preload = 'auto'
+
+  // ---- 场景时间表：at 来自 audio/timeline.json（配音分段实测） ----
+  const SCENES = [
+    { id: 's1', at: 0.000, end: 2.526 },
+    { id: 's2', at: 2.526, end: 5.772 },
+    { id: 's3', at: 5.772, end: 9.282 },
+    { id: 's4', at: 9.282, end: 12.384 },
+    { id: 's5', at: 12.384, end: TOTAL }
+  ]
+  const el = {}
+  SCENES.forEach((s) => { el[s.id] = document.getElementById(s.id) })
+  const $ = (id) => document.getElementById(id)
+  const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v)
+  const ease = (p) => 1 - Math.pow(1 - p, 3)
+  const lerp = (a, b, p) => a + (b - a) * p
+  // 段内进度：把全局时间 t 映射为某场景 [0,1]
+  const prog = (t, at, dur) => clamp01((t - at) / dur)
+  const setP = (node, p, dy) => {
+    node.style.opacity = String(p)
+    node.style.transform = 'translateY(' + (1 - ease(p)) * (dy === undefined ? 26 : dy) + 'px)'
+  }
+
+  const s1cmd = $('s1cmd'), s5cmd = $('s5cmd'), progBar = $('prog')
+  const CMD1 = 'tmux attach -t work'
+  const CMD5 = 'npx --yes @21hbguo/tmuxgo install'
+  const chip = $('chip')
+  const capCards = Array.prototype.slice.call(document.querySelectorAll('#s2 .cap'))
+
+  // 设备锚点（舞台坐标）：会话卡片在三块屏幕之间传递
+  const ANCH = {
+    desktop: { x: 380, y: 200 },
+    phone: { x: 812, y: 360 },
+    tablet: { x: 1290, y: 250 }
+  }
+  const devs = { desktop: $('d-desktop'), phone: $('d-phone'), tablet: $('d-tablet') }
+
+  let started = false
+  let audioStartOffset = null // 音频实际起播时刻（秒，相对页面首帧）——用于给配音补等长静音，保证音画对齐
+  const t0 = performance.now()
+  audio.addEventListener('playing', function () {
+    if (audioStartOffset === null) audioStartOffset = (performance.now() - t0) / 1000
+    window.__audioStartOffset = audioStartOffset
+    document.title = 'TmuxGo 15s Promo | offset=' + audioStartOffset.toFixed(3)
+  })
+
+  function render(t) {
+    // 场景切换
+    for (let i = 0; i < SCENES.length; i++) {
+      const s = SCENES[i]
+      const on = t >= s.at && (i === SCENES.length - 1 || t < SCENES[i + 1].at)
+      el[s.id].classList.toggle('on', on)
+    }
+    // 全局进度条
+    progBar.style.width = (clamp01(t / TOTAL) * 100).toFixed(2) + '%'
+
+    // ---- S1：终端命令打字 + 光标 ----
+    $('coverBg').style.opacity = (prog(t, 0, 1.1) * 0.22).toFixed(3)
+    $('wm').style.opacity = (prog(t, 0.6, 1.2) * 0.9).toFixed(3)
+    const p1 = prog(t, 0.25, 1.25)
+    s1cmd.textContent = CMD1.slice(0, Math.floor(p1 * CMD1.length))
+    setP($('s1ln2'), prog(t, 0.95, 0.7), 18)
+    setP($('s1ln3'), prog(t, 1.3, 0.7), 18)
+    const blink = (Math.floor(t * 2.4) % 2 === 0) ? 1 : 0.15
+    $('s1caret').style.opacity = String(t < 1.6 ? 1 : blink)
+
+    // ---- S2：四张能力卡依次点亮 ----
+    for (let i = 0; i < capCards.length; i++) {
+      const p = prog(t, 2.72 + i * 0.42, 0.62)
+      setP(capCards[i], p, 34)
+      capCards[i].style.borderColor = p > 0.55 ? 'rgba(78,168,255,.45)' : '#1e2f4d'
+    }
+
+    // ---- S3：设备依次亮起 + 会话卡片传递 ----
+    const s3t = t - 5.772, s3dur = 3.51
+    const devKeys = ['desktop', 'phone', 'tablet']
+    for (let i = 0; i < 3; i++) {
+      const k = devKeys[i]
+      const p = prog(s3t, 0.10 + i * 0.30, 0.42)
+      setP(devs[k], p, 30)
+      const on = p > 0.5
+      devs[k].style.borderColor = on ? 'rgba(34,211,238,.55)' : '#1e2f4d'
+      devs[k].style.boxShadow = on ? '0 0 44px rgba(34,211,238,.22), 0 20px 60px rgba(0,0,0,.5)' : '0 20px 60px rgba(0,0,0,.5)'
+    }
+    // 卡片位置：桌面 -> 手机 -> 平板，两段位移
+    const leg1 = ease(prog(s3t, 0.34, 0.62))
+    const leg2 = ease(prog(s3t, 1.10, 0.62))
+    const x = leg2 > 0 ? lerp(ANCH.phone.x, ANCH.tablet.x, leg2) : lerp(ANCH.desktop.x, ANCH.phone.x, leg1)
+    const y = leg2 > 0 ? lerp(ANCH.phone.y, ANCH.tablet.y, leg2) : lerp(ANCH.desktop.y, ANCH.phone.y, leg1)
+    chip.style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)'
+    chip.style.opacity = String(prog(s3t, 0.05, 0.35))
+    chip.style.borderColor = leg2 > 0.6 ? 'rgba(78,168,255,.6)' : 'rgba(34,211,238,.55)'
+
+    // ---- S4：主机切换高亮 + 盾牌 ----
+    const s4t = t - 9.282
+    const h1 = $('h1'), h2 = $('h2')
+    const switchAt = s4t > 0.85
+    h1.classList.toggle('on', !switchAt)
+    h2.classList.toggle('on', switchAt)
+    const pts = document.querySelectorAll('#s4 .pt')
+    for (let i = 0; i < pts.length; i++) setP(pts[i], prog(s4t, 0.35 + i * 0.30, 0.55), 22)
+    const sp = prog(s4t, 1.85, 0.75)
+    $('shield').style.opacity = String(sp)
+    $('shield').style.transform = 'scale(' + (0.72 + 0.28 * ease(sp)).toFixed(3) + ')'
+    setP($('s4').querySelector('.lockRow'), sp, 20)
+
+    // ---- S5：安装命令打字 + 结尾 ----
+    const s5t = t - 12.384
+    const p5 = prog(s5t, 0.30, 1.15)
+    s5cmd.textContent = CMD5.slice(0, Math.floor(p5 * CMD5.length))
+    $('s5caret').style.opacity = String(Math.floor(t * 2.4) % 2 === 0 ? 1 : 0.15)
+    setP($('s5').querySelector('.url'), prog(s5t, 1.45, 0.6), 20)
+    setP($('s5').querySelector('.endBrand'), prog(s5t, 1.75, 0.7), 26)
+    setP($('s5').querySelector('.foot'), prog(s5t, 2.05, 0.6), 18)
+  }
+
+  function loop() {
+    // 动画时钟 = 音频时钟：画面与配音天然同步
+    const t = audio.currentTime || 0
+    render(t)
+    requestAnimationFrame(loop)
+  }
+
+  function start(fallback) {
+    if (started) return
+    started = true
+    if (fallback) {
+      // 音频被拦截时的降级：用性能时钟，仍保持可录（会打印告警）
+      window.__clockFallback = true
+      const f0 = performance.now()
+      ;(function fl() { render((performance.now() - f0) / 1000); requestAnimationFrame(fl) })()
+      return
+    }
+    requestAnimationFrame(loop)
+  }
+
+  audio.play().then(function () { start(false) }).catch(function (e) {
+    console.error('autoplay blocked:', e && e.message)
+    start(true)
+  })
+  // 兜底：1.5s 后仍未起播则降级，避免整段静止
+  setTimeout(function () { if (!started) start(true) }, 1500)
+})()
+</script>
+</body>
+</html>
