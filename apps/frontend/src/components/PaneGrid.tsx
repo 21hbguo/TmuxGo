@@ -674,6 +674,10 @@ export function PaneGrid({
       lastSessionRef.current = null
       pendingSessionIdRef.current = null
       pendingSessionNameRef.current = null
+      // TerminalPane 随空态卸载：ready 必须归位等下一轮挂载重新置位，
+      // 否则残留 true 会让 attach 赶在输出订阅注册前发出——attach 后的
+      // 首批重绘帧在订阅空窗被丢弃，安静 session 无后续输出即白屏
+      terminalReadyRef.current = false
       setVisibleSessionId('')
       return
     }
@@ -701,6 +705,10 @@ export function PaneGrid({
     attachInFlightRef.current = null
     isSessionAttachedRef.current = false
     sizeState.resetRemoteSize()
+    // 会话几何随目标一起作废旧上下文：上个会话的服务端推送尺寸残留会让
+    // 新终端按旧 geometry 走共享布局，且 followedSize 卡住独占 fit 使
+    // notifyReady 永不触发（attach 被 ready 闸永久阻塞→白屏）
+    sizeState.resetSessionSizes()
     inputQueueRef.current = []
     setPendingInputCount(0)
   }, [
@@ -1123,10 +1131,15 @@ export function PaneGrid({
   }, [isConnected, resizeQuietMs, targetSessionName])
   const handleReady = useCallback(() => {
     terminalReadyRef.current = true
-    if (attachedRef.current === targetSessionName) return
+    if (attachedRef.current === targetSessionName) {
+      // attach 先于本轮终端就绪完成（如 runtime 就地重建）：attach 后的首批
+      // 重绘帧可能赶在输出订阅注册前到达被丢弃，补一发 redraw 兜底恢复画面
+      send({ type: 'redraw', hostId: activeHostId || 'local', sessionName: targetSessionName })
+      return
+    }
     attachNow()
     scheduleContinuityFlush(50)
-  }, [targetSessionName, attachNow, scheduleContinuityFlush])
+  }, [targetSessionName, attachNow, scheduleContinuityFlush, send, activeHostId])
   useEffect(() => {
     if (isControlled || !sessionContinuity.enabled) return
     const timer = setInterval(() => {

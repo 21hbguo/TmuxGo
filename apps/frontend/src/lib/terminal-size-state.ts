@@ -181,6 +181,14 @@ export function createTerminalSizeState(options: TerminalSizeStateOptions) {
   const resetRemoteSize = () => {
     sentSize = null
   }
+  // 会话上下文切换（含主机切换的 sessionId 置空）：上个会话由服务端推送的
+  // 共享/降级跟随尺寸与新会话无关——残留会让新终端按旧 geometry 布局；更糟
+  // 的是 followedSize 卡住 canExclusiveFit=false，初始 fit 走不到 doFit，
+  // notifyReady 永不触发、attach 被 ready 闸永久阻塞（白屏）
+  const resetSessionSizes = () => {
+    sharedSize = null
+    followedSize = null
+  }
   // 非回声的本地新尺寸：记为下次 attach 期望主张（回声不得覆盖期望尺寸，
   // 否则 refocus 重新 attach 会拿推送尺寸去主张）
   const noteClaimed = (size: TermSize) => {
@@ -241,6 +249,7 @@ export function createTerminalSizeState(options: TerminalSizeStateOptions) {
     clearPendingSend,
     resetSendPlane,
     resetRemoteSize,
+    resetSessionSizes,
     noteClaimed,
   }
 }

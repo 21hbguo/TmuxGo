@@ -265,6 +265,56 @@ describe('PaneGrid', () => {
       attachCallsBeforeSwitch + 1,
     )
   })
+  // 主机切换会让 sessionId 置空、TerminalPane 卸载重挂：ready 属上一棵终端
+  // 的就绪态，残留会让 attach 赶在输出订阅注册前发出，首批重绘帧被丢
+  it('re-gates attach behind terminal ready after host switch remount', async () => {
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() =>
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'attach', hostId: 'local', sessionName: 'dev1' }),
+      ),
+    )
+    sendMock.mockClear()
+    act(() => {
+      useConsoleStore.setState({ activeHostId: 'remote1', activeSessionId: null })
+    })
+    act(() => {
+      useConsoleStore.setState({ activeSessionId: 'session-remote1-remotesess' })
+    })
+    expect(screen.getByRole('button', { name: 'remotesess' })).toBeInTheDocument()
+    expect(sendMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'attach' }))
+    fireEvent.click(screen.getByRole('button', { name: 'remotesess' }))
+    await waitFor(() =>
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'attach', hostId: 'remote1', sessionName: 'remotesess' }),
+      ),
+    )
+  })
+  // attach 先于本轮 ready 完成（runtime 就地重建等残余路径）：首帧可能错过
+  // 订阅窗被丢，ready 时必须补一发服务端 redraw 兜底
+  it('requests a redraw when ready fires after attach already completed', async () => {
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() =>
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'attach', hostId: 'local', sessionName: 'dev1' }),
+      ),
+    )
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, {
+        sessionName: 'dev1',
+        hostId: 'local',
+        cols: 120,
+        rows: 36,
+        exclusive: true,
+      })
+    })
+    sendMock.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'redraw', hostId: 'local', sessionName: 'dev1' }))
+    expect(sendMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'attach' }))
+  })
   it('uses a controlled session without changing the global session', async () => {
     render(<PaneGrid sessionId="session-dev2" />)
     fireEvent.click(screen.getByRole('button', { name: 'dev2' }))
