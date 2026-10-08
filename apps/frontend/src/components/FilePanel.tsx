@@ -539,6 +539,15 @@ export function FilePanel({
   const directoryLoadingRef = useRef<Map<string, Promise<FileItem[]>>>(new Map())
   const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const contextMenuRef = useRef(false)
+  // 菜单条目数不定、打开瞬间高度未知：挂到 DOM 后按实测宽高把溢出视口的部分收回来
+  const clampContextMenuRef = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const left = Math.max(4, Math.min(rect.left, window.innerWidth - rect.width - 4))
+    const top = Math.max(4, Math.min(rect.top, window.innerHeight - rect.height - 4))
+    el.style.left = `${left}px`
+    el.style.top = `${top}px`
+  }, [])
   const pendingSheetCloseAfterDiscardRef = useRef(false)
   const currentPathRef = useRef('')
   const mobileNavigationDepthRef = useRef(0)
@@ -3044,6 +3053,7 @@ export function FilePanel({
             <>
               <div className="fixed inset-0 z-[89]" onClick={() => setContextMenu(null)} />
               <div
+                ref={contextMenu.mobile ? undefined : clampContextMenuRef}
                 className="tmuxgo-menu fixed z-[90] w-44 py-1 text-xs"
                 style={
                   contextMenu.mobile
