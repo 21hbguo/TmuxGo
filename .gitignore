@@ -28,6 +28,9 @@ uploads-rate-test
 TmuxEmil/
 .dbg/
 notes/
+AGENTS.md
+CLAUDE.md
+.claude/
 apps/*/pnpm-lock.yaml
 apps/*/pnpm-workspace.yaml
 apps/gateway/render-all.cjs
