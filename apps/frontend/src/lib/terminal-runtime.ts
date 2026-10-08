@@ -1,5 +1,5 @@
 import { api } from '@/lib/api'
-import { createTerminalPaneInteractions } from './terminal-pane-interactions'
+import { createTerminalPaneInteractions, isSgrMouseButtonPress } from './terminal-pane-interactions'
 import { createTerminalPaneResizeController } from './terminal-pane-resize'
 import { createTerminalClipboardIme } from './terminal-clipboard-ime'
 import { createTerminalCore } from './terminal-core'
@@ -143,6 +143,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
   let switchBeganAt = 0
   let switchAttachedAt = 0
   let switchFlushTimer: ReturnType<typeof setTimeout> | null = null
+  let sgrMousePressSentAt = 0
   const getTerminal = () => terminal
   const isDisposed = () => disposed
   const notifyReady = () => {
@@ -476,6 +477,10 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     })
     disposables.push(
       terminal.onData((data: string) => {
+        // SGR 左键按下转义一出，tmux 已按实时坐标在 MouseDown1Pane 里选好 pane；
+        // 记下时间戳让 handlePointerSync 跳过基于缓存 bounds 的 REST select——
+        // bounds 过期（resize/分屏途中）时 REST 会把刚选对的 pane 又覆盖回去
+        if (data.charCodeAt(0) === 27 && isSgrMouseButtonPress(data)) sgrMousePressSentAt = performance.now()
         onInputRef.current?.(data)
       }),
     )
@@ -760,10 +765,15 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
         focus.focusTerminalInput,
       )
       if (event instanceof MouseEvent) {
-        const paneId = getPaneIdByMouseCell(getMouseCell(event))
-        if (paneId) {
-          setActivePane(paneId)
-          void api.panes.select(paneId).catch(() => {})
+        // 左键按下转义已发往 tmux 时不再 REST select：tmux 按实时坐标选中是权威
+        // 结果，REST 用的是缓存 bounds，过期时会覆盖它导致 pane 焦点"跳回去"
+        const tmuxHandledClick = performance.now() - sgrMousePressSentAt < 1500
+        if (!tmuxHandledClick) {
+          const paneId = getPaneIdByMouseCell(getMouseCell(event))
+          if (paneId) {
+            setActivePane(paneId)
+            void api.panes.select(paneId).catch(() => {})
+          }
         }
       }
       void syncActivePane()

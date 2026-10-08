@@ -6,6 +6,17 @@ interface PaneBounds {
   rows: number
 }
 
+// SGR (1006) 鼠标按下上报 `\x1b[<Cb;Cx;CyM`：Cb 低 2 位是按键，bit5(32)=motion、
+// bit6(64)=wheel。左键(button 0)按下会触发 tmux MouseDown1Pane 直接选 pane——
+// 此时不应再发 REST select（缓存 bounds 过期会覆盖 tmux 的实时选择结果）
+export function isSgrMouseButtonPress(data: string) {
+  if (!data.startsWith('\x1b[<') || !data.endsWith('M')) return false
+  const fields = data.slice(3, -1).split(';')
+  if (fields.length !== 3 || fields.some((f) => !/^\d+$/.test(f))) return false
+  const code = Number(fields[0])
+  return (code & 3) === 0 && (code & 96) === 0
+}
+
 export interface PaneResizeTarget {
   axis: 'x' | 'y'
   paneId: string
