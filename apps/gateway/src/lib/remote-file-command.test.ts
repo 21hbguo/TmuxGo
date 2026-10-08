@@ -25,6 +25,17 @@ test('normalizeRemoteFileErrorMessage friendly-fails on missing python', async (
   )
 })
 
+test('normalizeRemoteFileErrorMessage ignores marker literals inside command echo', async () => {
+  const { normalizeRemoteFileErrorMessage } = await import('./remote-file-command.js')
+  // execFile 失败时 err.message 会回显整条远端命令；标记不在独立行时不许误判成无 python
+  const echo =
+    'Command failed: ssh -T h -- PY="$(command -v python3 || command -v python || true)"; ' +
+    '[ -n "$PY" ] || { echo __TMUXGO_NO_PYTHON__ >&2; exit 127; }; f="$HOME/.tmuxgo/x.py"; ' +
+    '[ -f "$f" ] || { echo __TMUXGO_RPC_COLD__ >&2; exit 75; }; exec "$PY" "$f"\n' +
+    'ssh: connect to host h port 22: Connection timed out'
+  assert.equal(normalizeRemoteFileErrorMessage(echo, 'fallback'), 'SSH connection timed out')
+})
+
 test('runRemoteFilePython goes through an online agent and cold-installs the rpc script', async () => {
   const hostId = `agent-rpc-${process.pid}-${Date.now()}`
   const messages: string[] = []

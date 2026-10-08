@@ -28,9 +28,14 @@ const RPC_COLD_EXIT = 75
 function escapeShellSingleQuoted(input: string) {
   return `'${input.replace(/'/g, `'\\''`)}'`
 }
+// 标记必须独占一行才算命中：execFile 失败时 err.message 会回显整条远端命令
+// （内含 __TMUXGO_*__ 字面量），includes() 会把传输层故障误判成远端环境问题
+function hasMarkerLine(output: string, marker: string) {
+  return output.split('\n').some((line) => line.trim() === marker)
+}
 export function normalizeRemoteFileErrorMessage(raw: string, fallback: string) {
   const value = raw.trim() || fallback
-  if (value.includes(NO_PYTHON_MARKER)) return 'Remote host has no python3/python (file features need Python)'
+  if (hasMarkerLine(value, NO_PYTHON_MARKER)) return 'Remote host has no python3/python (file features need Python)'
   if (knownHostKeyMarkers.some((marker) => value.includes(marker))) return 'Host key verification failed'
   if (knownTimeoutMarkers.some((marker) => value.includes(marker))) return 'SSH connection timed out'
   if (knownNetworkMarkers.some((marker) => value.includes(marker))) return 'SSH network is unreachable'
@@ -126,9 +131,12 @@ async function dispatchRemoteShell(
         : await execFileAsync('ssh', sshArgs, { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 })
       return { stdout: String(result.stdout), stderr: String(result.stderr), exitCode: 0 }
     } catch (err: any) {
+      const stderr = String(err?.stderr || '')
       return {
         stdout: String(err?.stdout || ''),
-        stderr: `${err?.stderr || ''}\n${err?.message || ''}`,
+        // err.message 形如 "Command failed: ssh ... <整条远端命令>"，会把 __TMUXGO_*__
+        // 标记字面量混进 stderr 并顶掉真实原因；真实错误在 err.stderr，空时再兜底
+        stderr: stderr || (err?.killed ? `SSH command timed out after ${timeoutMs}ms` : 'SSH command failed'),
         exitCode: typeof err?.code === 'number' ? err.code : 1,
       }
     }
@@ -153,7 +161,7 @@ export async function runRemoteFilePython<T>(hostId: string, script: string, arg
   const host = online ? null : await getRemoteFileHost(hostId)
   const run = (command: string) => dispatchRemoteShell(hostId, host, command, 120000)
   let result = await run(buildRpcWarmCommand(script, args))
-  if (result.exitCode === RPC_COLD_EXIT || result.stderr.includes(RPC_COLD_MARKER)) {
+  if (result.exitCode === RPC_COLD_EXIT || hasMarkerLine(`${result.stderr}\n${result.stdout}`, RPC_COLD_MARKER)) {
     result = await run(buildRpcColdCommand(script, args))
   }
   if (result.exitCode !== 0) {
