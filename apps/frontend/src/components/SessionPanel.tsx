@@ -51,7 +51,6 @@ import {
 } from './SessionSortableList'
 import { HostSwitcher } from './HostSwitcher'
 import { AgentStatusBadge } from './AgentStatusBadge'
-import { AgentRecoveryBadge, useAgentRecoveryList } from './AgentRecovery'
 import { doneAgentPaneIds, getAgentAttentionRank, mergeAgentSummaries } from '@/lib/agent-status'
 import { useMarkAgentSeen } from '@/hooks/useMarkAgentSeen'
 import type { AgentStatus, AgentSummary, Session, WorkspaceEntry } from '@/types'
@@ -59,7 +58,17 @@ import { ModalPortal } from './ModalPortal'
 import { api } from '@/lib/api'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
 import { WorkspaceDirectoryPicker, type WorkspaceDirectoryTarget } from './WorkspaceDirectoryPicker'
-import { FiCheck, FiChevronDown, FiCommand, FiDownload, FiFolder, FiFolderPlus } from 'react-icons/fi'
+import {
+  FiCheck,
+  FiChevronDown,
+  FiCommand,
+  FiDownload,
+  FiFolder,
+  FiFolderPlus,
+  FiMoreHorizontal,
+  FiPlus,
+  FiUpload,
+} from 'react-icons/fi'
 
 function getNextSessionId(sessions: { id: string }[], removedIds: string[]) {
   const removed = new Set(removedIds)
@@ -75,7 +84,7 @@ export function SessionPanel() {
   const queryClient = useOptionalQueryClient()
   const markAgentSeen = useMarkAgentSeen()
   const { data: sessions = [], moveSession, isError, error, refetch } = useOrderedSessions(activeHostId || '')
-  const agentRecovery = useAgentRecoveryList(activeHostId || null)
+  // agent 恢复徽标暂不展示（AgentRecoveryBadge/useAgentRecoveryList 保留以便恢复）
   const createSession = useCreateSession()
   const deleteSession = useDeleteSession()
   const batchDeleteSessions = useBatchDeleteSessions()
@@ -569,13 +578,6 @@ export function SessionPanel() {
             onStatusClick={(status) => handleAgentStatusClick(session, status)}
             onClearDone={() => void markAgentSeen(doneAgentPaneIds([session]))}
           />
-          {activeHostId && (
-            <AgentRecoveryBadge
-              hostId={activeHostId}
-              candidates={agentRecovery.bySession.get(session.name)}
-              onResumed={agentRecovery.refetch}
-            />
-          )}
         </div>
       </button>
       {!batchMode && (
@@ -849,13 +851,33 @@ export function SessionPanel() {
                 </>
               ) : (
                 <>
-                  <Chip tone="accent" onClick={handleNewSession}>
-                    {t('sidebar.newAction')}
+                  {/* 图标化按钮：文字版三个 Chip 挤占标题栏空间，悬停看 title */}
+                  <Chip
+                    tone="accent"
+                    onClick={handleNewSession}
+                    className="px-2 py-1"
+                    title={t('sidebar.newAction')}
+                    aria-label={t('sidebar.newAction')}
+                  >
+                    <FiPlus aria-hidden="true" size={13} />
                   </Chip>
-                  <Chip onClick={() => setShowLayoutImport(true)} disabled={!activeHostId}>
-                    {t('sidebar.importLayout')}
+                  <Chip
+                    onClick={() => setShowLayoutImport(true)}
+                    disabled={!activeHostId}
+                    className="px-2 py-1"
+                    title={t('sidebar.importLayout')}
+                    aria-label={t('sidebar.importLayout')}
+                  >
+                    <FiUpload aria-hidden="true" size={13} />
                   </Chip>
-                  <Chip onClick={toggleBatchMode}>{t('sidebar.batchDeleteAction')}</Chip>
+                  <Chip
+                    onClick={toggleBatchMode}
+                    className="px-2 py-1.5"
+                    title={t('sidebar.batchDeleteAction')}
+                    aria-label={t('sidebar.batchDeleteAction')}
+                  >
+                    <FiMoreHorizontal aria-hidden="true" size={13} />
+                  </Chip>
                 </>
               )}
             </div>
