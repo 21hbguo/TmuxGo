@@ -66,6 +66,18 @@ describe('useTerminalDrop', () => {
     expect(onInput).toHaveBeenCalledWith("'/tmp/a b'\\''s.txt'")
     expect(focusTerminal).toHaveBeenCalledTimes(1)
   })
+  it('inserts all quoted absolute paths when a multi-selection payload is dropped', () => {
+    readDraggedFileMock.mockReturnValueOnce({
+      absolutePath: '/repo/docs',
+      items: [{ absolutePath: '/repo/docs' }, { absolutePath: '/repo/a b.sh' }, { absolutePath: '/repo/scripts' }],
+    })
+    const onInput = vi.fn()
+    const focusTerminal = vi.fn()
+    const { result } = renderHook(() => useTerminalDrop(onInput, vi.fn(), focusTerminal))
+    act(() => result.current.handleDrop(createDragEvent()))
+    expect(onInput).toHaveBeenCalledWith("'/repo/docs' '/repo/a b.sh' '/repo/scripts'")
+    expect(focusTerminal).toHaveBeenCalledTimes(1)
+  })
   it('falls back to formatted dropped paths', () => {
     formatDroppedPathsMock.mockReturnValueOnce("'/tmp/alpha' '/tmp/beta'")
     const onInput = vi.fn()

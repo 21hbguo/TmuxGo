@@ -34,8 +34,11 @@ export function useTerminalDrop(
         return
       }
       const draggedFile = readDraggedFile(e.dataTransfer)
-      if (draggedFile?.absolutePath) {
-        onInput(quoteShellPath(draggedFile.absolutePath))
+      const draggedPaths = (draggedFile?.items?.length ? draggedFile.items : draggedFile ? [draggedFile] : [])
+        .map((item) => item.absolutePath)
+        .filter(Boolean)
+      if (draggedPaths.length) {
+        onInput(draggedPaths.map(quoteShellPath).join(' '))
         focusTerminal?.()
         return
       }

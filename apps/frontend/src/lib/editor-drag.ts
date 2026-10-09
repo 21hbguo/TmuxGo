@@ -1,7 +1,9 @@
 import type { FileDocumentHandle } from '@/types'
 export const FILE_DRAG_MIME = 'application/x-tmuxgo-file'
-let activeDraggedFile: FileDocumentHandle | null = null
-export function setActiveDraggedFile(file: FileDocumentHandle) {
+// 多选拖拽时 items 携带整个 selection；单拖时无 items，payload 自身即唯一条目
+export type DraggedFilePayload = FileDocumentHandle & { items?: FileDocumentHandle[] }
+let activeDraggedFile: DraggedFilePayload | null = null
+export function setActiveDraggedFile(file: DraggedFilePayload) {
   activeDraggedFile = file
 }
 export function getActiveDraggedFile() {
@@ -10,12 +12,14 @@ export function getActiveDraggedFile() {
 export function clearActiveDraggedFile() {
   activeDraggedFile = null
 }
-export function readDraggedFile(dataTransfer?: DataTransfer | null) {
+export function readDraggedFile(dataTransfer?: DataTransfer | null): DraggedFilePayload | null {
   const raw = dataTransfer?.getData(FILE_DRAG_MIME)
   if (raw) {
     try {
-      return JSON.parse(raw) as FileDocumentHandle
-    } catch {}
+      return JSON.parse(raw) as DraggedFilePayload
+    } catch {
+      // 非法 payload 走 activeDraggedFile 兜底
+    }
   }
   return activeDraggedFile
 }

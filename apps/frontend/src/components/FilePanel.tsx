@@ -22,7 +22,13 @@ import { formatFileSize } from '@/lib/file-meta'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { quoteShellPath } from '@/lib/path-drop'
 import { api, fetchApiBlob } from '@/lib/api'
-import { clearActiveDraggedFile, FILE_DRAG_MIME, readDraggedFile, setActiveDraggedFile } from '@/lib/editor-drag'
+import {
+  clearActiveDraggedFile,
+  type DraggedFilePayload,
+  FILE_DRAG_MIME,
+  readDraggedFile,
+  setActiveDraggedFile,
+} from '@/lib/editor-drag'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { MARKDOWN_PROSE_CLASS, renderMarkdown } from '@/lib/markdown'
 import { CsvTable } from './CsvTable'
@@ -1466,7 +1472,7 @@ export function FilePanel({
             }
             // 拖已选中项 = 拖整个 selection；拖未选中项 = 单拖（VSCode Explorer 语义）
             const draggedItems = selectedPaths.has(item.path) && selectedItems.length > 1 ? selectedItems : [item]
-            const handle: FileDocumentHandle & { items?: FileDocumentHandle[] } = {
+            const handle: DraggedFilePayload = {
               ...createFileHandle(item),
               ...(draggedItems.length > 1 ? { items: draggedItems.map((entry) => createFileHandle(entry)) } : {}),
             }
@@ -1477,7 +1483,7 @@ export function FilePanel({
           onDragEnd: () => clearActiveDraggedFile(),
         }
   // 同面板目录 drop：payload.items[] 循环 move；目标为某拖拽目录自身/子级时跳过该项
-  const dropMoveItems = async (payload: FileDocumentHandle & { items?: FileDocumentHandle[] }, targetDir: string) => {
+  const dropMoveItems = async (payload: DraggedFilePayload, targetDir: string) => {
     const handles = payload.items?.length ? payload.items : [payload]
     const target = resolveRootRelativePath(activeRootBasePath, targetDir)
     const failed: string[] = []
