@@ -23,7 +23,7 @@
     "clsx": "^2.1.0",
     "commit-graph": "^2.4.0",
     "dompurify": "^3.4.16",
-    "marked": "^18.0.9",
+    "marked": "^18.0.14",
     "monaco-editor": "^0.56.0",
     "pako": "^3.0.1",
     "react": "^18.2.0",
