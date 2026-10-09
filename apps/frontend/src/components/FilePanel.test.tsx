@@ -350,7 +350,8 @@ vi.mock('@/i18n', () => ({
       if (key === 'file.all') return 'All'
       if (key === 'file.file') return 'File'
       if (key === 'file.dir') return 'Dir'
-      if (key === 'file.dotfiles') return 'Dotfiles'
+      if (key === 'file.showDotfiles') return 'Show dotfiles'
+      if (key === 'file.hideDotfiles') return 'Hide dotfiles'
       if (key === 'file.loading') return 'Loading...'
       if (key === 'file.treeLoadFailed') return 'Load failed'
       if (key === 'file.retryLoad') return 'Retry'
@@ -1149,7 +1150,7 @@ describe('FilePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'File' }))
     expect(screen.queryByText('src')).not.toBeInTheDocument()
     expect(screen.queryByText('.env')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Dotfiles' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Show dotfiles' }))
     expect(await screen.findByText('.env')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Dir' }))
     expect(await screen.findByText('src')).toBeInTheDocument()
@@ -1357,7 +1358,7 @@ describe('FilePanel', () => {
   it('toggles dotfiles visibility from compact button', async () => {
     render(React.createElement(FilePanel))
     expect(screen.queryByText('.env')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Dotfiles' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Show dotfiles' }))
     expect(await screen.findByText('.env')).toBeInTheDocument()
   })
   it('collapses expanded directories and clears cached children', async () => {

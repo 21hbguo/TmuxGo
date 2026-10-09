@@ -2788,80 +2788,86 @@ export function FilePanel({
                 </div>
               </div>
               {!isPicker && (
-                <div className="mt-1 flex items-center gap-1">
-                  <div className="tmuxgo-segment">
-                    {(['all', 'file', 'directory'] as FileTypeFilter[]).map((item) => (
-                      <button
-                        key={item}
-                        title={item === 'all' ? t('file.all') : item === 'file' ? t('file.file') : t('file.dir')}
-                        aria-label={item === 'all' ? t('file.all') : item === 'file' ? t('file.file') : t('file.dir')}
-                        aria-pressed={fileTypeFilter === item}
-                        onClick={() => setFileTypeFilter(item)}
-                        className="tmuxgo-segment__item !px-0 w-7"
-                      >
-                        {item === 'all' ? (
-                          <FiLayers size={13} />
-                        ) : item === 'file' ? (
-                          <FiFile size={13} />
-                        ) : (
-                          <FiFolder size={13} />
-                        )}
-                      </button>
-                    ))}
+                // 过滤段与操作按钮固定两行：窄面板下单行会裁掉右侧按钮
+                <>
+                  <div className="mt-1 flex items-center gap-1">
+                    <div className="tmuxgo-segment">
+                      {(['all', 'file', 'directory'] as FileTypeFilter[]).map((item) => (
+                        <button
+                          key={item}
+                          title={item === 'all' ? t('file.all') : item === 'file' ? t('file.file') : t('file.dir')}
+                          aria-label={item === 'all' ? t('file.all') : item === 'file' ? t('file.file') : t('file.dir')}
+                          aria-pressed={fileTypeFilter === item}
+                          onClick={() => setFileTypeFilter(item)}
+                          className="tmuxgo-segment__item !px-0 w-7"
+                        >
+                          {item === 'all' ? (
+                            <FiLayers size={13} />
+                          ) : item === 'file' ? (
+                            <FiFile size={13} />
+                          ) : (
+                            <FiFolder size={13} />
+                          )}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="min-w-0 flex-1" />
-                  <button
-                    onClick={() => void createEntry('file', currentPath)}
-                    title={t('file.newFile')}
-                    aria-label={t('file.newFile')}
-                    className="tmuxgo-toolbar-icon h-7 w-7 shrink-0"
-                  >
-                    <FiFilePlus size={14} />
-                  </button>
-                  <button
-                    onClick={() => void createEntry('directory', currentPath)}
-                    title={t('file.newFolder')}
-                    aria-label={t('file.newFolder')}
-                    className="tmuxgo-toolbar-icon h-7 w-7 shrink-0"
-                  >
-                    <FiFolderPlus size={14} />
-                  </button>
-                  <button
-                    onClick={refreshFiles}
-                    title={`${t('file.refresh')} (F5)`}
-                    aria-label={t('file.refresh')}
-                    className="tmuxgo-toolbar-icon h-7 w-7 shrink-0"
-                  >
-                    <FiRefreshCw size={14} />
-                  </button>
-                  <button
-                    onClick={(e) => setSortMenu({ x: Math.min(e.clientX, window.innerWidth - 176), y: e.clientY + 6 })}
-                    title={`${t('file.sort')}: ${fileSort.field === 'name' ? t('file.sortName') : fileSort.field === 'size' ? t('file.sortSize') : t('file.sortModified')} · ${fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')}`}
-                    aria-label={t('file.sort')}
-                    aria-haspopup="menu"
-                    className="tmuxgo-toolbar-icon h-7 w-7 shrink-0"
-                  >
-                    {fileSort.direction === 'asc' ? '↑' : '↓'}
-                  </button>
-                  <button
-                    onClick={() => updateHideDotFiles(!hideDotFiles)}
-                    title={t('file.dotfiles')}
-                    aria-label={t('file.dotfiles')}
-                    aria-pressed={!hideDotFiles}
-                    className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 ${hideDotFiles ? '' : 'tmuxgo-toolbar-icon--active'}`}
-                  >
-                    {hideDotFiles ? <FiEyeOff size={14} /> : <FiEye size={14} />}
-                  </button>
-                  <button
-                    onClick={clearExpandedDirectories}
-                    disabled={!openDirectories.size && !directoryCache.size}
-                    title={t('file.clearExpanded')}
-                    aria-label={t('file.clearExpanded')}
-                    className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 ${openDirectories.size || directoryCache.size ? '' : 'opacity-40'}`}
-                  >
-                    <FiChevronsUp size={14} />
-                  </button>
-                </div>
+                  <div className="mt-1 flex items-center gap-1">
+                    <button
+                      onClick={() => void createEntry('file', currentPath)}
+                      title={t('file.newFile')}
+                      aria-label={t('file.newFile')}
+                      className="tmuxgo-toolbar-icon h-7 w-7 shrink-0"
+                    >
+                      <FiFilePlus size={14} />
+                    </button>
+                    <button
+                      onClick={() => void createEntry('directory', currentPath)}
+                      title={t('file.newFolder')}
+                      aria-label={t('file.newFolder')}
+                      className="tmuxgo-toolbar-icon h-7 w-7 shrink-0"
+                    >
+                      <FiFolderPlus size={14} />
+                    </button>
+                    <button
+                      onClick={refreshFiles}
+                      title={`${t('file.refresh')} (F5)`}
+                      aria-label={t('file.refresh')}
+                      className="tmuxgo-toolbar-icon h-7 w-7 shrink-0"
+                    >
+                      <FiRefreshCw size={14} />
+                    </button>
+                    <button
+                      onClick={(e) =>
+                        setSortMenu({ x: Math.min(e.clientX, window.innerWidth - 176), y: e.clientY + 6 })
+                      }
+                      title={`${t('file.sort')}: ${fileSort.field === 'name' ? t('file.sortName') : fileSort.field === 'size' ? t('file.sortSize') : t('file.sortModified')} · ${fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')}`}
+                      aria-label={t('file.sort')}
+                      aria-haspopup="menu"
+                      className="tmuxgo-toolbar-icon h-7 w-7 shrink-0"
+                    >
+                      {fileSort.direction === 'asc' ? '↑' : '↓'}
+                    </button>
+                    <button
+                      onClick={() => updateHideDotFiles(!hideDotFiles)}
+                      title={hideDotFiles ? t('file.showDotfiles') : t('file.hideDotfiles')}
+                      aria-label={hideDotFiles ? t('file.showDotfiles') : t('file.hideDotfiles')}
+                      aria-pressed={!hideDotFiles}
+                      className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 ${hideDotFiles ? '' : 'tmuxgo-toolbar-icon--active'}`}
+                    >
+                      {hideDotFiles ? <FiEyeOff size={14} /> : <FiEye size={14} />}
+                    </button>
+                    <button
+                      onClick={clearExpandedDirectories}
+                      disabled={!openDirectories.size && !directoryCache.size}
+                      title={t('file.clearExpanded')}
+                      aria-label={t('file.clearExpanded')}
+                      className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 ${openDirectories.size || directoryCache.size ? '' : 'opacity-40'}`}
+                    >
+                      <FiChevronsUp size={14} />
+                    </button>
+                  </div>
+                </>
               )}
             </div>
           )}
