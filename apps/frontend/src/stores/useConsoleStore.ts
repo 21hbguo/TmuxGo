@@ -45,7 +45,7 @@ export interface EditorLayoutSplit {
 }
 export type EditorLayoutNode = EditorLayoutLeaf | EditorLayoutSplit
 export type TerminalDockPosition = 'bottom' | 'left' | 'right'
-const TERMINAL_DOCK_POSITIONS: TerminalDockPosition[] = ['bottom', 'left', 'right']
+export const TERMINAL_DOCK_POSITIONS: TerminalDockPosition[] = ['bottom', 'left', 'right']
 export type DesktopViewMode = 'full' | 'window'
 export interface ActiveDesktop {
   hostId: string

@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { isPersistableEditorMeta, useConsoleStore } from '@/stores/useConsoleStore'
+import { isPersistableEditorMeta, TERMINAL_DOCK_POSITIONS, useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import type { FileDocumentHandle, FileEditorDocument } from '@/types'
@@ -583,7 +583,7 @@ export function DesktopWorkbench() {
           )}
           {dockDragActive &&
             !activeSplitGroup &&
-            (['left', 'right', 'bottom'] as TerminalDockPosition[]).map((zone) => (
+            TERMINAL_DOCK_POSITIONS.map((zone) => (
               <div
                 key={zone}
                 data-dock-drop

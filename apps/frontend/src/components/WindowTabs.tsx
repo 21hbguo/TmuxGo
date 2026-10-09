@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { FiCheck, FiEdit3, FiLayout, FiMoreHorizontal, FiPlus, FiTrash2, FiX, FiXCircle } from 'react-icons/fi'
-import { useConsoleStore } from '@/stores/useConsoleStore'
+import { TERMINAL_DOCK_POSITIONS, useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useBatchKillWindows, useCreateWindow, useSessionSnapshot, useWindows } from '@/hooks/useApi'
@@ -14,9 +14,6 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { PromptDialog } from './PromptDialog'
 import { summarizeAgentByWindow } from '@/lib/agent-status'
 import { setTerminalDockDragActive, TERMINAL_DOCK_DRAG_MIME, WINDOW_TAB_DRAG_MIME } from '@/lib/terminal-dock-drag'
-import type { TerminalDockPosition } from '@/stores/useConsoleStore'
-
-const DOCK_POSITIONS: TerminalDockPosition[] = ['bottom', 'left', 'right']
 
 export function WindowTabs() {
   const activeHostId = useConsoleStore((s) => s.activeHostId)
@@ -441,7 +438,7 @@ export function WindowTabs() {
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
-          {DOCK_POSITIONS.map((position) => (
+          {TERMINAL_DOCK_POSITIONS.map((position) => (
             <button
               key={position}
               className={`tmuxgo-menu-item text-xs ${position === terminalDock ? 'text-accent' : ''}`}
