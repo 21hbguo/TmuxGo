@@ -66,6 +66,12 @@ export async function resizeSessionWindow(hostId: string, sessionName: string, c
   const { stdout } = await execTmux(hostId, ['display-message', '-p', '-t', sessionName, '#{status}'])
   const statusText = stdout.trim()
   const statusRows = statusText === 'off' ? 0 : parseInt(statusText, 10) || 1
+  // resize-window 会把 window-size 永久钉成 manual（session 与 window 两级），
+  // 此后其它 client 的 resize/activity 不再驱动 window——外部 tmux attach 端
+  // 被锁死在旁观尺寸。先记下 session 显式值，resize 后还原两级配置
+  const prevWindowSize = await execTmux(hostId, ['show-options', '-v', '-t', sessionName, 'window-size'])
+    .then((r) => r.stdout.trim())
+    .catch(() => '')
   await execTmux(hostId, [
     'resize-window',
     '-t',
@@ -75,6 +81,10 @@ export async function resizeSessionWindow(hostId: string, sessionName: string, c
     '-y',
     String(Math.max(1, rows - statusRows)),
   ])
+  if (prevWindowSize)
+    await execTmux(hostId, ['set-option', '-t', sessionName, 'window-size', prevWindowSize]).catch(() => {})
+  else await execTmux(hostId, ['set-option', '-u', '-t', sessionName, 'window-size']).catch(() => {})
+  await execTmux(hostId, ['setw', '-u', '-t', sessionName, 'window-size']).catch(() => {})
 }
 export async function applyScroll(hostId: string, sessionName: string, lines: number) {
   if (!lines) return
