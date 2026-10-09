@@ -482,8 +482,8 @@ export function FilePanel({
   const activePaneId = useConsoleStore((state) => state.activePaneId)
   const openEditors = useConsoleStore((state) => state.openEditors)
   const activeEditorId = useConsoleStore((state) => state.activeEditorId)
-  const filePanelWidth = useConsoleStore((state) => state.filePanelWidth)
-  const setFilePanelWidth = useConsoleStore((state) => state.setFilePanelWidth)
+  const sidePanelWidth = useConsoleStore((state) => state.sidePanelWidth)
+  const setSidePanelWidth = useConsoleStore((state) => state.setSidePanelWidth)
   const setFilePanelOpen = useConsoleStore((state) => state.setFilePanelOpen)
 
   const pushToast = useConsoleStore((state) => state.pushToast)
@@ -543,7 +543,7 @@ export function FilePanel({
   const [directoryCache, setDirectoryCache] = useState<Map<string, FileItem[]>>(new Map())
   const [directoryStatus, setDirectoryStatusState] = useState<Map<string, DirectoryStatus>>(new Map())
   const resizingRef = useRef(false)
-  const pendingWidthRef = useRef(filePanelWidth)
+  const pendingWidthRef = useRef(sidePanelWidth)
   const frameRef = useRef<number | null>(null)
   const [previewWidth, setPreviewWidth] = useState<number | null>(null)
   const directoryLoadingRef = useRef<Map<string, Promise<FileItem[]>>>(new Map())
@@ -1041,7 +1041,7 @@ export function FilePanel({
   useEffect(() => {
     const handleMove = (e: MouseEvent) => {
       if (!resizingRef.current) return
-      pendingWidthRef.current = Math.max(200, Math.min(520, window.innerWidth - e.clientX))
+      pendingWidthRef.current = Math.max(200, Math.min(920, window.innerWidth - e.clientX))
       if (frameRef.current) return
       frameRef.current = requestAnimationFrame(() => {
         frameRef.current = null
@@ -1054,7 +1054,7 @@ export function FilePanel({
         frameRef.current = null
       }
       if (resizingRef.current) {
-        setFilePanelWidth(pendingWidthRef.current)
+        setSidePanelWidth(pendingWidthRef.current)
         setPreviewWidth(null)
         emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
       }
@@ -1074,7 +1074,7 @@ export function FilePanel({
       window.removeEventListener('mouseup', handleUp)
       window.removeEventListener('blur', handleUp)
     }
-  }, [setFilePanelWidth])
+  }, [setSidePanelWidth])
   useEffect(() => {
     const close = () => setContextMenu(null)
     window.addEventListener('click', close)
@@ -2069,7 +2069,7 @@ export function FilePanel({
     isMobile || isPicker
       ? 'flex h-full min-h-0 flex-col overflow-hidden'
       : `relative flex h-full ${embedded ? 'min-w-0 flex-1' : 'shrink-0'} flex-col bg-bg-1 overflow-hidden ${dock === 'left' ? 'border-r border-[var(--line)]' : 'border-l border-[var(--line)]'}`
-  const shellStyle = isMobile || embedded || isPicker ? undefined : { width: previewWidth ?? filePanelWidth }
+  const shellStyle = isMobile || embedded || isPicker ? undefined : { width: previewWidth ?? sidePanelWidth }
   const imagePreviewPath =
     preview?.path &&
     preview.type === 'file' &&
@@ -2613,7 +2613,7 @@ export function FilePanel({
           className={`absolute top-0 h-full w-1 cursor-col-resize hover:bg-accent/40 ${dock === 'left' ? 'right-0' : 'left-0'}`}
           onMouseDown={() => {
             resizingRef.current = true
-            pendingWidthRef.current = filePanelWidth
+            pendingWidthRef.current = sidePanelWidth
             document.body.style.cursor = 'col-resize'
             document.body.style.userSelect = 'none'
             emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })

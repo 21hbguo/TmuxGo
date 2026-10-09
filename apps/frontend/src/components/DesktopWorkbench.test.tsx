@@ -59,10 +59,9 @@ describe('DesktopWorkbench', () => {
       activeHostId: 'local',
       sessionPanelExpanded: true,
       sessionPanelWidth: 248,
-      filePanelWidth: 240,
+      sidePanelWidth: 240,
       filePanelOpen: false,
       gitPanelOpen: false,
-      gitPanelWidth: 320,
       terminalPanelHeight: 300,
       openEditors: [
         {

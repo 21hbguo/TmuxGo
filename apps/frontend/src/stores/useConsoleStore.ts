@@ -52,6 +52,7 @@ export interface ActiveDesktop {
   port: number
   view: DesktopViewMode
   minimized: boolean
+  pinned?: boolean
 }
 // 侧栏面板互斥时桌面挂后台而非销毁：RFB 连接保留，下次点开免重连；窗口态桌面保持浮窗不受影响
 const parkDesktop = (desktop: ActiveDesktop | null): ActiveDesktop | null =>
@@ -60,10 +61,13 @@ export interface ActiveBrowser {
   hostId: string
   view: DesktopViewMode
   minimized: boolean
+  pinned?: boolean
 }
 // 与桌面同一套保活语义：面板互斥时浏览器挂后台不卸载，WS/screencast 不断流；窗口态保持浮窗
 const parkBrowser = (browser: ActiveBrowser | null): ActiveBrowser | null =>
   browser && browser.view !== 'window' ? { ...browser, minimized: true } : browser
+// PC 端点开桌面/浏览器默认浮窗（移动端仍全屏）；浮窗不被侧栏互斥挂起，可与各面板共存
+const DEFAULT_OVERLAY_VIEW: DesktopViewMode = IS_MOBILE_DEVICE ? 'full' : 'window'
 interface EditorWorkspaceState {
   openEditors: FileEditorDocument[]
   activeEditorId: string | null
@@ -371,12 +375,11 @@ interface ConsoleState {
   activePluginView: { pluginId: string; viewId: string } | null
   activeDesktop: ActiveDesktop | null
   activeBrowser: ActiveBrowser | null
-  gitPanelWidth: number
-  sshPanelWidth: number
   gitByHost: Record<string, GitHostState>
   mobileFileSheetOpen: boolean
   sessionPanelWidth: number
-  filePanelWidth: number
+  // files/git/ssh/endpoints/插件面板共用同一栏宽（VSCode 侧栏模型：切 tab 不跳宽）
+  sidePanelWidth: number
   terminalPanelHeight: number
   terminalPanelWidth: number
   terminalDock: TerminalDockPosition
@@ -430,8 +433,9 @@ interface ConsoleState {
   setActiveBrowser: (browser: { hostId: string } | null) => void
   setBrowserView: (view: DesktopViewMode) => void
   setBrowserMinimized: (minimized: boolean) => void
-  setGitPanelWidth: (width: number) => void
-  setSshPanelWidth: (width: number) => void
+  setDesktopPinned: (pinned: boolean) => void
+  setBrowserPinned: (pinned: boolean) => void
+  setSidePanelWidth: (width: number) => void
   ensureGitHostState: (hostId: string) => void
   replaceGitByHost: (gitByHost: Record<string, GitHostState>) => void
   setGitFollowEditorRepo: (hostId: string, repoPath: string | null, filePath: string | null) => void
@@ -441,7 +445,6 @@ interface ConsoleState {
   pinGitRepo: (hostId: string, repoPath: string, pinned: boolean) => void
   setMobileFileSheetOpen: (open: boolean) => void
   setSessionPanelWidth: (width: number) => void
-  setFilePanelWidth: (width: number) => void
   setTerminalPanelHeight: (height: number) => void
   setTerminalPanelWidth: (width: number) => void
   setTerminalDock: (dock: TerminalDockPosition) => void
@@ -554,9 +557,8 @@ function migrateLegacyConsoleState() {
         sessionPanelExpanded: true,
         filePanelOpen: false,
         gitPanelOpen: false,
-        gitPanelWidth: 560,
         sessionPanelWidth: 248,
-        filePanelWidth: 240,
+        sidePanelWidth: 240,
         terminalPanelHeight: 300,
         openEditors: legacy.openEditors,
         activeEditorId: legacy.activeEditorId,
@@ -594,12 +596,10 @@ export const useConsoleStore = create<ConsoleState>()(
       activePluginView: null,
       activeDesktop: null,
       activeBrowser: null,
-      gitPanelWidth: 560,
-      sshPanelWidth: 320,
       gitByHost: {},
       mobileFileSheetOpen: false,
       sessionPanelWidth: 248,
-      filePanelWidth: 240,
+      sidePanelWidth: 240,
       terminalPanelHeight: 300,
       terminalPanelWidth: 480,
       terminalDock: 'bottom',
@@ -623,6 +623,8 @@ export const useConsoleStore = create<ConsoleState>()(
         }),
       setActivePane: (id) => set({ activePaneId: id }),
       setCommandPalette: (open) => set({ showCommandPalette: open }),
+      // 会话面板不参与侧栏互斥：其他面板打开不再折叠它（可与 git/ssh/插件等共存），
+      // 只由显式手势切换——sessions 图标、rail 展开按钮、边框拖拽过阈值
       setSessionPanelExpanded: (expanded) =>
         set((state) =>
           expanded
@@ -683,7 +685,6 @@ export const useConsoleStore = create<ConsoleState>()(
         set((state) => ({
           activeSplitGroupId: id,
           filePanelOpen: false,
-          sessionPanelExpanded: false,
           gitPanelOpen: false,
           sshPanelOpen: false,
           activePluginView: null,
@@ -696,7 +697,6 @@ export const useConsoleStore = create<ConsoleState>()(
           open
             ? {
                 gitPanelOpen: true,
-                sessionPanelExpanded: false,
                 filePanelOpen: false,
                 sshPanelOpen: false,
                 endpointsPanelOpen: false,
@@ -712,7 +712,6 @@ export const useConsoleStore = create<ConsoleState>()(
             ? { gitPanelOpen: false }
             : {
                 gitPanelOpen: true,
-                sessionPanelExpanded: false,
                 filePanelOpen: false,
                 sshPanelOpen: false,
                 endpointsPanelOpen: false,
@@ -728,7 +727,6 @@ export const useConsoleStore = create<ConsoleState>()(
             : {
                 sshPanelOpen: true,
                 filePanelOpen: false,
-                sessionPanelExpanded: false,
                 gitPanelOpen: false,
                 endpointsPanelOpen: false,
                 activePluginView: null,
@@ -743,7 +741,6 @@ export const useConsoleStore = create<ConsoleState>()(
             : {
                 endpointsPanelOpen: true,
                 filePanelOpen: false,
-                sessionPanelExpanded: false,
                 gitPanelOpen: false,
                 sshPanelOpen: false,
                 activePluginView: null,
@@ -759,7 +756,6 @@ export const useConsoleStore = create<ConsoleState>()(
               ? {
                   activePluginView: view,
                   filePanelOpen: false,
-                  sessionPanelExpanded: false,
                   gitPanelOpen: false,
                   sshPanelOpen: false,
                   endpointsPanelOpen: false,
@@ -768,7 +764,8 @@ export const useConsoleStore = create<ConsoleState>()(
                 }
               : { activePluginView: null },
         ),
-      // 桌面 tab 是开关语义：未开→全屏开；已最小化→还原；可见→最小化挂后台（保留连接）
+      // 桌面 tab 是开关语义：未开→按 DEFAULT_OVERLAY_VIEW 开（PC 浮窗/移动端全屏）；
+      // 已最小化→还原；可见→最小化挂后台（保留连接）
       toggleDesktop: (hostId, port) =>
         set((state) =>
           !state.activeDesktop
@@ -776,11 +773,10 @@ export const useConsoleStore = create<ConsoleState>()(
                 activeDesktop: {
                   hostId,
                   port: port ?? readVncPort(hostId) ?? 5900,
-                  view: 'full',
+                  view: DEFAULT_OVERLAY_VIEW,
                   minimized: false,
                 },
                 filePanelOpen: false,
-                sessionPanelExpanded: false,
                 gitPanelOpen: false,
                 sshPanelOpen: false,
                 endpointsPanelOpen: false,
@@ -795,9 +791,8 @@ export const useConsoleStore = create<ConsoleState>()(
         set((state) =>
           desktop
             ? {
-                activeDesktop: { ...desktop, view: 'full', minimized: false },
+                activeDesktop: { ...desktop, view: DEFAULT_OVERLAY_VIEW, minimized: false },
                 filePanelOpen: false,
-                sessionPanelExpanded: false,
                 gitPanelOpen: false,
                 sshPanelOpen: false,
                 endpointsPanelOpen: false,
@@ -812,14 +807,15 @@ export const useConsoleStore = create<ConsoleState>()(
         ),
       setDesktopMinimized: (minimized) =>
         set((state) => (state.activeDesktop ? { activeDesktop: { ...state.activeDesktop, minimized } } : {})),
+      setDesktopPinned: (pinned) =>
+        set((state) => (state.activeDesktop ? { activeDesktop: { ...state.activeDesktop, pinned } } : {})),
       // 浏览器 tab 与桌面同语义：开关/最小化挂后台保活（WS 不断），打开时互斥其他面板
       toggleBrowser: (hostId) =>
         set((state) =>
           !state.activeBrowser
             ? {
-                activeBrowser: { hostId, view: 'full', minimized: false },
+                activeBrowser: { hostId, view: DEFAULT_OVERLAY_VIEW, minimized: false },
                 filePanelOpen: false,
-                sessionPanelExpanded: false,
                 gitPanelOpen: false,
                 sshPanelOpen: false,
                 endpointsPanelOpen: false,
@@ -834,9 +830,8 @@ export const useConsoleStore = create<ConsoleState>()(
         set((state) =>
           browser
             ? {
-                activeBrowser: { ...browser, view: 'full', minimized: false },
+                activeBrowser: { ...browser, view: DEFAULT_OVERLAY_VIEW, minimized: false },
                 filePanelOpen: false,
-                sessionPanelExpanded: false,
                 gitPanelOpen: false,
                 sshPanelOpen: false,
                 endpointsPanelOpen: false,
@@ -851,8 +846,9 @@ export const useConsoleStore = create<ConsoleState>()(
         ),
       setBrowserMinimized: (minimized) =>
         set((state) => (state.activeBrowser ? { activeBrowser: { ...state.activeBrowser, minimized } } : {})),
-      setGitPanelWidth: (width) => set({ gitPanelWidth: Math.max(380, Math.min(920, width)) }),
-      setSshPanelWidth: (width) => set({ sshPanelWidth: Math.max(260, Math.min(480, width)) }),
+      setBrowserPinned: (pinned) =>
+        set((state) => (state.activeBrowser ? { activeBrowser: { ...state.activeBrowser, pinned } } : {})),
+      setSidePanelWidth: (width) => set({ sidePanelWidth: Math.max(200, Math.min(920, width)) }),
       ensureGitHostState: (hostId) =>
         set((state) => ({ gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => current) })),
       replaceGitByHost: (gitByHost) => set({ gitByHost }),
@@ -911,7 +907,6 @@ export const useConsoleStore = create<ConsoleState>()(
         })),
       setMobileFileSheetOpen: (open) => set({ mobileFileSheetOpen: open }),
       setSessionPanelWidth: (width) => set({ sessionPanelWidth: Math.max(208, Math.min(320, width)) }),
-      setFilePanelWidth: (width) => set({ filePanelWidth: Math.max(200, Math.min(520, width)) }),
       setTerminalPanelHeight: (height) => set({ terminalPanelHeight: Math.max(180, Math.min(2000, height)) }),
       setTerminalPanelWidth: (width) => set({ terminalPanelWidth: Math.max(240, Math.min(2400, width)) }),
       setTerminalDock: (dock) => set({ terminalDock: dock }),
@@ -1269,10 +1264,8 @@ export const useConsoleStore = create<ConsoleState>()(
           gitPanelOpen: state.gitPanelOpen,
           sshPanelOpen: state.sshPanelOpen,
           endpointsPanelOpen: state.endpointsPanelOpen,
-          gitPanelWidth: state.gitPanelWidth,
-          sshPanelWidth: state.sshPanelWidth,
           sessionPanelWidth: state.sessionPanelWidth,
-          filePanelWidth: state.filePanelWidth,
+          sidePanelWidth: state.sidePanelWidth,
           terminalPanelHeight: state.terminalPanelHeight,
           terminalPanelWidth: state.terminalPanelWidth,
           terminalDock: state.terminalDock,
@@ -1318,10 +1311,12 @@ export const useConsoleStore = create<ConsoleState>()(
           gitPanelOpen: persistedState.gitPanelOpen ?? current.gitPanelOpen,
           sshPanelOpen: persistedState.sshPanelOpen ?? current.sshPanelOpen,
           endpointsPanelOpen: persistedState.endpointsPanelOpen ?? current.endpointsPanelOpen,
-          gitPanelWidth: persistedState.gitPanelWidth ?? current.gitPanelWidth,
-          sshPanelWidth: persistedState.sshPanelWidth ?? current.sshPanelWidth,
           sessionPanelWidth: persistedState.sessionPanelWidth ?? current.sessionPanelWidth,
-          filePanelWidth: persistedState.filePanelWidth ?? current.filePanelWidth,
+          // 旧持久化里 git/ssh/file 三个宽度已合并：以 filePanelWidth 为迁移来源
+          sidePanelWidth:
+            persistedState.sidePanelWidth ??
+            (persistedState as { filePanelWidth?: number }).filePanelWidth ??
+            current.sidePanelWidth,
           terminalPanelHeight: persistedState.terminalPanelHeight ?? current.terminalPanelHeight,
           terminalPanelWidth: persistedState.terminalPanelWidth ?? current.terminalPanelWidth,
           terminalDock:

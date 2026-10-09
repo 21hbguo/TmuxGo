@@ -136,12 +136,12 @@ describe('useConsoleStore editor persistence', () => {
   it('persists panel widths and layout across rehydrate', async () => {
     const { useConsoleStore, flushPersistedStorage } = await importStore()
     useConsoleStore.getState().setSessionPanelWidth(300)
-    useConsoleStore.getState().setGitPanelWidth(700)
+    useConsoleStore.getState().setSidePanelWidth(700)
     useConsoleStore.getState().setFilePanelOpen(true)
     flushPersistedStorage()
     const persisted = JSON.parse(localStorage.getItem('tmuxgo-console-state:desktop') || '{}')
     expect(persisted.state.sessionPanelWidth).toBe(300)
-    expect(persisted.state.gitPanelWidth).toBe(700)
+    expect(persisted.state.sidePanelWidth).toBe(700)
     expect(persisted.state.filePanelOpen).toBe(true)
   })
   it('separates mobile storage from desktop and skips desktop-only fields', async () => {
@@ -294,7 +294,7 @@ describe('useConsoleStore editor persistence', () => {
     const { useConsoleStore } = await import('./useConsoleStore')
     useConsoleStore.getState().toggleDesktop('local', 5900)
     let desktop = useConsoleStore.getState().activeDesktop
-    expect(desktop).toMatchObject({ hostId: 'local', port: 5900, view: 'full', minimized: false })
+    expect(desktop).toMatchObject({ hostId: 'local', port: 5900, view: 'window', minimized: false })
     // 可见时再点桌面 tab → 最小化挂后台，activeDesktop 保留（不卸载、不重连）
     useConsoleStore.getState().toggleDesktop('local')
     desktop = useConsoleStore.getState().activeDesktop
@@ -310,16 +310,15 @@ describe('useConsoleStore editor persistence', () => {
   it('parks the fullscreen desktop when another panel opens but keeps a floating window', async () => {
     const { useConsoleStore } = await import('./useConsoleStore')
     useConsoleStore.getState().toggleDesktop('local', 5900)
-    // 全屏态打开其他面板 → 挂后台
+    // PC 默认浮窗：打开其他面板不挂起，可边用其他 tab 边用桌面
     useConsoleStore.getState().toggleGitPanel()
     expect(useConsoleStore.getState().gitPanelOpen).toBe(true)
-    expect(useConsoleStore.getState().activeDesktop).toMatchObject({ minimized: true })
-    // 窗口态打开其他面板 → 浮窗保留，可边用其他 tab 边用桌面
-    useConsoleStore.getState().setDesktopView('window')
-    useConsoleStore.getState().setDesktopMinimized(false)
+    expect(useConsoleStore.getState().activeDesktop).toMatchObject({ view: 'window', minimized: false })
+    // 手动切回全屏后打开其他面板 → 挂后台
+    useConsoleStore.getState().setDesktopView('full')
     useConsoleStore.getState().toggleFilePanel()
     expect(useConsoleStore.getState().filePanelOpen).toBe(true)
-    expect(useConsoleStore.getState().activeDesktop).toMatchObject({ view: 'window', minimized: false })
+    expect(useConsoleStore.getState().activeDesktop).toMatchObject({ view: 'full', minimized: true })
   })
   it('switches desktop view between full and window', async () => {
     const { useConsoleStore } = await import('./useConsoleStore')
@@ -335,7 +334,7 @@ describe('useConsoleStore editor persistence', () => {
     const { useConsoleStore } = await import('./useConsoleStore')
     useConsoleStore.getState().toggleBrowser('local')
     let browser = useConsoleStore.getState().activeBrowser
-    expect(browser).toMatchObject({ hostId: 'local', view: 'full', minimized: false })
+    expect(browser).toMatchObject({ hostId: 'local', view: 'window', minimized: false })
     // 可见时再点 → 最小化挂后台（WS 不断），activeBrowser 保留
     useConsoleStore.getState().toggleBrowser('local')
     browser = useConsoleStore.getState().activeBrowser
@@ -349,28 +348,30 @@ describe('useConsoleStore editor persistence', () => {
   it('parks the fullscreen browser when another panel opens but keeps a floating window', async () => {
     const { useConsoleStore } = await import('./useConsoleStore')
     useConsoleStore.getState().toggleBrowser('local')
+    // PC 默认浮窗：不受面板互斥影响
     useConsoleStore.getState().toggleGitPanel()
     expect(useConsoleStore.getState().gitPanelOpen).toBe(true)
-    expect(useConsoleStore.getState().activeBrowser).toMatchObject({ minimized: true })
-    // 窗口态不受影响
-    useConsoleStore.getState().setBrowserView('window')
-    useConsoleStore.getState().setBrowserMinimized(false)
+    expect(useConsoleStore.getState().activeBrowser).toMatchObject({ view: 'window', minimized: false })
+    // 手动切回全屏后打开其他面板 → 挂后台
+    useConsoleStore.getState().setBrowserView('full')
     useConsoleStore.getState().toggleFilePanel()
     expect(useConsoleStore.getState().filePanelOpen).toBe(true)
-    expect(useConsoleStore.getState().activeBrowser).toMatchObject({ view: 'window', minimized: false })
+    expect(useConsoleStore.getState().activeBrowser).toMatchObject({ view: 'full', minimized: true })
   })
   it('mutually parks browser and desktop when either opens', async () => {
     const { useConsoleStore } = await import('./useConsoleStore')
     useConsoleStore.getState().toggleBrowser('local')
+    // PC 默认浮窗不参与互斥挂起，先切全屏再验证
+    useConsoleStore.getState().setBrowserView('full')
     useConsoleStore.getState().toggleDesktop('local', 5900)
-    // 开桌面 → 全屏浏览器挂后台
+    // 开桌面 → 全屏浏览器挂后台；桌面自身是浮窗不受影响
     expect(useConsoleStore.getState().activeDesktop).toMatchObject({ minimized: false })
     expect(useConsoleStore.getState().activeBrowser).toMatchObject({ minimized: true })
     useConsoleStore.getState().setBrowserMinimized(false)
-    // 再开浏览器（setActiveBrowser 等价于新开）→ 桌面挂后台
+    // 再开浏览器（setActiveBrowser 等价于新开）→ 回默认浮窗；浮窗桌面不被挂起
     useConsoleStore.getState().setActiveBrowser({ hostId: 'local' })
-    expect(useConsoleStore.getState().activeBrowser).toMatchObject({ view: 'full', minimized: false })
-    expect(useConsoleStore.getState().activeDesktop).toMatchObject({ minimized: true })
+    expect(useConsoleStore.getState().activeBrowser).toMatchObject({ view: 'window', minimized: false })
+    expect(useConsoleStore.getState().activeDesktop).toMatchObject({ minimized: false })
   })
   it('replaces an unmodified preview tab when opening another file', async () => {
     const { useConsoleStore } = await import('./useConsoleStore')

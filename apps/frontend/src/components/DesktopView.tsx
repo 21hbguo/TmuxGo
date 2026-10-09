@@ -23,6 +23,7 @@ import {
   FiType,
   FiX,
 } from 'react-icons/fi'
+import { VscPinned } from 'react-icons/vsc'
 import { Button } from './Button'
 import { api, type VncDisplay, type VncSetupStatus } from '@/lib/api'
 import { getWebSocketUrl } from '@/lib/auth'
@@ -116,12 +117,23 @@ interface DesktopViewProps {
   hostId: string
   port: number
   view: DesktopViewMode
+  pinned?: boolean
   onViewChange: (view: DesktopViewMode) => void
   onMinimize: () => void
+  onPinnedChange?: (pinned: boolean) => void
   onClose: () => void
 }
 
-export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onClose }: DesktopViewProps) {
+export function DesktopView({
+  hostId,
+  port,
+  view,
+  pinned,
+  onViewChange,
+  onMinimize,
+  onPinnedChange,
+  onClose,
+}: DesktopViewProps) {
   const { t } = useTranslation()
   const pushToast = useConsoleStore((state) => state.pushToast)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -1196,6 +1208,19 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
             className={`tmuxgo-tip ${view === 'window' ? 'text-accent' : ''}`}
           >
             <FiMinimize2 size={14} />
+          </Button>
+        )}
+        {/* 浮窗置顶：固定后点背景不再最小化，且背景可正常交互 */}
+        {!isMobileLayout && view === 'window' && onPinnedChange && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onPinnedChange(!pinned)}
+            aria-label={pinned ? t('vnc.unpin') : t('vnc.pin')}
+            data-tip={pinned ? t('vnc.unpin') : t('vnc.pin')}
+            className={`tmuxgo-tip ${pinned ? 'text-accent' : ''}`}
+          >
+            <VscPinned size={14} />
           </Button>
         )}
         {isMobileLayout && (

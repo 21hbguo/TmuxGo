@@ -47,7 +47,7 @@ export function DesktopWorkbench() {
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const sessionPanelExpanded = useConsoleStore((state) => state.sessionPanelExpanded)
   const sessionPanelWidth = useConsoleStore((state) => state.sessionPanelWidth)
-  const filePanelWidth = useConsoleStore((state) => state.filePanelWidth)
+  const sidePanelWidth = useConsoleStore((state) => state.sidePanelWidth)
   const filePanelOpen = useConsoleStore((state) => state.filePanelOpen)
   const gitPanelOpen = useConsoleStore((state) => state.gitPanelOpen)
   const sshPanelOpen = useConsoleStore((state) => state.sshPanelOpen)
@@ -57,14 +57,10 @@ export function DesktopWorkbench() {
   const setActivePluginView = useConsoleStore((state) => state.setActivePluginView)
   const { groups: splitGroups } = useSplitGroups()
   const activeSplitGroup = splitGroups.find((item) => item.id === activeSplitGroupId) || null
-  const gitPanelWidth = useConsoleStore((state) => state.gitPanelWidth)
-  const setGitPanelWidth = useConsoleStore((state) => state.setGitPanelWidth)
-  const sshPanelWidth = useConsoleStore((state) => state.sshPanelWidth)
-  const setSshPanelWidth = useConsoleStore((state) => state.setSshPanelWidth)
+  const setSidePanelWidth = useConsoleStore((state) => state.setSidePanelWidth)
   const openEditors = useConsoleStore((state) => state.openEditors)
   const setSessionPanelWidth = useConsoleStore((state) => state.setSessionPanelWidth)
   const setSessionPanelExpanded = useConsoleStore((state) => state.setSessionPanelExpanded)
-  const setFilePanelWidth = useConsoleStore((state) => state.setFilePanelWidth)
   const setFilePanelOpen = useConsoleStore((state) => state.setFilePanelOpen)
   const setEditorSaving = useConsoleStore((state) => state.setEditorSaving)
   const setEditorSaveError = useConsoleStore((state) => state.setEditorSaveError)
@@ -77,14 +73,10 @@ export function DesktopWorkbench() {
   const sessionCollapseArmedRef = useRef(false)
   const restoredRef = useRef(false)
   const pendingSessionWidthRef = useRef(sessionPanelWidth)
-  const pendingFileWidthRef = useRef(filePanelWidth)
-  const pendingGitWidthRef = useRef(gitPanelWidth)
-  const pendingSshWidthRef = useRef(sshPanelWidth)
+  const pendingSideWidthRef = useRef(sidePanelWidth)
   const frameRef = useRef<number | null>(null)
   const [previewSessionWidth, setPreviewSessionWidth] = useState<number | null>(null)
-  const [previewFileWidth, setPreviewFileWidth] = useState<number | null>(null)
-  const [previewGitWidth, setPreviewGitWidth] = useState<number | null>(null)
-  const [previewSshWidth, setPreviewSshWidth] = useState<number | null>(null)
+  const [previewSideWidth, setPreviewSideWidth] = useState<number | null>(null)
   const [sessionCollapseArmed, setSessionCollapseArmed] = useState(false)
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
   const viewportWidth = containerSize.width || 1440
@@ -99,24 +91,10 @@ export function DesktopWorkbench() {
   )
   const compactSessionWidth = clampValue(Math.floor(viewportWidth * 0.1), 70, SESSION_RAIL_WIDTH)
   const leftWidth = ACTIVITY_BAR_WIDTH + (sessionPanelExpanded ? renderedSessionPanelWidth : compactSessionWidth)
-  const gitPanelMin = clampValue(Math.floor(viewportWidth * 0.3), 380, 460)
-  const gitPanelMax = Math.max(gitPanelMin, Math.min(920, viewportWidth - leftWidth - minWorkspaceWidth))
-  const renderedGitPanelWidth = clampValue(previewGitWidth ?? gitPanelWidth, gitPanelMin, gitPanelMax)
-  const sshPanelMin = 260
-  const sshPanelMax = Math.max(sshPanelMin, Math.min(480, viewportWidth - leftWidth - minWorkspaceWidth))
-  const renderedSshPanelWidth = clampValue(previewSshWidth ?? sshPanelWidth, sshPanelMin, sshPanelMax)
-  // 端点面板定宽（参照 PluginView 不做拖拽调宽），随视口收缩让位主工作区
-  const endpointsPanelWidth = clampValue(Math.floor(viewportWidth * 0.28), 280, 400)
-  const filePanelAvailable =
-    viewportWidth -
-    leftWidth -
-    (gitPanelOpen ? renderedGitPanelWidth : 0) -
-    (sshPanelOpen ? renderedSshPanelWidth : 0) -
-    minWorkspaceWidth
-  const filePanelMaxBase = clampValue(Math.floor(viewportWidth * 0.36), 320, 520)
-  const filePanelMax = clampValue(Math.min(filePanelMaxBase, filePanelAvailable), 240, filePanelMaxBase)
-  const filePanelMin = clampValue(Math.floor(viewportWidth * 0.16), 200, Math.min(320, filePanelMax))
-  const renderedFilePanelWidth = clampValue(previewFileWidth ?? filePanelWidth, filePanelMin, filePanelMax)
+  // files/git/ssh/endpoints 共用同一渲染宽度，切 tab 不跳；拖拽任一手柄改的都是这个值
+  const sidePanelMin = clampValue(Math.floor(viewportWidth * 0.16), 200, 320)
+  const sidePanelMax = Math.max(sidePanelMin, Math.min(920, viewportWidth - leftWidth - minWorkspaceWidth))
+  const renderedSidePanelWidth = clampValue(previewSideWidth ?? sidePanelWidth, sidePanelMin, sidePanelMax)
   const terminalMinHeight = clampValue(Math.floor(viewportHeight * 0.22), 150, 220)
   const terminalInlineMaxHeight = clampValue(Math.floor(viewportHeight * 0.58), terminalMinHeight, 760)
   const terminalMaxHeight = clampValue(viewportHeight - 12, terminalInlineMaxHeight, 2000)
@@ -124,10 +102,8 @@ export function DesktopWorkbench() {
     320,
     viewportWidth -
       leftWidth -
-      (filePanelOpen ? renderedFilePanelWidth : 0) -
-      (gitPanelOpen ? renderedGitPanelWidth : 0) -
-      (sshPanelOpen ? renderedSshPanelWidth : 0) -
-      (endpointsPanelOpen ? endpointsPanelWidth : 0),
+      ((filePanelOpen ? 1 : 0) + (gitPanelOpen ? 1 : 0) + (sshPanelOpen ? 1 : 0) + (endpointsPanelOpen ? 1 : 0)) *
+        renderedSidePanelWidth,
   )
   const terminalMinWidth = clampValue(Math.floor(viewportWidth * 0.18), 260, 440)
   // 侧向停靠时给编辑区保留 ≥160px 即可，终端可以拉到接近全宽
@@ -188,53 +164,23 @@ export function DesktopWorkbench() {
         }
         return
       }
-      if (resizingRef.current === 'file') {
+      if (resizingRef.current === 'file' || resizingRef.current === 'git' || resizingRef.current === 'ssh') {
+        // 三个面板同宽，手柄按各自面板左缘（排在其前的同宽面板数）换算回栏宽
         const sessionOffset =
           ACTIVITY_BAR_WIDTH +
           (sessionPanelExpanded
             ? (previewSessionWidth ?? pendingSessionWidthRef.current ?? renderedSessionPanelWidth)
             : compactSessionWidth)
-        pendingFileWidthRef.current = clampValue(event.clientX - sessionOffset, filePanelMin, filePanelMax)
+        const panelsBefore =
+          resizingRef.current === 'file'
+            ? 0
+            : (filePanelOpen ? 1 : 0) + (resizingRef.current === 'ssh' && gitPanelOpen ? 1 : 0)
+        const panelOffset = sessionOffset + panelsBefore * renderedSidePanelWidth
+        pendingSideWidthRef.current = clampValue(event.clientX - panelOffset, sidePanelMin, sidePanelMax)
         if (frameRef.current) return
         frameRef.current = requestAnimationFrame(() => {
           frameRef.current = null
-          setPreviewFileWidth(pendingFileWidthRef.current)
-        })
-        return
-      }
-      if (resizingRef.current === 'git') {
-        const sessionOffset =
-          ACTIVITY_BAR_WIDTH +
-          (sessionPanelExpanded
-            ? (previewSessionWidth ?? pendingSessionWidthRef.current ?? renderedSessionPanelWidth)
-            : compactSessionWidth)
-        const fileOffset =
-          sessionOffset +
-          (filePanelOpen ? (previewFileWidth ?? pendingFileWidthRef.current ?? renderedFilePanelWidth) : 0)
-        pendingGitWidthRef.current = clampValue(event.clientX - fileOffset, gitPanelMin, gitPanelMax)
-        if (frameRef.current) return
-        frameRef.current = requestAnimationFrame(() => {
-          frameRef.current = null
-          setPreviewGitWidth(pendingGitWidthRef.current)
-        })
-        return
-      }
-      if (resizingRef.current === 'ssh') {
-        const sessionOffset =
-          ACTIVITY_BAR_WIDTH +
-          (sessionPanelExpanded
-            ? (previewSessionWidth ?? pendingSessionWidthRef.current ?? renderedSessionPanelWidth)
-            : compactSessionWidth)
-        const fileOffset =
-          sessionOffset +
-          (filePanelOpen ? (previewFileWidth ?? pendingFileWidthRef.current ?? renderedFilePanelWidth) : 0)
-        const gitOffset =
-          fileOffset + (gitPanelOpen ? (previewGitWidth ?? pendingGitWidthRef.current ?? renderedGitPanelWidth) : 0)
-        pendingSshWidthRef.current = clampValue(event.clientX - gitOffset, sshPanelMin, sshPanelMax)
-        if (frameRef.current) return
-        frameRef.current = requestAnimationFrame(() => {
-          frameRef.current = null
-          setPreviewSshWidth(pendingSshWidthRef.current)
+          setPreviewSideWidth(pendingSideWidthRef.current)
         })
       }
     }
@@ -248,17 +194,9 @@ export function DesktopWorkbench() {
         else setSessionPanelWidth(pendingSessionWidthRef.current)
         setPreviewSessionWidth(null)
       }
-      if (resizingRef.current === 'file') {
-        setFilePanelWidth(pendingFileWidthRef.current)
-        setPreviewFileWidth(null)
-      }
-      if (resizingRef.current === 'git') {
-        setGitPanelWidth(pendingGitWidthRef.current)
-        setPreviewGitWidth(null)
-      }
-      if (resizingRef.current === 'ssh') {
-        setSshPanelWidth(pendingSshWidthRef.current)
-        setPreviewSshWidth(null)
+      if (resizingRef.current === 'file' || resizingRef.current === 'git' || resizingRef.current === 'ssh') {
+        setSidePanelWidth(pendingSideWidthRef.current)
+        setPreviewSideWidth(null)
       }
       if (resizingRef.current) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
       resizingRef.current = null
@@ -279,24 +217,19 @@ export function DesktopWorkbench() {
     }
   }, [
     compactSessionWidth,
-    filePanelMax,
-    filePanelMin,
-    gitPanelMax,
-    gitPanelMin,
+    filePanelOpen,
+    gitPanelOpen,
     previewSessionWidth,
-    previewSshWidth,
     renderedSessionPanelWidth,
-    renderedSshPanelWidth,
+    renderedSidePanelWidth,
     sessionPanelExpanded,
     sessionPanelMax,
     sessionPanelMin,
-    setFilePanelWidth,
-    setGitPanelWidth,
     setSessionPanelExpanded,
     setSessionPanelWidth,
-    setSshPanelWidth,
-    sshPanelMax,
-    sshPanelMin,
+    setSidePanelWidth,
+    sidePanelMax,
+    sidePanelMin,
   ])
   // 卸载兜底补 end（独立 mount-only：上面的 effect 依赖 preview 宽度、拖拽中
   // 每次移动都重跑 cleanup，不能在里面发 end）
@@ -470,7 +403,7 @@ export function DesktopWorkbench() {
         {filePanelOpen && (
           <div
             className="tmuxgo-content-surface relative shrink-0 overflow-hidden border-r border-[var(--line)]"
-            style={{ width: renderedFilePanelWidth }}
+            style={{ width: renderedSidePanelWidth }}
           >
             <div className="h-full min-h-0 overflow-hidden">
               <FilePanel mode="explorer" onOpenFile={handleOpenFile} />
@@ -480,8 +413,8 @@ export function DesktopWorkbench() {
               onMouseDown={() => {
                 resizingRef.current = 'file'
                 emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
-                pendingFileWidthRef.current = filePanelWidth
-                setPreviewFileWidth(filePanelWidth)
+                pendingSideWidthRef.current = renderedSidePanelWidth
+                setPreviewSideWidth(renderedSidePanelWidth)
                 document.body.style.cursor = 'col-resize'
                 document.body.style.userSelect = 'none'
               }}
@@ -491,7 +424,7 @@ export function DesktopWorkbench() {
         {gitPanelOpen && (
           <div
             className="tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)]"
-            style={{ width: renderedGitPanelWidth }}
+            style={{ width: renderedSidePanelWidth }}
           >
             <div className="h-full min-h-0">
               <GitPanel />
@@ -501,8 +434,8 @@ export function DesktopWorkbench() {
               onMouseDown={() => {
                 resizingRef.current = 'git'
                 emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
-                pendingGitWidthRef.current = gitPanelWidth
-                setPreviewGitWidth(gitPanelWidth)
+                pendingSideWidthRef.current = renderedSidePanelWidth
+                setPreviewSideWidth(renderedSidePanelWidth)
                 document.body.style.cursor = 'col-resize'
                 document.body.style.userSelect = 'none'
               }}
@@ -512,7 +445,7 @@ export function DesktopWorkbench() {
         {sshPanelOpen && (
           <div
             className="tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)]"
-            style={{ width: renderedSshPanelWidth }}
+            style={{ width: renderedSidePanelWidth }}
           >
             <div className="h-full min-h-0">
               <SshPanel />
@@ -522,8 +455,8 @@ export function DesktopWorkbench() {
               onMouseDown={() => {
                 resizingRef.current = 'ssh'
                 emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
-                pendingSshWidthRef.current = sshPanelWidth
-                setPreviewSshWidth(sshPanelWidth)
+                pendingSideWidthRef.current = renderedSidePanelWidth
+                setPreviewSideWidth(renderedSidePanelWidth)
                 document.body.style.cursor = 'col-resize'
                 document.body.style.userSelect = 'none'
               }}
@@ -533,7 +466,7 @@ export function DesktopWorkbench() {
         {endpointsPanelOpen && (
           <div
             className="tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)]"
-            style={{ width: endpointsPanelWidth }}
+            style={{ width: renderedSidePanelWidth }}
           >
             <EndpointsPanel mode="panel" onClose={() => useConsoleStore.getState().toggleEndpointsPanel()} />
           </div>

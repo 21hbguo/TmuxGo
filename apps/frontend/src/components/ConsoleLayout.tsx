@@ -1125,13 +1125,22 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
           }`}
           style={{ height: 'var(--app-height,100dvh)' }}
         >
+          {/* 浮窗点击板：点背景吸收点击并最小化；置顶时不挂，背景可正常交互 */}
+          {activeDesktop.view === 'window' && !activeDesktop.pinned && (
+            <div
+              className="pointer-events-auto absolute inset-0"
+              onPointerDown={() => useConsoleStore.getState().setDesktopMinimized(true)}
+            />
+          )}
           <DesktopWindow windowed={activeDesktop.view === 'window'}>
             <DesktopView
               hostId={activeDesktop.hostId}
               port={activeDesktop.port}
               view={activeDesktop.view}
+              pinned={activeDesktop.pinned}
               onViewChange={(view) => useConsoleStore.getState().setDesktopView(view)}
               onMinimize={() => useConsoleStore.getState().setDesktopMinimized(true)}
+              onPinnedChange={(pinned) => useConsoleStore.getState().setDesktopPinned(pinned)}
               onClose={() => {
                 useConsoleStore.getState().setActiveDesktop(null)
                 closeOverlay('desktop')
@@ -1148,13 +1157,22 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
           }`}
           style={{ height: 'var(--app-height,100dvh)' }}
         >
+          {/* 同桌面浮窗：点背景最小化，置顶后背景可正常交互 */}
+          {activeBrowser.view === 'window' && !activeBrowser.pinned && (
+            <div
+              className="pointer-events-auto absolute inset-0"
+              onPointerDown={() => useConsoleStore.getState().setBrowserMinimized(true)}
+            />
+          )}
           <DesktopWindow windowed={activeBrowser.view === 'window'}>
             <BrowserView
               hostId={activeBrowser.hostId}
               view={activeBrowser.view}
               minimized={activeBrowser.minimized}
+              pinned={activeBrowser.pinned}
               onViewChange={(view) => useConsoleStore.getState().setBrowserView(view)}
               onMinimize={() => useConsoleStore.getState().setBrowserMinimized(true)}
+              onPinnedChange={(pinned) => useConsoleStore.getState().setBrowserPinned(pinned)}
               onClose={() => {
                 useConsoleStore.getState().setActiveBrowser(null)
                 closeOverlay('browser')

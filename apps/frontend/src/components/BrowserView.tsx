@@ -16,6 +16,7 @@ import {
   FiTool,
   FiX,
 } from 'react-icons/fi'
+import { VscPinned } from 'react-icons/vsc'
 import { Button } from './Button'
 import { BrowserPickResultCard } from './BrowserPickResult'
 import { api, type BrowserEngineState, type BrowserPickElement } from '@/lib/api'
@@ -65,12 +66,23 @@ interface BrowserViewProps {
   view: DesktopViewMode
   // 应用内面板最小化（页面仍可见）：暂停画面流但保留 WS/session
   minimized?: boolean
+  pinned?: boolean
   onViewChange: (view: DesktopViewMode) => void
   onMinimize: () => void
+  onPinnedChange?: (pinned: boolean) => void
   onClose: () => void
 }
 
-export function BrowserView({ hostId, view, minimized = false, onViewChange, onMinimize, onClose }: BrowserViewProps) {
+export function BrowserView({
+  hostId,
+  view,
+  minimized = false,
+  pinned,
+  onViewChange,
+  onMinimize,
+  onPinnedChange,
+  onClose,
+}: BrowserViewProps) {
   const { t } = useTranslation()
   const pushToast = useConsoleStore((state) => state.pushToast)
   const sectionRef = useRef<HTMLElement | null>(null)
@@ -721,6 +733,19 @@ export function BrowserView({ hostId, view, minimized = false, onViewChange, onM
             className={`tmuxgo-tip ${view === 'window' ? 'text-accent' : ''}`}
           >
             <FiMinimize2 size={14} />
+          </Button>
+        )}
+        {/* 浮窗置顶：固定后点背景不再最小化，且背景可正常交互 */}
+        {!isMobileLayout && view === 'window' && onPinnedChange && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onPinnedChange(!pinned)}
+            aria-label={pinned ? t('browser.unpin') : t('browser.pin')}
+            data-tip={pinned ? t('browser.unpin') : t('browser.pin')}
+            className={`tmuxgo-tip ${pinned ? 'text-accent' : ''}`}
+          >
+            <VscPinned size={14} />
           </Button>
         )}
         {!isMobileLayout && (

@@ -8,7 +8,7 @@ import type { FileEditorDocument, FileItem, FileListResponse } from '@/types'
 const clipboardMocks = vi.hoisted(() => ({
   writeClipboardText: vi.fn(async () => ({ copied: true, source: 'system', unavailable: false })),
 }))
-const setFilePanelWidth = vi.fn()
+const setSidePanelWidth = vi.fn()
 const setFilePanelOpen = vi.fn()
 const openUploadDialog = vi.fn()
 const pushToast = vi.fn()
@@ -44,8 +44,8 @@ const consoleStoreState: {
   activeHostId: string
   activeSessionId: string
   activePaneId: string | null
-  filePanelWidth: number
-  setFilePanelWidth: typeof setFilePanelWidth
+  sidePanelWidth: number
+  setSidePanelWidth: typeof setSidePanelWidth
   setFilePanelOpen: typeof setFilePanelOpen
   openUploadDialog: typeof openUploadDialog
   pushToast: typeof pushToast
@@ -55,8 +55,8 @@ const consoleStoreState: {
   activeHostId: 'local',
   activeSessionId: 'session-a',
   activePaneId: null,
-  filePanelWidth: 360,
-  setFilePanelWidth,
+  sidePanelWidth: 360,
+  setSidePanelWidth,
   setFilePanelOpen,
   openUploadDialog,
   pushToast,
@@ -409,7 +409,7 @@ const closeRootSelect = () => fireEvent.keyDown(rootCombobox(), { key: 'Escape' 
 describe('FilePanel', () => {
   beforeEach(() => {
     localStorage.clear()
-    setFilePanelWidth.mockReset()
+    setSidePanelWidth.mockReset()
     setFilePanelOpen.mockReset()
     openUploadDialog.mockReset()
     pushToast.mockReset()
@@ -422,7 +422,7 @@ describe('FilePanel', () => {
     consoleStoreState.activeHostId = 'local'
     consoleStoreState.activeSessionId = 'session-a'
     consoleStoreState.activePaneId = null
-    consoleStoreState.filePanelWidth = 360
+    consoleStoreState.sidePanelWidth = 360
     consoleStoreState.openEditors = []
     consoleStoreState.activeEditorId = null
     paneCwdMocks.calls.length = 0
@@ -457,11 +457,11 @@ describe('FilePanel', () => {
     expect(panel).not.toBeNull()
     fireEvent.mouseDown(handle!)
     fireEvent.mouseMove(window, { clientX: window.innerWidth - 300 })
-    expect(setFilePanelWidth).not.toHaveBeenCalled()
+    expect(setSidePanelWidth).not.toHaveBeenCalled()
     await waitFor(() => expect(panel).toHaveStyle({ width: '300px' }))
     fireEvent.mouseUp(window)
-    expect(setFilePanelWidth).toHaveBeenCalledTimes(1)
-    expect(setFilePanelWidth).toHaveBeenCalledWith(300)
+    expect(setSidePanelWidth).toHaveBeenCalledTimes(1)
+    expect(setSidePanelWidth).toHaveBeenCalledWith(300)
   })
 
   it('expands and collapses directories on desktop', async () => {
