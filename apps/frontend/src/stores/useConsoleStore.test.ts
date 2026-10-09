@@ -258,6 +258,41 @@ describe('useConsoleStore editor persistence', () => {
       state.editorGroups.find((group) => group.editorIds.includes(editor3.id))?.id || null,
     )
   })
+  it('keeps split group ids unique across rehydrate so files land in one group', async () => {
+    // 第一轮会话：分屏后持久化 editor-group-1/2；重置模块模拟刷新，id 计数器归零
+    let { useConsoleStore, flushPersistedStorage } = await importStore()
+    const editor2 = createEditor('local:root-workspace:src/other.ts', 'src/other.ts')
+    useConsoleStore.getState().openEditor(sampleEditor, { preview: false })
+    useConsoleStore.getState().openEditor(editor2, { preview: false })
+    useConsoleStore.getState().placeEditorInSplit(editor2.id, 'right')
+    flushPersistedStorage()
+    vi.resetModules()
+    // 第二轮会话：merge 恢复旧分组 id，再分屏时新组不得与恢复的 id 撞车，
+    // 否则 openEditor 按 id 匹配会把文件同步写进多个分组
+    ;({ useConsoleStore, flushPersistedStorage } = await importStore())
+    const editor3 = createEditor('local:root-workspace:src/third.ts', 'src/third.ts')
+    useConsoleStore.getState().openEditor(editor3, { preview: false })
+    useConsoleStore.getState().placeEditorInSplit(editor3.id, 'bottom')
+    let ids = useConsoleStore.getState().editorGroups.map((group) => group.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    const editor4 = createEditor('local:root-workspace:src/fourth.ts', 'src/fourth.ts')
+    useConsoleStore.getState().openEditor(editor4, { preview: false })
+    const groupsWithEditor = useConsoleStore
+      .getState()
+      .editorGroups.filter((group) => group.editorIds.includes(editor4.id))
+    expect(groupsWithEditor).toHaveLength(1)
+    // 已有重复 id 的脏持久化数据也要在恢复时重发新 id
+    flushPersistedStorage()
+    vi.resetModules()
+    const corrupted = JSON.parse(localStorage.getItem('tmuxgo-console-state:desktop') || '{}')
+    corrupted.state.editorGroups[1] = { ...corrupted.state.editorGroups[1], id: corrupted.state.editorGroups[0].id }
+    localStorage.setItem('tmuxgo-console-state:desktop', JSON.stringify(corrupted))
+    ;({ useConsoleStore } = await importStore())
+    ids = useConsoleStore.getState().editorGroups.map((group) => group.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    const leafGroupIds = collectGroupIds(useConsoleStore.getState().editorLayout)
+    expect(new Set(leafGroupIds).size).toBe(leafGroupIds.length)
+  })
   it('collapses empty groups after moving the last editor out', async () => {
     const { useConsoleStore } = await import('./useConsoleStore')
     const editor2 = createEditor('local:root-workspace:src/other.ts', 'src/other.ts')

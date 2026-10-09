@@ -224,6 +224,54 @@ function updateEditorLayoutSplitRatio(
   if (second.updated) return { node: { ...node, second: second.node }, updated: true }
   return { node, updated: false }
 }
+function collectEditorLayoutNodeIds(node: EditorLayoutNode | null): string[] {
+  if (!node) return []
+  if (!isEditorLayoutSplit(node)) return [node.id]
+  return [node.id, ...collectEditorLayoutNodeIds(node.first), ...collectEditorLayoutNodeIds(node.second)]
+}
+// id 计数器是模块级、刷新后归零，而持久化的 editor-group-N/editor-layout-N 会被恢复：
+// 恢复时把计数器重播种到已用最大序号，否则新分配的 id 与存量撞车——所有按
+// group.id === target 的写入都会同步命中多个分组，分屏内容互相覆盖。
+function reseedEditorIdCounters(groups: EditorGroupState[], layout: EditorLayoutNode | null) {
+  const maxSuffix = (ids: string[], prefix: string) =>
+    ids.reduce((max, id) => {
+      if (!id.startsWith(prefix)) return max
+      const suffix = Number(id.slice(prefix.length))
+      return Number.isInteger(suffix) && suffix > max ? suffix : max
+    }, 0)
+  editorGroupCounter = Math.max(
+    editorGroupCounter,
+    maxSuffix(
+      groups.map((group) => group.id),
+      'editor-group-',
+    ),
+  )
+  editorLayoutCounter = Math.max(editorLayoutCounter, maxSuffix(collectEditorLayoutNodeIds(layout), 'editor-layout-'))
+}
+// 早期版本已写入的脏数据可能含重复 group id：首个出现保留，后续重发新 id，
+// layout leaf 按 groupId 出现顺序回指对应的新分组
+function dedupeEditorGroups(groups: EditorGroupState[], layout: EditorLayoutNode | null) {
+  const seen = new Set<string>()
+  const remappedIds = new Map<string, string[]>()
+  let duplicated = false
+  const editorGroups = groups.map((group) => {
+    let id = group.id
+    if (seen.has(id)) {
+      id = `editor-group-${++editorGroupCounter}`
+      duplicated = true
+    }
+    seen.add(id)
+    remappedIds.set(group.id, [...(remappedIds.get(group.id) || []), id])
+    return id === group.id ? group : { ...group, id }
+  })
+  if (!duplicated) return { editorGroups, editorLayout: layout }
+  const takeRemappedId = (id: string) => remappedIds.get(id)?.shift() || id
+  const remap = (node: EditorLayoutNode): EditorLayoutNode =>
+    isEditorLayoutSplit(node)
+      ? { ...node, first: remap(node.first), second: remap(node.second) }
+      : { ...node, groupId: takeRemappedId(node.groupId) }
+  return { editorGroups, editorLayout: layout ? remap(layout) : null }
+}
 function pruneEmptyEditorGroups(groups: EditorGroupState[], layout: EditorLayoutNode | null) {
   let nextGroups = groups.map(normalizeEditorGroup)
   let nextLayout = layout
@@ -1283,16 +1331,22 @@ export const useConsoleStore = create<ConsoleState>()(
               normalizeEditorGroup({ ...group, editorIds: group.editorIds.filter((id) => validEditorIds.has(id)) }),
             )
           : current.editorGroups
-        const editorLayout = persistedState.editorLayout ?? current.editorLayout
+        const restoredLayout = persistedState.editorLayout ?? current.editorLayout
+        reseedEditorIdCounters(editorGroups, restoredLayout)
+        const deduped = dedupeEditorGroups(editorGroups, restoredLayout)
+        const nextEditorGroups = deduped.editorGroups
+        const editorLayout = deduped.editorLayout
         const activeEditorId = hasEditors
           ? persistedState.activeEditorId && validEditorIds.has(persistedState.activeEditorId)
             ? persistedState.activeEditorId
             : null
           : current.activeEditorId
         const activeEditorGroupId = hasGroups
-          ? getExistingEditorGroupId(editorGroups, persistedState.activeEditorGroupId) || editorGroups[0]?.id || null
+          ? getExistingEditorGroupId(nextEditorGroups, persistedState.activeEditorGroupId) ||
+            nextEditorGroups[0]?.id ||
+            null
           : current.activeEditorGroupId
-        const legacyState = createLegacyEditorState(editorGroups, editorLayout, activeEditorGroupId)
+        const legacyState = createLegacyEditorState(nextEditorGroups, editorLayout, activeEditorGroupId)
         const gitByHost =
           persistedState.gitByHost && typeof persistedState.gitByHost === 'object' ? persistedState.gitByHost : {}
         return {
@@ -1317,7 +1371,7 @@ export const useConsoleStore = create<ConsoleState>()(
               ? persistedState.terminalDock
               : current.terminalDock,
           openEditors,
-          editorGroups,
+          editorGroups: nextEditorGroups,
           editorLayout,
           activeEditorId,
           activeEditorGroupId,
