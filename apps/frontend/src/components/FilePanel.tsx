@@ -573,6 +573,12 @@ export function FilePanel({
   const [pendingDeleteItems, setPendingDeleteItems] = useState<FileEntry[]>([])
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null)
   const [lastTrashedItem, setLastTrashedItem] = useState<TrashEntry | null>(null)
+  // 撤销提示条限时消失（含 ⌘Z 恢复入口）：常驻会遮挡列表底部
+  useEffect(() => {
+    if (!lastTrashedItem) return
+    const timer = setTimeout(() => setLastTrashedItem(null), 6000)
+    return () => clearTimeout(timer)
+  }, [lastTrashedItem])
   const [trashEntries, setTrashEntries] = useState<TrashEntry[]>([])
   const [trashOpen, setTrashOpen] = useState(false)
   // 两个浮层菜单各占一层 ESC（回收站走 ModalPortal modal 层）
