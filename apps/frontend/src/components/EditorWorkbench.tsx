@@ -1451,14 +1451,9 @@ export function EditorWorkbench({
   if (!activeEditor) return null
   return (
     <section data-editor-drop className="flex h-full min-h-0 flex-col bg-bg-0">
-      <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.04)] bg-bg-1/70 px-3 py-2">
+      <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.04)] bg-bg-1/70 px-3 py-1">
         <div className="min-w-0">
           <div className="truncate text-sm text-text-1">{activeEditor.absolutePath}</div>
-          <div className="mt-0.5 text-meta text-text-3">
-            {activeEditor.language.toUpperCase()} · {activeEditor.size || 0}B
-            {cursor ? ` · Ln ${cursor.line}, Col ${cursor.column}` : ''}
-            {activeEditor.modifiedAt ? ` · ${new Date(activeEditor.modifiedAt).toLocaleString()}` : ''}
-          </div>
         </div>
         <div className="flex items-center gap-2">
           {!gitDiff && (
