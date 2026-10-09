@@ -14,7 +14,12 @@ import { TerminalDock } from './TerminalDock'
 import { SessionSplitView } from './SessionSplitView'
 import { useSplitGroups } from '@/hooks/useSplitGroups'
 import { useTranslation } from '@/i18n'
-import { isTerminalDockDrag } from '@/lib/terminal-dock-drag'
+import {
+  isOutsideWindowStrip,
+  isTerminalDockDrag,
+  setTerminalDockDragActive,
+  WINDOW_TAB_DRAG_MIME,
+} from '@/lib/terminal-dock-drag'
 import type { TerminalDockPosition } from '@/stores/useConsoleStore'
 
 // 默认关闭的侧栏/插件面板动态加载：开 panel 时才拉取对应 chunk，缩小主入口
@@ -355,15 +360,28 @@ export function DesktopWorkbench() {
   )
   useEffect(() => {
     const handleDragStart = (event: DragEvent) => setDockDragActive(isTerminalDockDrag(event.dataTransfer))
+    // 窗口 tab 排序拖（dragstart 被 stopPropagation，走不到上面）：指针拖出 tab 条矩形后
+    // 转为停靠拖拽显示 zones，回到条内还原——条内 reorder 与出条停靠两种手势合一
+    const handleDragOver = (event: DragEvent) => {
+      if (!event.dataTransfer?.types?.includes(WINDOW_TAB_DRAG_MIME)) return
+      const rect = document.querySelector('[data-tmuxgo-window-strip]')?.getBoundingClientRect()
+      const docking = isOutsideWindowStrip(rect, event.clientX, event.clientY)
+      setTerminalDockDragActive(docking)
+      setDockDragActive((prev) => (prev === docking ? prev : docking))
+    }
     const handleDragEnd = () => {
+      setTerminalDockDragActive(false)
       setDockDragActive(false)
       setDockDropSide(null)
     }
     window.addEventListener('dragstart', handleDragStart)
+    // 必须 capture：tab 的 onDragOver 有 stopPropagation，bubble 阶段在条内收不到事件
+    window.addEventListener('dragover', handleDragOver, true)
     window.addEventListener('dragend', handleDragEnd)
     window.addEventListener('drop', handleDragEnd)
     return () => {
       window.removeEventListener('dragstart', handleDragStart)
+      window.removeEventListener('dragover', handleDragOver, true)
       window.removeEventListener('dragend', handleDragEnd)
       window.removeEventListener('drop', handleDragEnd)
     }
@@ -568,6 +586,7 @@ export function DesktopWorkbench() {
             (['left', 'right', 'bottom'] as TerminalDockPosition[]).map((zone) => (
               <div
                 key={zone}
+                data-dock-drop
                 className={`absolute z-30 transition-colors ${zone === 'left' ? 'left-0 top-0 bottom-0 w-24' : zone === 'right' ? 'right-0 top-0 bottom-0 w-24' : 'left-0 right-0 bottom-0 h-24'} ${dockDropSide === zone ? 'bg-accent/25' : 'bg-accent/5'}`}
                 onDragOver={(event) => {
                   if (!isTerminalDockDrag(event.dataTransfer)) return

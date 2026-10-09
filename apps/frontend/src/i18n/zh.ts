@@ -1101,7 +1101,7 @@ export const zh = {
   'terminal.dock.bottom': '底部',
   'terminal.dock.left': '左侧',
   'terminal.dock.right': '右侧',
-  'terminal.dockHint': '终端区位置：{position}（点击展开选项，拖动此栏到工作区边缘停靠）',
+  'terminal.dockHint': '终端区位置：{position}（点击展开选项；将此栏或窗口标签拖出标签条即可停靠到工作区边缘）',
   'terminal.selectionChars': '{count} 字符',
 
   // Clipboard

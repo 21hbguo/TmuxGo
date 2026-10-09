@@ -12,6 +12,8 @@ export function DropGuard() {
       const target = e.target
       if (target instanceof Element && target.closest('[data-terminal]')) return
       if (target instanceof Element && target.closest('[data-editor-drop]') && hasInternalFileDrag(e)) return
+      // 终端停靠 zones 只在 dock 拖拽期间挂载，放行让 zone 自己判定是否接受
+      if (target instanceof Element && target.closest('[data-dock-drop]')) return
       e.preventDefault()
       e.stopPropagation()
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'

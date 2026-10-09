@@ -13,12 +13,10 @@ import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
 import { PromptDialog } from './PromptDialog'
 import { summarizeAgentByWindow } from '@/lib/agent-status'
-import { setTerminalDockDragActive, TERMINAL_DOCK_DRAG_MIME } from '@/lib/terminal-dock-drag'
+import { setTerminalDockDragActive, TERMINAL_DOCK_DRAG_MIME, WINDOW_TAB_DRAG_MIME } from '@/lib/terminal-dock-drag'
 import type { TerminalDockPosition } from '@/stores/useConsoleStore'
 
 const DOCK_POSITIONS: TerminalDockPosition[] = ['bottom', 'left', 'right']
-// dataTransfer.types 会被规范化为小写，自定义 MIME 必须全小写
-const WINDOW_TAB_DRAG_MIME = 'application/x-tmuxgo-window'
 
 export function WindowTabs() {
   const activeHostId = useConsoleStore((s) => s.activeHostId)
@@ -245,6 +243,7 @@ export function WindowTabs() {
     <div
       className="flex items-end gap-1 border-b border-[var(--line)] bg-bg-1 pl-1.5 pr-2 pt-1"
       title={t('terminal.dockHint', { position: t(`terminal.dock.${terminalDock}`) })}
+      data-tmuxgo-window-strip
       draggable
       onDragStart={(event) => {
         event.dataTransfer.setData(TERMINAL_DOCK_DRAG_MIME, '1')
@@ -367,8 +366,9 @@ export function WindowTabs() {
                 setDropTarget(null)
                 if (dragId) void handleTabDrop(dragId, window.id, side)
               }}
-              onDragEnd={(event) => {
-                event.stopPropagation()
+              onDragEnd={() => {
+                // 不能 stopPropagation：drop 未命中合法目标时只有 dragend 会到 window 做
+                // 停靠 zones 的收尾清理；截断会让 zones 残留显示
                 setDragWindowId(null)
                 setDropTarget(null)
               }}

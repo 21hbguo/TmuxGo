@@ -1108,7 +1108,8 @@ export const en = {
   'terminal.dock.bottom': 'Bottom',
   'terminal.dock.left': 'Left',
   'terminal.dock.right': 'Right',
-  'terminal.dockHint': 'Terminal dock: {position} (click for options, drag this bar to a workspace edge to dock)',
+  'terminal.dockHint':
+    'Terminal dock: {position} (click for options; drag this bar or a window tab out of the tab strip to dock at a workspace edge)',
   'terminal.selectionChars': '{count} chars',
 
   // Clipboard
