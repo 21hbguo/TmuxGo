@@ -136,10 +136,12 @@ The gateway JSON store is the single source of truth. localStorage on clients pe
 
 The existing authenticated agent stream sends metadata-only events:
 
-- `inbox_message_created` `{ message, rev }`
-- `inbox_message_updated` `{ messages: AgentInboxMessage[], rev }` (one event per batch: mark-read/unread, archive/restore, trash/restore all use this shape)
-- `inbox_message_deleted` `{ ids: string[], rev }` (physical removal only: purge and TTL/FIFO/quota/trash-expiry eviction)
+- `inbox_message_created` `{ message, rev, stats }`
+- `inbox_message_updated` `{ messages: AgentInboxMessage[], rev, stats }` (one event per batch: mark-read/unread, archive/restore, trash/restore all use this shape)
+- `inbox_message_deleted` `{ ids: string[], rev, stats }` (physical removal only: purge and TTL/FIFO/quota/trash-expiry eviction)
 - `inbox_open_target` (navigation request for the UI)
+
+`stats` is the authoritative capacity snapshot (`{ messages, maxMessages, assetBytes, maxAssetBytes }`, same shape as `GET /api/inbox` → `stats`): `messages` counts non-trashed messages, `assetBytes` counts all assets including ones still referenced by trash entries. Trash/restore/purge REST responses return it too, so clients can refresh the capacity hint without a list refetch.
 
 Closing preview tabs ("close all tabs" in the desktop panel) is a purely local UI action — it emits no inbox event and mutates no message state.
 

@@ -4,7 +4,7 @@ import { subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { api } from '@/lib/api'
 import { getDeviceId } from '@/lib/agent-push'
 import { useInboxStore, isInboxUnread, isInboxTrashed } from '@/stores/useInboxStore'
-import type { AgentInboxMessage } from '@/types'
+import type { AgentInboxMessage, InboxListStats } from '@/types'
 
 const INBOX_PAGE_SIZE = 100
 const UNREAD_REFRESH_DEBOUNCE_MS = 400
@@ -71,6 +71,9 @@ function optimisticInboxMutation<T>(mutate: () => Promise<T>) {
   store.beginSync()
   return mutate()
     .then((res) => {
+      // 变更响应自带权威 stats：容量提示即时刷新，不等下次整列对账
+      const stats = (res as { stats?: InboxListStats } | null | undefined)?.stats
+      if (stats) useInboxStore.getState().setStats(stats)
       useInboxStore.getState().endSync()
       return res
     })
@@ -152,10 +155,11 @@ export function useInboxSync(options: { onMessageCreated?: (message: AgentInboxM
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') reconcile()
     }
-    const handleCreated = (detail: { message?: AgentInboxMessage; rev?: number }) => {
+    const handleCreated = (detail: { message?: AgentInboxMessage; rev?: number; stats?: InboxListStats }) => {
       const message = detail?.message
       if (!message?.id) return
       const state = useInboxStore.getState()
+      if (detail.stats) state.setStats(detail.stats)
       const known = state.messages.some((item) => item.id === message.id)
       const verdict = state.applyInboxCreated(message, detail.rev)
       // rev 跳号 = 丢事件：整个回源快照，不在这条事件上硬拼
@@ -166,19 +170,26 @@ export function useInboxSync(options: { onMessageCreated?: (message: AgentInboxM
         onMessageCreatedRef.current?.(message)
       } else scheduleUnreadRefresh()
     }
-    const handleUpdated = (detail: { message?: AgentInboxMessage; messages?: AgentInboxMessage[]; rev?: number }) => {
+    const handleUpdated = (detail: {
+      message?: AgentInboxMessage
+      messages?: AgentInboxMessage[]
+      rev?: number
+      stats?: InboxListStats
+    }) => {
       // 兼容旧单条 payload 与新的批量 payload
       const batch = detail?.messages || (detail?.message ? [detail.message] : [])
       if (!batch.length) return
       const state = useInboxStore.getState()
+      if (detail.stats) state.setStats(detail.stats)
       const verdict = state.applyInboxUpdated(batch, detail.rev)
       if (verdict === 'gap') return void refreshInboxList().catch(() => {})
       if (verdict !== 'applied') return
       recountUnread()
     }
-    const handleDeleted = (detail: { ids?: string[]; rev?: number }) => {
+    const handleDeleted = (detail: { ids?: string[]; rev?: number; stats?: InboxListStats }) => {
       const ids = detail?.ids
       if (!Array.isArray(ids) || !ids.length) return
+      if (detail.stats) useInboxStore.getState().setStats(detail.stats)
       const verdict = useInboxStore.getState().applyInboxDeleted(ids, detail.rev)
       if (verdict === 'gap') void refreshInboxList().catch(() => {})
     }

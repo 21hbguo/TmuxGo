@@ -598,17 +598,17 @@ export const api = {
       }),
     // 删除=进回收站（服务端软删）；purge 才物理删除
     remove: (ids: string[]) =>
-      fetchApi<{ ok: true; removed: number; revision?: number }>('/api/inbox/delete', {
+      fetchApi<{ ok: true; removed: number; revision?: number; stats?: InboxListStats }>('/api/inbox/delete', {
         method: 'POST',
         body: JSON.stringify({ ids }),
       }),
     restore: (ids: string[]) =>
-      fetchApi<{ ok: true; restored: number; revision?: number }>('/api/inbox/restore', {
+      fetchApi<{ ok: true; restored: number; revision?: number; stats?: InboxListStats }>('/api/inbox/restore', {
         method: 'POST',
         body: JSON.stringify({ ids }),
       }),
     purge: (ids: string[]) =>
-      fetchApi<{ ok: true; purged: number; revision?: number }>('/api/inbox/purge', {
+      fetchApi<{ ok: true; purged: number; revision?: number; stats?: InboxListStats }>('/api/inbox/purge', {
         method: 'POST',
         body: JSON.stringify({ ids }),
       }),

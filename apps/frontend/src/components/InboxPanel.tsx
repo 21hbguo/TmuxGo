@@ -540,22 +540,6 @@ export function InboxPanel({ mode, onClose, onPreview, onJump }: InboxPanelProps
           options={RANGE_OPTIONS.map((range) => ({ value: range, label: t(RANGE_LABEL_KEYS[range]) }))}
           aria-label={t('inbox.rangeAll')}
         />
-        <span className="shrink-0 text-caption text-text-3/70">
-          {t('inbox.count', { shown: filtered.length, total: messages.length })}
-        </span>
-        {/* 容量口径来自服务端 stats：消息数按非回收站计，asset 含回收站引用 */}
-        {stats && (
-          <span
-            className={`shrink-0 text-caption ${
-              stats.messages >= stats.maxMessages * 0.85 || stats.assetBytes >= stats.maxAssetBytes * 0.85
-                ? 'text-warning'
-                : 'text-text-3/70'
-            }`}
-            title={t('inbox.capacityHint')}
-          >
-            {stats.messages}/{stats.maxMessages} · {formatBytes(stats.assetBytes)}/{formatBytes(stats.maxAssetBytes)}
-          </span>
-        )}
       </div>
       {/* 选中态批量条：操作随视图切换；全选范围=当前筛选结果 */}
       {selectedIds.length > 0 && (
@@ -658,6 +642,26 @@ export function InboxPanel({ mode, onClose, onPreview, onJump }: InboxPanelProps
     </div>
   )
 
+  // 左栏底部状态条：计数/容量挪出筛选行，避免与下拉挤在同一 flex-wrap 里折行
+  const footer = (
+    <div className="flex h-6 shrink-0 items-center justify-between gap-2 border-t border-[var(--line)] px-2 text-caption text-text-3/70">
+      <span>{t('inbox.count', { shown: filtered.length, total: messages.length })}</span>
+      {/* 容量口径来自服务端 stats：消息数按非回收站计，asset 含回收站引用 */}
+      {stats && (
+        <span
+          className={
+            stats.messages >= stats.maxMessages * 0.85 || stats.assetBytes >= stats.maxAssetBytes * 0.85
+              ? 'text-warning'
+              : undefined
+          }
+          title={t('inbox.capacityHint')}
+        >
+          {stats.messages}/{stats.maxMessages} · {formatBytes(stats.assetBytes)}/{formatBytes(stats.maxAssetBytes)}
+        </span>
+      )}
+    </div>
+  )
+
   // 删除=进回收站（软删）：确认文案明说可恢复窗口，不是永久消失
   const confirmTrash = (
     <ConfirmDialog
@@ -754,6 +758,7 @@ export function InboxPanel({ mode, onClose, onPreview, onJump }: InboxPanelProps
       <div className="relative flex h-full min-h-0 flex-col">
         {header}
         {list}
+        {footer}
         {dialogs}
       </div>
     )
@@ -764,7 +769,11 @@ export function InboxPanel({ mode, onClose, onPreview, onJump }: InboxPanelProps
     <div
       ref={rootRef}
       className="fixed inset-0 z-[100] flex items-center justify-center tmuxgo-scrim p-4"
-      onMouseDown={onClose}
+      // portal 弹窗的 mousedown 会沿 React 树冒泡到这里，必须比对 target
+      // 否则 ConfirmDialog 内任何点击都先关掉整个面板（删除确认永远落不下去）
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
     >
       {/* 桌面端接近全屏：92vw/92dvh，上限 1440x960；左栏 clamp 420-520px */}
       <section
@@ -774,6 +783,7 @@ export function InboxPanel({ mode, onClose, onPreview, onJump }: InboxPanelProps
         <div className="flex h-44 w-full shrink-0 flex-col border-b border-[var(--line)] bg-bg-1 sm:h-auto sm:w-[clamp(420px,34%,520px)] sm:border-b-0 sm:border-r">
           {header}
           {list}
+          {footer}
         </div>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* 右侧 tab 标题栏常驻：无 tab 时也要露出「关闭全部」（禁用态） */}

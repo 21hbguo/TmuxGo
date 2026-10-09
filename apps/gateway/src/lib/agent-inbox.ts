@@ -60,10 +60,19 @@ export interface InboxAsset {
   createdAt: string
 }
 
+export interface InboxStats {
+  messages: number
+  maxMessages: number
+  assetBytes: number
+  maxAssetBytes: number
+}
+
+// 事件一律带 stats（必填）：容量提示在 created/updated/deleted 后都要即时刷新，
+// 可选字段迟早被某条新 emit 路径漏掉
 export type InboxEvent =
-  | { type: 'inbox_message_created'; message: AgentInboxMessage; rev: number }
-  | { type: 'inbox_message_updated'; messages: AgentInboxMessage[]; rev: number }
-  | { type: 'inbox_message_deleted'; ids: string[]; rev: number }
+  | { type: 'inbox_message_created'; message: AgentInboxMessage; rev: number; stats: InboxStats }
+  | { type: 'inbox_message_updated'; messages: AgentInboxMessage[]; rev: number; stats: InboxStats }
+  | { type: 'inbox_message_deleted'; ids: string[]; rev: number; stats: InboxStats }
   | { type: 'inbox_open_target'; route: InboxMessageRoute; messageId?: string }
 
 const STORE_VERSION = 1
@@ -181,7 +190,7 @@ async function loadStore() {
       // 冷启动淘汰也算状态迁移：bump rev 并广播，在线的其他端同步剔除
       const rev = bumpRevision(store)
       await saveStore(store)
-      emitInbox({ type: 'inbox_message_deleted', ids: evicted, rev })
+      emitInbox({ type: 'inbox_message_deleted', ids: evicted, rev, stats: inboxStats(store) })
     } else {
       await saveStore(store)
     }
@@ -508,8 +517,9 @@ export async function createPush(input: PushInput) {
   message.rev = rev
   message.updatedAt = message.createdAt
   await saveStore(value)
-  if (evicted.length) emitInbox({ type: 'inbox_message_deleted', ids: evicted, rev: evictedRev })
-  emitInbox({ type: 'inbox_message_created', message, rev })
+  if (evicted.length)
+    emitInbox({ type: 'inbox_message_deleted', ids: evicted, rev: evictedRev, stats: inboxStats(value) })
+  emitInbox({ type: 'inbox_message_created', message, rev, stats: inboxStats(value) })
   if (open) emitInbox({ type: 'inbox_open_target', route, messageId: message.id })
   return { message, deduplicated: false }
 }
@@ -555,15 +565,19 @@ export async function listInboxMessages(
   const unreadCount = options.unreadForDevice
     ? value.messages.filter((m) => !m.readAt && !m.archivedAt && !m.deletedAt).length
     : undefined
-  // 容量提示用的权威口径：消息数按非回收站计，asset 字节是全量占用（回收站
-  // 里的消息仍引用 asset，purge/超期才释放）
-  const stats = {
+  const stats = inboxStats(value)
+  return { messages: page, nextCursor, unreadCount, total: items.length, stats, revision: value.revision }
+}
+
+// 容量提示的权威口径：消息数按非回收站计，asset 字节是全量占用（回收站
+// 里的消息仍引用 asset，purge/超期才释放）
+function inboxStats(value: InboxStore): InboxStats {
+  return {
     messages: value.messages.filter((m) => !m.deletedAt).length,
     maxMessages: MAX_MESSAGES,
     assetBytes: value.assets.reduce((sum, asset) => sum + (asset.size || 0), 0),
     maxAssetBytes: MAX_ASSET_BYTES,
   }
-  return { messages: page, nextCursor, unreadCount, total: items.length, stats, revision: value.revision }
 }
 
 export async function getInboxMessage(id: string) {
@@ -622,7 +636,7 @@ export async function markInboxRead(ids: string[], deviceId: string, read = true
     for (const message of changed) message.rev = rev
     await saveStore(value)
     // 批量已读一条事件全量带齐，避免多端对每条消息各收一次
-    emitInbox({ type: 'inbox_message_updated', messages: changed, rev })
+    emitInbox({ type: 'inbox_message_updated', messages: changed, rev, stats: inboxStats(value) })
   }
   return { changed: changed.length, revision: value.revision }
 }
@@ -658,7 +672,7 @@ export async function archiveInboxMessages(ids: string[], archived = true) {
     await saveStore(value)
     // El pipeline de updated ya trae rev+墓碑: el resto de clientes ven el
     // cambio de vista sin evento nuevo ni riesgo de resurrección
-    emitInbox({ type: 'inbox_message_updated', messages: changed, rev })
+    emitInbox({ type: 'inbox_message_updated', messages: changed, rev, stats: inboxStats(value) })
   }
   return { changed: changed.length, skippedUnread, revision: value.revision }
 }
@@ -686,18 +700,18 @@ async function setInboxDeleted(ids: string[], deleted: boolean) {
     const rev = bumpRevision(value)
     for (const message of changed) message.rev = rev
     await saveStore(value)
-    emitInbox({ type: 'inbox_message_updated', messages: changed, rev })
+    emitInbox({ type: 'inbox_message_updated', messages: changed, rev, stats: inboxStats(value) })
   }
-  return { changed: changed.length, revision: value.revision }
+  return { changed: changed.length, revision: value.revision, stats: inboxStats(value) }
 }
 export async function deleteInboxMessages(ids: string[]) {
-  const { changed, revision } = await setInboxDeleted(ids, true)
+  const { changed, revision, stats } = await setInboxDeleted(ids, true)
   // 兼容旧响应字段：removed = 进回收站的条数（不再物理删除）
-  return { removed: changed, revision }
+  return { removed: changed, revision, stats }
 }
 export async function restoreInboxMessages(ids: string[]) {
-  const { changed, revision } = await setInboxDeleted(ids, false)
-  return { restored: changed, revision }
+  const { changed, revision, stats } = await setInboxDeleted(ids, false)
+  return { restored: changed, revision, stats }
 }
 // 只有已在回收站的才能物理清除——防止 purge 误删活动/归档消息
 export async function purgeInboxMessages(ids: string[]) {
@@ -711,9 +725,9 @@ export async function purgeInboxMessages(ids: string[]) {
   if (removedIds.length) {
     const rev = bumpRevision(value)
     await saveStore(value)
-    emitInbox({ type: 'inbox_message_deleted', ids: removedIds, rev })
+    emitInbox({ type: 'inbox_message_deleted', ids: removedIds, rev, stats: inboxStats(value) })
   }
-  return { purged: purged.length, revision: value.revision }
+  return { purged: purged.length, revision: value.revision, stats: inboxStats(value) }
 }
 export async function requestOpenTarget(route: InboxMessageRoute, messageId?: string) {
   emitInbox({ type: 'inbox_open_target', route, messageId })

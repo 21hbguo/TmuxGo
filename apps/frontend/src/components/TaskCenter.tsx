@@ -60,7 +60,10 @@ export function TaskCenter({ onClose }: { onClose: () => void }) {
     <div
       ref={rootRef}
       className="fixed inset-0 z-[100] flex items-center justify-center tmuxgo-scrim p-4"
-      onMouseDown={onClose}
+      // 只响应点在 scrim 本体的按下：portal 弹窗事件沿 React 树冒泡，target 不是 currentTarget
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
     >
       <section
         className="tmuxgo-glass tmuxgo-glass-dialog flex h-[min(620px,calc(100dvh-32px))] w-full max-w-3xl flex-col overflow-hidden rounded-apple border sm:flex-row"
