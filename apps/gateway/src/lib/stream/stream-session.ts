@@ -1084,7 +1084,7 @@ export class StreamSession {
     // 受限身份 attach 边界：host+session 都需在 scope 内，403 等价语义不回显细节
     if (this.accessScope && !scopeAllowsSession(this.accessScope, hostId, sessionName))
       throw new Error('Access scope does not allow this session')
-    if (hostId === 'local') await prepareSessionAttach(sessionName)
+    await prepareSessionAttach(hostId, sessionName)
     const requestedCols = attach.cols || 80
     const requestedRows = attach.rows || 24
     const readOnly = !!this.shareTicket || this.accessScope?.readOnly === true

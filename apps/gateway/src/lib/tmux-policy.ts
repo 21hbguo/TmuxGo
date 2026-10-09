@@ -1,5 +1,6 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { execTmux } from './tmux-executor.js'
 
 const execFileAsync = promisify(execFile)
 const allowedSessions = new Set(
@@ -23,19 +24,21 @@ export async function assertTargetAllowed(target: string, expectedSessionName?: 
     throw new Error('Tmux target does not belong to session')
   return sessionName
 }
-type PrepareSessionAttach = (sessionName: string) => Promise<void>
-async function defaultPrepareSessionAttach(sessionName: string) {
+type PrepareSessionAttach = (hostId: string, sessionName: string) => Promise<void>
+// set-option 经 execTmux 路由而非本机 execFile：local 直跑 tmux，远端复用 agent/ssh 通道，
+// 所有 host 的 session 在 attach 前都拿到 destroy-unattached off + mouse on
+async function defaultPrepareSessionAttach(hostId: string, sessionName: string) {
   assertSessionAllowed(sessionName)
-  await execFileAsync('tmux', ['set-option', '-t', sessionName, 'destroy-unattached', 'off'])
-  await execFileAsync('tmux', ['set-option', '-t', sessionName, '-g', 'mouse', 'on'])
+  await execTmux(hostId, ['set-option', '-t', sessionName, 'destroy-unattached', 'off'])
+  await execTmux(hostId, ['set-option', '-t', sessionName, '-g', 'mouse', 'on'])
 }
 let prepareSessionAttachImpl: PrepareSessionAttach = defaultPrepareSessionAttach
 // 测试缝：单测 attach 路径不触真实 tmux set-option
 export function setPrepareSessionAttachForTest(fn: PrepareSessionAttach | null) {
   prepareSessionAttachImpl = fn ?? defaultPrepareSessionAttach
 }
-export async function prepareSessionAttach(sessionName: string) {
-  await prepareSessionAttachImpl(sessionName)
+export async function prepareSessionAttach(hostId: string, sessionName: string) {
+  await prepareSessionAttachImpl(hostId, sessionName)
 }
 async function getTargetSessionName(target: string) {
   if (!target) throw new Error('Missing tmux target')

@@ -59,11 +59,9 @@ export async function main(argv: string[]): Promise<number> {
     try {
       assertSshHostAllowed(sshUser, hostId)
       assertSessionAllowed(sessionName)
-      if (hostId !== 'local') {
-        if (!(await getHostById(hostId)) && !agentManager.getAgent(hostId)) throw new Error('Host not found')
-      } else {
-        await prepareSessionAttach(sessionName)
-      }
+      if (hostId !== 'local' && !(await getHostById(hostId)) && !agentManager.getAgent(hostId))
+        throw new Error('Host not found')
+      await prepareSessionAttach(hostId, sessionName)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       process.stderr.write(`${message}\n`)

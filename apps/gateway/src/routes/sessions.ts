@@ -431,10 +431,6 @@ async function cleanupSession(hostId: string, sessionName: string) {
     await execTmux(hostId, ['kill-session', '-t', exactSessionTarget(sessionName)])
   } catch {}
 }
-async function safePrepareSessionAttach(hostId: string, sessionName: string) {
-  if (hostId !== 'local') return
-  await prepareSessionAttach(sessionName)
-}
 async function assertCwdExists(hostId: string, cwd: string) {
   if (hostId === 'local') {
     try {
@@ -487,7 +483,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       const existingSessions = await getHostTmuxSessions(hostId)
       const existingSession = existingSessions.find((s) => s.name === name)
       if (existingSession) {
-        await safePrepareSessionAttach(hostId, existingSession.name)
+        await prepareSessionAttach(hostId, existingSession.name)
         // existed 标记给前端区分"命中已有会话"与"真新建"，避免误报"已创建"
         return { ...existingSession, cwd: normalizedCwd, existed: true }
       }
@@ -512,7 +508,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
           throw new Error(err?.message || 'Template layout failed')
         }
       }
-      await safePrepareSessionAttach(hostId, name)
+      await prepareSessionAttach(hostId, name)
       const sessions = await getHostTmuxSessions(hostId)
       const created = sessions.find((s) => s.name === name) || {
         id: buildSessionId(hostId, name),
@@ -543,7 +539,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
     assertSessionAllowed(name)
     try {
       await execTmux(hostId, ['rename-session', '-t', sessionName, name])
-      await safePrepareSessionAttach(hostId, name)
+      await prepareSessionAttach(hostId, name)
       const sessions = await getHostTmuxSessions(hostId)
       const renamed = sessions.find((session) => session.name === name) || {
         id: buildSessionId(hostId, name),
@@ -700,7 +696,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       await cleanupSession(hostId, sessionName)
       throw new Error(err?.message || 'Layout apply failed')
     }
-    await safePrepareSessionAttach(hostId, sessionName)
+    await prepareSessionAttach(hostId, sessionName)
     const created = (await getHostTmuxSessions(hostId)).find((session) => session.name === sessionName) || {
       id: buildSessionId(hostId, sessionName),
       hostId,
