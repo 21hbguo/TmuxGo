@@ -638,6 +638,14 @@ async function queueProfileWrite<T>(profile: string, write: () => Promise<T>) {
   }
 }
 
+// session→workspace 绑定查找：window 创建等路由用来决定新 pane 的落点目录
+export async function findSessionWorkspacePath(hostId: string, sessionId: string, profile = 'default') {
+  const store = await readStore(getProfileName(profile))
+  return (
+    store.sessionWorkspaces.find((entry) => entry.hostId === hostId && entry.sessionId === sessionId)?.workspacePath ||
+    ''
+  )
+}
 export async function preferencesRoutes(fastify: FastifyInstance) {
   fastify.get('/preferences', async (request) => {
     const query = request.query as { profile?: string }

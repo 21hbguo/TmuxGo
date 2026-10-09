@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { stat } from 'fs/promises'
 import { getNormalizedWindowMoves } from '../lib/template-utils.js'
 import { assertSessionAllowed, assertTargetAllowed } from '../lib/tmux-policy.js'
 import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
@@ -7,6 +8,7 @@ import { recordStreamMetric } from '../lib/perf-metrics.js'
 import { getSessionAgentPanes, markAgentPaneSeen } from '../lib/agent-state.js'
 import { agentMonitor } from '../lib/agent-monitor.js'
 import { schedulePeerWindowSync } from '../lib/stream/stream-session.js'
+import { findSessionWorkspacePath } from './preferences.js'
 
 function parseSessionName(hostId: string, sessionRef: string) {
   return parseSessionRef(hostId, sessionRef).sessionName
@@ -255,6 +257,15 @@ export async function windowRoutes(fastify: FastifyInstance) {
     const sessionName = parseSessionName(hostId, sessionId)
     assertSessionAllowed(sessionName)
     try {
+      // -c 落点优先级：session 绑定的工作区路径 > 活动 pane cwd；
+      // 本地绑定失效（目录已删）时退回 pane cwd，远端路径无法本机校验按原样透传
+      const boundCwd = await findSessionWorkspacePath(hostId, sessionId).catch(() => '')
+      const cwd =
+        hostId === 'local' && boundCwd
+          ? await stat(boundCwd)
+              .then((info) => (info.isDirectory() ? boundCwd : ''))
+              .catch(() => '')
+          : boundCwd
       const { stdout } = await execTmux(hostId, [
         'new-window',
         '-P',
@@ -264,6 +275,8 @@ export async function windowRoutes(fastify: FastifyInstance) {
         sessionName,
         '-n',
         name || 'new-window',
+        '-c',
+        cwd || '#{pane_current_path}',
       ])
       const createdWindowId = stdout.trim()
       const windows = await getTmuxWindows(hostId, sessionName)
