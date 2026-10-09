@@ -68,6 +68,15 @@ const parkBrowser = (browser: ActiveBrowser | null): ActiveBrowser | null =>
   browser && browser.view !== 'window' ? { ...browser, minimized: true } : browser
 // PC 端点开桌面/浏览器默认浮窗（移动端仍全屏）；浮窗不被侧栏互斥挂起，可与各面板共存
 const DEFAULT_OVERLAY_VIEW: DesktopViewMode = IS_MOBILE_DEVICE ? 'full' : 'window'
+// 侧栏互斥只服务于全屏覆盖层（遮挡一切）；浮窗不挤压布局，打开时不动侧栏面板
+const closedSidePanels = {
+  filePanelOpen: false,
+  gitPanelOpen: false,
+  sshPanelOpen: false,
+  endpointsPanelOpen: false,
+  activePluginView: null,
+}
+const panelsForOverlayView = (view: DesktopViewMode) => (view === 'full' ? closedSidePanels : {})
 interface EditorWorkspaceState {
   openEditors: FileEditorDocument[]
   activeEditorId: string | null
@@ -765,7 +774,7 @@ export const useConsoleStore = create<ConsoleState>()(
               : { activePluginView: null },
         ),
       // 桌面 tab 是开关语义：未开→按 DEFAULT_OVERLAY_VIEW 开（PC 浮窗/移动端全屏）；
-      // 已最小化→还原；可见→最小化挂后台（保留连接）
+      // 已最小化→还原；可见→最小化挂后台（保留连接）；仅全屏打开时互斥侧栏
       toggleDesktop: (hostId, port) =>
         set((state) =>
           !state.activeDesktop
@@ -776,11 +785,7 @@ export const useConsoleStore = create<ConsoleState>()(
                   view: DEFAULT_OVERLAY_VIEW,
                   minimized: false,
                 },
-                filePanelOpen: false,
-                gitPanelOpen: false,
-                sshPanelOpen: false,
-                endpointsPanelOpen: false,
-                activePluginView: null,
+                ...panelsForOverlayView(DEFAULT_OVERLAY_VIEW),
                 activeBrowser: parkBrowser(state.activeBrowser),
               }
             : {
@@ -792,11 +797,7 @@ export const useConsoleStore = create<ConsoleState>()(
           desktop
             ? {
                 activeDesktop: { ...desktop, view: DEFAULT_OVERLAY_VIEW, minimized: false },
-                filePanelOpen: false,
-                gitPanelOpen: false,
-                sshPanelOpen: false,
-                endpointsPanelOpen: false,
-                activePluginView: null,
+                ...panelsForOverlayView(DEFAULT_OVERLAY_VIEW),
                 activeBrowser: parkBrowser(state.activeBrowser),
               }
             : { activeDesktop: null },
@@ -809,17 +810,13 @@ export const useConsoleStore = create<ConsoleState>()(
         set((state) => (state.activeDesktop ? { activeDesktop: { ...state.activeDesktop, minimized } } : {})),
       setDesktopPinned: (pinned) =>
         set((state) => (state.activeDesktop ? { activeDesktop: { ...state.activeDesktop, pinned } } : {})),
-      // 浏览器 tab 与桌面同语义：开关/最小化挂后台保活（WS 不断），打开时互斥其他面板
+      // 浏览器 tab 与桌面同语义：开关/最小化挂后台保活（WS 不断）；仅全屏打开时互斥其他面板
       toggleBrowser: (hostId) =>
         set((state) =>
           !state.activeBrowser
             ? {
                 activeBrowser: { hostId, view: DEFAULT_OVERLAY_VIEW, minimized: false },
-                filePanelOpen: false,
-                gitPanelOpen: false,
-                sshPanelOpen: false,
-                endpointsPanelOpen: false,
-                activePluginView: null,
+                ...panelsForOverlayView(DEFAULT_OVERLAY_VIEW),
                 activeDesktop: parkDesktop(state.activeDesktop),
               }
             : {
@@ -831,11 +828,7 @@ export const useConsoleStore = create<ConsoleState>()(
           browser
             ? {
                 activeBrowser: { ...browser, view: DEFAULT_OVERLAY_VIEW, minimized: false },
-                filePanelOpen: false,
-                gitPanelOpen: false,
-                sshPanelOpen: false,
-                endpointsPanelOpen: false,
-                activePluginView: null,
+                ...panelsForOverlayView(DEFAULT_OVERLAY_VIEW),
                 activeDesktop: parkDesktop(state.activeDesktop),
               }
             : { activeBrowser: null },

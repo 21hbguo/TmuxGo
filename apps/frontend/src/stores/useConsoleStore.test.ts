@@ -373,6 +373,17 @@ describe('useConsoleStore editor persistence', () => {
     expect(useConsoleStore.getState().activeBrowser).toMatchObject({ view: 'window', minimized: false })
     expect(useConsoleStore.getState().activeDesktop).toMatchObject({ minimized: false })
   })
+  it('keeps side panels open when a floating overlay opens', async () => {
+    const { useConsoleStore } = await import('./useConsoleStore')
+    // PC 默认浮窗不挤压布局：开 desktop/browser 不再关掉已开的侧栏面板
+    useConsoleStore.getState().toggleGitPanel()
+    useConsoleStore.getState().toggleBrowser('local')
+    expect(useConsoleStore.getState().activeBrowser).toMatchObject({ view: 'window', minimized: false })
+    expect(useConsoleStore.getState().gitPanelOpen).toBe(true)
+    useConsoleStore.getState().toggleDesktop('local', 5900)
+    expect(useConsoleStore.getState().activeDesktop).toMatchObject({ view: 'window', minimized: false })
+    expect(useConsoleStore.getState().gitPanelOpen).toBe(true)
+  })
   it('replaces an unmodified preview tab when opening another file', async () => {
     const { useConsoleStore } = await import('./useConsoleStore')
     const editor2 = createEditor('local:root-workspace:src/other.ts', 'src/other.ts')
