@@ -8,9 +8,6 @@ import {
   FiEye,
   FiEyeOff,
   FiKey,
-  FiMaximize2,
-  FiMinimize,
-  FiMinimize2,
   FiMinus,
   FiMonitor,
   FiMoreHorizontal,
@@ -23,8 +20,8 @@ import {
   FiType,
   FiX,
 } from 'react-icons/fi'
-import { VscPinned } from 'react-icons/vsc'
 import { Button } from './Button'
+import { OverlayTitlebarControls } from './OverlayTitlebarControls'
 import { api, type VncDisplay, type VncSetupStatus } from '@/lib/api'
 import { getWebSocketUrl } from '@/lib/auth'
 import { loadNovnc } from '@/lib/novnc-loader'
@@ -1175,54 +1172,17 @@ export function DesktopView({
             <FiActivity size={14} />
           </Button>
         )}
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={toggleFullscreen}
-          aria-label={t('vnc.fullscreen')}
-          data-tip={t('vnc.fullscreen')}
-          className={`tmuxgo-tip ${isFullscreen ? 'text-accent' : ''}`}
-        >
-          {isFullscreen ? <FiMinimize size={14} /> : <FiMaximize2 size={14} />}
-        </Button>
-        {!isMobileLayout && (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={onMinimize}
-            aria-label={t('vnc.minimize')}
-            data-tip={t('vnc.minimize')}
-            className="tmuxgo-tip"
-          >
-            <FiMinus size={14} />
-          </Button>
-        )}
-        {/* 窗口化仅 PC:MIN_W=420 > 移动屏宽,修好前不给入口;view==='window' 时点击回 'full' */}
-        {!isMobileLayout && (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => onViewChange(view === 'window' ? 'full' : 'window')}
-            aria-label={view === 'window' ? t('vnc.fullView') : t('vnc.windowed')}
-            data-tip={view === 'window' ? t('vnc.fullView') : t('vnc.windowed')}
-            className={`tmuxgo-tip ${view === 'window' ? 'text-accent' : ''}`}
-          >
-            <FiMinimize2 size={14} />
-          </Button>
-        )}
-        {/* 浮窗置顶：固定后点背景不再最小化，且背景可正常交互 */}
-        {!isMobileLayout && view === 'window' && onPinnedChange && (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => onPinnedChange(!pinned)}
-            aria-label={pinned ? t('vnc.unpin') : t('vnc.pin')}
-            data-tip={pinned ? t('vnc.unpin') : t('vnc.pin')}
-            className={`tmuxgo-tip ${pinned ? 'text-accent' : ''}`}
-          >
-            <VscPinned size={14} />
-          </Button>
-        )}
+        <OverlayTitlebarControls
+          ns="vnc"
+          isMobileLayout={isMobileLayout}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={toggleFullscreen}
+          view={view}
+          onViewChange={onViewChange}
+          onMinimize={onMinimize}
+          pinned={pinned}
+          onPinnedChange={onPinnedChange}
+        />
         {isMobileLayout && (
           <div className="relative">
             <Button

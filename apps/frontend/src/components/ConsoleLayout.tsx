@@ -49,7 +49,7 @@ import { FiX } from 'react-icons/fi'
 import { AgentStatusBadge } from './AgentStatusBadge'
 import { doneAgentPaneIds } from '@/lib/agent-status'
 import { useMarkAgentSeen } from '@/hooks/useMarkAgentSeen'
-import { DesktopWindow } from './DesktopWindow'
+import { OverlayShell } from './DesktopWindow'
 import { shouldResumeFromContinuity } from '@/lib/session-continuity-policy'
 import { MOBILE_QUERY } from '@/lib/console-device-state'
 // 默认关闭、无全局副作用的面板走动态加载，避免拖大主入口；overlay 型面板 fallback 用同形 scrim 防闪帧
@@ -1118,68 +1118,44 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         </div>
       )}
       {activeDesktop && (
-        // 最小化用 visibility 而非卸载：DesktopView 保持挂载，RFB 连接不断开
-        <div
-          className={`fixed inset-0 z-[85] ${
-            activeDesktop.minimized ? 'invisible' : activeDesktop.view === 'window' ? 'pointer-events-none' : 'bg-bg-0'
-          }`}
-          style={{ height: 'var(--app-height,100dvh)' }}
+        <OverlayShell
+          overlay={activeDesktop}
+          onBackdropMinimize={() => useConsoleStore.getState().setDesktopMinimized(true)}
         >
-          {/* 浮窗点击板：点背景吸收点击并最小化；置顶时不挂，背景可正常交互 */}
-          {activeDesktop.view === 'window' && !activeDesktop.pinned && (
-            <div
-              className="pointer-events-auto absolute inset-0"
-              onPointerDown={() => useConsoleStore.getState().setDesktopMinimized(true)}
-            />
-          )}
-          <DesktopWindow windowed={activeDesktop.view === 'window'}>
-            <DesktopView
-              hostId={activeDesktop.hostId}
-              port={activeDesktop.port}
-              view={activeDesktop.view}
-              pinned={activeDesktop.pinned}
-              onViewChange={(view) => useConsoleStore.getState().setDesktopView(view)}
-              onMinimize={() => useConsoleStore.getState().setDesktopMinimized(true)}
-              onPinnedChange={(pinned) => useConsoleStore.getState().setDesktopPinned(pinned)}
-              onClose={() => {
-                useConsoleStore.getState().setActiveDesktop(null)
-                closeOverlay('desktop')
-              }}
-            />
-          </DesktopWindow>
-        </div>
+          <DesktopView
+            hostId={activeDesktop.hostId}
+            port={activeDesktop.port}
+            view={activeDesktop.view}
+            pinned={activeDesktop.pinned}
+            onViewChange={(view) => useConsoleStore.getState().setDesktopView(view)}
+            onMinimize={() => useConsoleStore.getState().setDesktopMinimized(true)}
+            onPinnedChange={(pinned) => useConsoleStore.getState().setDesktopPinned(pinned)}
+            onClose={() => {
+              useConsoleStore.getState().setActiveDesktop(null)
+              closeOverlay('desktop')
+            }}
+          />
+        </OverlayShell>
       )}
       {activeBrowser && (
-        // 同 DesktopView 保活模式：minimized 用 visibility 隐藏不卸载，WS 不断但画面流暂停
-        <div
-          className={`fixed inset-0 z-[85] ${
-            activeBrowser.minimized ? 'invisible' : activeBrowser.view === 'window' ? 'pointer-events-none' : 'bg-bg-0'
-          }`}
-          style={{ height: 'var(--app-height,100dvh)' }}
+        <OverlayShell
+          overlay={activeBrowser}
+          onBackdropMinimize={() => useConsoleStore.getState().setBrowserMinimized(true)}
         >
-          {/* 同桌面浮窗：点背景最小化，置顶后背景可正常交互 */}
-          {activeBrowser.view === 'window' && !activeBrowser.pinned && (
-            <div
-              className="pointer-events-auto absolute inset-0"
-              onPointerDown={() => useConsoleStore.getState().setBrowserMinimized(true)}
-            />
-          )}
-          <DesktopWindow windowed={activeBrowser.view === 'window'}>
-            <BrowserView
-              hostId={activeBrowser.hostId}
-              view={activeBrowser.view}
-              minimized={activeBrowser.minimized}
-              pinned={activeBrowser.pinned}
-              onViewChange={(view) => useConsoleStore.getState().setBrowserView(view)}
-              onMinimize={() => useConsoleStore.getState().setBrowserMinimized(true)}
-              onPinnedChange={(pinned) => useConsoleStore.getState().setBrowserPinned(pinned)}
-              onClose={() => {
-                useConsoleStore.getState().setActiveBrowser(null)
-                closeOverlay('browser')
-              }}
-            />
-          </DesktopWindow>
-        </div>
+          <BrowserView
+            hostId={activeBrowser.hostId}
+            view={activeBrowser.view}
+            minimized={activeBrowser.minimized}
+            pinned={activeBrowser.pinned}
+            onViewChange={(view) => useConsoleStore.getState().setBrowserView(view)}
+            onMinimize={() => useConsoleStore.getState().setBrowserMinimized(true)}
+            onPinnedChange={(pinned) => useConsoleStore.getState().setBrowserPinned(pinned)}
+            onClose={() => {
+              useConsoleStore.getState().setActiveBrowser(null)
+              closeOverlay('browser')
+            }}
+          />
+        </OverlayShell>
       )}
       <ToastViewport />
       <PaneNotifications />

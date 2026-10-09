@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
+import type { DesktopViewMode } from '@/stores/useConsoleStore'
 
 export type DesktopWindowRect = { x: number; y: number; w: number; h: number }
 type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
@@ -177,6 +178,33 @@ export function DesktopWindow({ windowed, children }: { windowed: boolean; child
         RESIZE_ZONES.map(({ dir, className }) => (
           <div key={dir} data-desktop-resize={dir} className={`${className} touch-none`} />
         ))}
+    </div>
+  )
+}
+
+// desktop/browser 共用覆盖层外壳：全屏铺满不透明底色；浮窗整体指针穿透、仅窗口本体可交互。
+// 非置顶浮窗外挂点击板——点背景吸收点击并最小化（不会误触到底层 UI）；置顶后不挂。
+// minimized 用 visibility 隐藏而非卸载：子树保持挂载，RFB/WS 连接不断开
+export function OverlayShell({
+  overlay,
+  onBackdropMinimize,
+  children,
+}: {
+  overlay: { view: DesktopViewMode; minimized: boolean; pinned?: boolean }
+  onBackdropMinimize: () => void
+  children: ReactNode
+}) {
+  return (
+    <div
+      className={`fixed inset-0 z-[85] ${
+        overlay.minimized ? 'invisible' : overlay.view === 'window' ? 'pointer-events-none' : 'bg-bg-0'
+      }`}
+      style={{ height: 'var(--app-height,100dvh)' }}
+    >
+      {overlay.view === 'window' && !overlay.pinned && (
+        <div className="pointer-events-auto absolute inset-0" onPointerDown={onBackdropMinimize} />
+      )}
+      <DesktopWindow windowed={overlay.view === 'window'}>{children}</DesktopWindow>
     </div>
   )
 }

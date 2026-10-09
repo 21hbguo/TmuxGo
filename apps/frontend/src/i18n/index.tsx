@@ -5,7 +5,7 @@ import { usePreferences, type Language } from '@/hooks/usePreferences'
 import { zh } from './zh'
 import { en } from './en'
 
-type TranslationKey = keyof typeof zh
+export type TranslationKey = keyof typeof zh
 
 const translations: Record<Language, Record<string, string>> = { zh, en }
 
@@ -20,18 +20,21 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const { preferences } = usePreferences()
   const lang = preferences.language
 
-  const value = useMemo<I18nContextValue>(() => ({
-    t: (key, params) => {
-      let text = translations[lang]?.[key] ?? translations.zh[key] ?? key
-      if (params) {
-        Object.entries(params).forEach(([k, v]) => {
-          text = text.replace(`{${k}}`, String(v))
-        })
-      }
-      return text
-    },
-    language: lang,
-  }), [lang])
+  const value = useMemo<I18nContextValue>(
+    () => ({
+      t: (key, params) => {
+        let text = translations[lang]?.[key] ?? translations.zh[key] ?? key
+        if (params) {
+          Object.entries(params).forEach(([k, v]) => {
+            text = text.replace(`{${k}}`, String(v))
+          })
+        }
+        return text
+      },
+      language: lang,
+    }),
+    [lang],
+  )
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
 }
@@ -39,15 +42,18 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 export function useTranslation() {
   const ctx = useContext(I18nContext)
   if (!ctx) {
-    return { t: ((key: TranslationKey, params?: Record<string, string | number>) => {
-      let text = String(key)
-      if (params) {
-        Object.entries(params).forEach(([k, v]) => {
-          text = text.replace(`{${k}}`, String(v))
-        })
-      }
-      return text
-    }) as I18nContextValue['t'], language: 'zh' as Language }
+    return {
+      t: ((key: TranslationKey, params?: Record<string, string | number>) => {
+        let text = String(key)
+        if (params) {
+          Object.entries(params).forEach(([k, v]) => {
+            text = text.replace(`{${k}}`, String(v))
+          })
+        }
+        return text
+      }) as I18nContextValue['t'],
+      language: 'zh' as Language,
+    }
   }
   return ctx
 }

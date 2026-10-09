@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { isPersistableEditorMeta, TERMINAL_DOCK_POSITIONS, useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
@@ -36,6 +36,34 @@ const SESSION_COLLAPSE_DELTA = 48
 const SESSION_EXPAND_DELTA = 60
 function clampValue(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
+}
+
+type SidePanelKind = 'file' | 'git' | 'ssh'
+// files/git/ssh 面板共用外壳：定宽 surface + 右缘拖拽手柄；clip=内容需裁剪（如 FilePanel 溢出内容）
+function SidePanelShell({
+  clip,
+  width,
+  onStartResize,
+  children,
+}: {
+  clip?: boolean
+  width: number
+  onStartResize: () => void
+  children: ReactNode
+}) {
+  const clipCls = clip ? ' overflow-hidden' : ''
+  return (
+    <div
+      className={`tmuxgo-content-surface relative shrink-0${clipCls} border-r border-[var(--line)]`}
+      style={{ width }}
+    >
+      <div className={`h-full min-h-0${clipCls}`}>{children}</div>
+      <div
+        className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40"
+        onMouseDown={onStartResize}
+      />
+    </div>
+  )
 }
 
 export function DesktopWorkbench() {
@@ -362,6 +390,15 @@ export function DesktopWorkbench() {
     )
   }
 
+  const beginSideResize = (kind: SidePanelKind) => {
+    resizingRef.current = kind
+    emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
+    pendingSideWidthRef.current = renderedSidePanelWidth
+    setPreviewSideWidth(renderedSidePanelWidth)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
+
   return (
     <div ref={containerRef} className="tmuxgo-workspace flex min-h-0 min-w-0 flex-1 overflow-hidden">
       <ActivityBar />
@@ -401,67 +438,19 @@ export function DesktopWorkbench() {
           </div>
         )}
         {filePanelOpen && (
-          <div
-            className="tmuxgo-content-surface relative shrink-0 overflow-hidden border-r border-[var(--line)]"
-            style={{ width: renderedSidePanelWidth }}
-          >
-            <div className="h-full min-h-0 overflow-hidden">
-              <FilePanel mode="explorer" onOpenFile={handleOpenFile} />
-            </div>
-            <div
-              className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40"
-              onMouseDown={() => {
-                resizingRef.current = 'file'
-                emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
-                pendingSideWidthRef.current = renderedSidePanelWidth
-                setPreviewSideWidth(renderedSidePanelWidth)
-                document.body.style.cursor = 'col-resize'
-                document.body.style.userSelect = 'none'
-              }}
-            />
-          </div>
+          <SidePanelShell clip width={renderedSidePanelWidth} onStartResize={() => beginSideResize('file')}>
+            <FilePanel mode="explorer" onOpenFile={handleOpenFile} />
+          </SidePanelShell>
         )}
         {gitPanelOpen && (
-          <div
-            className="tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)]"
-            style={{ width: renderedSidePanelWidth }}
-          >
-            <div className="h-full min-h-0">
-              <GitPanel />
-            </div>
-            <div
-              className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40"
-              onMouseDown={() => {
-                resizingRef.current = 'git'
-                emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
-                pendingSideWidthRef.current = renderedSidePanelWidth
-                setPreviewSideWidth(renderedSidePanelWidth)
-                document.body.style.cursor = 'col-resize'
-                document.body.style.userSelect = 'none'
-              }}
-            />
-          </div>
+          <SidePanelShell width={renderedSidePanelWidth} onStartResize={() => beginSideResize('git')}>
+            <GitPanel />
+          </SidePanelShell>
         )}
         {sshPanelOpen && (
-          <div
-            className="tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)]"
-            style={{ width: renderedSidePanelWidth }}
-          >
-            <div className="h-full min-h-0">
-              <SshPanel />
-            </div>
-            <div
-              className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40"
-              onMouseDown={() => {
-                resizingRef.current = 'ssh'
-                emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
-                pendingSideWidthRef.current = renderedSidePanelWidth
-                setPreviewSideWidth(renderedSidePanelWidth)
-                document.body.style.cursor = 'col-resize'
-                document.body.style.userSelect = 'none'
-              }}
-            />
-          </div>
+          <SidePanelShell width={renderedSidePanelWidth} onStartResize={() => beginSideResize('ssh')}>
+            <SshPanel />
+          </SidePanelShell>
         )}
         {endpointsPanelOpen && (
           <div
