@@ -480,6 +480,8 @@ export const api = {
       }),
     rollback: (pluginId: string) =>
       fetchApi<PluginInfo>(`/api/plugins/${encodeURIComponent(pluginId)}/rollback`, { method: 'POST' }),
+    rotateToken: (pluginId: string) =>
+      fetchApi<{ token: string }>(`/api/plugins/${encodeURIComponent(pluginId)}/token/rotate`, { method: 'POST' }),
     storage: {
       list: (pluginId: string) => fetchApi<{ keys: string[] }>(`/api/plugins/${encodeURIComponent(pluginId)}/storage`),
       get: <T>(pluginId: string, key: string) =>

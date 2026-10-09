@@ -24,7 +24,9 @@
 
 View 的 `entry` 必须是插件目录内的 `.html` 文件，不能使用绝对路径或 `..` 跳出插件目录。
 
-Action 和 Event 以插件目录为工作目录运行。宿主注入 `TMUXGO_PLUGIN_ID`、`TMUXGO_PLUGIN_ROOT`、`TMUXGO_PLUGIN_DATA_DIR`、`TMUXGO_PLUGIN_CONFIG_DIR`、`TMUXGO_PLUGIN_STATE_DIR`、`TMUXGO_CONTEXT_JSON`、`TMUXGO_API_URL`、`TMUXGO_HOST_ID`、`TMUXGO_SESSION_ID` 和 `TMUXGO_PANE_ID`。
+Action 和 Event 以插件目录为工作目录运行。宿主注入 `TMUXGO_PLUGIN_ID`、`TMUXGO_PLUGIN_ROOT`、`TMUXGO_PLUGIN_DATA_DIR`、`TMUXGO_PLUGIN_CONFIG_DIR`、`TMUXGO_PLUGIN_STATE_DIR`、`TMUXGO_CONTEXT_JSON`、`TMUXGO_API_URL`、`TMUXGO_API_TOKEN`、`TMUXGO_HOST_ID`、`TMUXGO_SESSION_ID` 和 `TMUXGO_PANE_ID`。
+
+`TMUXGO_API_TOKEN` 仅在 manifest 声明 `api.access` 权限且用户授予后注入（否则为空串）。它是 `tgk_` 前缀的 scoped API token，`Authorization: Bearer <token>` 调用 `TMUXGO_API_URL`；scope 为 `hosts:*` + `readOnly`，同时声明并授予 `api.write`（依赖 `api.access`）后 token 才可写。token 按插件懒签发并复用；撤销 `api.access`、卸载插件或设置页轮换即吊销。
 
 当前事件包括 `session.created`、`session.renamed`、`session.deleted`、`file.saved`、`file.uploaded` 和 `git.commit.completed`。
 

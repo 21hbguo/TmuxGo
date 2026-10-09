@@ -38,8 +38,6 @@ import { PromptDialog } from './PromptDialog'
 import { SessionStandaloneSortableList } from './SessionSortableList'
 import { HostSwitcher } from './HostSwitcher'
 import { AgentStatusBadge } from './AgentStatusBadge'
-import { doneAgentPaneIds } from '@/lib/agent-status'
-import { useMarkAgentSeen } from '@/hooks/useMarkAgentSeen'
 
 function getNextSessionId(sessions: { id: string }[], removedIds: string[]) {
   const removed = new Set(removedIds)
@@ -61,7 +59,6 @@ interface MobileDrawerProps {
 
 export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
-  const markAgentSeen = useMarkAgentSeen()
   const setActiveSession = useConsoleStore((state) => state.setActiveSession)
   const activePaneId = useConsoleStore((state) => state.activePaneId)
   const setActivePane = useConsoleStore((state) => state.setActivePane)
@@ -638,10 +635,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
                           <span className="shrink-0 whitespace-nowrap">
                             {t('drawer.windows', { count: session.windowCount })}
                           </span>
-                          <AgentStatusBadge
-                            summary={session.agentSummary}
-                            onClearDone={() => void markAgentSeen(doneAgentPaneIds([session]))}
-                          />
+                          <AgentStatusBadge summary={session.agentSummary} />
                         </div>
                       </button>
                       {!batchMode && (

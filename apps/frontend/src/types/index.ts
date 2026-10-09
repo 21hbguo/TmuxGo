@@ -555,7 +555,8 @@ export interface PluginManifest {
     views?: PluginViewContribution[]
   }
 }
-export type PluginPermission = 'actions.execute' | 'host.context' | 'files.read' | 'files.write'
+export type PluginPermission =
+  'actions.execute' | 'host.context' | 'files.read' | 'files.write' | 'api.access' | 'api.write'
 export interface PluginSource {
   kind: 'local' | 'github'
   owner?: string

@@ -172,6 +172,42 @@ export async function revokeOtherAuthSessions() {
   if (!response.ok) throw createAuthError(response.status, payload)
   return payload as { deleted: number }
 }
+export interface ApiTokenScope {
+  hosts: '*' | string[]
+  sessions?: '*' | string[]
+  readOnly?: boolean
+}
+export interface ApiToken {
+  id: string
+  name: string
+  scope: ApiTokenScope
+  createdAt: string
+  expiresAt?: string
+  revokedAt?: string | null
+}
+export async function listApiTokens() {
+  const response = await authenticatedFetch('/api/auth/tokens')
+  const payload = await readPayload(response)
+  if (!response.ok) throw createAuthError(response.status, payload)
+  const data = payload && typeof payload === 'object' ? (payload as { tokens?: unknown }) : {}
+  return Array.isArray(data.tokens) ? (data.tokens as ApiToken[]) : []
+}
+export async function createApiToken(input: { name: string; scope: ApiTokenScope; expiresInMinutes?: number }) {
+  const response = await authenticatedFetch('/api/auth/tokens', {
+    method: 'POST',
+    body: JSON.stringify(input),
+    headers: { 'Content-Type': 'application/json' },
+  })
+  const payload = await readPayload(response)
+  if (!response.ok) throw createAuthError(response.status, payload)
+  return payload as unknown as ApiToken & { token: string }
+}
+export async function revokeApiToken(id: string) {
+  const response = await authenticatedFetch(`/api/auth/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const payload = await readPayload(response)
+  if (!response.ok) throw createAuthError(response.status, payload)
+  return payload as { ok: true }
+}
 export async function changePassword(currentPassword: string, newPassword: string) {
   const response = await authenticatedFetch('/api/auth/change-password', {
     method: 'POST',

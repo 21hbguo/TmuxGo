@@ -3,7 +3,15 @@ import { randomUUID } from 'crypto'
 import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'fs/promises'
 import os from 'os'
 import path from 'path'
-import { parsePluginManifest, supportsPluginPlatform, type PluginAction, type PluginEventHook, type PluginManifest, type PluginPermission } from './plugin-manifest.js'
+import {
+  parsePluginManifest,
+  supportsPluginPlatform,
+  type PluginAction,
+  type PluginEventHook,
+  type PluginManifest,
+  type PluginPermission,
+} from './plugin-manifest.js'
+import { createScopedApiToken, revokeScopedApiToken, verifyScopedApiToken } from './access-scope.js'
 
 export interface PluginSource {
   kind: 'local' | 'github'
@@ -22,6 +30,7 @@ interface PluginRegistryEntry {
   manifest: PluginManifest
   source: PluginSource
   grantedPermissions: PluginPermission[]
+  apiTokenId?: string
 }
 interface PluginRegistryStore {
   version: 1
@@ -78,14 +87,30 @@ const maxLogs = 200
 const maxConcurrentCommands = 16
 const githubSegmentPattern = /^[A-Za-z0-9_.-]+$/
 const pluginContextMaxBytes = 64 * 1024
-const pluginEnvironmentKeys = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'TMP', 'TEMP', 'TERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'SystemRoot', 'ComSpec', 'PATHEXT']
+const pluginEnvironmentKeys = [
+  'PATH',
+  'HOME',
+  'USER',
+  'LOGNAME',
+  'SHELL',
+  'TMPDIR',
+  'TMP',
+  'TEMP',
+  'TERM',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  'SystemRoot',
+  'ComSpec',
+  'PATHEXT',
+]
 
 function getConfigRoot() {
   return process.env.TMUXGO_CONFIG_DIR || path.join(os.homedir(), '.tmuxgo')
 }
 function isPathInside(root: string, target: string) {
   const relative = path.relative(root, target)
-  return relative === '' || !relative.startsWith('..') && !path.isAbsolute(relative)
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
 }
 function normalizeContext(value: unknown): PluginInvocationContext {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
@@ -107,10 +132,17 @@ function terminateProcess(child: ReturnType<typeof spawn>, signal: NodeJS.Signal
   child.kill(signal)
 }
 function parseGitHubSource(value: string) {
-  const parts = value.trim().replace(/^https:\/\/github\.com\//, '').replace(/\.git$/, '').split('/').filter(Boolean)
-  if (parts.length < 2 || !githubSegmentPattern.test(parts[0]) || !githubSegmentPattern.test(parts[1])) throw new Error('GitHub source must be owner/repo[/subdir]')
+  const parts = value
+    .trim()
+    .replace(/^https:\/\/github\.com\//, '')
+    .replace(/\.git$/, '')
+    .split('/')
+    .filter(Boolean)
+  if (parts.length < 2 || !githubSegmentPattern.test(parts[0]) || !githubSegmentPattern.test(parts[1]))
+    throw new Error('GitHub source must be owner/repo[/subdir]')
   const subdirParts = parts.slice(2)
-  if (subdirParts.some((part) => !githubSegmentPattern.test(part) || part === '.' || part === '..')) throw new Error('Invalid GitHub plugin subdirectory')
+  if (subdirParts.some((part) => !githubSegmentPattern.test(part) || part === '.' || part === '..'))
+    throw new Error('Invalid GitHub plugin subdirectory')
   return { owner: parts[0], repo: parts[1], subdir: subdirParts.join('/') || undefined }
 }
 
@@ -138,8 +170,29 @@ export class PluginManager {
       if (parsed?.version === 1 && Array.isArray(parsed.plugins)) store = parsed
     } catch {}
     for (const entry of store.plugins) {
-      if (!entry || typeof entry.pluginId !== 'string' || typeof entry.root !== 'string' || !entry.manifest || !entry.source) continue
-      this.registry.set(entry.pluginId, { ...entry, enabled: entry.enabled !== false, grantedPermissions: Array.isArray(entry.grantedPermissions) ? entry.grantedPermissions.filter((permission): permission is PluginPermission => permission === 'actions.execute' || permission === 'host.context' || permission === 'files.read' || permission === 'files.write') : [] })
+      if (
+        !entry ||
+        typeof entry.pluginId !== 'string' ||
+        typeof entry.root !== 'string' ||
+        !entry.manifest ||
+        !entry.source
+      )
+        continue
+      this.registry.set(entry.pluginId, {
+        ...entry,
+        enabled: entry.enabled !== false,
+        grantedPermissions: Array.isArray(entry.grantedPermissions)
+          ? entry.grantedPermissions.filter(
+              (permission): permission is PluginPermission =>
+                permission === 'actions.execute' ||
+                permission === 'host.context' ||
+                permission === 'files.read' ||
+                permission === 'files.write' ||
+                permission === 'api.access' ||
+                permission === 'api.write',
+            )
+          : [],
+      })
     }
     let names: string[] = []
     try {
@@ -151,7 +204,14 @@ export class PluginManager {
       try {
         const manifest = await this.readManifest(root)
         if (this.registry.has(manifest.id)) continue
-        this.registry.set(manifest.id, { pluginId: manifest.id, root, enabled: true, manifest, source: { kind: 'local', installedAt: new Date().toISOString() }, grantedPermissions: [] })
+        this.registry.set(manifest.id, {
+          pluginId: manifest.id,
+          root,
+          enabled: true,
+          manifest,
+          source: { kind: 'local', installedAt: new Date().toISOString() },
+          grantedPermissions: [],
+        })
       } catch {}
     }
     await this.saveRegistry()
@@ -159,7 +219,10 @@ export class PluginManager {
   private async saveRegistry() {
     await mkdir(path.dirname(this.registryPath), { recursive: true })
     const temp = `${this.registryPath}.tmp-${process.pid}-${randomUUID()}`
-    const store: PluginRegistryStore = { version: 1, plugins: Array.from(this.registry.values()).sort((left, right) => left.pluginId.localeCompare(right.pluginId)) }
+    const store: PluginRegistryStore = {
+      version: 1,
+      plugins: Array.from(this.registry.values()).sort((left, right) => left.pluginId.localeCompare(right.pluginId)),
+    }
     await writeFile(temp, JSON.stringify(store, null, 2), { encoding: 'utf8', mode: 0o600 })
     await rename(temp, this.registryPath)
   }
@@ -171,12 +234,34 @@ export class PluginManager {
     try {
       const manifest = await this.readManifest(entry.root)
       if (manifest.id !== entry.pluginId) throw new Error('Plugin id does not match registry entry')
-      if (!supportsPluginPlatform(undefined, manifest.platforms)) throw new Error('Plugin is not supported on this platform')
+      if (!supportsPluginPlatform(undefined, manifest.platforms))
+        throw new Error('Plugin is not supported on this platform')
       entry.manifest = manifest
-      const grantedPermissions=entry.grantedPermissions.filter((permission) => manifest.permissions?.includes(permission))
-      return { pluginId: entry.pluginId, root: entry.root, enabled: entry.enabled, manifest, source: entry.source, state: entry.enabled ? 'active' : 'disabled', grantedPermissions }
+      const grantedPermissions = entry.grantedPermissions.filter((permission) =>
+        manifest.permissions?.includes(permission),
+      )
+      return {
+        pluginId: entry.pluginId,
+        root: entry.root,
+        enabled: entry.enabled,
+        manifest,
+        source: entry.source,
+        state: entry.enabled ? 'active' : 'disabled',
+        grantedPermissions,
+      }
     } catch (error) {
-      return { pluginId: entry.pluginId, root: entry.root, enabled: entry.enabled, manifest: entry.manifest, source: entry.source, state: 'error', grantedPermissions: entry.grantedPermissions.filter((permission) => entry.manifest.permissions?.includes(permission)), error: error instanceof Error ? error.message : String(error) }
+      return {
+        pluginId: entry.pluginId,
+        root: entry.root,
+        enabled: entry.enabled,
+        manifest: entry.manifest,
+        source: entry.source,
+        state: 'error',
+        grantedPermissions: entry.grantedPermissions.filter((permission) =>
+          entry.manifest.permissions?.includes(permission),
+        ),
+        error: error instanceof Error ? error.message : String(error),
+      }
     }
   }
   private async requireEntry(pluginId: string) {
@@ -193,14 +278,23 @@ export class PluginManager {
   }
   async listPlugins() {
     await this.ensureReady()
-    return Promise.all(Array.from(this.registry.values()).map((entry) => this.loadInfo(entry))).then((items) => items.sort((left, right) => left.manifest.name.localeCompare(right.manifest.name)))
+    return Promise.all(Array.from(this.registry.values()).map((entry) => this.loadInfo(entry))).then((items) =>
+      items.sort((left, right) => left.manifest.name.localeCompare(right.manifest.name)),
+    )
   }
   async link(rootValue: string) {
     await this.ensureReady()
     const root = await realpath(rootValue)
     const manifest = await this.readManifest(root)
     if (this.registry.has(manifest.id)) throw new Error(`Plugin ${manifest.id} is already registered`)
-    const entry: PluginRegistryEntry = { pluginId: manifest.id, root, enabled: true, manifest, source: { kind: 'local', installedAt: new Date().toISOString() }, grantedPermissions: [] }
+    const entry: PluginRegistryEntry = {
+      pluginId: manifest.id,
+      root,
+      enabled: true,
+      manifest,
+      source: { kind: 'local', installedAt: new Date().toISOString() },
+      grantedPermissions: [],
+    }
     this.registry.set(manifest.id, entry)
     try {
       await this.ensurePluginDataDirs(manifest.id)
@@ -223,20 +317,32 @@ export class PluginManager {
     return this.loadInfo(entry)
   }
   async setGrantedPermissions(pluginId: string, permissions: string[]) {
-    const entry=await this.requireEntry(pluginId)
-    const info=await this.loadInfo(entry)
-    const grantedPermissions=Array.from(new Set(permissions)).sort()
-    if (grantedPermissions.some((permission) => !info.manifest.permissions?.includes(permission as PluginPermission))) throw new Error('Plugin permission is not declared')
-    entry.grantedPermissions=grantedPermissions as PluginPermission[]
+    const entry = await this.requireEntry(pluginId)
+    const info = await this.loadInfo(entry)
+    const grantedPermissions = Array.from(new Set(permissions)).sort()
+    if (grantedPermissions.some((permission) => !info.manifest.permissions?.includes(permission as PluginPermission)))
+      throw new Error('Plugin permission is not declared')
+    // 收回 api.access 即吊销配套 token——权限语义是"插件不再有 API 凭证"，
+    // 只停注入不吊销会留活 token 在 access-scopes.json
+    const hadApiAccess = entry.grantedPermissions.includes('api.access')
+    // api.write 由授无到有：scope 需从 readOnly 升级，旧 token 吊销等下次懒签发
+    const gainedWrite =
+      !entry.grantedPermissions.includes('api.write') && grantedPermissions.includes('api.write' as PluginPermission)
+    entry.grantedPermissions = grantedPermissions as PluginPermission[]
+    if (entry.apiTokenId && ((hadApiAccess && !entry.grantedPermissions.includes('api.access')) || gainedWrite))
+      await this.revokePluginApiToken(entry)
     await this.saveRegistry()
     return this.loadInfo(entry)
   }
   async uninstall(pluginId: string, keepData = false) {
     const entry = await this.requireEntry(pluginId)
     await this.stopPlugin(pluginId)
+    // 凭证不算用户数据：keepData 也要吊销+清文件，不留孤儿 token
+    await this.revokePluginApiToken(entry)
     if (entry.source.kind === 'github') {
       const expected = path.resolve(this.pluginDir, pluginId)
-      if (path.resolve(entry.root) === expected || isPathInside(expected, path.resolve(entry.root))) await rm(expected, { recursive: true, force: true })
+      if (path.resolve(entry.root) === expected || isPathInside(expected, path.resolve(entry.root)))
+        await rm(expected, { recursive: true, force: true })
     }
     if (!keepData) await rm(path.join(this.dataDir, pluginId), { recursive: true, force: true })
     this.registry.delete(pluginId)
@@ -245,7 +351,10 @@ export class PluginManager {
   }
   async listLogs(pluginId?: string) {
     await this.ensureReady()
-    return this.logs.filter((log) => !pluginId || log.pluginId === pluginId).slice().reverse()
+    return this.logs
+      .filter((log) => !pluginId || log.pluginId === pluginId)
+      .slice()
+      .reverse()
   }
   private pushLog(log: PluginCommandLog) {
     this.logs.push(log)
@@ -253,9 +362,22 @@ export class PluginManager {
   }
   private requirePermission(info: PluginInfo, permission: PluginPermission, actionId?: string, event?: string) {
     if (info.manifest.permissions?.includes(permission) && info.grantedPermissions.includes(permission)) return
-    const error=`Plugin permission ${permission} is ${info.manifest.permissions?.includes(permission) ? 'not granted' : 'not declared'}`
-    const timestamp=new Date().toISOString()
-    this.pushLog({ id:randomUUID(), pluginId:info.pluginId, actionId, event, command:[], status:'permission_denied', permission, startedAt:timestamp, finishedAt:timestamp, stdout:'', stderr:'', error })
+    const error = `Plugin permission ${permission} is ${info.manifest.permissions?.includes(permission) ? 'not granted' : 'not declared'}`
+    const timestamp = new Date().toISOString()
+    this.pushLog({
+      id: randomUUID(),
+      pluginId: info.pluginId,
+      actionId,
+      event,
+      command: [],
+      status: 'permission_denied',
+      permission,
+      startedAt: timestamp,
+      finishedAt: timestamp,
+      stdout: '',
+      stderr: '',
+      error,
+    })
     throw new PluginPermissionError(error)
   }
   async authorize(pluginId: string, permission: PluginPermission, actionId?: string) {
@@ -263,32 +385,138 @@ export class PluginManager {
     if (!info.enabled) throw new Error('Plugin is disabled')
     this.requirePermission(info, permission, actionId)
     const timestamp = new Date().toISOString()
-    this.pushLog({ id: randomUUID(), pluginId, actionId, command: [], status: 'success', permission, startedAt: timestamp, finishedAt: timestamp, stdout: '', stderr: '' })
+    this.pushLog({
+      id: randomUUID(),
+      pluginId,
+      actionId,
+      command: [],
+      status: 'success',
+      permission,
+      startedAt: timestamp,
+      finishedAt: timestamp,
+      stdout: '',
+      stderr: '',
+    })
   }
   private filterContext(info: PluginInfo, value: unknown) {
-    const context=normalizeContext(value)
+    const context = normalizeContext(value)
     if (info.grantedPermissions.includes('host.context')) return context
-    const { hostId:_hostId, sessionId:_sessionId, sessionName:_sessionName, windowId:_windowId, paneId:_paneId, filePath:_filePath, repoPath:_repoPath, ...rest }=context
+    const {
+      hostId: _hostId,
+      sessionId: _sessionId,
+      sessionName: _sessionName,
+      windowId: _windowId,
+      paneId: _paneId,
+      filePath: _filePath,
+      repoPath: _repoPath,
+      ...rest
+    } = context
     return rest
   }
   private async ensurePluginDataDirs(pluginId: string) {
     const root = path.join(this.dataDir, pluginId)
-    await Promise.all([mkdir(path.join(root, 'config'), { recursive: true }), mkdir(path.join(root, 'state'), { recursive: true })])
+    await Promise.all([
+      mkdir(path.join(root, 'config'), { recursive: true }),
+      mkdir(path.join(root, 'state'), { recursive: true }),
+    ])
     return root
   }
-  private async runCommand(info: PluginInfo, command: string[], options: { actionId?: string; event?: string; timeoutMs?: number; context?: unknown }) {
-    if (this.commandsInFlight >= maxConcurrentCommands) throw new Error(`Maximum concurrent plugin commands reached (${maxConcurrentCommands})`)
+  private apiTokenPath(pluginId: string) {
+    return path.join(this.dataDir, pluginId, 'api-token')
+  }
+  // 并发 action 同时首跑会各自 mint：后写覆盖 apiTokenId，先签的成失管活 token——
+  // promise memo 把并发收敛到单次签发
+  private tokenPromises = new Map<string, Promise<string>>()
+  private ensurePluginApiToken(info: PluginInfo) {
+    const pending = this.tokenPromises.get(info.pluginId)
+    if (pending) return pending
+    const promise = this.mintOrReusePluginApiToken(info).finally(() => this.tokenPromises.delete(info.pluginId))
+    this.tokenPromises.set(info.pluginId, promise)
+    return promise
+  }
+  // api.access 授予后懒签发：token 原文放 plugin-data/<id>/api-token（0600），
+  // registry 只留 tokenId 供吊销；被手工 revoke 后重签，避免失配死 token
+  private async mintOrReusePluginApiToken(info: PluginInfo) {
+    const entry = await this.requireEntry(info.pluginId)
+    const filePath = this.apiTokenPath(info.pluginId)
+    if (entry.apiTokenId) {
+      try {
+        const token = (await readFile(filePath, 'utf8')).trim()
+        if (token && verifyScopedApiToken(token)) return token
+      } catch {}
+    }
+    // scope：api.access 只给读；写向调用须显式声明+授予 api.write。
+    // token scope 收敛的是 REST 面——插件进程以宿主用户身份运行本就能 exec tmux，
+    // 所以这是审计/边界语义而非硬隔离
+    const { token, record } = createScopedApiToken({
+      name: `plugin-${info.pluginId.replace(/:/g, '-').slice(0, 73)}`,
+      scope: { hosts: '*', ...(info.grantedPermissions.includes('api.write') ? {} : { readOnly: true }) },
+    })
+    await this.ensurePluginDataDirs(info.pluginId)
+    const temp = `${filePath}.tmp-${randomUUID()}`
+    await writeFile(temp, token, { encoding: 'utf8', mode: 0o600 })
+    await rename(temp, filePath)
+    entry.apiTokenId = record.id
+    // mint 在飞期间授权被收回：新 token 不能留着，立即吊销并视为无凭证
+    if (!entry.grantedPermissions.includes('api.access')) {
+      await this.revokePluginApiToken(entry)
+      await this.saveRegistry()
+      throw new PluginPermissionError('Plugin permission api.access is not granted')
+    }
+    await this.saveRegistry()
+    return token
+  }
+  private async revokePluginApiToken(entry: PluginRegistryEntry) {
+    if (entry.apiTokenId) revokeScopedApiToken(entry.apiTokenId)
+    entry.apiTokenId = undefined
+    await rm(this.apiTokenPath(entry.pluginId), { force: true })
+  }
+  // 轮换：先吊销再重签，与 in-flight mint 串行化防并发拿到同一 token；
+  // 返回原文仅此一次（与 /auth/tokens 创建语义一致）
+  async rotateApiToken(pluginId: string) {
+    const { entry, info } = await this.requirePlugin(pluginId)
+    if (!info.grantedPermissions.includes('api.access'))
+      throw new PluginPermissionError('Plugin permission api.access is not granted')
+    const task = (this.tokenPromises.get(pluginId) || Promise.resolve('')).then(async () => {
+      await this.revokePluginApiToken(entry)
+      return this.mintOrReusePluginApiToken(info)
+    })
+    this.tokenPromises.set(
+      pluginId,
+      task.finally(() => this.tokenPromises.delete(pluginId)),
+    )
+    return { token: await task }
+  }
+  private async runCommand(
+    info: PluginInfo,
+    command: string[],
+    options: { actionId?: string; event?: string; timeoutMs?: number; context?: unknown },
+  ) {
+    if (this.commandsInFlight >= maxConcurrentCommands)
+      throw new Error(`Maximum concurrent plugin commands reached (${maxConcurrentCommands})`)
     const context = normalizeContext(options.context)
     this.commandsInFlight++
     let dataRoot: string
+    let apiToken = ''
     try {
       dataRoot = await this.ensurePluginDataDirs(info.pluginId)
+      if (info.grantedPermissions.includes('api.access')) apiToken = await this.ensurePluginApiToken(info)
     } catch (error) {
       this.commandsInFlight--
       throw error
     }
     const id = randomUUID()
-    const log: PluginCommandLog = { id, pluginId: info.pluginId, actionId: options.actionId, event: options.event, command, status: 'running', startedAt: new Date().toISOString(), stdout: '', stderr: '' }
+    const log: PluginCommandLog = {
+      id,
+      pluginId: info.pluginId,
+      actionId: options.actionId,
+      event: options.event,
+      command,
+      status: 'running',
+      startedAt: new Date().toISOString(),
+      stdout: '',
+      stderr: '',
+    }
     this.pushLog(log)
     return new Promise<PluginCommandLog>((resolve) => {
       let settled = false
@@ -326,6 +554,7 @@ export class PluginManager {
             TMUXGO_PLUGIN_EVENT: options.event || '',
             TMUXGO_CONTEXT_JSON: JSON.stringify(context),
             TMUXGO_API_URL: `http://127.0.0.1:${process.env.PORT || '3001'}/api`,
+            TMUXGO_API_TOKEN: apiToken,
             TMUXGO_HOST_ID: typeof context.hostId === 'string' ? context.hostId : '',
             TMUXGO_SESSION_ID: typeof context.sessionId === 'string' ? context.sessionId : '',
             TMUXGO_PANE_ID: typeof context.paneId === 'string' ? context.paneId : '',
@@ -344,10 +573,24 @@ export class PluginManager {
         terminateProcess(child, 'SIGTERM')
         setTimeout(() => terminateProcess(child, 'SIGKILL'), 1000).unref()
       }, timeoutMs)
-      child.stdout?.on('data', (chunk: Buffer) => { log.stdout = appendCapped(log.stdout, chunk, maxCommandOutputBytes) })
-      child.stderr?.on('data', (chunk: Buffer) => { log.stderr = appendCapped(log.stderr, chunk, maxCommandOutputBytes) })
+      child.stdout?.on('data', (chunk: Buffer) => {
+        log.stdout = appendCapped(log.stdout, chunk, maxCommandOutputBytes)
+      })
+      child.stderr?.on('data', (chunk: Buffer) => {
+        log.stderr = appendCapped(log.stderr, chunk, maxCommandOutputBytes)
+      })
       child.on('error', (error) => finish('error', null, error.message))
-      child.on('close', (code) => finish(timedOut ? 'timeout' : code === 0 ? 'success' : 'error', code, timedOut ? `Command timed out after ${timeoutMs}ms` : code === 0 ? undefined : `Command exited with code ${code ?? -1}`))
+      child.on('close', (code) =>
+        finish(
+          timedOut ? 'timeout' : code === 0 ? 'success' : 'error',
+          code,
+          timedOut
+            ? `Command timed out after ${timeoutMs}ms`
+            : code === 0
+              ? undefined
+              : `Command exited with code ${code ?? -1}`,
+        ),
+      )
     })
   }
   async invokeAction(pluginId: string, actionId: string, context?: unknown) {
@@ -355,15 +598,20 @@ export class PluginManager {
     if (!info.enabled) throw new Error('Plugin is disabled')
     const action = info.manifest.contributes?.actions?.find((item) => item.id === actionId)
     if (!action) throw new Error('Plugin action not found')
-    if (!supportsPluginPlatform(action.platforms, info.manifest.platforms)) throw new Error('Plugin action is not supported on this platform')
-    this.requirePermission(info,'actions.execute',actionId)
-    return this.runCommand(info, action.command, { actionId, timeoutMs: action.timeoutMs, context:this.filterContext(info,context) })
+    if (!supportsPluginPlatform(action.platforms, info.manifest.platforms))
+      throw new Error('Plugin action is not supported on this platform')
+    this.requirePermission(info, 'actions.execute', actionId)
+    return this.runCommand(info, action.command, {
+      actionId,
+      timeoutMs: action.timeoutMs,
+      context: this.filterContext(info, context),
+    })
   }
   async getContext(pluginId: string, context?: unknown) {
-    const { info }=await this.requirePlugin(pluginId)
+    const { info } = await this.requirePlugin(pluginId)
     if (!info.enabled) throw new Error('Plugin is disabled')
-    this.requirePermission(info,'host.context')
-    return this.filterContext(info,context)
+    this.requirePermission(info, 'host.context')
+    return this.filterContext(info, context)
   }
   async emit(event: string, context?: unknown) {
     const plugins = await this.listPlugins()
@@ -372,8 +620,12 @@ export class PluginManager {
       for (const hook of info.manifest.contributes?.events || []) {
         if (hook.on !== event || !supportsPluginPlatform(hook.platforms, info.manifest.platforms)) continue
         try {
-          this.requirePermission(info,'actions.execute',undefined,event)
-          void this.runCommand(info, hook.command, { event, timeoutMs: hook.timeoutMs, context:this.filterContext(info,context) }).catch(() => {})
+          this.requirePermission(info, 'actions.execute', undefined, event)
+          void this.runCommand(info, hook.command, {
+            event,
+            timeoutMs: hook.timeoutMs,
+            context: this.filterContext(info, context),
+          }).catch(() => {})
         } catch {}
       }
     }
@@ -410,7 +662,10 @@ export class PluginManager {
   async listStorage(pluginId: string) {
     await this.requirePlugin(pluginId)
     const root = path.join(await this.ensurePluginDataDirs(pluginId), 'state')
-    return (await readdir(root)).filter((name) => name.endsWith('.json')).map((name) => name.slice(0, -5)).sort()
+    return (await readdir(root))
+      .filter((name) => name.endsWith('.json'))
+      .map((name) => name.slice(0, -5))
+      .sort()
   }
   private assertStorageKey(key: string) {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(key)) throw new Error('Invalid plugin storage key')
@@ -436,7 +691,12 @@ export class PluginManager {
       const resolvedCommit = await this.checkoutGit(source, requestedRef, checkout)
       const root = await this.resolveCheckoutRoot(checkout, source.subdir)
       const manifest = await this.readManifest(root)
-      return { source: `${source.owner}/${source.repo}${source.subdir ? `/${source.subdir}` : ''}`, resolvedCommit, manifest, replacing: this.registry.has(manifest.id) }
+      return {
+        source: `${source.owner}/${source.repo}${source.subdir ? `/${source.subdir}` : ''}`,
+        resolvedCommit,
+        manifest,
+        replacing: this.registry.has(manifest.id),
+      }
     } finally {
       await rm(temp, { recursive: true, force: true })
     }
@@ -453,7 +713,8 @@ export class PluginManager {
     try {
       const checkout = path.join(temp, 'checkout')
       const checkedOutCommit = await this.checkoutGit(source, resolvedCommit, checkout)
-      if (checkedOutCommit.toLowerCase() !== resolvedCommit.toLowerCase()) throw new Error('GitHub plugin commit changed during installation')
+      if (checkedOutCommit.toLowerCase() !== resolvedCommit.toLowerCase())
+        throw new Error('GitHub plugin commit changed during installation')
       const pluginRoot = await this.resolveCheckoutRoot(checkout, source.subdir)
       const before = await this.readManifest(pluginRoot)
       const existing = this.registry.get(before.id)
@@ -463,7 +724,8 @@ export class PluginManager {
       for (const build of before.build || []) {
         if (!supportsPluginPlatform(build.platforms, before.platforms)) continue
         const result = await this.runExternalCommand(build.command, pluginRoot, 300000, maxBuildOutputBytes)
-        if (result.code !== 0) throw new Error(`Plugin build failed: ${result.stderr || result.stdout || `exit ${result.code}`}`)
+        if (result.code !== 0)
+          throw new Error(`Plugin build failed: ${result.stderr || result.stdout || `exit ${result.code}`}`)
       }
       const after = await this.readManifest(pluginRoot)
       if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error('Plugin build changed tmuxgo-plugin.json')
@@ -482,9 +744,25 @@ export class PluginManager {
         root,
         enabled: existing?.enabled !== false,
         manifest: after,
-        source: { kind: 'github', owner: source.owner, repo: source.repo, subdir: source.subdir, requestedRef, resolvedCommit, installedAt: new Date().toISOString(), previousSource: existing?.source.kind === 'github' ? { ...existing.source, previousSource: undefined } : undefined },
-        grantedPermissions: existing?.grantedPermissions.filter((permission) => after.permissions?.includes(permission)) || [],
+        source: {
+          kind: 'github',
+          owner: source.owner,
+          repo: source.repo,
+          subdir: source.subdir,
+          requestedRef,
+          resolvedCommit,
+          installedAt: new Date().toISOString(),
+          previousSource:
+            existing?.source.kind === 'github' ? { ...existing.source, previousSource: undefined } : undefined,
+        },
+        grantedPermissions:
+          existing?.grantedPermissions.filter((permission) => after.permissions?.includes(permission)) || [],
+        // 更新不重发 token：plugin-data 目录不随更新删除，tokenId 带过即可继续用
+        apiTokenId: existing?.apiTokenId,
       }
+      // 新 manifest 不再声明 api.access（或授权被过滤掉）时吊销旧 token，
+      // 否则权限列表已收回而 token 仍存活
+      if (entry.apiTokenId && !entry.grantedPermissions.includes('api.access')) await this.revokePluginApiToken(entry)
       this.registry.set(before.id, entry)
       await this.ensurePluginDataDirs(before.id)
       await this.saveRegistry()
@@ -508,8 +786,19 @@ export class PluginManager {
   async rollback(pluginId: string) {
     const entry = await this.requireEntry(pluginId)
     const source = entry.source.previousSource
-    if (entry.source.kind !== 'github' || source?.kind !== 'github' || !source.owner || !source.repo || !source.resolvedCommit) throw new Error('No previous plugin version is available')
-    return this.installGit([source.owner, source.repo, source.subdir].filter(Boolean).join('/'), source.resolvedCommit, source.requestedRef)
+    if (
+      entry.source.kind !== 'github' ||
+      source?.kind !== 'github' ||
+      !source.owner ||
+      !source.repo ||
+      !source.resolvedCommit
+    )
+      throw new Error('No previous plugin version is available')
+    return this.installGit(
+      [source.owner, source.repo, source.subdir].filter(Boolean).join('/'),
+      source.resolvedCommit,
+      source.requestedRef,
+    )
   }
   private async resolveCheckoutRoot(checkout: string, subdir?: string) {
     const root = await realpath(subdir ? path.join(checkout, subdir) : checkout)
@@ -517,11 +806,23 @@ export class PluginManager {
     if (!isPathInside(checkoutRoot, root)) throw new Error('Plugin subdirectory escapes checkout')
     return root
   }
-  private async checkoutGit(source: { owner: string; repo: string; subdir?: string }, ref: string | undefined, checkout: string) {
+  private async checkoutGit(
+    source: { owner: string; repo: string; subdir?: string },
+    ref: string | undefined,
+    checkout: string,
+  ) {
     await mkdir(checkout, { recursive: true })
     await this.requireExternalSuccess(['git', 'init', '--quiet'], checkout, 30000)
-    await this.requireExternalSuccess(['git', 'remote', 'add', 'origin', `https://github.com/${source.owner}/${source.repo}.git`], checkout, 30000)
-    await this.requireExternalSuccess(['git', 'fetch', '--quiet', '--depth', '1', 'origin', ref || 'HEAD'], checkout, 120000)
+    await this.requireExternalSuccess(
+      ['git', 'remote', 'add', 'origin', `https://github.com/${source.owner}/${source.repo}.git`],
+      checkout,
+      30000,
+    )
+    await this.requireExternalSuccess(
+      ['git', 'fetch', '--quiet', '--depth', '1', 'origin', ref || 'HEAD'],
+      checkout,
+      120000,
+    )
     await this.requireExternalSuccess(['git', 'checkout', '--quiet', '--detach', 'FETCH_HEAD'], checkout, 30000)
     const result = await this.runExternalCommand(['git', 'rev-parse', 'HEAD'], checkout, 30000, 4096)
     if (result.code !== 0) throw new Error(result.stderr || 'Failed to resolve Git commit')
@@ -529,11 +830,17 @@ export class PluginManager {
   }
   private async requireExternalSuccess(command: string[], cwd: string, timeoutMs: number) {
     const result = await this.runExternalCommand(command, cwd, timeoutMs, maxBuildOutputBytes)
-    if (result.code !== 0) throw new Error(result.stderr || result.stdout || `${command[0]} exited with code ${result.code}`)
+    if (result.code !== 0)
+      throw new Error(result.stderr || result.stdout || `${command[0]} exited with code ${result.code}`)
   }
   private runExternalCommand(command: string[], cwd: string, timeoutMs: number, outputCap: number) {
     return new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
-      const child = spawn(command[0], command.slice(1), { cwd, env: process.env, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] })
+      const child = spawn(command[0], command.slice(1), {
+        cwd,
+        env: process.env,
+        detached: process.platform !== 'win32',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
       let stdout = ''
       let stderr = ''
       let settled = false
@@ -541,8 +848,12 @@ export class PluginManager {
         terminateProcess(child, 'SIGTERM')
         setTimeout(() => terminateProcess(child, 'SIGKILL'), 1000).unref()
       }, timeoutMs)
-      child.stdout?.on('data', (chunk: Buffer) => { stdout = appendCapped(stdout, chunk, outputCap) })
-      child.stderr?.on('data', (chunk: Buffer) => { stderr = appendCapped(stderr, chunk, outputCap) })
+      child.stdout?.on('data', (chunk: Buffer) => {
+        stdout = appendCapped(stdout, chunk, outputCap)
+      })
+      child.stderr?.on('data', (chunk: Buffer) => {
+        stderr = appendCapped(stderr, chunk, outputCap)
+      })
       child.on('error', (error) => {
         if (settled) return
         settled = true

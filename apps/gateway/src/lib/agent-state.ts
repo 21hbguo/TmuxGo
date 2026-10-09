@@ -378,7 +378,13 @@ function updateRecord(
   const previousPhase = sameAgent ? previous?.rawPhase : undefined
   const transitionEvent = getTransitionEvent(detected.phase, previousPhase)
   const completed = detected.phase === 'idle' && transitionEvent === 'completed'
-  const agentStatus = toLegacyStatus(detected.phase, completed)
+  // done 粘性：completed 只在 working→idle 边界那轮为真，此后每轮检测仍得 idle，
+  // 必须经 resolveAgentStatus 钉住 done——否则 pane 一出新输出（statusline 重绘等）
+  // lastOutputTime 变化触发重检，完成态就被降回 idle，无需 mark-seen 也自动消失
+  const agentStatus = resolveAgentStatus(
+    toLegacyStatus(detected.phase, completed),
+    sameAgent ? previous?.agentStatus : undefined,
+  )
   const now = new Date().toISOString()
   const lastEvent = transitionEvent || (sameAgent ? previous?.lastEvent : undefined)
   const eventId = transitionEvent

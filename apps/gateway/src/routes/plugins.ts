@@ -7,8 +7,13 @@ import { readContentForHost, saveContentForHost } from './files.js'
 
 function sendError(reply: FastifyReply, error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
-  if (error instanceof PluginPermissionError) return reply.code(403).send({ message, code:'PLUGIN_PERMISSION_DENIED' })
-  const status = message.includes('not found') || message.includes('Not found') ? 404 : message.includes('already') || message.includes('linked from') ? 409 : 400
+  if (error instanceof PluginPermissionError) return reply.code(403).send({ message, code: 'PLUGIN_PERMISSION_DENIED' })
+  const status =
+    message.includes('not found') || message.includes('Not found')
+      ? 404
+      : message.includes('already') || message.includes('linked from')
+        ? 409
+        : 400
   return reply.code(status).send({ message })
 }
 function contentType(filePath: string) {
@@ -27,7 +32,12 @@ function contentType(filePath: string) {
 
 export async function pluginRoutes(fastify: FastifyInstance) {
   fastify.get('/plugins/runtime.js', async (_request, reply) => {
-    reply.type('text/javascript; charset=utf-8').header('cache-control', 'public, max-age=300').send(`(()=>{const parts=location.pathname.split('/');const pluginId=decodeURIComponent(parts[parts.indexOf('plugins')+1]||'');const viewId=new URLSearchParams(location.search).get('viewId')||'';let seq=0;const pending=new Map();function request(method,params){const id=String(++seq);parent.postMessage({source:'tmuxgo-plugin',type:'request',id,pluginId,viewId,method,params:params||{}},'*');return new Promise((resolve,reject)=>pending.set(id,{resolve,reject}))}addEventListener('message',event=>{const message=event.data;if(event.source!==parent||!message||message.source!=='tmuxgo-host'||message.pluginId!==pluginId)return;if(message.type==='response'){const task=pending.get(message.id);if(!task)return;pending.delete(message.id);if(message.ok)task.resolve(message.result);else task.reject(new Error(message.error||'Plugin request failed'))}if(message.type==='context')dispatchEvent(new CustomEvent('tmuxgo:context',{detail:message.context}))});window.tmuxgo={context:{get:()=>request('context.get')},storage:{get:key=>request('storage.get',{key}),set:(key,value)=>request('storage.set',{key,value}),delete:key=>request('storage.delete',{key}),list:()=>request('storage.list')},files:{read:(hostId,root,path)=>request('files.read',{hostId,root,path}),write:(hostId,root,path,content,modifiedAt)=>request('files.write',{hostId,root,path,content,modifiedAt})},actions:{invoke:(actionId,context)=>request('action.invoke',{actionId,context})},ui:{notify:(message,level)=>request('ui.notify',{message,level})}};parent.postMessage({source:'tmuxgo-plugin',type:'ready',pluginId,viewId},'*')})()`)
+    reply
+      .type('text/javascript; charset=utf-8')
+      .header('cache-control', 'public, max-age=300')
+      .send(
+        `(()=>{const parts=location.pathname.split('/');const pluginId=decodeURIComponent(parts[parts.indexOf('plugins')+1]||'');const viewId=new URLSearchParams(location.search).get('viewId')||'';let seq=0;const pending=new Map();function request(method,params){const id=String(++seq);parent.postMessage({source:'tmuxgo-plugin',type:'request',id,pluginId,viewId,method,params:params||{}},'*');return new Promise((resolve,reject)=>pending.set(id,{resolve,reject}))}addEventListener('message',event=>{const message=event.data;if(event.source!==parent||!message||message.source!=='tmuxgo-host'||message.pluginId!==pluginId)return;if(message.type==='response'){const task=pending.get(message.id);if(!task)return;pending.delete(message.id);if(message.ok)task.resolve(message.result);else task.reject(new Error(message.error||'Plugin request failed'))}if(message.type==='context')dispatchEvent(new CustomEvent('tmuxgo:context',{detail:message.context}))});window.tmuxgo={context:{get:()=>request('context.get')},storage:{get:key=>request('storage.get',{key}),set:(key,value)=>request('storage.set',{key,value}),delete:key=>request('storage.delete',{key}),list:()=>request('storage.list')},files:{read:(hostId,root,path)=>request('files.read',{hostId,root,path}),write:(hostId,root,path,content,modifiedAt)=>request('files.write',{hostId,root,path,content,modifiedAt})},actions:{invoke:(actionId,context)=>request('action.invoke',{actionId,context})},ui:{notify:(message,level)=>request('ui.notify',{message,level})}};parent.postMessage({source:'tmuxgo-plugin',type:'ready',pluginId,viewId},'*')})()`,
+      )
   })
   fastify.get('/plugins', async () => ({ plugins: await pluginManager.listPlugins() }))
   fastify.post('/plugins/link', async (request, reply) => {
@@ -50,21 +60,22 @@ export async function pluginRoutes(fastify: FastifyInstance) {
   })
   fastify.put('/plugins/:pluginId/permissions', async (request, reply) => {
     try {
-      const { pluginId }=request.params as { pluginId:string }
-      const permissions=(request.body as { permissions?: unknown })?.permissions
-      if (!Array.isArray(permissions) || !permissions.every((permission) => typeof permission === 'string')) throw new Error('permissions must be an array of strings')
-      return await pluginManager.setGrantedPermissions(pluginId,permissions)
+      const { pluginId } = request.params as { pluginId: string }
+      const permissions = (request.body as { permissions?: unknown })?.permissions
+      if (!Array.isArray(permissions) || !permissions.every((permission) => typeof permission === 'string'))
+        throw new Error('permissions must be an array of strings')
+      return await pluginManager.setGrantedPermissions(pluginId, permissions)
     } catch (error) {
-      return sendError(reply,error)
+      return sendError(reply, error)
     }
   })
   fastify.post('/plugins/:pluginId/context', async (request, reply) => {
     try {
-      const { pluginId }=request.params as { pluginId:string }
-      const body=request.body as { context?: unknown } | undefined
-      return { context:await pluginManager.getContext(pluginId,body?.context) }
+      const { pluginId } = request.params as { pluginId: string }
+      const body = request.body as { context?: unknown } | undefined
+      return { context: await pluginManager.getContext(pluginId, body?.context) }
     } catch (error) {
-      return sendError(reply,error)
+      return sendError(reply, error)
     }
   })
   fastify.post('/plugins/:pluginId/files/read', async (request, reply) => {
@@ -83,13 +94,25 @@ export async function pluginRoutes(fastify: FastifyInstance) {
   fastify.put('/plugins/:pluginId/files/write', async (request, reply) => {
     try {
       const { pluginId } = request.params as { pluginId: string }
-      const body = request.body as { hostId?: unknown; root?: unknown; path?: unknown; content?: unknown; modifiedAt?: unknown }
+      const body = request.body as {
+        hostId?: unknown
+        root?: unknown
+        path?: unknown
+        content?: unknown
+        modifiedAt?: unknown
+      }
       const hostId = typeof body?.hostId === 'string' && body.hostId.trim() ? body.hostId.trim() : 'local'
       const rootId = typeof body?.root === 'string' ? body.root : ''
       const relativePath = typeof body?.path === 'string' ? body.path : ''
       if (typeof body?.content !== 'string') throw new Error('content must be a string')
       await pluginManager.authorize(pluginId, 'files.write')
-      return await saveContentForHost(hostId, rootId, relativePath, body.content, typeof body.modifiedAt === 'string' ? body.modifiedAt : undefined)
+      return await saveContentForHost(
+        hostId,
+        rootId,
+        relativePath,
+        body.content,
+        typeof body.modifiedAt === 'string' ? body.modifiedAt : undefined,
+      )
     } catch (error) {
       return sendError(reply, error)
     }
@@ -99,6 +122,14 @@ export async function pluginRoutes(fastify: FastifyInstance) {
       const { pluginId } = request.params as { pluginId: string }
       const { keepData } = request.query as { keepData?: string }
       return await pluginManager.uninstall(pluginId, keepData === 'true')
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+  fastify.post('/plugins/:pluginId/token/rotate', async (request, reply) => {
+    try {
+      const { pluginId } = request.params as { pluginId: string }
+      return await pluginManager.rotateApiToken(pluginId)
     } catch (error) {
       return sendError(reply, error)
     }
@@ -158,7 +189,11 @@ export async function pluginRoutes(fastify: FastifyInstance) {
       reply.header('cache-control', 'no-store')
       reply.header('x-content-type-options', 'nosniff')
       reply.type(contentType(asset.path))
-      if (path.extname(asset.path).toLowerCase() === '.html') reply.header('content-security-policy', "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'")
+      if (path.extname(asset.path).toLowerCase() === '.html')
+        reply.header(
+          'content-security-policy',
+          "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'",
+        )
       return reply.send(createReadStream(asset.path))
     } catch (error) {
       return sendError(reply, error)

@@ -14,7 +14,7 @@ import {
 } from './agent-state.js'
 import { createTerminalOutputSanitizer } from './terminal-output.js'
 import { execTmux } from './tmux-executor.js'
-import { forgetAgentPane, getHostAgentPanes } from './agent-state.js'
+import { _setAgentPaneRecordForTest, forgetAgentPane, getHostAgentPanes } from './agent-state.js'
 import { killTestTmuxSession, TEST_TMUX_SESSION } from '../test-tmux.js'
 
 test('detects codex lifecycle from terminal output', () => {
@@ -143,6 +143,41 @@ test('scans a local tmux Agent pane through the real executor path', async () =>
     await rm(tempDir, { recursive: true, force: true })
   }
 })
+// done 粘性回归：pane 周期重绘推进 lastOutputTime，强制每轮 scan 重跑检测——
+// 修复前第二轮 idle 检测会把 done 降回 idle（徽标自动消失）
+test('done state stays sticky across rescans while pane keeps ticking', async () => {
+  const sessionName = TEST_TMUX_SESSION
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-agent-scan-'))
+  const agentPath = path.join(tempDir, 'worker')
+  const agentScript = [
+    '#!/usr/bin/env node',
+    'let n = 0',
+    'const draw = () => process.stdout.write(`\\u001b[2J\\u001b[H› Use /skills to list available skills\\n\\ngpt-5.6 medium · ~/project\\ntick ${n++}\\n`)',
+    'draw()',
+    'setInterval(draw, 200)',
+    '',
+  ].join('\n')
+  await writeFile(agentPath, agentScript)
+  await chmod(agentPath, 0o700)
+  let paneId = ''
+  try {
+    await execTmux('local', ['new-session', '-d', '-s', sessionName, agentPath])
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    const first = await getHostAgentPanes('local', [sessionName])
+    paneId = first[0]?.paneId || ''
+    assert.equal(first[0]?.agent, 'codex')
+    // 注入「刚完成」的记录：等价于 working→idle 转换轮写下的 done
+    _setAgentPaneRecordForTest({ ...first[0], agentStatus: 'done', phase: 'idle', lastEvent: 'completed' })
+    // 越过 750ms scans 缓存 TTL 且保证 pane 又重绘过（lastOutputTime 已推进）
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    const second = await getHostAgentPanes('local', [sessionName])
+    assert.equal(second[0]?.agentStatus, 'done')
+  } finally {
+    if (paneId) forgetAgentPane(paneId)
+    await killTestTmuxSession()
+    await rm(tempDir, { recursive: true, force: true })
+  }
+})
 test('detects reasonix working state from in-pane braille spinner', () => {
   assert.deepEqual(
     detectAgentEvidence(
@@ -154,8 +189,12 @@ test('detects reasonix working state from in-pane braille spinner', () => {
     'working',
   )
   assert.deepEqual(
-    detectAgentEvidence('node /home/user/.nvm/versions/node/v22.22.0/bin/reasonix', '', '⎿  ⠙ 运行中 · 0 秒', 'reasonix')
-      ?.phase,
+    detectAgentEvidence(
+      'node /home/user/.nvm/versions/node/v22.22.0/bin/reasonix',
+      '',
+      '⎿  ⠙ 运行中 · 0 秒',
+      'reasonix',
+    )?.phase,
     'working',
   )
 })

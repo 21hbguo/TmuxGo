@@ -51,8 +51,7 @@ import {
 } from './SessionSortableList'
 import { HostSwitcher } from './HostSwitcher'
 import { AgentStatusBadge } from './AgentStatusBadge'
-import { doneAgentPaneIds, getAgentAttentionRank, mergeAgentSummaries } from '@/lib/agent-status'
-import { useMarkAgentSeen } from '@/hooks/useMarkAgentSeen'
+import { getAgentAttentionRank, mergeAgentSummaries } from '@/lib/agent-status'
 import type { AgentStatus, AgentSummary, Session, WorkspaceEntry } from '@/types'
 import { ModalPortal } from './ModalPortal'
 import { api } from '@/lib/api'
@@ -82,7 +81,6 @@ export function SessionPanel() {
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const pushToast = useConsoleStore((state) => state.pushToast)
   const queryClient = useOptionalQueryClient()
-  const markAgentSeen = useMarkAgentSeen()
   const { data: sessions = [], moveSession, isError, error, refetch } = useOrderedSessions(activeHostId || '')
   // agent 恢复徽标暂不展示（AgentRecoveryBadge/useAgentRecoveryList 保留以便恢复）
   const createSession = useCreateSession()
@@ -111,7 +109,20 @@ export function SessionPanel() {
   } | null>(null)
   const [templateWorkspace, setTemplateWorkspace] = useState<WorkspaceEntry | null>(null)
   const [pendingDeleteWorkspace, setPendingDeleteWorkspace] = useState<WorkspaceEntry | null>(null)
-  const [templateMenuWorkspaceId, setTemplateMenuWorkspaceId] = useState<string | null>(null)
+  const [templateMenu, setTemplateMenu] = useState<{ workspace: WorkspaceEntry; top: number; right: number } | null>(
+    null,
+  )
+  // 菜单 portal 定位后不会跟随组头滚动：滚动即关；外部 mousedown 同样关闭
+  useEffect(() => {
+    if (!templateMenu) return
+    const close = () => setTemplateMenu(null)
+    window.addEventListener('mousedown', close)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [templateMenu])
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false)
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false)
   const workspaceMenuRef = useRef<HTMLDivElement>(null)
@@ -155,7 +166,7 @@ export function SessionPanel() {
     setShowTemplates(true)
   }
   const handleWorkspaceSetTemplate = async (workspace: WorkspaceEntry, templateId: string) => {
-    setTemplateMenuWorkspaceId(null)
+    setTemplateMenu(null)
     try {
       await updateWorkspace.mutateAsync({ id: workspace.id, payload: { templateId } })
       pushToast({ type: 'success', message: t('workspace.templateUpdated', { name: workspace.name }) })
@@ -576,7 +587,6 @@ export function SessionPanel() {
           <AgentStatusBadge
             summary={session.agentSummary}
             onStatusClick={(status) => handleAgentStatusClick(session, status)}
-            onClearDone={() => void markAgentSeen(doneAgentPaneIds([session]))}
           />
         </div>
       </button>
@@ -616,21 +626,10 @@ export function SessionPanel() {
   // sticky 需要列表容器作包含块，不能再套只包组头的中间层），这里只产出内部内容
   const groupHeaderClassName =
     'group sticky top-0 z-10 relative flex items-center gap-1 border-b border-[var(--line)] bg-bg-0/95 px-2 py-1 backdrop-blur'
-  const renderGroupHeader = (
-    workspace: WorkspaceEntry | null,
-    count: number,
-    agentSummary: AgentSummary,
-    groupSessions: Session[],
-  ) =>
+  const renderGroupHeader = (workspace: WorkspaceEntry | null) =>
     workspace ? (
       <>
         <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text-1">{workspace.name}</span>
-        <AgentStatusBadge
-          summary={agentSummary}
-          compact
-          onClearDone={() => void markAgentSeen(doneAgentPaneIds(groupSessions))}
-        />
-        <span className="text-meta text-text-3">{count}</span>
         {!batchMode && (
           <button
             onClick={() => handleWorkspaceCreateSession(workspace)}
@@ -653,7 +652,12 @@ export function SessionPanel() {
         )}
         {!batchMode && (
           <button
-            onClick={() => setTemplateMenuWorkspaceId(templateMenuWorkspaceId === workspace.id ? null : workspace.id)}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              if (templateMenu?.workspace.id === workspace.id) return setTemplateMenu(null)
+              const rect = event.currentTarget.getBoundingClientRect()
+              setTemplateMenu({ workspace, top: rect.bottom + 4, right: window.innerWidth - rect.right })
+            }}
             className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
             aria-label={t('workspace.template')}
             title={t('workspace.template')}
@@ -671,29 +675,31 @@ export function SessionPanel() {
             🗑
           </button>
         )}
-        {templateMenuWorkspaceId === workspace.id && (
-          <div className="absolute right-2 top-7 z-20 max-h-56 overflow-y-auto rounded-apple border border-[var(--line)] bg-bg-1 p-1">
-            {allTemplates.map((template) => (
-              <button
-                key={template.id}
-                onClick={() => void handleWorkspaceSetTemplate(workspace, template.id)}
-                className={`block w-full truncate rounded-apple px-2 py-1 text-left text-xs hover:bg-bg-0 ${workspace.templateId === template.id ? 'text-accent' : 'text-text-1'}`}
-              >
-                {template.name}
-              </button>
-            ))}
-          </div>
+        {templateMenu?.workspace.id === workspace.id && (
+          <ModalPortal>
+            {/* 组头带 backdrop-blur（成为 fixed 后代的包含块）且列表容器 overflow 裁剪——
+                菜单必须 portal 到 body 用 fixed 定位，否则被 sticky 头/滚动边界裁掉 */}
+            <div
+              className="tmuxgo-menu fixed z-[90] max-h-56 w-44 overflow-y-auto py-1 text-xs"
+              style={{ top: templateMenu.top, right: templateMenu.right }}
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              {allTemplates.map((template) => (
+                <button
+                  key={template.id}
+                  onClick={() => void handleWorkspaceSetTemplate(workspace, template.id)}
+                  className={`tmuxgo-menu-item truncate text-xs ${workspace.templateId === template.id ? 'text-accent' : ''}`}
+                >
+                  {template.name}
+                </button>
+              ))}
+            </div>
+          </ModalPortal>
         )}
       </>
     ) : (
       <>
         <span className="min-w-0 flex-1 truncate text-xs text-text-3">{t('workspace.unclassified')}</span>
-        <AgentStatusBadge
-          summary={agentSummary}
-          compact
-          onClearDone={() => void markAgentSeen(doneAgentPaneIds(groupSessions))}
-        />
-        <span className="text-meta text-text-3">{count}</span>
         {!batchMode && (
           <button
             onClick={handleUnclassifiedCreateSession}
@@ -796,11 +802,7 @@ export function SessionPanel() {
                             {group.workspace.path}
                           </span>
                         </span>
-                        <AgentStatusBadge
-                          summary={group.agentSummary}
-                          compact
-                          onClearDone={() => void markAgentSeen(doneAgentPaneIds(group.sessions))}
-                        />
+                        <AgentStatusBadge summary={group.agentSummary} compact />
                         {currentWorkspace?.id === group.workspace.id && (
                           <FiCheck aria-hidden="true" className="shrink-0 text-accent" size={14} />
                         )}
@@ -907,10 +909,10 @@ export function SessionPanel() {
                 listClassName="min-h-full"
                 getItemClassName={sessionItemClassName}
                 renderItem={renderSessionItem}
-                groups={displayedGroups.map(({ key, workspace, sessions: groupSessions, agentSummary }) => ({
+                groups={displayedGroups.map(({ key, workspace, sessions: groupSessions }) => ({
                   key,
                   sessions: groupSessions,
-                  header: renderGroupHeader(workspace, groupSessions.length, agentSummary, groupSessions),
+                  header: renderGroupHeader(workspace),
                   headerClassName: groupHeaderClassName,
                 }))}
               />

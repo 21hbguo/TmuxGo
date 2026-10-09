@@ -4,6 +4,7 @@ import {
   forgetAgentPane,
   getHostAgentPanes,
   markAgentPaneSeen,
+  resolveAgentStatus,
   type AgentEvent,
   type AgentPaneState,
 } from './agent-state.js'
@@ -189,7 +190,8 @@ function applyProtocolEvent(
     agent: event.agent || pane.agent,
     agentSessionId: event.agentSessionId || pane.agentSessionId,
     nativeAgentSessionId: event.agentSessionId || pane.nativeAgentSessionId,
-    agentStatus: protocolAgentStatus(event),
+    // 协议 idle 事件同样不降已完成的 done：与 scan 路径同一套 resolveAgentStatus 语义
+    agentStatus: resolveAgentStatus(protocolAgentStatus(event), pane.agentStatus),
     phase: event.phase,
     lastEvent: event.lastEvent,
     source: event.source,

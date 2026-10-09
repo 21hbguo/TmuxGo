@@ -5,7 +5,6 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 import { useSystemInfo } from '@/hooks/useSystemInfo'
 import { useHosts, useSessions, useSessionSnapshot } from '@/hooks/useApi'
-import { useMarkAgentSeen } from '@/hooks/useMarkAgentSeen'
 import { Chip } from './Chip'
 import { AgentStatusBadge } from './AgentStatusBadge'
 import { subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
@@ -73,7 +72,6 @@ function formatLoss(pct: number): string {
 export function StatusBar() {
   const [showAllDisks, setShowAllDisks] = useState(false)
   const activePaneId = useConsoleStore((state) => state.activePaneId)
-  const markAgentSeen = useMarkAgentSeen()
   const connection = useConsoleStore((state) => state.connection)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
@@ -231,10 +229,7 @@ export function StatusBar() {
             {activePane?.agent && (
               <span className="inline-flex min-w-0 items-center gap-1.5">
                 <span className="max-w-24 truncate text-caption text-text-2">{activePane.agent}</span>
-                <AgentStatusBadge
-                  status={activePane.agentStatus}
-                  onClearDone={() => void markAgentSeen([activePane.id])}
-                />
+                <AgentStatusBadge status={activePane.agentStatus} />
               </span>
             )}
             {activePane?.display &&

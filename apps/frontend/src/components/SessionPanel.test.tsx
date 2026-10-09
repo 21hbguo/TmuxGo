@@ -309,7 +309,10 @@ describe('SessionPanel session actions', () => {
     ]
     mutateCreateSession.mockResolvedValueOnce({ id: 'session-new-1', name: 'tmuxgo-1', windowCount: 1 })
     render(<SessionPanel />)
-    fireEvent.click(screen.getByText('New'))
+    // 顶栏 New 已图标化（aria-label），与未分类组头的同名按钮区分需按 Sessions 行定界
+    fireEvent.click(
+      within(screen.getByText('Sessions').parentElement as HTMLElement).getByRole('button', { name: 'New' }),
+    )
     fireEvent.click(screen.getByText('select-template'))
     fireEvent.click(screen.getByText('create-session'))
     await waitFor(() =>
@@ -352,7 +355,9 @@ describe('SessionPanel session actions', () => {
       },
     ]
     render(<SessionPanel />)
-    fireEvent.click(screen.getByText('New'))
+    fireEvent.click(
+      within(screen.getByText('Sessions').parentElement as HTMLElement).getByRole('button', { name: 'New' }),
+    )
     expect(screen.getByText('create-session')).toBeInTheDocument()
     expect(screen.queryByText('select-template')).not.toBeInTheDocument()
   })
@@ -370,7 +375,7 @@ describe('SessionPanel session actions', () => {
       .mockResolvedValueOnce({ mode: 'preview', forceRequired: false })
       .mockResolvedValueOnce({ mode: 'execute', deleted: [{ sessionId: 'session-dev' }], deletedCount: 1 })
     render(<SessionPanel />)
-    fireEvent.click(screen.getByText('sidebar.batchDeleteAction'))
+    fireEvent.click(screen.getByRole('button', { name: 'sidebar.batchDeleteAction' }))
     fireEvent.click(screen.getAllByText('☐')[0])
     fireEvent.click(screen.getByText('sidebar.batchDeleteSelected'))
     fireEvent.click(screen.getByText('confirm-delete'))
@@ -558,11 +563,15 @@ describe('SessionPanel session actions', () => {
     expect(
       screen.getByText('next').compareDocumentPosition(screen.getByText('dev')) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
+    // 组头不再聚合徽标/计数（只留名称+操作项）；rollup 仍驱动组排序，徽标落在各 session 行
     const otherHeader = screen.getByText('other').parentElement as HTMLElement
-    expect(within(otherHeader).getByTitle('等待处理')).toBeInTheDocument()
-    // 未分类组同样产出 rollup 徽标
+    expect(within(otherHeader).queryByTitle('等待处理')).not.toBeInTheDocument()
+    const nextRow = screen.getByText('next').closest('button') as HTMLElement
+    expect(within(nextRow).getByTitle('等待处理')).toBeInTheDocument()
     const unclassifiedHeader = screen.getByText('workspace.unclassified').parentElement as HTMLElement
-    expect(within(unclassifiedHeader).getByTitle('Done')).toBeInTheDocument()
+    expect(within(unclassifiedHeader).queryByTitle('Done')).not.toBeInTheDocument()
+    const looseRow = screen.getByText('loose').closest('button') as HTMLElement
+    expect(within(looseRow).getByTitle('Done')).toBeInTheDocument()
   })
   it('switches to the selected workspace session', () => {
     workspacesState.data = [

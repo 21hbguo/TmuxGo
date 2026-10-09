@@ -47,8 +47,6 @@ import { useTranslation } from '@/i18n'
 import { readActiveHostId, readActiveSessionId } from '@/lib/console-device-state'
 import { FiX } from 'react-icons/fi'
 import { AgentStatusBadge } from './AgentStatusBadge'
-import { doneAgentPaneIds } from '@/lib/agent-status'
-import { useMarkAgentSeen } from '@/hooks/useMarkAgentSeen'
 import { OverlayShell } from './DesktopWindow'
 import { shouldResumeFromContinuity } from '@/lib/session-continuity-policy'
 import { MOBILE_QUERY } from '@/lib/console-device-state'
@@ -132,7 +130,6 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   const mobileFileSheetOpen = useConsoleStore((s) => s.mobileFileSheetOpen)
   const setMobileFileSheetOpen = useConsoleStore((s) => s.setMobileFileSheetOpen)
   const pushToast = useConsoleStore((s) => s.pushToast)
-  const markAgentSeen = useMarkAgentSeen()
   const { preferences } = usePreferences()
   const { sessionContinuity } = useSessionContinuity()
   const { t } = useTranslation()
@@ -890,11 +887,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
                         <span className="min-w-0 truncate">
                           {mobilePinnedSessionIds.includes(session.id) ? `★ ${session.name}` : session.name}
                         </span>
-                        <AgentStatusBadge
-                          summary={session.agentSummary}
-                          compact
-                          onClearDone={() => void markAgentSeen(doneAgentPaneIds([session]))}
-                        />
+                        <AgentStatusBadge summary={session.agentSummary} compact />
                       </span>
                     </button>
                   )

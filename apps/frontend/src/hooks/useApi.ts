@@ -314,6 +314,11 @@ export function useRollbackPlugin() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }),
   })
 }
+export function useRotatePluginToken() {
+  return useMutation({
+    mutationFn: (pluginId: string) => api.plugins.rotateToken(pluginId),
+  })
+}
 
 export function useSessions(hostId: string) {
   return useQuery({

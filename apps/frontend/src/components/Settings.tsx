@@ -14,9 +14,13 @@ import { APP_BUILD_ID, APP_NAME, APP_VERSION } from '@/lib/app-version'
 import { api, type ShareLink } from '@/lib/api'
 import {
   changePassword,
+  createApiToken,
+  listApiTokens,
   listAuthSessions,
+  revokeApiToken,
   revokeAuthSession,
   revokeOtherAuthSessions,
+  type ApiToken,
   type AuthSession,
 } from '@/lib/auth'
 import { parseSessionName } from '@/lib/session-id'
@@ -95,6 +99,16 @@ export function Settings({ onClose }: SettingsProps) {
   const [shareLoading, setShareLoading] = useState(false)
   const [shareCreating, setShareCreating] = useState(false)
   const [shareActionMessage, setShareActionMessage] = useState('')
+  const [apiTokens, setApiTokens] = useState<ApiToken[]>([])
+  const [apiTokensLoading, setApiTokensLoading] = useState(false)
+  const [tokenNameDraft, setTokenNameDraft] = useState('')
+  const [tokenHostDraft, setTokenHostDraft] = useState('*')
+  const [tokenSessionsDraft, setTokenSessionsDraft] = useState('')
+  const [tokenReadOnlyDraft, setTokenReadOnlyDraft] = useState(true)
+  const [tokenExpiresDraft, setTokenExpiresDraft] = useState('0')
+  const [tokenCreating, setTokenCreating] = useState(false)
+  const [tokenCreatedValue, setTokenCreatedValue] = useState('')
+  const [tokenActionMessage, setTokenActionMessage] = useState('')
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
   const [updateConfirmOpen, setUpdateConfirmOpen] = useState(false)
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false)
@@ -254,10 +268,21 @@ export function Settings({ onClose }: SettingsProps) {
       setShareLoading(false)
     }
   }
+  const loadApiTokens = async () => {
+    setApiTokensLoading(true)
+    try {
+      setApiTokens(await listApiTokens())
+    } catch (err: any) {
+      setTokenActionMessage(err?.message || t('settings.tokensLoadFailed'))
+    } finally {
+      setApiTokensLoading(false)
+    }
+  }
   useEffect(() => {
     if (activeTab !== 'security') return
     void loadAuthSessions()
     void loadShareLinks()
+    void loadApiTokens()
   }, [activeTab])
   const revokeSession = async (sessionId: string) => {
     setAuthActionMessage('')
@@ -318,6 +343,52 @@ export function Settings({ onClose }: SettingsProps) {
     } catch (err: any) {
       setShareActionMessage(err?.message || t('settings.shareActionFailed'))
     }
+  }
+  const createToken = async () => {
+    const name = tokenNameDraft.trim()
+    if (tokenCreating || !name) return
+    setTokenCreating(true)
+    setTokenActionMessage('')
+    setTokenCreatedValue('')
+    try {
+      const sessions = tokenSessionsDraft
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+      const result = await createApiToken({
+        name,
+        scope: {
+          hosts: tokenHostDraft === '*' ? '*' : [tokenHostDraft],
+          ...(sessions.length ? { sessions } : {}),
+          ...(tokenReadOnlyDraft ? { readOnly: true } : {}),
+        },
+        expiresInMinutes: Number(tokenExpiresDraft) || undefined,
+      })
+      setTokenCreatedValue(result.token)
+      setTokenNameDraft('')
+      setTokenSessionsDraft('')
+      await loadApiTokens()
+    } catch (err: any) {
+      setTokenActionMessage(err?.message || t('settings.tokensActionFailed'))
+    } finally {
+      setTokenCreating(false)
+    }
+  }
+  const revokeToken = async (id: string) => {
+    setTokenActionMessage('')
+    try {
+      await revokeApiToken(id)
+      setTokenActionMessage(t('settings.tokensRevoked'))
+      await loadApiTokens()
+    } catch (err: any) {
+      setTokenActionMessage(err?.message || t('settings.tokensActionFailed'))
+    }
+  }
+  const describeTokenScope = (token: ApiToken) => {
+    const parts = [token.scope.hosts === '*' ? 'hosts:*' : `hosts:${token.scope.hosts.join(',')}`]
+    if (token.scope.sessions && token.scope.sessions !== '*') parts.push(`sessions:${token.scope.sessions.join(',')}`)
+    if (token.scope.readOnly) parts.push('ro')
+    return parts.join(' · ')
   }
   const loadArchives = async () => {
     setArchiveLoading(true)
@@ -917,6 +988,115 @@ export function Settings({ onClose }: SettingsProps) {
                 )}
               </div>
               <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-4">
+                <div className="text-sm font-medium text-text-1">{t('settings.tokensTitle')}</div>
+                <div className="mt-1 text-xs text-text-3">{t('settings.tokensDesc')}</div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  <input
+                    aria-label={t('settings.tokensName')}
+                    value={tokenNameDraft}
+                    onChange={(event) => setTokenNameDraft(event.target.value)}
+                    placeholder={t('settings.tokensName')}
+                    className="tmuxgo-control tmuxgo-input rounded-apple px-2 py-1.5 text-sm"
+                  />
+                  <Select
+                    aria-label={t('settings.tokensHost')}
+                    value={tokenHostDraft}
+                    onChange={setTokenHostDraft}
+                    options={[
+                      { value: '*', label: t('settings.tokensAllHosts') },
+                      ...hosts.map((host) => ({ value: host.id, label: host.name || host.id })),
+                    ]}
+                    className="rounded-apple px-2 py-1.5 text-sm"
+                  />
+                  <input
+                    aria-label={t('settings.tokensSessions')}
+                    value={tokenSessionsDraft}
+                    onChange={(event) => setTokenSessionsDraft(event.target.value)}
+                    placeholder={t('settings.tokensSessions')}
+                    className="tmuxgo-control tmuxgo-input rounded-apple px-2 py-1.5 text-sm"
+                  />
+                  <Select
+                    aria-label={t('settings.tokensExpires')}
+                    value={tokenExpiresDraft}
+                    onChange={setTokenExpiresDraft}
+                    options={[
+                      { value: '0', label: t('settings.tokensNever') },
+                      { value: '60', label: t('settings.shareHours', { value: 1 }) },
+                      { value: '1440', label: t('settings.shareDays', { value: 1 }) },
+                      { value: '43200', label: t('settings.shareDays', { value: 30 }) },
+                    ]}
+                    className="rounded-apple px-2 py-1.5 text-sm"
+                  />
+                </div>
+                <div className="mt-3 flex items-center justify-between">
+                  <button
+                    onClick={() => setTokenReadOnlyDraft(!tokenReadOnlyDraft)}
+                    className="flex items-center gap-2 text-sm text-text-2"
+                    aria-pressed={tokenReadOnlyDraft}
+                  >
+                    <span className={`relative h-6 w-10 rounded-full ${tokenReadOnlyDraft ? 'bg-accent' : 'bg-bg-1'}`}>
+                      <span
+                        className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${tokenReadOnlyDraft ? 'right-1' : 'left-1'}`}
+                      />
+                    </span>
+                    {t('settings.tokensReadOnly')}
+                  </button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={tokenCreating || !tokenNameDraft.trim()}
+                    onClick={() => void createToken()}
+                  >
+                    {tokenCreating ? t('common.loading') : t('settings.tokensCreate')}
+                  </Button>
+                </div>
+                {tokenCreatedValue && (
+                  <div className="mt-3 flex items-center gap-2 rounded-apple border border-accent bg-bg-1 p-2">
+                    <code className="min-w-0 flex-1 break-all text-xs text-text-1">{tokenCreatedValue}</code>
+                    <Button
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() =>
+                        void copy(tokenCreatedValue).then(() => setTokenActionMessage(t('settings.tokensCopied')))
+                      }
+                    >
+                      {t('quick.copy')}
+                    </Button>
+                  </div>
+                )}
+                {tokenCreatedValue && <div className="mt-1 text-xs text-text-3">{t('settings.tokensCreatedOnce')}</div>}
+                {apiTokensLoading && <div className="mt-4 text-sm text-text-3">{t('common.loading')}</div>}
+                {!apiTokensLoading && !apiTokens.length && (
+                  <div className="mt-4 text-sm text-text-3">{t('settings.tokensEmpty')}</div>
+                )}
+                {!apiTokensLoading && apiTokens.length > 0 && (
+                  <div className="mt-4 divide-y divide-[var(--line)] rounded-apple border border-[var(--line)]">
+                    {apiTokens.map((token) => (
+                      <div key={token.id} className="flex items-start gap-3 px-3 py-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm text-text-1">{token.name}</div>
+                          <div className="mt-1 break-all text-xs text-text-3">{describeTokenScope(token)}</div>
+                          <div className="mt-1 text-xs text-text-3">
+                            {t('settings.securityCreatedAt', { value: new Date(token.createdAt).toLocaleString() })}
+                            {token.expiresAt
+                              ? ` · ${t('settings.securityExpiresAt', { value: new Date(token.expiresAt).toLocaleString() })}`
+                              : ''}
+                            {token.revokedAt
+                              ? ` · ${t('settings.tokensRevokedAt', { value: new Date(token.revokedAt).toLocaleString() })}`
+                              : ''}
+                          </div>
+                        </div>
+                        {!token.revokedAt && (
+                          <Button size="sm" className="shrink-0" onClick={() => void revokeToken(token.id)}>
+                            {t('settings.securityRevoke')}
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-4">
                 <div className="text-sm font-medium text-text-1">{t('settings.shareTitle')}</div>
                 <div className="mt-1 text-xs text-text-3">{t('settings.shareDesc')}</div>
                 <div className="mt-4 grid gap-2 sm:grid-cols-3">
@@ -990,6 +1170,7 @@ export function Settings({ onClose }: SettingsProps) {
               </div>
               {authActionMessage && <div className="text-sm text-danger">{authActionMessage}</div>}
               {shareActionMessage && <div className="text-sm text-danger">{shareActionMessage}</div>}
+              {tokenActionMessage && <div className="text-sm text-danger">{tokenActionMessage}</div>}
             </div>
           )}
 

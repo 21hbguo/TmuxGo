@@ -14,12 +14,9 @@ import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { SessionStandaloneSortableList } from './SessionSortableList'
 import { FiChevronRight, FiEdit2, FiPlus, FiTrash2 } from 'react-icons/fi'
 import { AgentStatusBadge } from './AgentStatusBadge'
-import { doneAgentPaneIds } from '@/lib/agent-status'
-import { useMarkAgentSeen } from '@/hooks/useMarkAgentSeen'
 
 export function SessionRail() {
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
-  const markAgentSeen = useMarkAgentSeen()
   const setActiveSession = useConsoleStore((state) => state.setActiveSession)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const pushToast = useConsoleStore((state) => state.pushToast)
@@ -142,11 +139,7 @@ export function SessionRail() {
                           {session.name.slice(0, 2).toUpperCase()}
                         </span>
                         <span className="absolute -bottom-1 -right-1">
-                          <AgentStatusBadge
-                            summary={session.agentSummary}
-                            compact
-                            onClearDone={() => void markAgentSeen(doneAgentPaneIds([session]))}
-                          />
+                          <AgentStatusBadge summary={session.agentSummary} compact />
                         </span>
                       </span>
                       <span className="min-w-0 flex-1">

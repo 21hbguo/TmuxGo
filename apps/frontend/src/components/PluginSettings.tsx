@@ -1,5 +1,15 @@
 import { useState } from 'react'
-import { FiBox, FiExternalLink, FiGithub, FiLink, FiPlay, FiRefreshCw, FiRotateCcw, FiTrash2 } from 'react-icons/fi'
+import {
+  FiBox,
+  FiExternalLink,
+  FiGithub,
+  FiKey,
+  FiLink,
+  FiPlay,
+  FiRefreshCw,
+  FiRotateCcw,
+  FiTrash2,
+} from 'react-icons/fi'
 import {
   useInstallGitHubPlugin,
   useInvokePluginAction,
@@ -7,11 +17,13 @@ import {
   usePlugins,
   usePreviewGitHubPlugin,
   useRollbackPlugin,
+  useRotatePluginToken,
   useSetPluginEnabled,
   useSetPluginPermissions,
   useUninstallPlugin,
 } from '@/hooks/useApi'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import { useClipboard } from '@/hooks/useClipboard'
 import { isImeKeyEvent } from '@/lib/terminal-platform'
 import { useTranslation } from '@/i18n'
 import type { GitHubPluginPreview, PluginInfo, PluginPermission } from '@/types'
@@ -48,11 +60,14 @@ export function PluginSettings() {
   const previewGitHub = usePreviewGitHubPlugin()
   const installGitHub = useInstallGitHubPlugin()
   const rollback = useRollbackPlugin()
+  const rotateToken = useRotatePluginToken()
+  const { copy } = useClipboard()
   const [localPath, setLocalPath] = useState('')
   const [githubSource, setGithubSource] = useState('')
   const [githubRef, setGithubRef] = useState('')
   const [preview, setPreview] = useState<GitHubPluginPreview | null>(null)
   const [pendingDelete, setPendingDelete] = useState<PluginInfo | null>(null)
+  const [rotatedToken, setRotatedToken] = useState<{ plugin: PluginInfo; token: string } | null>(null)
   const [pendingPermission, setPendingPermission] = useState<{
     plugin: PluginInfo
     permission: PluginPermission
@@ -113,6 +128,14 @@ export function PluginSettings() {
     try {
       await rollback.mutateAsync(plugin.pluginId)
       pushToast({ type: 'success', message: t('plugins.rolledBack', { name: plugin.manifest.name }) })
+    } catch (error) {
+      notifyError(error)
+    }
+  }
+  const handleRotateToken = async (plugin: PluginInfo) => {
+    try {
+      const result = await rotateToken.mutateAsync(plugin.pluginId)
+      setRotatedToken({ plugin, token: result.token })
     } catch (error) {
       notifyError(error)
     }
@@ -337,6 +360,17 @@ export function PluginSettings() {
                     {action.title}
                   </Chip>
                 ))}
+                {(plugin.grantedPermissions || []).includes('api.access') && (
+                  <Chip
+                    disabled={rotateToken.isPending}
+                    onClick={() => void handleRotateToken(plugin)}
+                    className="flex items-center gap-1.5"
+                    title={t('plugins.tokenRotateHint')}
+                  >
+                    <FiKey size={11} />
+                    {t('plugins.tokenRotate')}
+                  </Chip>
+                )}
                 {plugin.manifest.contributes?.views?.map((view) => (
                   <Chip
                     key={view.id}
@@ -372,6 +406,21 @@ export function PluginSettings() {
                   <FiTrash2 size={12} />
                   {t('plugins.uninstall')}
                 </Chip>
+              </div>
+            )}
+            {rotatedToken?.plugin.pluginId === plugin.pluginId && (
+              <div className="mt-3 rounded-apple border border-accent bg-bg-1 p-2">
+                <div className="flex items-center gap-2">
+                  <code className="min-w-0 flex-1 break-all text-xs text-text-1">{rotatedToken.token}</code>
+                  <Button
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => void copy(rotatedToken.token).then(() => setRotatedToken(null))}
+                  >
+                    {t('quick.copy')}
+                  </Button>
+                </div>
+                <div className="mt-1 text-xs text-text-3">{t('plugins.tokenRotatedOnce')}</div>
               </div>
             )}
             {!plugin.manifest.contributes?.actions?.length && !plugin.manifest.contributes?.views?.length && (
