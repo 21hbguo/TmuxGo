@@ -1029,6 +1029,7 @@ export const en = {
   'editor.definitionUnsupported': 'Definition navigation is unavailable for this language',
   'editor.definitionSearching': 'Searching for definition…',
   'editor.preview': 'Preview',
+  'editor.splitPreview': 'Split preview',
   'editor.syncPreview': 'Sync preview',
   'editor.saving': 'Saving...',
   'editor.save': 'Save',

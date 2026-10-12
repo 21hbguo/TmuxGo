@@ -1021,6 +1021,7 @@ export const zh = {
   'editor.definitionUnsupported': '当前语言不支持定义跳转',
   'editor.definitionSearching': '正在搜索定义…',
   'editor.preview': '预览',
+  'editor.splitPreview': '左右预览',
   'editor.syncPreview': '同步预览',
   'editor.saving': '保存中...',
   'editor.save': '保存',

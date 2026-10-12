@@ -92,6 +92,8 @@ function isImagePreviewable(editor: FileEditorDocument) {
 function isPreviewableLanguage(language: string) {
   return language === 'markdown' || language === 'html' || language === 'csv'
 }
+// 可预览文件的展示模式：preview=整区预览（打开默认）/split=左右分栏/edit=仅编辑器
+type EditorPreviewMode = 'edit' | 'preview' | 'split'
 function getAutoScrollStep(distance: number) {
   const absDistance = Math.abs(distance)
   if (absDistance <= AUTO_SCROLL_DEADZONE) return 0
@@ -196,7 +198,9 @@ export function EditorWorkbench({
     >
   >({})
   const [pendingCloseEditorId, setPendingCloseEditorId] = useState<string | null>(null)
-  const [previewOpenById, setPreviewOpenById] = useState<Record<string, boolean>>({})
+  const [previewModeById, setPreviewModeById] = useState<Record<string, EditorPreviewMode>>({})
+  // 左右分栏里编辑器侧的宽度占比，拖中间分隔条调整
+  const [previewSplitRatio, setPreviewSplitRatio] = useState(0.5)
   const [cursorById, setCursorById] = useState<Record<string, { line: number; column: number }>>({})
   const [autoScrollIndicator, setAutoScrollIndicator] = useState<{ active: boolean; x: number; y: number }>({
     active: false,
@@ -221,6 +225,7 @@ export function EditorWorkbench({
     splitId: string
     container: HTMLDivElement | null
   } | null>(null)
+  const previewResizeRef = useRef<{ active: boolean; container: HTMLElement | null } | null>(null)
   const editorById = new Map(openEditors.map((item) => [item.id, item]))
   const groupById = new Map(editorGroups.map((group) => [group.id, group]))
   const orderedGroupIds = collectEditorLayoutGroupIds(editorLayout)
@@ -228,6 +233,10 @@ export function EditorWorkbench({
     ? editorById.get(activeEditorId) || null
     : openEditors[openEditors.length - 1] || null
   const gitDiff = activeEditor?.id.startsWith('git-diff?') ? parseGitDiffId(activeEditor.id) : null
+  const activePreviewMode: EditorPreviewMode =
+    activeEditor && isPreviewableLanguage(activeEditor.language)
+      ? (previewModeById[activeEditor.id] ?? 'preview')
+      : 'edit'
   const followFilePath = !gitDiff && activeEditor?.absolutePath ? getParentDir(activeEditor.absolutePath) : ''
   const gitMode = activeHostId ? gitByHost[activeHostId]?.mode || 'follow-editor' : 'follow-editor'
   const { data: detectResult } = useGitDetect(activeHostId || '', followFilePath)
@@ -298,10 +307,10 @@ export function EditorWorkbench({
   // md 预览跟随光标：cursor 变化、content 重渲（新 DOM 需重打高亮）、开关/编辑器切换都走这里
   useEffect(() => {
     if (!previewSyncEnabled || !activeEditor || activeEditor.language !== 'markdown') return
-    if (previewOpenById[activeEditor.id] === false) return
+    if ((previewModeById[activeEditor.id] ?? 'preview') === 'edit') return
     syncPreviewToLine(activeEditor.id, cursor?.line || 1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewSyncEnabled, activeEditor?.id, activeEditor?.language, activeEditor?.content, previewOpenById, cursor])
+  }, [previewSyncEnabled, activeEditor?.id, activeEditor?.language, activeEditor?.content, previewModeById, cursor])
   const createNavigationEntry = (editor: FileEditorDocument, position?: { line: number; column: number } | null) => {
     const resolvedPosition = position || getNavigationPosition(editor.id)
     if (!resolvedPosition) return null
@@ -706,6 +715,12 @@ export function EditorWorkbench({
   useEffect(() => () => stopAutoScroll(), [])
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
+      const previewResize = previewResizeRef.current
+      if (previewResize?.active && previewResize.container) {
+        const rect = previewResize.container.getBoundingClientRect()
+        if (rect.width > 0) setPreviewSplitRatio(Math.min(0.8, Math.max(0.2, (event.clientX - rect.left) / rect.width)))
+        return
+      }
       const resize = splitResizeRef.current
       const container = resize?.container
       if (!resize || !resize.active || !container) return
@@ -716,8 +731,10 @@ export function EditorWorkbench({
         setEditorSplitRatio(resize.splitId, (event.clientY - rect.top) / rect.height)
     }
     const handlePointerUp = () => {
-      if (splitResizeRef.current?.active) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
+      if (splitResizeRef.current?.active || previewResizeRef.current?.active)
+        emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
       splitResizeRef.current = null
+      previewResizeRef.current = null
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
@@ -728,7 +745,8 @@ export function EditorWorkbench({
     window.addEventListener('blur', handlePointerUp)
     return () => {
       // effect 重跑/卸载兜底补 end，否则 burst 抑制永久卡住
-      if (splitResizeRef.current?.active) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
+      if (splitResizeRef.current?.active || previewResizeRef.current?.active)
+        emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
       window.removeEventListener('pointermove', handlePointerMove, true)
       window.removeEventListener('pointerup', handlePointerUp, true)
       window.removeEventListener('pointercancel', handlePointerUp, true)
@@ -1181,7 +1199,9 @@ export function EditorWorkbench({
     )
   }
   const renderSurface = (editor: FileEditorDocument, focused: boolean) => {
-    const previewOpen = isPreviewableLanguage(editor.language) && previewOpenById[editor.id] !== false
+    const previewMode = isPreviewableLanguage(editor.language) ? (previewModeById[editor.id] ?? 'preview') : 'edit'
+    const previewSplit = previewMode === 'split'
+    const previewVisible = previewMode !== 'edit'
     const compareLeft = editor.compareLeftId
       ? openEditors.find((item) => item.id === editor.compareLeftId) || null
       : null
@@ -1269,14 +1289,16 @@ export function EditorWorkbench({
         </div>
       )
     return (
-      <div className={`flex h-full min-h-0 ${previewOpen ? 'flex-row' : 'flex-col'}`}>
+      <div className={`flex h-full min-h-0 ${previewVisible ? 'flex-row' : 'flex-col'}`}>
         <div
           ref={(node) => {
             editorViewportRefs.current[editor.id] = node
           }}
           data-testid={focused ? 'editor-auto-scroll-zone' : undefined}
           onMouseDown={(event) => handleEditorMouseDown(editor.id, event)}
-          className={`relative ${previewOpen ? 'min-w-0 flex-1 border-r border-[var(--line)]' : 'h-full'}`}
+          // 整区预览时保留挂载但隐藏：Monaco 的撤销/光标/滚动状态不丢，切回即原位恢复
+          className={`relative ${previewMode === 'preview' ? 'hidden' : previewSplit ? 'min-h-0 min-w-0 shrink-0 grow-0' : 'h-full'}`}
+          style={previewSplit ? { flexBasis: `${previewSplitRatio * 100}%` } : undefined}
         >
           <MonacoEditor
             key={editor.id}
@@ -1411,7 +1433,24 @@ export function EditorWorkbench({
             </span>
           )}
         </div>
-        {previewOpen &&
+        {previewSplit && (
+          <div
+            data-testid="editor-preview-resizer"
+            onPointerDown={(event) => {
+              emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
+              previewResizeRef.current = {
+                active: true,
+                container: event.currentTarget.parentElement as HTMLElement,
+              }
+              document.body.style.cursor = 'col-resize'
+              document.body.style.userSelect = 'none'
+              event.preventDefault()
+              event.stopPropagation()
+            }}
+            className="w-1 shrink-0 cursor-col-resize bg-[var(--line)] hover:bg-accent/40"
+          />
+        )}
+        {previewVisible &&
           (editor.language === 'csv' ? (
             <CsvTable content={editor.content} emptyLabel={t('editor.nothingToPreview')} />
           ) : editor.language === 'markdown' ? (
@@ -1419,7 +1458,7 @@ export function EditorWorkbench({
               active={focused}
               resetKey={editor.id}
               doubleClickZoom={false}
-              className="tmuxgo-scrollbar min-w-0 flex-1 overflow-auto bg-bg-1/60 px-6 py-5"
+              className="tmuxgo-scrollbar min-h-0 min-w-0 flex-1 overflow-auto bg-bg-1/60 px-6 py-5"
             >
               <article
                 ref={(node) => {
@@ -1438,7 +1477,7 @@ export function EditorWorkbench({
               srcDoc={editor.content}
               sandbox="allow-downloads allow-forms allow-modals allow-popups allow-scripts"
               referrerPolicy="no-referrer"
-              className="h-full min-w-0 flex-1 border-0 bg-white"
+              className="h-full min-h-0 min-w-0 flex-1 border-0 bg-white"
             />
           ))}
       </div>
@@ -1503,27 +1542,41 @@ export function EditorWorkbench({
                 <FiCode aria-hidden="true" size={14} />
               </Button>
               {isPreviewableLanguage(activeEditor.language) && (
-                <Button
-                  size="sm"
-                  variant={previewOpenById[activeEditor.id] !== false ? 'accent' : 'default'}
-                  onClick={() =>
-                    setPreviewOpenById((current) => ({
-                      ...current,
-                      [activeEditor.id]: current[activeEditor.id] === false,
-                    }))
-                  }
-                >
-                  {t('editor.preview')}
-                </Button>
-              )}
-              {activeEditor.language === 'markdown' && previewOpenById[activeEditor.id] !== false && (
-                <Button
-                  size="sm"
-                  variant={previewSyncEnabled ? 'accent' : 'default'}
-                  onClick={() => setPreviewSyncEnabled((current) => !current)}
-                >
-                  {t('editor.syncPreview')}
-                </Button>
+                <>
+                  <Button
+                    size="sm"
+                    variant={activePreviewMode !== 'edit' ? 'accent' : 'default'}
+                    onClick={() =>
+                      setPreviewModeById((current) => ({
+                        ...current,
+                        [activeEditor.id]: activePreviewMode === 'edit' ? 'preview' : 'edit',
+                      }))
+                    }
+                  >
+                    {t('editor.preview')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={activePreviewMode === 'split' ? 'accent' : 'default'}
+                    onClick={() =>
+                      setPreviewModeById((current) => ({
+                        ...current,
+                        [activeEditor.id]: activePreviewMode === 'split' ? 'preview' : 'split',
+                      }))
+                    }
+                  >
+                    {t('editor.splitPreview')}
+                  </Button>
+                  {activeEditor.language === 'markdown' && activePreviewMode === 'split' && (
+                    <Button
+                      size="sm"
+                      variant={previewSyncEnabled ? 'accent' : 'default'}
+                      onClick={() => setPreviewSyncEnabled((current) => !current)}
+                    >
+                      {t('editor.syncPreview')}
+                    </Button>
+                  )}
+                </>
               )}
               <Button
                 size="sm"
