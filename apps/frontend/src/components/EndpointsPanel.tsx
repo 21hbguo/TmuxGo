@@ -240,7 +240,7 @@ export function EndpointsPanel({ mode = 'panel', onClose }: EndpointsPanelProps)
   )
   return (
     <section
-      className={`tmuxgo-content-surface flex min-h-0 flex-col overflow-hidden ${mode === 'panel' ? 'shrink-0 border-r border-[var(--line)]' : 'h-full w-full'}`}
+      className={`tmuxgo-content-surface flex h-full min-h-0 flex-col overflow-hidden ${mode === 'panel' ? 'shrink-0 border-r border-[var(--line)]' : 'w-full'}`}
     >
       {mode === 'panel' && (
         <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--line)] px-3">
@@ -263,7 +263,7 @@ export function EndpointsPanel({ mode = 'panel', onClose }: EndpointsPanelProps)
         </header>
       )}
       {toolbar}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
         {isLoading && <div className="px-3 py-6 text-center text-xs text-text-3">…</div>}
         {isError && <div className="px-3 py-6 text-center text-xs text-text-3">{t('endpoints.loadError')}</div>}
         {data && !data.supported && (
