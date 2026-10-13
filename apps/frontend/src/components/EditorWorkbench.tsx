@@ -217,6 +217,13 @@ export function EditorWorkbench({
   } | null>(null)
   const [navigationVersion, setNavigationVersion] = useState(0)
   const [previewSyncEnabled, setPreviewSyncEnabled] = useState(true)
+  // onMount/onScroll 回调里读最新值，避免闭包快照
+  const previewSyncEnabledRef = useRef(previewSyncEnabled)
+  previewSyncEnabledRef.current = previewSyncEnabled
+  const previewModeByIdRef = useRef(previewModeById)
+  previewModeByIdRef.current = previewModeById
+  // 滚动同步回环抑制：程序化写入一侧后，短时间忽略该侧回传的 scroll 事件
+  const scrollSyncGuardRef = useRef<Record<string, { side: 'editor' | 'preview'; ts: number }>>({})
   const previewElRefs = useRef<Record<string, HTMLElement | null>>({})
   const previewHighlightRef = useRef<Record<string, HTMLElement | null>>({})
   const splitResizeRef = useRef<{
@@ -292,7 +299,10 @@ export function EditorWorkbench({
     if (!target) return
     target.classList.add('md-source-loc')
     // 同块内移动不重复滚动，nearest 只做不打扰式对齐
-    if (target !== previous) target.scrollIntoView?.({ block: 'nearest' })
+    if (target !== previous) {
+      scrollSyncGuardRef.current[editorId] = { side: 'preview', ts: Date.now() }
+      target.scrollIntoView?.({ block: 'nearest' })
+    }
   }
   const jumpPreviewToEditor = (editorId: string) => (event: ReactMouseEvent<HTMLElement>) => {
     const target = (event.target as HTMLElement).closest('[data-line]')
@@ -304,6 +314,72 @@ export function EditorWorkbench({
     instance.setPosition?.({ lineNumber: line, column: 1 })
     instance.focus?.()
   }
+  const getEditorLineHeight = (instance: any) => {
+    const option = monacoRef.current?.editor?.EditorOption?.lineHeight
+    const value = option !== undefined ? Number(instance?.getOption?.(option)) : 0
+    return value > 0 ? value : 20
+  }
+  // 预览滚动视口即 ZoomSurface 根（className 里带 tmuxgo-scrollbar 的那个祖先）
+  const getPreviewScroller = (editorId: string) =>
+    (previewElRefs.current[editorId]?.closest('.tmuxgo-scrollbar') as HTMLElement | null) || null
+  // 编辑器→预览：首条可见源行映射到预览块并顶对齐；一律走 rect 换算，ZoomSurface transform 下也安全
+  const syncPreviewScrollToEditor = (editorId: string) => {
+    const article = previewElRefs.current[editorId]
+    const scroller = getPreviewScroller(editorId)
+    const instance = editorRefs.current[editorId]
+    if (!article || !scroller || !instance) return
+    const topLine =
+      Number(instance.getVisibleRanges?.()?.[0]?.startLineNumber) ||
+      Math.floor(Number(instance.getScrollTop?.() || 0) / getEditorLineHeight(instance)) + 1
+    const block = locatePreviewBlock(article, topLine)
+    if (!block) return
+    scrollSyncGuardRef.current[editorId] = { side: 'preview', ts: Date.now() }
+    scroller.scrollTop = Math.max(
+      0,
+      block.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - 8,
+    )
+  }
+  // 预览→编辑器：视口顶命中的预览块 + 块内进度，线性折算回源行滚动位置
+  const syncEditorScrollToPreview = (editorId: string) => {
+    const article = previewElRefs.current[editorId]
+    const scroller = getPreviewScroller(editorId)
+    const instance = editorRefs.current[editorId]
+    if (!article || !scroller || !instance) return
+    const anchor = scroller.getBoundingClientRect().top + 8
+    let block: HTMLElement | null = null
+    let line = 1
+    let nextLine = 0
+    for (const el of Array.from(article.querySelectorAll<HTMLElement>('[data-line]'))) {
+      if (el.getBoundingClientRect().top <= anchor) {
+        block = el
+        line = Number(el.getAttribute('data-line')) || line
+      } else {
+        nextLine = Number(el.getAttribute('data-line')) || 0
+        break
+      }
+    }
+    const blockRect = block?.getBoundingClientRect()
+    const frac =
+      blockRect && blockRect.height > 0 ? Math.min(1, Math.max(0, (anchor - blockRect.top) / blockRect.height)) : 0
+    const lineSpan = Math.max(1, (nextLine || line + 1) - line)
+    const baseTop = Number(instance.getTopForLineNumber?.(line) ?? 0)
+    scrollSyncGuardRef.current[editorId] = { side: 'editor', ts: Date.now() }
+    instance.setScrollTop?.(baseTop + frac * lineSpan * getEditorLineHeight(instance))
+  }
+  const scrollSyncAllowed = (editorId: string) =>
+    previewSyncEnabledRef.current && (previewModeByIdRef.current[editorId] ?? 'preview') === 'split'
+  const handleEditorScrollSync = (editorId: string) => {
+    if (!scrollSyncAllowed(editorId)) return
+    const guard = scrollSyncGuardRef.current[editorId]
+    if (guard?.side === 'editor' && Date.now() - guard.ts < 120) return
+    syncPreviewScrollToEditor(editorId)
+  }
+  const handlePreviewScroll = (editorId: string) => {
+    if (!scrollSyncAllowed(editorId)) return
+    const guard = scrollSyncGuardRef.current[editorId]
+    if (guard?.side === 'preview' && Date.now() - guard.ts < 120) return
+    syncEditorScrollToPreview(editorId)
+  }
   // md 预览跟随光标：cursor 变化、content 重渲（新 DOM 需重打高亮）、开关/编辑器切换都走这里
   useEffect(() => {
     if (!previewSyncEnabled || !activeEditor || activeEditor.language !== 'markdown') return
@@ -311,6 +387,13 @@ export function EditorWorkbench({
     syncPreviewToLine(activeEditor.id, cursor?.line || 1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewSyncEnabled, activeEditor?.id, activeEditor?.language, activeEditor?.content, previewModeById, cursor])
+  // 刚切进左右分栏时按编辑器当前可见行对齐一次；之后由双向滚动监听接管
+  useEffect(() => {
+    if (!previewSyncEnabled || !activeEditor || activeEditor.language !== 'markdown') return
+    if ((previewModeById[activeEditor.id] ?? 'preview') !== 'split') return
+    syncPreviewScrollToEditor(activeEditor.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewSyncEnabled, activeEditor?.id, previewModeById])
   const createNavigationEntry = (editor: FileEditorDocument, position?: { line: number; column: number } | null) => {
     const resolvedPosition = position || getNavigationPosition(editor.id)
     if (!resolvedPosition) return null
@@ -359,11 +442,7 @@ export function EditorWorkbench({
       getScrollTop: () => Number(instance.getScrollTop?.() || 0),
       getMaxScrollTop: () =>
         Math.max(0, Number(instance.getScrollHeight?.() || 0) - Number(instance.getLayoutInfo?.().height || 0)),
-      getLineHeight: () => {
-        const option = monacoRef.current?.editor?.EditorOption?.lineHeight
-        const value = option !== undefined ? Number(instance.getOption?.(option)) : 0
-        return value > 0 ? value : 20
-      },
+      getLineHeight: () => getEditorLineHeight(instance),
       setScrollTop: (top) => instance.setScrollTop?.(top, monacoRef.current?.editor?.ScrollType?.Smooth),
     })
     wheelScrollDisposersRef.current.set(editorId, dispose)
@@ -1342,6 +1421,7 @@ export function EditorWorkbench({
               instance.onDidScrollChange?.((event: any) => {
                 snapshot.scrollTop = Number(event?.scrollTop ?? instance.getScrollTop?.() ?? 0)
                 snapshot.scrollLeft = Number(event?.scrollLeft ?? instance.getScrollLeft?.() ?? 0)
+                handleEditorScrollSync(editor.id)
               })
               // 卸载只清死引用，不读实例补快照：@monaco-editor/react 卸载先 dispose model 再 dispose
               // editor，此处 getScrollTop/getPosition 读到的是死模型值（-1/null），会把 onDidScrollChange
@@ -1458,6 +1538,7 @@ export function EditorWorkbench({
               active={focused}
               resetKey={editor.id}
               doubleClickZoom={false}
+              onScroll={() => handlePreviewScroll(editor.id)}
               className="tmuxgo-scrollbar min-h-0 min-w-0 flex-1 overflow-auto bg-bg-1/60 px-6 py-5"
             >
               <article

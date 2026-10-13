@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import type { PointerEvent as ReactPointerEvent, ReactNode, UIEvent as ReactUIEvent } from 'react'
 interface ZoomSurfaceProps {
   children: ReactNode
   className?: string
@@ -10,6 +10,7 @@ interface ZoomSurfaceProps {
   minScale?: number
   maxScale?: number
   doubleClickZoom?: boolean
+  onScroll?: (event: ReactUIEvent<HTMLDivElement>) => void
 }
 function getTouchDistance(touches: TouchList) {
   return Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY)
@@ -26,6 +27,7 @@ export function ZoomSurface({
   minScale = 0.25,
   maxScale = 8,
   doubleClickZoom = true,
+  onScroll,
 }: ZoomSurfaceProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -210,6 +212,7 @@ export function ZoomSurface({
     <div
       ref={viewportRef}
       className={`${className} relative`}
+      onScroll={onScroll}
       onDoubleClick={handleDoubleClick}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
