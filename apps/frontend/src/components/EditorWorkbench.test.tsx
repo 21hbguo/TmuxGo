@@ -47,6 +47,34 @@ vi.mock('@/lib/dynamic', async () => {
       let cursorHandler: ((event: any) => void) | undefined
       let scrollHandler: ((event: any) => void) | undefined
       const disposalHandlers: (() => void)[] = []
+      // 伪 FindController：find widget 状态绑在实例上，随 dispose 消亡
+      const findStateListeners = new Set<(event: any) => void>()
+      const findState = {
+        isRevealed: false,
+        searchString: '',
+        isRegex: false,
+        wholeWord: false,
+        matchCase: false,
+        preserveCase: false,
+        isReplaceRevealed: false,
+        onFindReplaceStateChange: (handler: (event: any) => void) => {
+          findStateListeners.add(handler)
+          return { dispose: () => findStateListeners.delete(handler) }
+        },
+        change(patch: Record<string, any>, _moveCursor?: boolean) {
+          for (const [key, value] of Object.entries(patch)) {
+            if (value !== undefined) (this as Record<string, any>)[key] = value
+          }
+          findStateListeners.forEach((handler) => handler({ ...patch }))
+        },
+      }
+      const findController = {
+        getState: () => findState,
+        // 对齐真实 _start：newState 合并入 state 且强制 isRevealed
+        start: vi.fn(async (_options: any, newState?: Record<string, any>) => {
+          findState.change({ ...newState, isRevealed: true }, false)
+        }),
+      }
       const instance = {
         getPosition: () => (disposed ? null : { ...position }),
         setPosition: (next: any) => {
@@ -101,6 +129,9 @@ vi.mock('@/lib/dynamic', async () => {
           return { dispose: vi.fn() }
         },
         getAction: vi.fn(() => ({ run: vi.fn() })),
+        getContribution: (id: string) => (id === 'editor.contrib.findController' ? findController : null),
+        findController,
+        findState,
       }
       liveEditors.set(path, instance)
       onMount?.(instance)
@@ -1895,5 +1926,55 @@ describe('EditorWorkbench', () => {
     expect(reopened.getScrollTop()).toBe(0)
     expect(reopened.getScrollLeft()).toBe(0)
     expect(reopened.getPosition()).toEqual({ lineNumber: 1, column: 1 })
+  })
+  it('keeps the find widget open with its query when switching files in the same group', async () => {
+    setWorkbenchState({
+      openEditors: [editor1, editor2],
+      activeEditorId: editor1.id,
+      editorGroups: [createGroup('group-1', [editor1.id, editor2.id], editor1.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
+    // 用户在 editor1 里打开 find 并输入查询词/开关
+    act(() => {
+      liveEditors
+        .get(editor1.absolutePath)
+        .findState.change({ isRevealed: true, searchString: 'value', matchCase: true, isRegex: true }, false)
+    })
+    act(() => useConsoleStore.getState().setActiveEditor(editor2.id))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    const next = liveEditors.get(editor2.absolutePath)
+    // 新实例上自动重开 widget：查询词与开关原样带过去，且不抢编辑器焦点
+    expect(next.findController.start).toHaveBeenCalledWith(
+      expect.objectContaining({ shouldFocus: 0, updateSearchScope: false }),
+      expect.objectContaining({ searchString: 'value', matchCase: true, isRegex: true }),
+    )
+    expect(next.findState.isRevealed).toBe(true)
+    expect(next.findState.searchString).toBe('value')
+  })
+  it('does not reopen the find widget after it was closed', async () => {
+    setWorkbenchState({
+      openEditors: [editor1, editor2],
+      activeEditorId: editor1.id,
+      editorGroups: [createGroup('group-1', [editor1.id, editor2.id], editor1.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
+    act(() => {
+      const first = liveEditors.get(editor1.absolutePath)
+      first.findState.change({ isRevealed: true, searchString: 'value' }, false)
+      first.findState.change({ isRevealed: false }, false)
+    })
+    act(() => useConsoleStore.getState().setActiveEditor(editor2.id))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    const next = liveEditors.get(editor2.absolutePath)
+    expect(next.findController.start).not.toHaveBeenCalled()
+    expect(next.findState.isRevealed).toBe(false)
   })
 })

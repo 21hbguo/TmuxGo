@@ -197,6 +197,23 @@ export function EditorWorkbench({
       }
     >
   >({})
+  // find widget 绑在单个 Monaco 实例上、随 tab key 重挂载销毁：按 editor group
+  // 留存最近一次 find 状态，同组换文件后在新实例上原样恢复（语义对齐 VSCode
+  // 的按组 widget：换 tab 后 widget/查询词/开关都还在）
+  const findStateByGroupRef = useRef<
+    Record<
+      string,
+      {
+        revealed: boolean
+        searchString: string
+        isRegex: boolean
+        wholeWord: boolean
+        matchCase: boolean
+        preserveCase: boolean
+        isReplaceRevealed: boolean
+      }
+    >
+  >({})
   const [pendingCloseEditorId, setPendingCloseEditorId] = useState<string | null>(null)
   const [previewModeById, setPreviewModeById] = useState<Record<string, EditorPreviewMode>>({})
   // 左右分栏里编辑器侧的宽度占比，拖中间分隔条调整
@@ -1226,7 +1243,7 @@ export function EditorWorkbench({
           }}
         >
           {editor ? (
-            renderSurface(editor, activeEditor?.id === editor.id)
+            renderSurface(editor, activeEditor?.id === editor.id, groupId)
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-text-3">
               {t('editor.drop.center' as never)}
@@ -1277,7 +1294,7 @@ export function EditorWorkbench({
       </div>
     )
   }
-  const renderSurface = (editor: FileEditorDocument, focused: boolean) => {
+  const renderSurface = (editor: FileEditorDocument, focused: boolean, groupId: string) => {
     const previewMode = isPreviewableLanguage(editor.language) ? (previewModeById[editor.id] ?? 'preview') : 'edit'
     const previewSplit = previewMode === 'split'
     const previewVisible = previewMode !== 'edit'
@@ -1448,6 +1465,48 @@ export function EditorWorkbench({
                 const currentEditor = openEditorsRef.current.find((item) => item.id === editor.id) || editor
                 void goToDefinition(currentEditor, { line: position.lineNumber, column: position.column })
               })
+              // find 状态跟随组留存：每次变更（显隐/查询词/开关）都快照，供组内
+              // 下一个实例恢复；dispose 时只摘监听，不回写——dispose 途中的状态
+              // 若被置灰会覆盖掉刚才的 revealed 快照
+              const findController: any = instance.getContribution?.('editor.contrib.findController')
+              const findReplaceState = findController?.getState?.()
+              const findStateListener = findReplaceState?.onFindReplaceStateChange?.(() => {
+                findStateByGroupRef.current[groupId] = {
+                  revealed: !!findReplaceState.isRevealed,
+                  searchString: String(findReplaceState.searchString || ''),
+                  isRegex: !!findReplaceState.isRegex,
+                  wholeWord: !!findReplaceState.wholeWord,
+                  matchCase: !!findReplaceState.matchCase,
+                  preserveCase: !!findReplaceState.preserveCase,
+                  isReplaceRevealed: !!findReplaceState.isReplaceRevealed,
+                }
+              })
+              instance.onDidDispose?.(() => findStateListener?.dispose?.())
+              const savedFind = findStateByGroupRef.current[groupId]
+              if (savedFind?.revealed) {
+                // 复刻 monaco onDidChangeModel 的重启路径：不从选区播种、不动
+                // 光标、不抢焦点——widget 只是"还在"，找下一个仍靠 Enter/F3
+                void findController?.start?.(
+                  {
+                    forceRevealReplace: false,
+                    seedSearchStringFromSelection: 'none',
+                    seedSearchStringFromNonEmptySelection: false,
+                    seedSearchStringFromGlobalClipboard: false,
+                    shouldFocus: 0,
+                    shouldAnimate: false,
+                    updateSearchScope: false,
+                    loop: true,
+                  },
+                  {
+                    searchString: savedFind.searchString,
+                    isRegex: savedFind.isRegex,
+                    wholeWord: savedFind.wholeWord,
+                    matchCase: savedFind.matchCase,
+                    preserveCase: savedFind.preserveCase,
+                    isReplaceRevealed: savedFind.isReplaceRevealed,
+                  },
+                )
+              }
             }}
             onChange={(value) => setEditorContent(editor.id, value || '')}
             options={{
