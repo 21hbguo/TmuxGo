@@ -5,6 +5,8 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useCreateSession, useDeleteSession, useRenameSession, useSessions } from '@/hooks/useApi'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { getDefaultSessionName } from '@/lib/session-template'
+import { parseSessionName } from '@/lib/session-id'
+import { requestTerminalFocus } from '@/lib/terminal-focus-request'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import { usePrompt } from '@/hooks/usePrompt'
@@ -89,6 +91,7 @@ export function Sidebar() {
         const created = await createSession.mutateAsync({ hostId: activeHostId, name, layout: template.layout })
         if (created?.id) {
           setActiveSession(created.id)
+          requestTerminalFocus(activeHostId, parseSessionName(activeHostId, created.id))
           pushToast({ type: 'success', message: t('session.created', { name }) })
         }
       } catch (err) {

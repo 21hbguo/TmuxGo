@@ -21,6 +21,8 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { PromptDialog } from './PromptDialog'
 import { MobileBottomSheet } from './MobileBottomSheet'
 import { api } from '@/lib/api'
+import { parseSessionName } from '@/lib/session-id'
+import { requestTerminalFocus } from '@/lib/terminal-focus-request'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
 import { DELETE_PREV_LINE_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
@@ -424,6 +426,7 @@ function useQuickActionController() {
         }
         await refreshSnapshotSafely()
         window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'new-window' } }))
+        requestTerminalFocus(activeHostId, parseSessionName(activeHostId, activeSessionId))
         pushToast({ type: 'success', message: t('window.created', { name }) })
       } catch (err) {
         pushToast({ type: 'error', message: err instanceof Error ? err.message : t('window.createFailed') })

@@ -6,6 +6,8 @@ import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { ModalPortal } from './ModalPortal'
 import { getDefaultSessionName } from '@/lib/session-template'
+import { parseSessionName } from '@/lib/session-id'
+import { requestTerminalFocus } from '@/lib/terminal-focus-request'
 import { ConfirmDialog } from './ConfirmDialog'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
@@ -41,6 +43,7 @@ export function SessionRail() {
       const created = await createSession.mutateAsync({ hostId: activeHostId, name, layout: template.layout })
       if (created?.id) {
         setActiveSession(created.id)
+        requestTerminalFocus(activeHostId, parseSessionName(activeHostId, created.id))
         pushToast({ type: 'success', message: t('session.created', { name }) })
       }
     } catch (err) {

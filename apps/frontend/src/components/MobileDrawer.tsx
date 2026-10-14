@@ -31,6 +31,8 @@ import { usePrompt } from '@/hooks/usePrompt'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { useBatchKillWindows, useCreateWindow } from '@/hooks/useApi'
 import { api } from '@/lib/api'
+import { parseSessionName } from '@/lib/session-id'
+import { requestTerminalFocus } from '@/lib/terminal-focus-request'
 import { selectPaneInSession } from '@/lib/inbox-navigation'
 import { QuickActions } from './QuickActions'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -153,6 +155,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
           } catch {}
         }
         setActiveSession(created.id)
+        requestTerminalFocus(activeHostId, parseSessionName(activeHostId, created.id))
         pushToast({
           type: created.existed ? 'info' : 'success',
           message: t(created.existed ? 'session.alreadyExists' : 'session.created', { name }),
@@ -428,6 +431,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
       }
       pushToast({ type: 'success', message: t('window.created', { name }) })
       handleClose()
+      requestTerminalFocus(activeHostId, parseSessionName(activeHostId, activeSessionId))
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('window.createFailed') })
     }

@@ -5,6 +5,8 @@ import { FiCheck, FiEdit3, FiLayout, FiMoreHorizontal, FiPlus, FiTrash2, FiX, Fi
 import { TERMINAL_DOCK_POSITIONS, useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { parseSessionName } from '@/lib/session-id'
+import { requestTerminalFocus } from '@/lib/terminal-focus-request'
 import { useBatchKillWindows, useCreateWindow, useSessionSnapshot, useWindows } from '@/hooks/useApi'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
@@ -183,6 +185,7 @@ export function WindowTabs() {
         }
       }
       await syncAfterWindowChange()
+      requestTerminalFocus(activeHostId, parseSessionName(activeHostId, activeSessionId))
       pushToast({ type: 'success', message: t('window.created', { name }) })
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('window.createFailed') })

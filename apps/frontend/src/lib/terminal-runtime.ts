@@ -6,6 +6,7 @@ import { createTerminalCore } from './terminal-core'
 import { createTerminalLayout } from './terminal-layout'
 import { createTerminalResizeMask } from './terminal-resize-mask'
 import { createTerminalFocus } from './terminal-focus'
+import { consumePendingTerminalFocus } from './terminal-focus-request'
 import { createDeleteWordRepeat } from './terminal-key-repeat'
 import { createSessionSnapshotLoader } from './terminal-snapshot'
 import { createTerminalSizeState, type TerminalSizeState } from './terminal-size-state'
@@ -504,6 +505,22 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
         else outputInput.releaseSelection()
       }),
     )
+    // detail 命中校验：分屏/共享网格并存多个终端实例，聚焦请求只归目标
+    // session 的那个；无 detail 的旧式广播（测试/e2e）视为命中，保持兼容
+    const handleFocusTerminal = (event?: Event) => {
+      const detail = (event as CustomEvent | undefined)?.detail as { hostId?: string; sessionName?: string } | undefined
+      if (detail?.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
+      if (detail?.sessionName && detail.sessionName !== sessionNameRef.current) return
+      consumePendingTerminalFocus(activeHostIdRef.current || 'local', sessionNameRef.current)
+      if (focus.isDesktopImeComposing()) return
+      focus.focusTerminalInput()
+      requestAnimationFrame(() => {
+        if (!focus.isDesktopImeComposing()) focus.focusTerminalInput()
+      })
+      setTimeout(() => {
+        if (!focus.isDesktopImeComposing()) focus.focusTerminalInput()
+      }, 0)
+    }
     let unsubscribeOutput = () => {}
     const subscribeTerminalOutput = () => {
       unsubscribeOutput()
@@ -512,6 +529,9 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       unsubscribeOutput = targetSessionName
         ? subscribeOutputRef.current(hostId, targetSessionName, outputInput.handleOutput)
         : () => {}
+      // 新建 session 时 TerminalPane 挂载晚于聚焦事件派发：订阅重建意味着
+      // sessionNameRef 已指向新会话，在此消费挂单补焦
+      if (consumePendingTerminalFocus(hostId, sessionNameRef.current)) handleFocusTerminal()
     }
     resubscribeOutputRef.current = subscribeTerminalOutput
     subscribeTerminalOutput()
@@ -778,16 +798,6 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       }
       void syncActivePane()
       if (!getSelectionText()) outputInput.releaseSelection()
-    }
-    const handleFocusTerminal = () => {
-      if (focus.isDesktopImeComposing()) return
-      focus.focusTerminalInput()
-      requestAnimationFrame(() => {
-        if (!focus.isDesktopImeComposing()) focus.focusTerminalInput()
-      })
-      setTimeout(() => {
-        if (!focus.isDesktopImeComposing()) focus.focusTerminalInput()
-      }, 0)
     }
     const clipboardIme = createTerminalClipboardIme({
       container,

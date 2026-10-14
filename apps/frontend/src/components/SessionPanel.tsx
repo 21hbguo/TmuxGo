@@ -21,6 +21,8 @@ import { SessionTemplates, templates as builtinTemplates, type Template } from '
 import { SessionLayoutImportDialog } from './SessionLayoutImportDialog'
 import { CreateSessionDialog } from './CreateSessionDialog'
 import { getDefaultSessionName } from '@/lib/session-template'
+import { parseSessionName } from '@/lib/session-id'
+import { requestTerminalFocus } from '@/lib/terminal-focus-request'
 import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
 import { QuickActions } from './QuickActions'
@@ -148,7 +150,10 @@ export function SessionPanel() {
   const handleLayoutApplied = (session: Session) => {
     setShowLayoutImport(false)
     void refetch()
-    if (session.id) setActiveSession(session.id)
+    if (session.id) {
+      setActiveSession(session.id)
+      requestTerminalFocus(activeHostId || 'local', parseSessionName(activeHostId || 'local', session.id))
+    }
     pushToast({ type: 'success', message: t('session.layoutImported', { name: session.name }) })
   }
   const allTemplates = [...builtinTemplates, ...(sessionTemplates?.templates || [])]
@@ -252,6 +257,7 @@ export function SessionPanel() {
           } catch {}
         }
         setActiveSession(created.id)
+        requestTerminalFocus(activeHostId, parseSessionName(activeHostId, created.id))
         pushToast({
           type: created.existed ? 'info' : 'success',
           message: t(created.existed ? 'session.alreadyExists' : 'session.created', { name }),
