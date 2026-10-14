@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import type { DesktopViewMode } from '@/stores/useConsoleStore'
 
@@ -66,6 +66,11 @@ interface DragState {
   rect: DesktopWindowRect
 }
 
+const TITLEBAR_INTERACTIVE = 'button, input, select, textarea, a, [role="button"], [role="combobox"], [role="option"]'
+// 标题栏空白区（可拖动/双击区）：在 titlebar 内但不在按钮/输入等交互元素上
+const isTitlebarBlank = (target: HTMLElement) =>
+  !!target.closest('[data-desktop-titlebar]') && !target.closest(TITLEBAR_INTERACTIVE)
+
 // 四边 + 四角的隐形热区：只改光标，不渲染可见把手
 const RESIZE_ZONES: { dir: ResizeDir; className: string }[] = [
   { dir: 'n', className: 'absolute inset-x-4 top-0 h-1.5 cursor-n-resize' },
@@ -78,9 +83,21 @@ const RESIZE_ZONES: { dir: ResizeDir; className: string }[] = [
   { dir: 'se', className: 'absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize' },
 ]
 
-export function DesktopWindow({ windowed, children }: { windowed: boolean; children: ReactNode }) {
+export function DesktopWindow({
+  windowed,
+  onTitlebarDoubleClick,
+  children,
+}: {
+  windowed: boolean
+  onTitlebarDoubleClick?: () => void
+  children: ReactNode
+}) {
   const [rect, setRect] = useState<DesktopWindowRect>(readRect)
+  const [maximized, setMaximized] = useState(false)
   const dragRef = useRef<DragState | null>(null)
+  // 标题栏 tap 计时：pointer capture 会把 click/dblclick 重定向到容器，原生 dblclick 的
+  // target 拿不到 titlebar，故 windowed 态双击用 pointer 序列自测（两次近距 tap <450ms）
+  const lastTitlebarTapRef = useRef<{ t: number; x: number; y: number }>({ t: 0, x: 0, y: 0 })
 
   const onPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -89,11 +106,10 @@ export function DesktopWindow({ windowed, children }: { windowed: boolean; child
       const zone = target.closest<HTMLElement>('[data-desktop-resize]')?.dataset.desktopResize as ResizeDir | undefined
       if (!zone) {
         // 标题栏空白处拖动移动窗口；落在按钮/输入等交互元素上不触发
-        if (
-          !target.closest('[data-desktop-titlebar]') ||
-          target.closest('button, input, select, textarea, a, [role="button"], [role="combobox"], [role="option"]')
-        )
+        if (!isTitlebarBlank(target)) {
+          lastTitlebarTapRef.current = { t: 0, x: 0, y: 0 }
           return
+        }
       }
       event.currentTarget.setPointerCapture(event.pointerId)
       dragRef.current = { mode: zone ?? 'move', startX: event.clientX, startY: event.clientY, rect }
@@ -104,38 +120,42 @@ export function DesktopWindow({ windowed, children }: { windowed: boolean; child
     [windowed, rect],
   )
 
-  const onPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current
-    if (!drag) return
-    const dx = event.clientX - drag.startX
-    const dy = event.clientY - drag.startY
-    const start = drag.rect
-    if (drag.mode === 'move') {
-      setRect(clampRect({ ...start, x: start.x + dx, y: start.y + dy }))
-      return
-    }
-    let { x, y, w, h } = start
-    if (drag.mode.includes('e')) w = start.w + dx
-    if (drag.mode.includes('s')) h = start.h + dy
-    if (drag.mode.includes('w')) {
-      w = start.w - dx
-      x = start.x + dx
-    }
-    if (drag.mode.includes('n')) {
-      h = start.h - dy
-      y = start.y + dy
-    }
-    // 拖到最小尺寸时西/北边不再继续吃掉位置，避免对侧边被反向推走
-    if (w < MIN_W) {
-      if (drag.mode.includes('w')) x += w - MIN_W
-      w = MIN_W
-    }
-    if (h < MIN_H) {
-      if (drag.mode.includes('n')) y += h - MIN_H
-      h = MIN_H
-    }
-    setRect(clampRect({ x, y, w, h }))
-  }, [])
+  const onPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current
+      if (!drag) return
+      const dx = event.clientX - drag.startX
+      const dy = event.clientY - drag.startY
+      const start = drag.rect
+      if (drag.mode === 'move') {
+        // 最大化态标题栏仍可按下（供双击还原计数）但拖动不生效
+        if (!maximized) setRect(clampRect({ ...start, x: start.x + dx, y: start.y + dy }))
+        return
+      }
+      let { x, y, w, h } = start
+      if (drag.mode.includes('e')) w = start.w + dx
+      if (drag.mode.includes('s')) h = start.h + dy
+      if (drag.mode.includes('w')) {
+        w = start.w - dx
+        x = start.x + dx
+      }
+      if (drag.mode.includes('n')) {
+        h = start.h - dy
+        y = start.y + dy
+      }
+      // 拖到最小尺寸时西/北边不再继续吃掉位置，避免对侧边被反向推走
+      if (w < MIN_W) {
+        if (drag.mode.includes('w')) x += w - MIN_W
+        w = MIN_W
+      }
+      if (h < MIN_H) {
+        if (drag.mode.includes('n')) y += h - MIN_H
+        h = MIN_H
+      }
+      setRect(clampRect({ x, y, w, h }))
+    },
+    [maximized],
+  )
 
   // 卸载兜底：拖拽中组件消失时补 end，否则 PaneGrid 的 burst 抑制会永久卡住
   useEffect(
@@ -147,34 +167,63 @@ export function DesktopWindow({ windowed, children }: { windowed: boolean; child
   )
 
   const onPointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!dragRef.current) return
-    const wasResize = dragRef.current.mode !== 'move'
+    const drag = dragRef.current
+    if (!drag) return
+    const wasResize = drag.mode !== 'move'
     dragRef.current = null
     if (wasResize) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId)
+    if (drag.mode === 'move') {
+      const moved = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY)
+      const now = performance.now()
+      const last = lastTitlebarTapRef.current
+      const isDouble =
+        moved <= 4 &&
+        last.t > 0 &&
+        now - last.t < 450 &&
+        Math.abs(event.clientX - last.x) <= 24 &&
+        Math.abs(event.clientY - last.y) <= 24
+      lastTitlebarTapRef.current =
+        moved <= 4 && !isDouble ? { t: now, x: event.clientX, y: event.clientY } : { t: 0, x: 0, y: 0 }
+      if (isDouble) setMaximized((value) => !value)
+    }
     setRect((current) => {
       writeRect(current)
       return current
     })
   }, [])
 
+  // full 态无 pointer capture,dblclick target 真实可用：标题栏空白区双击 = 缩小回浮窗。
+  // windowed 态的双击由 onPointerUp 的 tap 序列判定
+  const onDoubleClick = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (windowed || !onTitlebarDoubleClick || !isTitlebarBlank(event.target as HTMLElement)) return
+      onTitlebarDoubleClick()
+    },
+    [windowed, onTitlebarDoubleClick],
+  )
+
   return (
     <div
       className={
         windowed
-          ? 'pointer-events-auto absolute overflow-hidden rounded-apple-lg border border-[var(--line)] bg-bg-0 shadow-2xl'
+          ? `pointer-events-auto absolute overflow-hidden rounded-apple-lg border border-[var(--line)] bg-bg-0 shadow-2xl ${
+              maximized ? 'inset-0' : ''
+            }`
           : 'h-full w-full'
       }
-      style={windowed ? { left: rect.x, top: rect.y, width: rect.w, height: rect.h } : undefined}
+      style={windowed && !maximized ? { left: rect.x, top: rect.y, width: rect.w, height: rect.h } : undefined}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
       onLostPointerCapture={onPointerUp}
+      onDoubleClick={onDoubleClick}
     >
       {children}
       {windowed &&
+        !maximized &&
         RESIZE_ZONES.map(({ dir, className }) => (
           <div key={dir} data-desktop-resize={dir} className={`${className} touch-none`} />
         ))}
@@ -188,10 +237,12 @@ export function DesktopWindow({ windowed, children }: { windowed: boolean; child
 export function OverlayShell({
   overlay,
   onBackdropMinimize,
+  onTitlebarDoubleClick,
   children,
 }: {
   overlay: { view: DesktopViewMode; minimized: boolean; pinned?: boolean }
   onBackdropMinimize: () => void
+  onTitlebarDoubleClick?: () => void
   children: ReactNode
 }) {
   return (
@@ -204,7 +255,9 @@ export function OverlayShell({
       {overlay.view === 'window' && !overlay.pinned && (
         <div className="pointer-events-auto absolute inset-0" onPointerDown={onBackdropMinimize} />
       )}
-      <DesktopWindow windowed={overlay.view === 'window'}>{children}</DesktopWindow>
+      <DesktopWindow windowed={overlay.view === 'window'} onTitlebarDoubleClick={onTitlebarDoubleClick}>
+        {children}
+      </DesktopWindow>
     </div>
   )
 }

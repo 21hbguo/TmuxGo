@@ -1114,6 +1114,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         <OverlayShell
           overlay={activeDesktop}
           onBackdropMinimize={() => useConsoleStore.getState().setDesktopMinimized(true)}
+          onTitlebarDoubleClick={() => useConsoleStore.getState().setDesktopView('window')}
         >
           <DesktopView
             hostId={activeDesktop.hostId}
@@ -1134,6 +1135,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         <OverlayShell
           overlay={activeBrowser}
           onBackdropMinimize={() => useConsoleStore.getState().setBrowserMinimized(true)}
+          onTitlebarDoubleClick={() => useConsoleStore.getState().setBrowserView('window')}
         >
           <BrowserView
             hostId={activeBrowser.hostId}
