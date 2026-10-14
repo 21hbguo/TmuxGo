@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import type { FileDocumentHandle, FileEditorDocument } from '@/types'
 import { getEditorLanguage, openFileInEditor } from '@/lib/editor-open'
+import { clearActiveDraggedFile, FILE_DRAG_MIME, getActiveDraggedFile, readDraggedFile } from '@/lib/editor-drag'
 import { ActivityBar } from './ActivityBar'
 import dynamic from '@/lib/dynamic'
 import { SessionPanel } from './SessionPanel'
@@ -142,6 +143,7 @@ export function DesktopWorkbench() {
   const editorsHydrated = useConsoleStore((state) => state.editorsHydrated)
   const [dockDragActive, setDockDragActive] = useState(false)
   const [dockDropSide, setDockDropSide] = useState<TerminalDockPosition | null>(null)
+  const [emptyAreaDropActive, setEmptyAreaDropActive] = useState(false)
   useEffect(() => {
     const element = containerRef.current
     if (!element) return
@@ -495,7 +497,31 @@ export function DesktopWorkbench() {
                       onCreateCompare={handleCreateCompare}
                     />
                   ) : (
-                    <div className="flex h-full items-center justify-center text-sm text-text-3">
+                    // 空编辑区（侧向停靠+无编辑器）：自带 data-editor-drop 才能过 DropGuard，
+                    // 落点即打开文件（pinned），与 EditorWorkbench 外圈 drop 语义一致
+                    <div
+                      data-editor-drop
+                      className={`flex h-full items-center justify-center text-sm ${emptyAreaDropActive ? 'text-accent' : 'text-text-3'}`}
+                      onDragOver={(event) => {
+                        const types = event.dataTransfer?.types ? Array.from(event.dataTransfer.types) : []
+                        if (!types.includes(FILE_DRAG_MIME) && !getActiveDraggedFile()) return
+                        event.preventDefault()
+                        event.dataTransfer.dropEffect = 'copy'
+                        setEmptyAreaDropActive(true)
+                      }}
+                      onDragLeave={(event) => {
+                        if (!(event.currentTarget as HTMLDivElement).contains(event.relatedTarget as Node | null))
+                          setEmptyAreaDropActive(false)
+                      }}
+                      onDrop={(event) => {
+                        const dragged = readDraggedFile(event.dataTransfer)
+                        if (!dragged) return
+                        event.preventDefault()
+                        clearActiveDraggedFile()
+                        setEmptyAreaDropActive(false)
+                        void handleOpenFileForDrop(dragged)
+                      }}
+                    >
                       {t('editor.emptyArea')}
                     </div>
                   )}

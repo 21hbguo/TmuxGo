@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, waitFor } from '@testing-library/react'
 import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DesktopWorkbench } from './DesktopWorkbench'
@@ -183,5 +183,51 @@ describe('DesktopWorkbench', () => {
     fireEvent.mouseMove(window, { clientX: 150 })
     fireEvent.mouseUp(window)
     expect(useConsoleStore.getState().sessionPanelExpanded).toBe(false)
+  })
+
+  it('opens a dragged file dropped onto the empty editor area with a side-docked terminal', async () => {
+    useConsoleStore.setState({ openEditors: [], activeEditorId: null, terminalDock: 'right' } as any)
+    contentMock.mockResolvedValue({
+      path: 'src/dropped.ts',
+      type: 'file',
+      size: 10,
+      modifiedAt: '2026-06-02T00:00:00.000Z',
+      binary: false,
+      truncated: false,
+      encoding: 'utf8',
+      content: 'const x=1',
+    })
+    const { container } = render(React.createElement(DesktopWorkbench))
+    const dropArea = container.querySelector('[data-editor-drop]') as HTMLElement
+    expect(dropArea).toBeTruthy()
+    expect(dropArea.textContent).toBe('editor.emptyArea')
+    const file = {
+      id: 'local:root-workspace:src/dropped.ts',
+      hostId: 'local',
+      rootId: 'root-workspace',
+      rootLabel: 'Workspace',
+      rootPath: '/workspace',
+      path: 'src/dropped.ts',
+      name: 'dropped.ts',
+      absolutePath: '/workspace/src/dropped.ts',
+      type: 'file',
+    }
+    const dataTransfer = {
+      dropEffect: '',
+      types: ['application/x-tmuxgo-file'],
+      getData: (type: string) => (type === 'application/x-tmuxgo-file' ? JSON.stringify(file) : ''),
+      setData: vi.fn(),
+    }
+    const over = new Event('dragover', { bubbles: true, cancelable: true })
+    Object.defineProperty(over, 'dataTransfer', { value: dataTransfer })
+    dropArea.dispatchEvent(over)
+    expect(over.defaultPrevented).toBe(true)
+    const drop = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(drop, 'dataTransfer', { value: dataTransfer })
+    await act(async () => {
+      dropArea.dispatchEvent(drop)
+    })
+    await waitFor(() => expect(contentMock).toHaveBeenCalledWith('local', 'root-workspace', 'src/dropped.ts'))
+    await waitFor(() => expect(useConsoleStore.getState().openEditors.some((item) => item.id === file.id)).toBe(true))
   })
 })

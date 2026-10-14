@@ -122,9 +122,11 @@ export function TerminalDock({
     if (side) setTerminalPanelWidth(maxWidth)
     else setTerminalPanelHeight(maxHeight)
   }
+  // 手柄跨缝布置（负偏移探入对侧 4px）：命中区覆盖 编辑侧|边框|终端侧，
+  // 只做单边 4px 时可见分界线本身是死区，体感"拖不动"
   const resizeHandleClass = side
-    ? `absolute top-0 bottom-0 z-10 w-1 cursor-col-resize hover:bg-accent/50 ${dock === 'right' ? 'left-0' : 'right-0'}`
-    : 'absolute left-0 right-0 top-0 z-10 h-1 cursor-row-resize hover:bg-accent/50'
+    ? `absolute top-0 bottom-0 z-10 w-2 cursor-col-resize hover:bg-accent/50 ${dock === 'right' ? '-left-1' : '-right-1'}`
+    : 'absolute left-0 right-0 -top-1 z-10 h-2 cursor-row-resize hover:bg-accent/50'
   return (
     // order 0/1 配合外层 flex 方向控制停靠侧，保持 JSX 位置不变避免 xterm 重挂载
     <section
