@@ -535,7 +535,8 @@ export function DesktopWorkbench() {
               <div
                 key={zone}
                 data-dock-drop
-                className={`absolute z-30 transition-colors ${zone === 'left' ? 'left-0 top-0 bottom-0 w-24' : zone === 'right' ? 'right-0 top-0 bottom-0 w-24' : zone === 'full' ? 'left-24 right-24 top-0 bottom-24' : 'left-0 right-0 bottom-0 h-24'} ${dockDropSide === zone ? 'bg-accent/25' : 'bg-accent/5'}`}
+                // zones 仅停靠拖拽期间存在，要让用户看清落点：色块+边框+位置名
+                className={`absolute z-30 flex items-center justify-center transition-colors ${zone === 'left' ? 'left-0 top-0 bottom-0 w-24' : zone === 'right' ? 'right-0 top-0 bottom-0 w-24' : zone === 'full' ? 'left-24 right-24 top-0 bottom-24' : 'left-0 right-0 bottom-0 h-24'} ${dockDropSide === zone ? 'bg-accent/25 text-accent' : 'bg-accent/10 text-text-3'}`}
                 onDragOver={(event) => {
                   if (!isTerminalDockDrag(event.dataTransfer)) return
                   event.preventDefault()
@@ -552,7 +553,13 @@ export function DesktopWorkbench() {
                   setDockDragActive(false)
                   setDockDropSide(null)
                 }}
-              />
+              >
+                <span
+                  className={`rounded-full border px-3 py-1 text-xs ${dockDropSide === zone ? 'border-accent/60 bg-bg-0/90' : 'border-[var(--line)] bg-bg-0/80'}`}
+                >
+                  {t(`terminal.dock.${zone}`)}
+                </span>
+              </div>
             ))}
         </div>
       </>
