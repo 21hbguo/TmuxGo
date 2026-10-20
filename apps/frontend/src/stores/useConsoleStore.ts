@@ -44,8 +44,8 @@ export interface EditorLayoutSplit {
   second: EditorLayoutNode
 }
 export type EditorLayoutNode = EditorLayoutLeaf | EditorLayoutSplit
-export type TerminalDockPosition = 'bottom' | 'left' | 'right'
-export const TERMINAL_DOCK_POSITIONS: TerminalDockPosition[] = ['bottom', 'left', 'right']
+export type TerminalDockPosition = 'bottom' | 'left' | 'right' | 'full'
+export const TERMINAL_DOCK_POSITIONS: TerminalDockPosition[] = ['bottom', 'left', 'right', 'full']
 export type DesktopViewMode = 'full' | 'window'
 export interface ActiveDesktop {
   hostId: string
@@ -345,6 +345,11 @@ function withLegacyEditorState<
   T extends Pick<EditorWorkspaceState, 'editorGroups' | 'editorLayout' | 'activeEditorGroupId'>,
 >(state: T) {
   return { ...state, ...createLegacyEditorState(state.editorGroups, state.editorLayout, state.activeEditorGroupId) }
+}
+// full 停靠 = 终端独占工作区，编辑区不渲染；此时打开编辑器内容须自动退回
+// bottom，否则文件"开了但看不见"（编辑器状态仍保留在 openEditors 里）
+function exitFullDock<T extends object>(state: { terminalDock: TerminalDockPosition }, patch: T) {
+  return state.terminalDock === 'full' ? { ...patch, terminalDock: 'bottom' as const } : patch
 }
 function createEmptyEditorWorkspace() {
   const group = createEditorGroup()
@@ -973,7 +978,7 @@ export const useConsoleStore = create<ConsoleState>()(
                   activeEditorGroupId: existingGroupId,
                 }),
               )
-              return { openEditors, ...nextState }
+              return exitFullDock(state, { openEditors, ...nextState })
             }
             const targetGroupId =
               getExistingEditorGroupId(editorGroups, state.activeEditorGroupId) || editorGroups[0]?.id || null
@@ -991,7 +996,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 activeEditorGroupId: targetGroupId,
               }),
             )
-            return { openEditors, ...nextState }
+            return exitFullDock(state, { openEditors, ...nextState })
           }
           const targetGroupId =
             getExistingEditorGroupId(state.editorGroups, state.activeEditorGroupId) || state.editorGroups[0]?.id || null
@@ -1045,7 +1050,7 @@ export const useConsoleStore = create<ConsoleState>()(
               activeEditorGroupId: targetGroupId,
             }),
           )
-          return { openEditors: nextOpenEditors, ...nextState }
+          return exitFullDock(state, { openEditors: nextOpenEditors, ...nextState })
         }),
       openCompareEditor: (leftId, rightId) => {
         const left = useConsoleStore.getState().openEditors.find((item) => item.id === leftId)
@@ -1068,7 +1073,7 @@ export const useConsoleStore = create<ConsoleState>()(
                   activeEditorGroupId: existingGroupId,
                 }),
               )
-              return nextState
+              return exitFullDock(state, nextState)
             }
           }
           const targetGroupId =
@@ -1116,7 +1121,7 @@ export const useConsoleStore = create<ConsoleState>()(
               activeEditorGroupId: targetGroupId,
             }),
           )
-          return { openEditors: nextOpenEditors, ...nextState }
+          return exitFullDock(state, { openEditors: nextOpenEditors, ...nextState })
         })
         return compareId
       },

@@ -1129,6 +1129,7 @@ export const en = {
   'terminal.dock.bottom': 'Bottom',
   'terminal.dock.left': 'Left',
   'terminal.dock.right': 'Right',
+  'terminal.dock.full': 'Full',
   'terminal.dockHint':
     'Terminal dock: {position} (click for options; drag this bar or a window tab out of the tab strip to dock at a workspace edge)',
   'terminal.selectionChars': '{count} chars',

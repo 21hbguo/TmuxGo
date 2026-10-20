@@ -470,7 +470,7 @@ export function DesktopWorkbench() {
           />
         )}
         <div
-          className={`tmuxgo-content-surface relative flex min-h-0 min-w-0 flex-1 ${terminalDock === 'bottom' ? 'flex-col' : 'flex-row'}`}
+          className={`tmuxgo-content-surface relative flex min-h-0 min-w-0 flex-1 ${terminalDock === 'left' || terminalDock === 'right' ? 'flex-row' : 'flex-col'}`}
         >
           {activeSplitGroup ? (
             <SessionSplitView group={activeSplitGroup} />
@@ -478,7 +478,7 @@ export function DesktopWorkbench() {
             <>
               {/* TerminalDock 必须固定在同一个 JSX 位置：开关编辑器只改 props，避免 xterm 卸载重建导致的二次 attach/resize */}
               <TerminalDock
-                fill={openEditors.length === 0 && terminalDock === 'bottom'}
+                fill={terminalDock === 'full'}
                 dock={terminalDock}
                 minHeight={terminalMinHeight}
                 maxHeight={terminalMaxHeight}
@@ -487,7 +487,7 @@ export function DesktopWorkbench() {
                 maxWidth={terminalMaxWidth}
                 dragViewportWidth={workspaceWidth}
               />
-              {openEditors.length > 0 || terminalDock !== 'bottom' ? (
+              {terminalDock !== 'full' ? (
                 <div className="min-h-0 min-w-0 flex-1">
                   {openEditors.length > 0 ? (
                     <EditorWorkbench
@@ -497,7 +497,7 @@ export function DesktopWorkbench() {
                       onCreateCompare={handleCreateCompare}
                     />
                   ) : (
-                    // 空编辑区（侧向停靠+无编辑器）：自带 data-editor-drop 才能过 DropGuard，
+                    // 空编辑区（无编辑器）：自带 data-editor-drop 才能过 DropGuard，
                     // 落点即打开文件（pinned），与 EditorWorkbench 外圈 drop 语义一致
                     <div
                       data-editor-drop
@@ -535,7 +535,7 @@ export function DesktopWorkbench() {
               <div
                 key={zone}
                 data-dock-drop
-                className={`absolute z-30 transition-colors ${zone === 'left' ? 'left-0 top-0 bottom-0 w-24' : zone === 'right' ? 'right-0 top-0 bottom-0 w-24' : 'left-0 right-0 bottom-0 h-24'} ${dockDropSide === zone ? 'bg-accent/25' : 'bg-accent/5'}`}
+                className={`absolute z-30 transition-colors ${zone === 'left' ? 'left-0 top-0 bottom-0 w-24' : zone === 'right' ? 'right-0 top-0 bottom-0 w-24' : zone === 'full' ? 'left-24 right-24 top-0 bottom-24' : 'left-0 right-0 bottom-0 h-24'} ${dockDropSide === zone ? 'bg-accent/25' : 'bg-accent/5'}`}
                 onDragOver={(event) => {
                   if (!isTerminalDockDrag(event.dataTransfer)) return
                   event.preventDefault()
