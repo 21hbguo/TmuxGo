@@ -5,6 +5,7 @@
 //   TMUXGO_AGENT_EVENT_TOKEN / TMUXGO_GATEWAY_URL(默认 http://127.0.0.1:3001)
 // 无 token 时 tools/list 仍可用，tools/call 返回 isError 提示配置。
 import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 
 const GATEWAY_URL = (process.env.TMUXGO_GATEWAY_URL || 'http://127.0.0.1:3001')
   .replace(/\/api\/stream\/?$/, '')
@@ -370,12 +371,37 @@ function sourceInfo() {
     agentSessionId: process.env.TMUXGO_AGENT_SESSION_ID || undefined,
   }
 }
+// TMUX_PANE 缺失时的兜底：codex 走共享 app-server 时，MCP 子进程从 detached daemon
+// 派生，进程树里断了 TMUX_PANE/tty 继承链；但它会注入 CODEX_THREAD_ID，该 thread 的标题
+// 存在 session_index.jsonl，TUI 把标题写成 "<thread_name> | <workspace>" 塞进 pane_title。
+// 据此反查不碰 cwd，所以同一目录开多个 codex 也不会误判；命中不唯一一律放弃。
+function resolvePaneId() {
+  if (process.env.TMUX_PANE) return process.env.TMUX_PANE
+  try {
+    const tid = process.env.CODEX_THREAD_ID
+    if (!tid) return ''
+    const home = process.env.CODEX_HOME?.trim() || `${process.env.HOME}/.codex`
+    const raw = readFileSync(`${home}/session_index.jsonl`, 'utf8')
+    const line = raw.split('\n').find((l) => l.includes(tid))
+    const name = line ? JSON.parse(line).thread_name : ''
+    if (!name) return ''
+    const out = execFileSync('tmux', ['list-panes', '-a', '-F', '#{pane_id} #{pane_title}'], {
+      encoding: 'utf8',
+      timeout: 2000,
+    })
+    const hit = out.split('\n').filter((l) => l.includes(name))
+    return hit.length === 1 ? hit[0].split(' ')[0] : ''
+  } catch {
+    return ''
+  }
+}
+
 function defaultRoute(args) {
   const route = {}
   if (typeof args.hostId === 'string') route.hostId = args.hostId
   if (typeof args.sessionName === 'string') route.sessionName = args.sessionName
   // pane 内运行时 tmux 自带 TMUX_PANE=%n，自动归属当前 pane
-  const pane = args.tmuxPaneId || process.env.TMUX_PANE
+  const pane = args.tmuxPaneId || resolvePaneId()
   if (pane) route.tmuxPaneId = pane
   return route
 }

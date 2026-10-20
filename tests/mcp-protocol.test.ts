@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -181,4 +181,46 @@ test('mcp rejects malformed requests and unknown methods', async (t) => {
   const unknownMethod = await server.rpc(11, 'bogus/method')
   assert.equal(unknownMethod.error.code, -32601)
   assert.match(unknownMethod.error.message, /Method not found/)
+})
+
+test('mcp default route falls back to codex thread title when TMUX_PANE is absent', async (t) => {
+  // 共享 app-server 派生的 MCP 子进程拿不到 TMUX_PANE，只能靠 CODEX_THREAD_ID 反查 pane_title
+  const received: any[] = []
+  const gateway: Server = createServer((req, res) => {
+    let raw = ''
+    req.on('data', (chunk) => (raw += chunk))
+    req.on('end', () => {
+      received.push(JSON.parse(raw))
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ ok: true }))
+    })
+  })
+  await new Promise<void>((resolve) => gateway.listen(0, '127.0.0.1', resolve))
+  const port = (gateway.address() as AddressInfo).port
+  t.after(() => gateway.close())
+
+  const binDir = mkdtempSync(join(tmpdir(), 'tmuxgo-bin-'))
+  writeFileSync(join(binDir, 'tmux'), '#!/bin/sh\necho "%42 编写通知脚本 | TmuxGo"\n', { mode: 0o755 })
+  const codexHome = mkdtempSync(join(tmpdir(), 'tmuxgo-codex-'))
+  writeFileSync(
+    join(codexHome, 'session_index.jsonl'),
+    JSON.stringify({ id: 'thread-abc', thread_name: '编写通知脚本' }) + '\n',
+  )
+  t.after(() => {
+    rmSync(binDir, { recursive: true, force: true })
+    rmSync(codexHome, { recursive: true, force: true })
+  })
+
+  const server = startMcp({
+    TMUXGO_AGENT_EVENT_TOKEN: 'mcp-secret',
+    TMUXGO_GATEWAY_URL: `http://127.0.0.1:${port}`,
+    TMUX_PANE: '',
+    CODEX_THREAD_ID: 'thread-abc',
+    CODEX_HOME: codexHome,
+    PATH: `${binDir}:${process.env.PATH}`,
+  })
+  t.after(() => server.close())
+
+  await server.rpc(1, 'tools/call', { name: 'tmuxgo_push_text', arguments: { text: 'done' } })
+  assert.equal(received[0].route.tmuxPaneId, '%42')
 })
