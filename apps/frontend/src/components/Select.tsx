@@ -1,5 +1,6 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { FiCheck, FiChevronDown } from 'react-icons/fi'
 import { useEscapeClose } from '@/hooks/useEscapeClose'
 
@@ -20,6 +21,9 @@ interface SelectProps {
 }
 
 const LIST_MAX_HEIGHT = 256
+const LIST_MAX_WIDTH = 288 // max-w-72
+const MENU_GAP = 4 // mt-1 / mb-1
+const VIEWPORT_GAP = 8
 
 export function Select({
   value,
@@ -33,7 +37,7 @@ export function Select({
 }: SelectProps) {
   const [open, setOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
-  const [flipUp, setFlipUp] = useState(false)
+  const [listPos, setListPos] = useState<CSSProperties | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -55,27 +59,65 @@ export function Select({
     close(true)
   }
 
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [open])
-
-  // 空间不足向上翻：以 max-h-64 估算，开合瞬间量一次 trigger 位置即可
-  useLayoutEffect(() => {
-    if (!open) return
+  // 菜单 portal 到 body + fixed 定位：脱离 overflow 祖先裁剪，也跳出局部层叠上下文。
+  // 以 trigger 视口坐标对齐；下方放不下且上方够高时上翻；左边距钳进视口防溢出
+  const measure = useCallback(() => {
     const rect = triggerRef.current?.getBoundingClientRect()
     if (!rect) return
     const estimated = Math.min(options.length * 30 + 8, LIST_MAX_HEIGHT)
-    setFlipUp(rect.bottom + estimated > window.innerHeight && rect.top > estimated)
+    const listW = Math.min(listRef.current?.offsetWidth ?? LIST_MAX_WIDTH, window.innerWidth - VIEWPORT_GAP * 2)
+    const left = Math.min(
+      Math.max(rect.left, VIEWPORT_GAP),
+      Math.max(VIEWPORT_GAP, window.innerWidth - listW - VIEWPORT_GAP),
+    )
+    const next: CSSProperties =
+      rect.bottom + estimated > window.innerHeight && rect.top > estimated
+        ? { bottom: window.innerHeight - rect.top + MENU_GAP, left, minWidth: rect.width }
+        : { top: rect.bottom + MENU_GAP, left, minWidth: rect.width }
+    // 相等短路返回 prev：下面每次提交后都量一次，不短路会渲染-测量成环
+    setListPos((prev) =>
+      prev &&
+      prev.top === next.top &&
+      prev.bottom === next.bottom &&
+      prev.left === next.left &&
+      prev.minWidth === next.minWidth
+        ? prev
+        : next,
+    )
+  }, [options.length])
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (!rootRef.current?.contains(target) && !listRef.current?.contains(target)) setOpen(false)
+    }
+    // 捕获阶段监听任意祖先滚动：trigger 随内容移动时菜单跟着重定位；忽略菜单自身滚动
+    const onScroll = (event: Event) => {
+      if (!listRef.current?.contains(event.target as Node)) measure()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('resize', measure)
+    window.addEventListener('scroll', onScroll, true)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('resize', measure)
+      window.removeEventListener('scroll', onScroll, true)
+    }
+  }, [open, measure])
+
+  // 打开期间每次提交后重对齐：兄弟布局变化推动 trigger 时菜单跟得上
+  useLayoutEffect(() => {
+    if (open) measure()
+  })
+
+  useLayoutEffect(() => {
+    if (!open) return
     const item =
       listRef.current?.querySelector<HTMLElement>('[data-active="true"]') ||
       listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')
     item?.scrollIntoView?.({ block: 'nearest' })
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open])
 
   const moveActive = (index: number) => {
     if (!options.length) return
@@ -171,40 +213,44 @@ export function Select({
           className={`shrink-0 text-text-3 transition-transform duration-160 ${open ? 'rotate-180' : ''}`}
         />
       </button>
-      {open && (
-        <div
-          ref={listRef}
-          id={listId}
-          role="listbox"
-          aria-label={ariaLabel}
-          className={`tmuxgo-menu tmuxgo-scrollbar absolute z-50 max-h-64 min-w-full w-max max-w-72 overflow-y-auto p-1 ${flipUp ? 'bottom-full mb-1' : 'top-full mt-1'} left-0`}
-        >
-          {options.map((option, index) => {
-            const active = index === activeIndex
-            const isSelected = option.value === value
-            return (
-              <div
-                key={option.value}
-                role="option"
-                aria-selected={isSelected}
-                data-active={active}
-                data-value={option.value}
-                className={`flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm ${active ? 'bg-bg-2 text-text-1' : 'text-text-2'}`}
-                onMouseEnter={() => setActiveIndex(index)}
-                onClick={() => commit(index)}
-              >
-                <FiCheck
-                  aria-hidden="true"
-                  size={13}
-                  className={`shrink-0 ${isSelected ? 'text-accent' : 'opacity-0'}`}
-                />
-                <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                {option.hint && <span className="shrink-0 text-caption text-text-3">{option.hint}</span>}
-              </div>
-            )
-          })}
-        </div>
-      )}
+      {open &&
+        createPortal(
+          <div
+            ref={listRef}
+            id={listId}
+            role="listbox"
+            aria-label={ariaLabel}
+            // z-[125]：盖过全部 scrim/弹窗（≤z-120），仍低于元素选择器（≥z-129）
+            style={listPos ?? { visibility: 'hidden' }}
+            className="tmuxgo-menu tmuxgo-scrollbar fixed z-[125] max-h-64 w-max max-w-72 overflow-y-auto p-1"
+          >
+            {options.map((option, index) => {
+              const active = index === activeIndex
+              const isSelected = option.value === value
+              return (
+                <div
+                  key={option.value}
+                  role="option"
+                  aria-selected={isSelected}
+                  data-active={active}
+                  data-value={option.value}
+                  className={`flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm ${active ? 'bg-bg-2 text-text-1' : 'text-text-2'}`}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => commit(index)}
+                >
+                  <FiCheck
+                    aria-hidden="true"
+                    size={13}
+                    className={`shrink-0 ${isSelected ? 'text-accent' : 'opacity-0'}`}
+                  />
+                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                  {option.hint && <span className="shrink-0 text-caption text-text-3">{option.hint}</span>}
+                </div>
+              )
+            })}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }
