@@ -1,4 +1,10 @@
-import { z } from 'zod'
+import { z, type ZodError } from 'zod'
+
+// ZodError → 400 INVALID_REQUEST 的可读 message：`path: reason` 用分号连接，
+// 顶层（path 为空）落成 'request' 占位，便于前端直接展示
+export function describeZodError(error: ZodError) {
+  return error.issues.map((issue) => `${issue.path.join('.') || 'request'}: ${issue.message}`).join('; ')
+}
 
 const identifier = z.string().min(1).max(120)
 const filePath = z.string().max(4096)
