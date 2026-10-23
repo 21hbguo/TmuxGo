@@ -72,3 +72,30 @@ test('forces a bounded exit when closeServer never settles', async (t) => {
   t.mock.timers.tick(SHUTDOWN_TIMEOUT_MS)
   assert.deepEqual(calls.slice(-2), ['warn:Graceful shutdown timed out; forcing exit', 'exit:1'])
 })
+
+test('snapshots sessions between plugins and server close', async () => {
+  const { deps, calls } = createDeps({ snapshotSessions: async () => void calls.push('snapshotSessions') })
+  await createShutdownSequence(deps)()
+  assert.deepEqual(calls, [
+    'stopMonitor',
+    'unregisterAgents:Gateway restarted',
+    'terminateWebSockets',
+    'shutdownPlugins',
+    'snapshotSessions',
+    'cleanupSockets',
+    'closeServer',
+    'exit:0',
+  ])
+})
+
+test('a failing snapshot does not block shutdown', async () => {
+  const { deps, calls } = createDeps({
+    snapshotSessions: async () => {
+      throw new Error('snapshot boom')
+    },
+  })
+  await createShutdownSequence(deps)()
+  // 快照失败只告警，退出码仍是 0，否则关停会被快照拖垮
+  assert.ok(calls.includes('warn:Shutdown snapshot failed: snapshot boom'))
+  assert.equal(calls.at(-1), 'exit:0')
+})

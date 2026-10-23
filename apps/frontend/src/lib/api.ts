@@ -48,6 +48,9 @@ import type {
   SessionMutationResult,
   SessionOrderPreference,
   SessionSnapshot,
+  SessionSnapshotDoc,
+  SessionSnapshotDocSummary,
+  SessionSnapshotRestoreResult,
   SessionTemplate,
   SessionWorkspaceEntry,
   Snippet,
@@ -530,6 +533,31 @@ export const api = {
     remove: (hostId: string, archiveId: string) =>
       fetchApi<{ ok: true }>(
         `/api/hosts/${encodeURIComponent(hostId)}/session-archives/${encodeURIComponent(archiveId)}`,
+        { method: 'DELETE' },
+      ),
+  },
+  sessionSnapshots: {
+    list: (hostId: string, sessionId?: string) =>
+      fetchApi<{ snapshots: SessionSnapshotDocSummary[] }>(
+        `/api/hosts/${encodeURIComponent(hostId)}/session-snapshots${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`,
+      ),
+    get: (hostId: string, snapshotId: string) =>
+      fetchApi<SessionSnapshotDoc>(
+        `/api/hosts/${encodeURIComponent(hostId)}/session-snapshots/${encodeURIComponent(snapshotId)}`,
+      ),
+    capture: (hostId: string, sessionId: string) =>
+      fetchApi<SessionSnapshotDoc>(`/api/hosts/${encodeURIComponent(hostId)}/session-snapshots`, {
+        method: 'POST',
+        body: JSON.stringify({ sessionId }),
+      }),
+    restore: (hostId: string, snapshotId: string, options: { name?: string; replace?: boolean } = {}) =>
+      fetchApi<SessionSnapshotRestoreResult>(
+        `/api/hosts/${encodeURIComponent(hostId)}/session-snapshots/${encodeURIComponent(snapshotId)}/restore`,
+        { method: 'POST', body: JSON.stringify(options) },
+      ),
+    remove: (hostId: string, snapshotId: string) =>
+      fetchApi<{ ok: true }>(
+        `/api/hosts/${encodeURIComponent(hostId)}/session-snapshots/${encodeURIComponent(snapshotId)}`,
         { method: 'DELETE' },
       ),
   },

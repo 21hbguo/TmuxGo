@@ -29,6 +29,8 @@ import { describeZodError } from './lib/request-validation.js'
 import { templateRoutes } from './routes/templates.js'
 import { workspaceRoutes } from './routes/workspaces.js'
 import { sessionArchiveRoutes } from './routes/session-archives.js'
+import { sessionSnapshotRoutes } from './routes/session-snapshots.js'
+import { snapshotSessionsOnShutdown } from './lib/session-snapshot.js'
 import { pluginRoutes } from './routes/plugins.js'
 import { pluginManager } from './lib/plugin-manager.js'
 import { createFastifyLoggerConfig } from './lib/process-log.js'
@@ -126,6 +128,7 @@ await fastify.register(auditRoutes, { prefix: '/api' })
 await fastify.register(templateRoutes, { prefix: '/api' })
 await fastify.register(workspaceRoutes, { prefix: '/api' })
 await fastify.register(sessionArchiveRoutes, { prefix: '/api' })
+await fastify.register(sessionSnapshotRoutes, { prefix: '/api' })
 await fastify.register(pluginRoutes, { prefix: '/api' })
 await fastify.register(agentEventRoutes, { prefix: '/api' })
 await fastify.register(agentNotificationRoutes, { prefix: '/api' })
@@ -216,6 +219,18 @@ const shutdown = createShutdownSequence({
   terminateWebSockets: () =>
     fastify.websocketServer.clients.forEach((socket: { terminate: () => void }) => socket.terminate()),
   shutdownPlugins: () => pluginManager.shutdown(),
+  // 退出前自动快照：只做本机，远端 host 按单降级跳过；自带 deadline，超时就不再拖退出
+  snapshotSessions: () =>
+    snapshotSessionsOnShutdown({
+      hostIds: ['local'],
+      logWarn: (message) => fastify.log.warn(message),
+    }).then((result) => {
+      if (result.saved.length || result.skipped.length)
+        fastify.log.info(
+          { saved: result.saved.length, skipped: result.skipped.length },
+          'session snapshots on shutdown',
+        )
+    }),
   cleanupSockets: () => cleanupMultiplexSockets(),
   closeServer: () => fastify.close(),
   exit: (code) => process.exit(code),

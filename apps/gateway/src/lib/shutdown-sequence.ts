@@ -7,6 +7,8 @@ export type ShutdownDeps = {
   unregisterAgents: (reason: string) => void
   terminateWebSockets: () => void
   shutdownPlugins: () => Promise<void>
+  /** 退出前自动快照（自带 deadline，失败不阻塞关停） */
+  snapshotSessions?: () => Promise<void>
   cleanupSockets: () => Promise<void>
   closeServer: () => Promise<void>
   exit: (code: number) => void
@@ -34,6 +36,14 @@ export function createShutdownSequence(deps: ShutdownDeps) {
         // ws 长连接不随 HTTP server 关闭自动断开，显式终止以免阻塞排空
         deps.terminateWebSockets()
         await deps.shutdownPlugins()
+        // 快照排在关 server 之前：先拿数据再断连接；实现内部有 deadline，这里再兜一层
+        if (deps.snapshotSessions) {
+          try {
+            await deps.snapshotSessions()
+          } catch (err) {
+            deps.logWarn(`Shutdown snapshot failed: ${err instanceof Error ? err.message : String(err)}`)
+          }
+        }
         await deps.cleanupSockets()
         await deps.closeServer()
         deps.exit(0)
