@@ -1,7 +1,12 @@
 import '../test-env.js'
 import assert from 'node:assert/strict'
-import test from 'node:test'
-import { BrowserInstance } from './browser-manager.js'
+import http from 'node:http'
+import os from 'node:os'
+import test, { type TestContext } from 'node:test'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import path from 'node:path'
+import { BrowserInstance, resolveBrowserBinary } from './browser-manager.js'
 
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms))
 
@@ -233,4 +238,236 @@ test('resume snapshot frame is dropped when the client rebound to another sessio
   resolveShot('LATE')
   await resume
   assert.equal(sent.filter((m) => m.type === 'frame').length, 0)
+})
+
+// ---- 假 CDP：本地 http 提供 /json/version + ws 提供命令应答/事件注入，绝不真起 Chrome ----
+type CdpCall = { id?: number; method?: string; params?: Record<string, unknown>; sessionId?: string }
+// ws 的 @types 在这个仓库是 `export =` 命名空间形态，named import 拿不到 Server；走 createRequire + 本地接口
+const wsRequire = createRequire(import.meta.url)
+interface CdpServerSocket {
+  readyState: number
+  send: (data: string) => void
+  terminate: () => void
+  on: (event: 'close' | 'message', handler: (payload: { toString: () => string }) => void) => void
+}
+interface CdpServer {
+  on: (event: 'connection', handler: (socket: CdpServerSocket) => void) => void
+  close: (cb: () => void) => void
+}
+
+class FakeCdp {
+  private httpServer: http.Server
+  private wsServer: CdpServer
+  private sockets = new Set<CdpServerSocket>()
+  calls: CdpCall[] = []
+  handlers = new Map<string, (call: CdpCall) => unknown>()
+  port = 0
+  wsUrl = ''
+
+  static async start(): Promise<FakeCdp> {
+    const fake = new FakeCdp()
+    await fake.listen()
+    return fake
+  }
+
+  private constructor() {
+    const ServerImpl = wsRequire('ws').Server as new (opts: { server: http.Server }) => CdpServer
+    this.httpServer = http.createServer(this.onRequest)
+    this.wsServer = new ServerImpl({ server: this.httpServer })
+    this.wsServer.on('connection', (socket) => {
+      this.sockets.add(socket)
+      socket.on('close', () => this.sockets.delete(socket))
+      socket.on('message', (raw) => this.onCommand(socket, raw.toString()))
+    })
+  }
+
+  private onRequest = (req: http.IncomingMessage, res: http.ServerResponse) => {
+    if (req.url === '/json/version') {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ webSocketDebuggerUrl: this.wsUrl }))
+      return
+    }
+    res.writeHead(404)
+    res.end()
+  }
+
+  private listen() {
+    return new Promise<void>((resolve) => {
+      this.httpServer.listen(0, '127.0.0.1', () => {
+        this.port = (this.httpServer.address() as { port: number }).port
+        this.wsUrl = `ws://127.0.0.1:${this.port}/devtools/browser/fake`
+        resolve()
+      })
+    })
+  }
+
+  private onCommand(socket: CdpServerSocket, raw: string) {
+    const call = JSON.parse(raw) as CdpCall
+    this.calls.push(call)
+    const handler = call.method ? this.handlers.get(call.method) : undefined
+    // 无 handler 的命令一律成功应答 {}，需要挂起的用例显式注册一个返回 Promise 的 handler
+    const result = handler ? handler(call) : {}
+    Promise.resolve(result).then(
+      (value) => {
+        if (call.id === undefined) return
+        if (socket.readyState === 1) socket.send(JSON.stringify({ id: call.id, result: value ?? {} }))
+      },
+      (err: unknown) => {
+        if (call.id === undefined || socket.readyState !== 1) return
+        socket.send(
+          JSON.stringify({ id: call.id, error: { message: err instanceof Error ? err.message : String(err) } }),
+        )
+      },
+    )
+  }
+
+  push(event: Record<string, unknown>) {
+    for (const socket of this.sockets) if (socket.readyState === 1) socket.send(JSON.stringify(event))
+  }
+
+  // 模拟 CDP 侧断连（Chrome 崩溃/连接被掐）
+  cut() {
+    for (const socket of this.sockets) socket.terminate()
+  }
+
+  methods() {
+    return this.calls.map((call) => call.method)
+  }
+
+  callsOf(method: string) {
+    return this.calls.filter((call) => call.method === method)
+  }
+
+  async close() {
+    this.cut()
+    await new Promise<void>((resolve) => this.wsServer.close(() => resolve()))
+    await new Promise<void>((resolve) => this.httpServer.close(() => resolve()))
+  }
+}
+
+// 起一条假 CDP：profile 目录里写好 DevToolsActivePort 指向假 http 端口，
+// spawnBrowser 换成 no-op（绝不真起 Chrome），launch 走真实 waitForPort/fetchWsUrl/connectSocket
+async function launchFake(t: TestContext) {
+  const fake = await FakeCdp.start()
+  t.after(() => fake.close())
+  const configDir = mkdtempSync(path.join(os.tmpdir(), 'tmuxgo-browser-cfg-'))
+  const previousConfig = process.env.TMUXGO_CONFIG_DIR
+  const previousBin = process.env.TMUXGO_BROWSER_PATH
+  process.env.TMUXGO_CONFIG_DIR = configDir
+  // resolveBrowserBinary 只做 existsSync，用任意存在的文件冒充二进制
+  const fakeBin = path.join(configDir, 'fake-chrome')
+  writeFileSync(fakeBin, '#!/bin/sh\n')
+  process.env.TMUXGO_BROWSER_PATH = fakeBin
+  t.after(() => {
+    if (previousConfig === undefined) delete process.env.TMUXGO_CONFIG_DIR
+    else process.env.TMUXGO_CONFIG_DIR = previousConfig
+    if (previousBin === undefined) delete process.env.TMUXGO_BROWSER_PATH
+    else process.env.TMUXGO_BROWSER_PATH = previousBin
+    rmSync(configDir, { recursive: true, force: true })
+  })
+  const profile = path.join(configDir, 'browser-profile')
+  mkdirSync(profile, { recursive: true })
+  const inst = new BrowserInstance()
+  // 只替换进程启动：端口文件由「浏览器」在启动时写出（launch 会先删残留文件），
+  // 其后的 waitForPort/fetchWsUrl/connectSocket 全部走真实实现
+  ;(inst as unknown as { spawnBrowser: () => void }).spawnBrowser = () => {
+    writeFileSync(path.join(profile, 'DevToolsActivePort'), `${fake.port}\n/devtools/browser/fake`)
+  }
+  t.after(() => inst.stop())
+  return { fake, inst, profile, configDir, fakeBin }
+}
+
+test('launch reaches ready through a fake CDP endpoint and reports status', async (t) => {
+  const { fake, inst } = await launchFake(t)
+  await inst.launch()
+  assert.equal(inst.state, 'ready')
+  assert.equal(inst.cdpPort, fake.port)
+  // 首个 target 要等 setDiscoverTargets 的事件补进来；这里先断言命令确实发了
+  assert.ok(fake.methods().includes('Target.setDiscoverTargets'))
+  const status = inst.status()
+  assert.equal(status.state, 'ready')
+  assert.equal(status.cdpPort, fake.port)
+  assert.equal(status.pid, null)
+  // 幂等：ready 状态下重复 launch 不再发命令
+  const before = fake.calls.length
+  await inst.launch()
+  assert.equal(fake.calls.length, before)
+})
+
+test('launch reports NO_BROWSER_BINARY when no browser is installed', async (t) => {
+  const previousBin = process.env.TMUXGO_BROWSER_PATH
+  const previousPath = process.env.PATH
+  const previousHome = process.env.HOME
+  const emptyHome = mkdtempSync(path.join(os.tmpdir(), 'tmuxgo-nohome-'))
+  process.env.TMUXGO_BROWSER_PATH = ''
+  process.env.PATH = emptyHome
+  // 探测还看 ~/.cache/ms-playwright：把 HOME 指到空目录，保证三档全空
+  process.env.HOME = emptyHome
+  t.after(() => {
+    if (previousBin === undefined) delete process.env.TMUXGO_BROWSER_PATH
+    else process.env.TMUXGO_BROWSER_PATH = previousBin
+    if (previousPath === undefined) delete process.env.PATH
+    else process.env.PATH = previousPath
+    if (previousHome === undefined) delete process.env.HOME
+    else process.env.HOME = previousHome
+    rmSync(emptyHome, { recursive: true, force: true })
+  })
+  assert.equal(resolveBrowserBinary(), null)
+  const inst = new BrowserInstance()
+  await assert.rejects(inst.launch(), /NO_BROWSER_BINARY/)
+  // 没二进制时状态仍是 idle：没有进入 launching，前端据此提示安装
+  assert.equal(inst.state, 'idle')
+})
+
+test('launch degrades to error when the CDP endpoint never becomes reachable', async (t) => {
+  const configDir = mkdtempSync(path.join(os.tmpdir(), 'tmuxgo-browser-cfg-'))
+  const previousConfig = process.env.TMUXGO_CONFIG_DIR
+  const previousBin = process.env.TMUXGO_BROWSER_PATH
+  process.env.TMUXGO_CONFIG_DIR = configDir
+  const fakeBin = path.join(configDir, 'fake-chrome')
+  writeFileSync(fakeBin, '#!/bin/sh\n')
+  process.env.TMUXGO_BROWSER_PATH = fakeBin
+  t.after(() => {
+    if (previousConfig === undefined) delete process.env.TMUXGO_CONFIG_DIR
+    else process.env.TMUXGO_CONFIG_DIR = previousConfig
+    if (previousBin === undefined) delete process.env.TMUXGO_BROWSER_PATH
+    else process.env.TMUXGO_BROWSER_PATH = previousBin
+    rmSync(configDir, { recursive: true, force: true })
+  })
+  // 端口文件指向一个没人监听的端口：fetchWsUrl 必然 ECONNREFUSED
+  const profile = path.join(configDir, 'browser-profile')
+  mkdirSync(profile, { recursive: true })
+  const dead = await new Promise<number>((resolve) => {
+    const srv = http.createServer()
+    srv.listen(0, '127.0.0.1', () => {
+      const port = (srv.address() as { port: number }).port
+      srv.close(() => resolve(port))
+    })
+  })
+  const inst = new BrowserInstance()
+  ;(inst as unknown as { spawnBrowser: () => void }).spawnBrowser = () => {
+    writeFileSync(path.join(profile, 'DevToolsActivePort'), `${dead}\n/devtools/browser/fake`)
+  }
+  t.after(() => inst.stop())
+  await assert.rejects(inst.launch(), /ECONNREFUSED|connect/i)
+  assert.equal(inst.state, 'error')
+  assert.match(inst.status().error ?? '', /ECONNREFUSED|connect/i)
+  // 端口已探到、只是握手失败：实现保留 cdpPort 供排障，状态由 state=error 表达
+  assert.equal(inst.status().cdpPort, dead)
+})
+
+test('launch degrades to error when /json/version is not JSON', async (t) => {
+  const { inst, profile } = await launchFake(t)
+  // 换一个只回空体的 http 端点冒充 CDP：解析失败必须落到 bad /json/version
+  const junk = http.createServer((_req, res) => {
+    res.writeHead(200)
+    res.end('not-json')
+  })
+  await new Promise<void>((resolve) => junk.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise<void>((resolve) => junk.close(() => resolve())))
+  ;(inst as unknown as { spawnBrowser: () => void }).spawnBrowser = () => {
+    writeFileSync(path.join(profile, 'DevToolsActivePort'), `${(junk.address() as { port: number }).port}\nx`)
+  }
+  await assert.rejects(inst.launch(), /bad \/json\/version/)
+  assert.equal(inst.state, 'error')
 })
