@@ -4,12 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TerminalPane } from './TerminalPane'
 import { DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 import type { Pane, Window as TmuxWindow } from '@/types'
+import type { IBufferRange, ILink, ITerminalOptions } from '@xterm/xterm'
 
 const onSelectionChangeHandlers: Array<() => void> = []
 let customKeyHandler: ((event: KeyboardEvent) => boolean) | null = null
 let terminalDataHandler: ((data: string) => void) | null = null
 let terminalSelection = 'printf "auto_copy_ok"'
-let terminalSelectionPosition: any = null
+let terminalSelectionPosition: IBufferRange | null = null
 let terminalBufferLines: string[] = []
 let terminalBaseY = 0
 let terminalViewportY = 0
@@ -19,7 +20,7 @@ const terminalWriteParsedHandlers: Array<() => void> = []
 let terminalCursorX = 0
 let terminalCursorY = 0
 let terminalUnicodeActiveVersion = '6'
-let terminalConstructorOptions: any = null
+let terminalConstructorOptions: ITerminalOptions | null = null
 let terminalCellWidth = 8
 let terminalCellHeight = 16
 let resizeObserverCallback: (() => void) | null = null
@@ -27,7 +28,7 @@ let resizeObserverCallback: (() => void) | null = null
 let deferTerminalWrites = false
 let deferredTerminalWriteCallbacks: Array<() => void> = []
 let terminalLinkProviders: Array<{
-  provideLinks: (bufferLineNumber: number, callback: (links: any[] | undefined) => void) => void
+  provideLinks: (bufferLineNumber: number, callback: (links: ILink[] | undefined) => void) => void
 }> = []
 let terminalAddonHandlers: Array<(event: MouseEvent, uri: string) => void> = []
 type SessionSnapshotMock = {
@@ -73,7 +74,7 @@ const webSocketMocks = vi.hoisted(() => ({
         resync?: boolean
       }) => void,
     ) => {
-      ;(webSocketMocks as any).lastOutputListener = listener
+      webSocketMocks.lastOutputListener = listener
       return vi.fn()
     },
   ),
@@ -117,7 +118,7 @@ const apiMocks = vi.hoisted(() => ({
     binary: false,
     truncated: false,
   })),
-  filePreview: vi.fn(async () => ({
+  filePreview: vi.fn(async (_hostId: string, _rootId: string, _path: string) => ({
     path: 'src/index.ts',
     type: 'file',
     size: 16,
@@ -147,7 +148,7 @@ async function activateTerminalLink(
   const screen = container.querySelector('.xterm-screen') as HTMLElement
   const providers = [...terminalLinkProviders]
   for (const provider of providers) {
-    const result = await new Promise<any[] | undefined>((resolve) => provider.provideLinks(line, resolve))
+    const result = await new Promise<ILink[] | undefined>((resolve) => provider.provideLinks(line, resolve))
     const link = result?.find((item) => {
       const start = Number(item?.range?.start?.x) || 0
       const end = Number(item?.range?.end?.x) || 0
@@ -164,7 +165,7 @@ async function activateTerminalLink(
 function getTerminalLinks(line: number) {
   return Promise.all(
     terminalLinkProviders.map(
-      (provider) => new Promise<any[] | undefined>((resolve) => provider.provideLinks(line, resolve)),
+      (provider) => new Promise<ILink[] | undefined>((resolve) => provider.provideLinks(line, resolve)),
     ),
   ).then((results) => results.flatMap((item) => item || []))
 }
@@ -202,7 +203,24 @@ vi.mock('@/hooks/useWebSocket', () => ({
 }))
 vi.mock('@/stores/useConsoleStore', () => ({
   useConsoleStore: Object.assign(
-    ((selector: any) =>
+    (
+      selector: (state: {
+        activeHostId: string
+        activePaneId: string
+        pushToast: typeof storeMocks.pushToast
+        updateTerminalPerf: typeof storeMocks.updateTerminalPerf
+        setActivePane: typeof storeMocks.setActivePane
+        openUploadDialog: typeof storeMocks.openUploadDialog
+        terminalPerf: {
+          attachLatency: number
+          outputBytes: number
+          outputEvents: number
+          outputBacklog: number
+          layoutFitCount: number
+          lastOutputAt: string
+        }
+      }) => unknown,
+    ) =>
       selector({
         activeHostId: 'local',
         activePaneId: 'local:%1',
@@ -218,7 +236,7 @@ vi.mock('@/stores/useConsoleStore', () => ({
           layoutFitCount: 0,
           lastOutputAt: '',
         },
-      })) as any,
+      }),
     {
       getState: () => ({
         activePaneId: 'local:%1',
@@ -262,7 +280,7 @@ vi.mock('@/lib/clipboard-text', async () => {
 })
 vi.mock('@xterm/xterm', () => {
   class Terminal {
-    options: any
+    options: ITerminalOptions
     cols = 120
     rows = 36
     element: HTMLDivElement | null = null
@@ -332,11 +350,11 @@ vi.mock('@xterm/xterm', () => {
         },
       },
     }
-    constructor(options: any) {
+    constructor(options: ITerminalOptions) {
       terminalConstructorOptions = options
       this.options = options
     }
-    loadAddon(addon?: { activate?: (terminal: any) => void }) {
+    loadAddon(addon?: { activate?: (terminal: unknown) => void }) {
       addon?.activate?.(this)
     }
     open(container: HTMLDivElement) {
@@ -415,7 +433,7 @@ vi.mock('@xterm/xterm', () => {
       } else callback?.()
     }
     registerLinkProvider(provider: {
-      provideLinks: (bufferLineNumber: number, callback: (links: any[] | undefined) => void) => void
+      provideLinks: (bufferLineNumber: number, callback: (links: ILink[] | undefined) => void) => void
     }) {
       terminalLinkProviders.push(provider)
       return {
@@ -691,7 +709,9 @@ describe('TerminalPane', () => {
         }) as DOMRect,
     )
     const gestures: string[] = []
-    const unsubscribeGesture = subscribeStreamEvent(STREAM_EVENT.resizeGesture, (d: any) => gestures.push(d?.phase))
+    const unsubscribeGesture = subscribeStreamEvent(STREAM_EVENT.resizeGesture, (d: { phase: string }) =>
+      gestures.push(d.phase),
+    )
     fireEvent.mouseDown(screen, { button: 0, clientX: 100, clientY: 20 })
     // pane 分隔条拖动不得罩 terminal 级 mask——mask 属于整个 xterm screen，
     // 会盖住其它正常 pane 造成整屏白闪；只允许 divider guide 跟手
@@ -2429,7 +2449,7 @@ describe('TerminalPane', () => {
       absolutePath: '/home/user/project/other/TmuxGo',
       source: 'pane',
     })
-    apiMocks.filePreview.mockImplementation((async (_hostId: string, rootId: string, path: string) => {
+    apiMocks.filePreview.mockImplementation(async (_hostId: string, rootId: string, path: string) => {
       if (rootId === 'root-home' && path === 'project/other/TmuxGo/apps/frontend/src/components/TerminalPane.tsx')
         throw new Error('not found')
       if (rootId === 'root-workspace' && path === 'apps/frontend/src/components/TerminalPane.tsx')
@@ -2443,7 +2463,7 @@ describe('TerminalPane', () => {
           lines: [],
         }
       throw new Error('not found')
-    }) as any)
+    })
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
     terminalBufferLines = ['apps/frontend/src/components/TerminalPane.tsx:145']

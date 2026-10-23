@@ -2,6 +2,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { FileEditorDocument } from '@/types'
 import { resolveEditorDefinition } from './code-navigation'
 
 const contentMock = vi.fn()
@@ -10,14 +11,18 @@ const searchContentMock = vi.fn()
 vi.mock('./api', () => ({
   api: {
     files: {
-      content: (...args: any[]) => contentMock(...args),
-      searchContent: (...args: any[]) => searchContentMock(...args),
+      content: (...args: unknown[]) => contentMock(...args),
+      searchContent: (...args: unknown[]) => searchContentMock(...args),
     },
   },
 }))
 
 const ROOT = '/repo'
-const makeEditor = (path: string, content: string, overrides: Record<string, unknown> = {}) => ({
+const makeEditor = (
+  path: string,
+  content: string,
+  overrides: Partial<FileEditorDocument> = {},
+): FileEditorDocument => ({
   id: `local:root:${path}`,
   hostId: 'local',
   rootId: 'root',
@@ -26,7 +31,7 @@ const makeEditor = (path: string, content: string, overrides: Record<string, unk
   path,
   name: path.split('/').pop() || path,
   absolutePath: `${ROOT}/${path}`,
-  type: 'file',
+  type: 'file' as const,
   language: 'python',
   content,
   savedContent: content,
@@ -72,7 +77,7 @@ describe('import hint beats open decoy tabs (loss.py vs loss_guo.py)', () => {
     serveFiles(files)
     const entry = makeEditor('train_mt.py', files['train_mt.py'])
     const decoy = makeEditor('loss.py', DECOY)
-    const result = await resolveEditorDefinition(entry as any, { line: 2, column: 5 }, [entry as any, decoy as any])
+    const result = await resolveEditorDefinition(entry, { line: 2, column: 5 }, [entry, decoy])
     expect(result).toMatchObject({ status: 'success', target: { path: 'loss_guo.py', line: 4 } })
   })
   it('from loss import loss_sup resolves loss.py even with loss_guo.py open', async () => {
@@ -84,7 +89,7 @@ describe('import hint beats open decoy tabs (loss.py vs loss_guo.py)', () => {
     serveFiles(files)
     const entry = makeEditor('train_mms.py', files['train_mms.py'])
     const decoy = makeEditor('loss_guo.py', REAL)
-    const result = await resolveEditorDefinition(entry as any, { line: 2, column: 5 }, [entry as any, decoy as any])
+    const result = await resolveEditorDefinition(entry, { line: 2, column: 5 }, [entry, decoy])
     expect(result).toMatchObject({ status: 'success', target: { path: 'loss.py', line: 2 } })
   })
   it('both siblings open: import module name, not tab order, decides', async () => {
@@ -98,11 +103,7 @@ describe('import hint beats open decoy tabs (loss.py vs loss_guo.py)', () => {
     // 错误文件在前：打开顺序不许抢跳
     const decoy = makeEditor('loss.py', DECOY, { id: 'open-decoy' })
     const real = makeEditor('loss_guo.py', REAL, { id: 'open-real' })
-    const result = await resolveEditorDefinition(entry as any, { line: 2, column: 5 }, [
-      entry as any,
-      decoy as any,
-      real as any,
-    ])
+    const result = await resolveEditorDefinition(entry, { line: 2, column: 5 }, [entry, decoy, real])
     expect(result).toMatchObject({ status: 'success', target: { id: 'open-real', path: 'loss_guo.py', line: 4 } })
   })
 })
@@ -229,7 +230,15 @@ describe.skipIf(repoFiles.size === 0)('real repo: every local import jumps to th
   beforeEach(() => {
     // 迷你 rg：按 basePath/ext 过滤，逐行包含 word 即记一条 match —— 走真候选排序路径
     searchContentMock.mockImplementation(
-      async (_h: string, _r: string, word: string, basePath: string, _mc: boolean, _s: any, ext?: string) =>
+      async (
+        _h: string,
+        _r: string,
+        word: string,
+        basePath: string,
+        _mc: boolean,
+        _s: AbortSignal | undefined,
+        ext?: string,
+      ) =>
         Object.entries(files)
           .filter(([p]) => (!basePath || p.startsWith(`${basePath}/`)) && (!ext || p.endsWith(ext)))
           .map(([p, c]) => ({
@@ -256,11 +265,10 @@ describe.skipIf(repoFiles.size === 0)('real repo: every local import jumps to th
       const entryContent = files[c.entry] + (c.append || '')
       const entry = makeEditor(c.entry, entryContent)
       const decoyEditors = (c.decoys || []).map((d) => makeEditor(d, files[d]))
-      const result = await resolveEditorDefinition(
-        entry as any,
-        posOf(entryContent, c.marker, c.word, c.occurrence ?? 0),
-        [entry as any, ...decoyEditors.map((d) => d as any)],
-      )
+      const result = await resolveEditorDefinition(entry, posOf(entryContent, c.marker, c.word, c.occurrence ?? 0), [
+        entry,
+        ...decoyEditors,
+      ])
       expect(result).toMatchObject({
         status: 'success',
         target: { path: c.expect, line: defLineOf(c.expect, c.word) },

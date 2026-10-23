@@ -7,16 +7,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PaneGrid } from './PaneGrid'
 import { api } from '@/lib/api'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import type { Host, Pane, Session, SessionResumePoint, Window } from '@/types'
+import type { Terminal } from '@xterm/xterm'
 
-const sendMock = vi.hoisted(() => vi.fn((_message: any) => true))
+// mock 数据只喂 PaneGrid 真正读取的字段，不补全整份类型
+type MockWindow = Partial<Window> & Pick<Window, 'id'>
+type MockPane = Partial<Pane> & Pick<Pane, 'id'>
+type MockSnapshot = {
+  windows: MockWindow[]
+  panes: MockPane[]
+  activeWindowId: string | null
+  activePaneId: string | null
+}
+type MockResumePoint = Partial<SessionResumePoint> & Pick<SessionResumePoint, 'sessionId'>
+
+const sendMock = vi.hoisted(() => vi.fn((_message: Record<string, unknown> & { type?: string }) => true))
 const subscribeOutputMock = vi.hoisted(() =>
   vi.fn((_hostId: string, _sessionName: string, _listener: unknown) => vi.fn()),
 )
 const socketState = vi.hoisted(() => ({ isConnected: false, isSocketReady: true }))
 const retryConnectionMock = vi.hoisted(() => vi.fn())
-const windowsData = vi.hoisted(() => [] as any[])
-const hostsMockData = vi.hoisted(() => ({ value: [{ id: 'local' }] as any[] | undefined }))
-const orderedSessionsData = vi.hoisted(() => ({ value: [] as any[] }))
+const windowsData = vi.hoisted(() => [] as MockWindow[])
+const hostsMockData = vi.hoisted(() => ({ value: [{ id: 'local' }] as Array<Pick<Host, 'id'>> | undefined }))
+const orderedSessionsData = vi.hoisted(() => ({ value: [] as Array<Pick<Session, 'id'>> }))
 const terminalProps = vi.hoisted(() => ({
   current: null as null | {
     sessionName?: string
@@ -30,12 +43,12 @@ const terminalProps = vi.hoisted(() => ({
     onSwipeRight?: () => void
   },
 }))
-const snapshotMockData = vi.hoisted(() => ({ value: null as any }))
+const snapshotMockData = vi.hoisted(() => ({ value: null as MockSnapshot | null }))
 const continuityState = vi.hoisted(() => ({
   value: {
     enabled: false,
     archive: { enabled: false, captureMode: 'none', maxBytesPerSession: 262144, retentionDays: 7 },
-    resumePoints: [] as any[],
+    resumePoints: [] as MockResumePoint[],
   },
   upsertResumePoint: vi.fn(),
 }))
@@ -107,6 +120,24 @@ const tick = (count = 1) => {
 // 真实 layout harness：RO→layout→PaneGrid 联动回归用。onResize 走 mock 由用例
 // 自行桥接；onResizeActivity 直通 terminalProps（真实容器活动恒可达 PaneGrid）
 function createHarness() {
+  interface FakeTerminal {
+    element: Element | null
+    cols: number
+    rows: number
+    options: { fontSize: number; fontFamily: string }
+    _core: {
+      _renderService: {
+        dimensions: { css: { cell: { width: number; height: number }; canvas: { width: number; height: number } } }
+        clear: ReturnType<typeof vi.fn>
+      }
+    }
+    resize(cols: number, rows: number): void
+    refresh: ReturnType<typeof vi.fn>
+    scrollToBottom: ReturnType<typeof vi.fn>
+    clearTextureAtlas: ReturnType<typeof vi.fn>
+    clearSelection: ReturnType<typeof vi.fn>
+    buffer: { active: { baseY: number; viewportY: number } }
+  }
   const container = document.createElement('div')
   container.innerHTML =
     '<div class="xterm"><div class="xterm-screen"><div class="xterm-rows"></div></div><div class="xterm-viewport"></div></div>'
@@ -118,7 +149,8 @@ function createHarness() {
     clientHeight: { configurable: true, get: () => height },
   })
   const resizeCalls: Array<[number, number]> = []
-  const terminal: any = {
+  // 假 xterm 实例：只实现被布局/遮罩逻辑读取的成员，跨界时按 Terminal 收口
+  const terminal: FakeTerminal = {
     element: container.firstElementChild,
     cols: 80,
     rows: 24,
@@ -140,8 +172,9 @@ function createHarness() {
     clearSelection: vi.fn(),
     buffer: { active: { baseY: 0, viewportY: 0 } },
   }
+  const asTerminal = (value: FakeTerminal) => value as unknown as Terminal
   const maskElement = document.createElement('div')
-  const mask = createTerminalResizeMask({ mask: maskElement, getTerminal: () => terminal })
+  const mask = createTerminalResizeMask({ mask: maskElement, getTerminal: () => asTerminal(terminal) })
   const onResize = vi.fn()
   const revealMask = vi.fn((generation?: number) => mask.reveal(generation))
   const sizeState = createTerminalSizeState({
@@ -152,7 +185,7 @@ function createHarness() {
   const layout = createTerminalLayout({
     container,
     isMobile: false,
-    getTerminal: () => terminal,
+    getTerminal: () => asTerminal(terminal),
     isDisposed: () => false,
     preferencesRef: { current: { fontSize: 16, fontFamily: 'monospace', cursorBlink: true, terminalPadding: 0 } },
     size: sizeState,
@@ -227,7 +260,7 @@ describe('PaneGrid', () => {
         layoutFitCount: 0,
         lastOutputAt: '',
       },
-    } as any)
+    })
   })
   afterEach(() => {
     vi.useRealTimers()
@@ -1109,7 +1142,7 @@ describe('multi-device exclusive ownership', () => {
         layoutFitCount: 0,
         lastOutputAt: '',
       },
-    } as any)
+    })
     sendMock.mockImplementation(() => true)
   })
   it('demotes to shared+passive after exclusive-revoked and reclaims on refocus', async () => {
@@ -1298,7 +1331,7 @@ describe('multi-device exclusive ownership', () => {
   })
 
   it('empty state offers next-step entry for each scenario', () => {
-    useConsoleStore.setState({ activeSessionId: '' } as any)
+    useConsoleStore.setState({ activeSessionId: '' })
     // 有主机无会话 → 新建会话（SessionPanel 监听 tmuxgo-open-create-session）
     const listener = vi.fn()
     window.addEventListener('tmuxgo-open-create-session', listener)
@@ -1310,7 +1343,7 @@ describe('multi-device exclusive ownership', () => {
   })
   it('empty state offers select-recent when sessions exist', () => {
     orderedSessionsData.value = [{ id: 'session-dev1' }]
-    useConsoleStore.setState({ activeSessionId: '' } as any)
+    useConsoleStore.setState({ activeSessionId: '' })
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'grid.selectRecent' }))
     expect(useConsoleStore.getState().activeSessionId).toBe('session-dev1')
@@ -1323,7 +1356,7 @@ describe('multi-device exclusive ownership', () => {
       { hostId: 'local', sessionId: 'session-a', sessionName: 'a', lastSeenAt: '2026-09-23T01:00:00Z' },
       { hostId: 'local', sessionId: 'session-b', sessionName: 'b', lastSeenAt: '2026-09-23T02:00:00Z' },
     ]
-    useConsoleStore.setState({ activeSessionId: '' } as any)
+    useConsoleStore.setState({ activeSessionId: '' })
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'grid.selectRecent' }))
     expect(useConsoleStore.getState().activeSessionId).toBe('session-b')
@@ -1338,14 +1371,14 @@ describe('multi-device exclusive ownership', () => {
       { hostId: 'local', sessionId: 'session-b', sessionName: 'b', lastSeenAt: '2026-09-23T02:00:00Z' },
       { hostId: 'local', sessionId: 'session-a', sessionName: 'a', lastSeenAt: '2026-09-23T01:00:00Z' },
     ]
-    useConsoleStore.setState({ activeSessionId: '' } as any)
+    useConsoleStore.setState({ activeSessionId: '' })
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'grid.selectRecent' }))
     expect(useConsoleStore.getState().activeSessionId).toBe('session-b')
   })
   it('empty state offers add-host when no hosts are configured', () => {
     hostsMockData.value = []
-    useConsoleStore.setState({ activeSessionId: '' } as any)
+    useConsoleStore.setState({ activeSessionId: '' })
     render(<PaneGrid />)
     expect(screen.getByRole('button', { name: 'grid.addHost' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'grid.createSession' })).toBeNull()
@@ -1431,7 +1464,7 @@ describe('terminal control status bar', () => {
         layoutFitCount: 0,
         lastOutputAt: '',
       },
-    } as any)
+    })
     sendMock.mockImplementation(() => true)
   })
   afterEach(() => {
