@@ -22,6 +22,10 @@ import { gitRoutes } from './routes/git.js'
 import { isRequestOriginAllowed } from './lib/request-origin.js'
 import { auditRoutes } from './routes/audit.js'
 import { recordAuditRequest } from './lib/audit-log.js'
+import { isAuthExemptPath } from './lib/auth-exempt.js'
+import { assertListenSafety } from './lib/startup-guards.js'
+import { createShutdownSequence } from './lib/shutdown-sequence.js'
+import { describeZodError } from './lib/request-validation.js'
 import { templateRoutes } from './routes/templates.js'
 import { workspaceRoutes } from './routes/workspaces.js'
 import { sessionArchiveRoutes } from './routes/session-archives.js'
@@ -48,7 +52,6 @@ import {
   getSecurityWarnings,
   isEncryptedTransportConfigured,
   isInsecureModeAllowed,
-  isLoopbackHost,
 } from './lib/security.js'
 
 const fastify = Fastify({
@@ -73,22 +76,7 @@ fastify.addHook('onRequest', async (request, reply) => {
   if (request.method === 'OPTIONS') return
   if (!isAuthEnabled()) return
   const routePath = request.url.split('?')[0]
-  if (
-    !routePath.startsWith('/api/') ||
-    routePath === '/api/stream' ||
-    routePath === '/api/vnc' ||
-    routePath === '/api/browser/stream' ||
-    routePath === '/api/agent-events' ||
-    // 控制面端点全部自带 agent token + x-tmuxgo-env 双守卫（agent-control/agent-push/browser），
-    // 按前缀豁免用户认证——逐路径列名会在新增端点时漏配，agent token 在到达路由守卫前被 401
-    routePath.startsWith('/api/v1/control/') ||
-    routePath === '/api/auth/status' ||
-    routePath === '/api/auth/login' ||
-    routePath === '/api/auth/refresh' ||
-    routePath === '/api/auth/logout' ||
-    routePath === '/api/shares/exchange'
-  )
-    return
+  if (isAuthExemptPath(routePath)) return
   const payload = authenticateHttpRequest(request)
   if (!payload) return reply.code(401).send({ message: 'Authentication required', code: 'AUTH_REQUIRED' })
   if (isPasswordChangeRequired() && routePath !== '/api/auth/change-password')
@@ -101,7 +89,7 @@ fastify.addHook('onSend', recordAuditRequest)
 fastify.setErrorHandler((error, _request, reply) => {
   if (error instanceof ZodError)
     return reply.code(400).send({
-      message: error.issues.map((issue) => `${issue.path.join('.') || 'request'}: ${issue.message}`).join('; '),
+      message: describeZodError(error),
       code: 'INVALID_REQUEST',
     })
   return reply.send(error)
@@ -200,14 +188,12 @@ const start = async () => {
       passwordChangeRequired: isPasswordChangeRequired(),
     })
     warnings.forEach((warning) => console.warn(`[security] ${warning}`))
-    if (!isLoopbackHost(host) && isPasswordChangeRequired())
-      throw new Error(
-        `Refusing to expose a Gateway with the default password on ${host}; change the password while listening on localhost first`,
-      )
-    if (!isLoopbackHost(host) && !isAuthEnabled() && !isInsecureModeAllowed())
-      throw new Error(
-        `Refusing to expose an unauthenticated Gateway on ${host}; configure authentication or set TMUXGO_ALLOW_INSECURE=1 for an intentional insecure deployment`,
-      )
+    assertListenSafety({
+      host,
+      authEnabled: isAuthEnabled(),
+      passwordChangeRequired: isPasswordChangeRequired(),
+      insecureModeAllowed: isInsecureModeAllowed(),
+    })
     await fastify.listen({ port, host })
     void agentMonitor.start()
     // token 轮换/重启后 tmux 全局环境仍是旧值：启动时重断言 setenv -g，
@@ -222,35 +208,17 @@ const start = async () => {
 
 start()
 
-const SHUTDOWN_TIMEOUT_MS = 5000
-let shutdownPromise: Promise<void> | null = null
-const shutdown = () => {
-  if (shutdownPromise) return shutdownPromise
-  shutdownPromise = (async () => {
-    // 活跃 HTTP/WS 连接可能无限阻塞 fastify.close()，超时兜底保证有界退出
-    const forceExit = setTimeout(() => {
-      fastify.log.warn('Graceful shutdown timed out; forcing exit')
-      process.exit(1)
-    }, SHUTDOWN_TIMEOUT_MS)
-    forceExit.unref()
-    try {
-      agentMonitor.stop()
-      // 先以真实原因下线 agent，否则 terminate 触发的 ws close 会把原因写成 WebSocket closed
-      agentManager.unregisterAll('Gateway restarted')
-      // ws 长连接不随 HTTP server 关闭自动断开，显式终止以免阻塞排空
-      fastify.websocketServer.clients.forEach((socket: { terminate: () => void }) => socket.terminate())
-      await pluginManager.shutdown()
-      await cleanupMultiplexSockets()
-      await fastify.close()
-      process.exit(0)
-    } catch (err) {
-      fastify.log.error(err)
-      process.exit(1)
-    } finally {
-      clearTimeout(forceExit)
-    }
-  })()
-  return shutdownPromise
-}
+const shutdown = createShutdownSequence({
+  logWarn: (message) => fastify.log.warn(message),
+  logError: (error) => fastify.log.error(error),
+  stopMonitor: () => agentMonitor.stop(),
+  unregisterAgents: (reason) => agentManager.unregisterAll(reason),
+  terminateWebSockets: () =>
+    fastify.websocketServer.clients.forEach((socket: { terminate: () => void }) => socket.terminate()),
+  shutdownPlugins: () => pluginManager.shutdown(),
+  cleanupSockets: () => cleanupMultiplexSockets(),
+  closeServer: () => fastify.close(),
+  exit: (code) => process.exit(code),
+})
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)

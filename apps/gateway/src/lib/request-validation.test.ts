@@ -1,7 +1,7 @@
 import '../test-env.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { fileEntryBodySchema, gitFilesBodySchema, paneSplitBodySchema } from './request-validation.js'
+import { describeZodError, fileEntryBodySchema, gitFilesBodySchema, paneSplitBodySchema } from './request-validation.js'
 
 test('accepts valid file entry input', () => {
   assert.deepEqual(fileEntryBodySchema.parse({ root: 'root-0', path: 'src', name: 'index.ts' }), {
@@ -15,4 +15,20 @@ test('rejects invalid git file paths', () => {
 })
 test('rejects unsupported pane directions', () => {
   assert.equal(paneSplitBodySchema.safeParse({ paneId: 'local:%1', direction: 'diagonal' }).success, false)
+})
+
+test('describes zod issues as path: reason pairs', () => {
+  // index.ts 的 400 INVALID_REQUEST message 就由它生成：前端直接展示，必须可读
+  const parsed = fileEntryBodySchema.safeParse({ root: 'root-0', path: 'src' })
+  assert.equal(parsed.success, false)
+  if (parsed.success) return
+  assert.equal(describeZodError(parsed.error), 'name: Required')
+  assert.match(describeZodError(parsed.error), /^name: /)
+})
+
+test('falls back to a request placeholder for top-level issues', () => {
+  const parsed = paneSplitBodySchema.safeParse('not-an-object')
+  assert.equal(parsed.success, false)
+  if (parsed.success) return
+  assert.match(describeZodError(parsed.error), /^request: /)
 })
