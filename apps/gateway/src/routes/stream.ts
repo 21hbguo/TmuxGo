@@ -385,8 +385,18 @@ export async function streamRoutes(fastify: FastifyInstance) {
       ? null
       : agentMonitor.subscribe((event) => {
           const hostId = (event as { hostId?: unknown } | undefined)?.hostId
-          if (scopeIsRestricted(userScope) && (typeof hostId !== 'string' || !scopeAllowsHost(userScope!, hostId)))
-            return
+          if (scopeIsRestricted(userScope)) {
+            if (typeof hostId !== 'string' || !scopeAllowsHost(userScope!, hostId)) return
+            // session 白名单对 pane 事件同样生效（原先只过 host 闸是泄漏）：
+            // snapshot 逐 pane 过滤 agents；changed/removed/notification 按
+            // 顶层 sessionName 闸；monitor_error 无 session 维度只过 host 闸
+            if (event.type === 'agent_status_snapshot') {
+              const agents = event.agents.filter((pane) => scopeAllowsSession(userScope!, hostId, pane.sessionName))
+              session.send({ ...event, agents })
+              return
+            }
+            if ('sessionName' in event && !scopeAllowsSession(userScope!, hostId, event.sessionName)) return
+          }
           session.send(event)
         })
     // agent 推送收件箱事件与 monitor 同通道扇出（metadata-only，内容走 /api/inbox REST）
