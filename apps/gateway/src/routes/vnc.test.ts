@@ -205,3 +205,107 @@ test('vnc setup probe maps an ssh failure to 502 without echoing raw transport d
   assert.equal(body.error, 'SSH authentication failed')
   assert.doesNotMatch(body.error, /dev@|publickey/)
 })
+
+test('vnc setup install sends the install script with the long timeout and reports the fresh probe', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  shimStdout('__installed__\nsome apt noise\n')
+  const { app } = await buildApp(t)
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/vnc/setup',
+    payload: { hostId: 'devbox', action: 'install' },
+  })
+  assert.equal(response.statusCode, 200)
+  const body = response.json() as {
+    ok: boolean
+    needSudo: boolean
+    status: { server: string | null }
+    output: string
+    manualCommand: string
+  }
+  assert.equal(body.ok, true)
+  assert.equal(body.needSudo, false)
+  assert.match(body.output, /some apt noise/)
+  assert.match(body.manualCommand, /x11vnc/)
+  // 安装 + 安装后复探各一条 ssh：前者含包管理器分支，后者是只读探测
+  const calls = sshCalls(shims)
+  assert.equal(calls.length, 2)
+  assert.match(calls[0].join(' '), /apt-get install -y x11vnc/)
+  assert.match(calls[0].join(' '), /__need_sudo__/)
+  assert.match(calls[1].join(' '), /command -v x11vnc/)
+  // 探测输出里没写 server=，说明服务还没起来，status 必须是未安装形态
+  assert.equal(body.status.server, null)
+})
+
+test('vnc setup install surfaces the sudo requirement instead of a hard failure', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  // 脚本以 exit 0 + 标记位表达「缺 sudo」，execHostShell 不会 throw，前端据 needSudo 给指引
+  shimStdout('__need_sudo__\n')
+  const { app } = await buildApp(t)
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/vnc/setup',
+    payload: { hostId: 'devbox', action: 'install' },
+  })
+  assert.equal(response.statusCode, 200)
+  const body = response.json() as { ok: boolean; needSudo: boolean }
+  assert.equal(body.ok, false)
+  assert.equal(body.needSudo, true)
+})
+
+test('vnc setup start uses the start script and truncates noisy output', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  shimStdout(`__started__\n${'x'.repeat(4000)}`)
+  const { app } = await buildApp(t)
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/vnc/setup',
+    payload: { hostId: 'devbox', action: 'start' },
+  })
+  const body = response.json() as { ok: boolean; output: string }
+  assert.equal(body.ok, true)
+  // 输出进响应前截断，避免把整段 apt/服务日志灌给前端
+  assert.equal(body.output.length, 2000)
+  const calls = sshCalls(shims)
+  assert.match(calls[0].join(' '), /-localhost -forever -shared -bg/)
+  assert.doesNotMatch(calls[0].join(' '), /apt-get install/)
+})
+
+test('vnc setup rejects an unknown action before touching the host', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  const { app } = await buildApp(t)
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/vnc/setup',
+    payload: { hostId: 'devbox', action: 'reboot' },
+  })
+  assert.equal(response.statusCode, 400)
+  // 错误形态是 { error }，与其他路由的 { message, code } 不同，前端按 error 取值
+  assert.deepEqual(response.json(), { error: 'Invalid VNC setup action' })
+  assert.equal(sshCalls(shims).length, 0)
+})
+
+test('vnc setup maps a failed install to 502 with the normalized reason', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  process.env.SHIM_SSH_STDOUT = ''
+  process.env.SHIM_SSH_STDERR = 'ssh: connect to host 192.0.2.110 port 22: Connection refused'
+  process.env.SHIM_SSH_EXIT = '255'
+  const { app } = await buildApp(t)
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/vnc/setup',
+    payload: { hostId: 'devbox', action: 'install' },
+  })
+  assert.equal(response.statusCode, 502)
+  assert.equal((response.json() as { error: string }).error, 'SSH network is unreachable')
+})
