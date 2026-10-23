@@ -7,6 +7,10 @@ import { apiUrl } from './endpoints'
 import { ensureSession, ensureTestWindow, openSession } from './session'
 import type { TerminalProbe } from './probe-types'
 
+function windowChip(page: Page, name: string) {
+  return page.getByRole('tab').filter({ hasText: name })
+}
+
 // ---- tmux 调用守卫：仅 run-e2e 隔离环境下允许（TMUX='' + 独立 TMUX_TMPDIR）。
 // pane shell 自带 TMUX 指向用户默认 socket 且覆盖 TMUX_TMPDIR——缺一即拒，
 // 避免 spec 被直跑时误操作用户 session
@@ -340,8 +344,10 @@ test.describe('render dedup regression', () => {
     await installWsProbe(page)
     await openSession(page, winA.session, { expectHeader: false })
     await waitTerminalReady(page)
-    const chipA = page.getByRole('button', { name: winA.window.name })
-    const chipB = page.getByRole('button', { name: winB.window.name })
+    // 窗口 chip 现在是 role=tab（WindowTabs 的 tablist 重构后不再是 button），
+    // 用文字过滤而不是精确 aria-label：tab 内还嵌了「关闭」按钮，精确名会算上它的 aria-label
+    const chipA = windowChip(page, winA.window.name)
+    const chipB = windowChip(page, winB.window.name)
     await chipA.waitFor({ state: 'visible', timeout: 10000 })
     await chipB.waitFor({ state: 'visible', timeout: 10000 })
 
