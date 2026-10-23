@@ -500,6 +500,40 @@ export interface SessionArchiveSummary {
 export interface SessionArchive extends SessionArchiveSummary {
   panes: { paneId: string; title: string; windowName: string; active: boolean; data: string }[]
 }
+export interface SessionSnapshotPane {
+  tmuxPaneId: string
+  windowIndex: number
+  paneIndex: number
+  title: string
+  cwd: string
+  command: string
+  inMode: boolean
+  /** 尾部纯文本，仅供「历史回显」预览，恢复时不会写回 pane */
+  scrollbackTail: string
+}
+export interface SessionSnapshotDocSummary {
+  kind: 'tmuxgo.session-snapshot'
+  version: 1
+  id: string
+  hostId: string
+  sessionId: string
+  sessionName: string
+  createdAt: string
+  expiresAt: string
+  stats: { paneCount: number; tailLines: number; bytes: number }
+  degraded: string[]
+}
+export interface SessionSnapshotDoc extends SessionSnapshotDocSummary {
+  layout: { kind: string; version: number; name: string; windows: unknown[] }
+  panes: SessionSnapshotPane[]
+}
+export interface SessionSnapshotRestoreResult {
+  sessionName: string
+  restoredFrom: string
+  paneCount: number
+  panes: SessionSnapshotPane[]
+  degraded: string[]
+}
 export interface SessionContinuityConfig {
   enabled: boolean
   syncToServer: boolean

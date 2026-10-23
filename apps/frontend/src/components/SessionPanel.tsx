@@ -24,6 +24,7 @@ import { getDefaultSessionName } from '@/lib/session-template'
 import { parseSessionName } from '@/lib/session-id'
 import { requestTerminalFocus } from '@/lib/terminal-focus-request'
 import { Chip } from './Chip'
+import { SessionSnapshotsDialog } from './SessionSnapshotsDialog'
 import { ConfirmDialog } from './ConfirmDialog'
 import { QuickActions } from './QuickActions'
 import { usePreferences } from '@/hooks/usePreferences'
@@ -68,6 +69,7 @@ import {
   FiFolderPlus,
   FiMoreHorizontal,
   FiPlus,
+  FiClock,
   FiUpload,
 } from 'react-icons/fi'
 
@@ -134,6 +136,7 @@ export function SessionPanel() {
   const [showTemplates, setShowTemplates] = useState(false)
   const [showLayoutImport, setShowLayoutImport] = useState(false)
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
+  const [snapshotsOpen, setSnapshotsOpen] = useState(false)
   const [batchMode, setBatchMode] = useState(false)
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
   const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false)
@@ -879,6 +882,15 @@ export function SessionPanel() {
                     <FiUpload aria-hidden="true" size={13} />
                   </Chip>
                   <Chip
+                    onClick={() => setSnapshotsOpen(true)}
+                    disabled={!activeHostId}
+                    className="px-2 py-1"
+                    title={t('snapshot.entry')}
+                    aria-label={t('snapshot.entry')}
+                  >
+                    <FiClock aria-hidden="true" size={13} />
+                  </Chip>
+                  <Chip
                     onClick={toggleBatchMode}
                     className="px-2 py-1.5"
                     title={t('sidebar.batchDeleteAction')}
@@ -1003,6 +1015,14 @@ export function SessionPanel() {
           setCreateDialogCwd(null)
           setCreateDialogWorktreeLink(null)
         }}
+      />
+      <SessionSnapshotsDialog
+        open={snapshotsOpen}
+        onClose={() => setSnapshotsOpen(false)}
+        hostId={activeHostId || 'local'}
+        activeSessionId={activeSessionId}
+        // 恢复后列表里没有新 session：重建完必须刷新，否则要等下一次轮询才看得见
+        onRestored={() => void refetch()}
       />
       <ConfirmDialog
         open={!!pendingDeleteSessionId}

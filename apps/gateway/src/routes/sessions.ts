@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import path from 'path'
 import { stat } from 'fs/promises'
-import { getTemplateWindowTargets, type SessionTemplateLayout } from '../lib/template-utils.js'
+import type { SessionTemplateLayout } from '../lib/template-utils.js'
 import {
   applyCreatedSessionDefaults,
   assertSessionAllowed,
@@ -11,6 +11,14 @@ import {
 } from '../lib/tmux-policy.js'
 import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
 import { execTmux, execHostShell } from '../lib/tmux-executor.js'
+import {
+  applyTemplateLayout,
+  getFirstPaneIndex,
+  getFirstWindowTarget,
+  getPaneStartupCommand,
+  quoteShellValue,
+  runSendKeys,
+} from '../lib/session-layout-apply.js'
 import { getHostAgentPanes, summarizeAgentPanes } from '../lib/agent-state.js'
 import { agentMonitor } from '../lib/agent-monitor.js'
 import { emitPluginEvent } from '../lib/plugin-manager.js'
@@ -278,114 +286,6 @@ function getBatchDeleteSelection(hostId: string, sessions: HostTmuxSession[], bo
     eligible.push(session)
   }
   return { matched, eligible, skipped }
-}
-async function runSendKeys(hostId: string, target: string, command: string) {
-  // 目标 pane 若处于 copy/view-mode（如 conf 里 run -b 失败的 run-shell 错误
-  // 视图、restore 回放残留），send-keys 会被 mode 按键表拦截派发：绑定命令
-  // 在无 client 的 server 上报 "no current client"，且不报错时文本也进 mode
-  // 而非 shell。先 best-effort 退 mode（非 mode 时报 not in a mode，吞掉）。
-  try {
-    await execTmux(hostId, ['send-keys', '-X', '-t', target, 'cancel'])
-  } catch {}
-  // 文本走 -l 字面模式 + 独立 Enter：非字面 send-keys 把整串按 key name
-  // 逐段解析，空格/--/路径段同样会踩无 client 的派发路径（agent-recovery 同款）
-  await execTmux(hostId, ['send-keys', '-l', '-t', target, command])
-  await execTmux(hostId, ['send-keys', '-t', target, 'Enter'])
-}
-function quoteShellValue(value: string) {
-  return `'${value.replace(/'/g, `'\\''`)}'`
-}
-function getPaneStartupCommand(pane: { command?: string; cwd?: string; env?: Record<string, string> }) {
-  const parts: string[] = []
-  const env =
-    pane.env && typeof pane.env === 'object'
-      ? Object.entries(pane.env).filter(
-          ([key, value]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && typeof value === 'string',
-        )
-      : []
-  if (env.length) parts.push(`export ${env.map(([key, value]) => `${key}=${quoteShellValue(value)}`).join(' ')}`)
-  if (pane.cwd?.trim()) parts.push(`cd -- ${quoteShellValue(pane.cwd.trim())}`)
-  if (pane.command?.trim()) parts.push(pane.command.trim())
-  return parts.join('; ')
-}
-async function getFirstWindowTarget(hostId: string, sessionName: string) {
-  const { stdout } = await execTmux(hostId, [
-    'list-windows',
-    '-t',
-    sessionName,
-    '-F',
-    '#{window_index}',
-    '-f',
-    '#{==:#{window_active},1}',
-  ])
-  const activeIndex = stdout.trim()
-  if (activeIndex) return `${sessionName}:${activeIndex}`
-  const { stdout: fallbackStdout } = await execTmux(hostId, [
-    'list-windows',
-    '-t',
-    sessionName,
-    '-F',
-    '#{window_index}',
-  ])
-  const fallbackIndex = fallbackStdout.trim().split('\n').find(Boolean)
-  if (!fallbackIndex) throw new Error(`No windows found for session ${sessionName}`)
-  return `${sessionName}:${fallbackIndex}`
-}
-async function getFirstWindowIndex(hostId: string, sessionName: string) {
-  const { stdout } = await execTmux(hostId, ['list-windows', '-t', sessionName, '-F', '#{window_index}'])
-  const first = stdout.trim().split('\n').find(Boolean)
-  if (!first) throw new Error(`No windows found for session ${sessionName}`)
-  const value = Number(first)
-  if (!Number.isFinite(value)) throw new Error(`Invalid window index for session ${sessionName}`)
-  return value
-}
-async function getFirstPaneIndex(hostId: string, windowTarget: string) {
-  const { stdout } = await execTmux(hostId, ['list-panes', '-t', windowTarget, '-F', '#{pane_index}'])
-  const first = stdout.trim().split('\n').find(Boolean)
-  if (!first) throw new Error(`No panes found for window ${windowTarget}`)
-  const value = Number(first)
-  if (!Number.isFinite(value)) throw new Error(`Invalid pane index for window ${windowTarget}`)
-  return value
-}
-async function applyTemplateLayout(hostId: string, sessionName: string, layout: SessionTemplateLayout) {
-  assertSessionAllowed(sessionName)
-  if (!layout.windows.length) return
-  const firstWindowTarget = await getFirstWindowTarget(hostId, sessionName)
-  const firstWindowIndex = await getFirstWindowIndex(hostId, sessionName)
-  const targets = getTemplateWindowTargets(sessionName, layout, firstWindowIndex)
-  for (let i = 0; i < targets.length; i++) {
-    const windowDef = targets[i]
-    const { windowTarget, panes } = windowDef
-    if (!windowDef.name) throw new Error(`Template step failed: window[${i}] missing name`)
-    const splitFlag = windowDef.splitDirection === 'vertical' ? '-v' : '-h'
-    const layoutPreset = windowDef.layoutPreset || 'tiled'
-    if (i === 0) {
-      await execTmux(hostId, ['rename-window', '-t', firstWindowTarget, windowDef.name])
-    } else {
-      const args = ['new-window', '-t', sessionName, '-n', windowDef.name]
-      if (panes[0]?.cwd?.trim()) args.push('-c', panes[0].cwd.trim())
-      await execTmux(hostId, args)
-    }
-    const paneBaseIndex =
-      i === 0 ? await getFirstPaneIndex(hostId, firstWindowTarget) : await getFirstPaneIndex(hostId, windowTarget)
-    for (let p = 1; p < panes.length; p++) {
-      await execTmux(hostId, [
-        'split-window',
-        '-c',
-        panes[p]?.cwd?.trim() || '#{pane_current_path}',
-        '-t',
-        windowTarget,
-        splitFlag,
-      ])
-    }
-    await execTmux(hostId, ['select-layout', '-t', windowTarget, layoutPreset])
-    for (let p = 0; p < panes.length; p++) {
-      const command = getPaneStartupCommand(panes[p] || {})
-      if (!command) continue
-      await runSendKeys(hostId, `${windowTarget}.${paneBaseIndex + p}`, command)
-    }
-  }
-  await execTmux(hostId, ['select-window', '-t', firstWindowTarget])
 }
 // 追加模式应用 layout：所有窗口新建，绝不触碰已有窗口/pane；
 // new-window/split-window 均带 -d 不抢焦点，结束还原活动窗口
