@@ -172,9 +172,10 @@ export async function execGit(
       return { stdout, stderr }
     } catch (err) {
       const failure = asExecFailure(err)
-      throw new Error(normalizeErrorMessage(String(failure?.stderr || failure?.message || ''), 'git command failed'), {
-        cause: err,
-      })
+      // git 把 merge/pull 的冲突报表写在 stdout（远端通道一直两者都拼，本机只拼 stderr 会让
+      // 冲突分类落空）；这里与 reportRemoteError 保持一致，stdout 在前以便保留完整上下文
+      const raw = `${failure?.stdout || ''}\n${failure?.stderr || ''}`.trim() || String(failure?.message || '')
+      throw new Error(normalizeErrorMessage(raw, 'git command failed'), { cause: err })
     }
   }
   const { stdout, stderr } = await runRemoteGit(host, args, cwd, timeout, acceptExitCodeOne, signal)
