@@ -201,6 +201,32 @@ test('status splits staged, unstaged, renamed and untracked entries', async (t) 
   assert.deepEqual(status.conflicted, [])
 })
 
+test('detached HEAD is reported as a detached branch and keeps current empty', async (t) => {
+  const fixture = await createFixture(t)
+  const { repository } = fixture
+  await runGit(repository, ['checkout', '--detach', 'HEAD'])
+  // porcelain v2 的 branch.head 在游离态是 "(detached)"，不能误当成分支名
+  const status = body<{ branch: string; operation: string | null }>(
+    await inject(fixture, 'GET', 'status?path=' + encodeURIComponent(repository)),
+  )
+  assert.equal(status.branch, '(detached)')
+  assert.equal(status.operation, null)
+  const branches = body<{ current: string; branches: Array<{ name: string; current: boolean }> }>(
+    await inject(fixture, 'GET', 'branches?path=' + encodeURIComponent(repository)),
+  )
+  assert.equal(branches.current, '')
+  assert.equal(
+    branches.branches.every((branch) => !branch.current),
+    true,
+  )
+  // detect 用 rev-parse --abbrev-ref：游离态返回字面量 HEAD
+  const detected = body<{ isGitRepo: boolean; branch: string }>(
+    await inject(fixture, 'GET', `detect?path=${encodeURIComponent(repository)}`),
+  )
+  assert.equal(detected.isGitRepo, true)
+  assert.equal(detected.branch, 'HEAD')
+})
+
 test('status reports an in-progress merge and operation abort restores a clean tree', async (t) => {
   const fixture = await createFixture(t)
   const { repository } = fixture
