@@ -39,13 +39,24 @@ export async function saveContentForHost(
   try {
     return await runRemoteFileJson(hostId, { op: 'save', root: rootId, path: relativePath, content, modifiedAt })
   } catch (error) {
-    const err = error as Error & { code?: string }
-    if (err.message.startsWith('FILE_MODIFIED:')) {
-      err.message = err.message.slice('FILE_MODIFIED:'.length)
-      err.code = 'FILE_MODIFIED'
-    }
-    throw err
+    throw normalizeFileModifiedError(error)
   }
+}
+const FILE_MODIFIED_MARKER = 'FILE_MODIFIED:'
+// 远端脚本 raise Exception('FILE_MODIFIED:...')，ssh 传回来的 stderr 是整段 traceback，
+// 标记在末行而不是开头（老代码用 startsWith 判定，于是 code 恒为空、冲突只能落 500）。
+// 这里按标记位置切出同一行的剩余文案，标记之外的 traceback 不外泄给前端。
+function normalizeFileModifiedError(error: unknown) {
+  const err = error as Error & { code?: string }
+  const raw = typeof err?.message === 'string' ? err.message : ''
+  const index = raw.lastIndexOf(FILE_MODIFIED_MARKER)
+  if (index >= 0) {
+    const tail = raw.slice(index + FILE_MODIFIED_MARKER.length)
+    const lineEnd = tail.indexOf('\n')
+    err.message = (lineEnd < 0 ? tail : tail.slice(0, lineEnd)).trim() || 'File changed on disk'
+    err.code = 'FILE_MODIFIED'
+  }
+  return err
 }
 export async function createFileForHost(hostId: string, rootId: string, directoryPath: string, name: string) {
   if (hostId === 'local') return createFile(rootId, directoryPath, name)
