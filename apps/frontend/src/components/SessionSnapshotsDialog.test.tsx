@@ -102,10 +102,13 @@ describe('SessionSnapshotsDialog', () => {
     expect(screen.getByTestId('snapshot-tail-1').textContent).toContain('快照里没有尾部内容')
   })
 
-  it('states that restore does not revive processes', async () => {
+  it('states the two restore limits: no process revival, argv lost on replay', async () => {
     renderDialog()
     await waitFor(() => expect(screen.getByTestId('session-snapshots-dialog')).toBeTruthy())
-    expect(screen.getByTestId('session-snapshots-dialog').textContent).toContain('进程不会复活')
+    const text = screen.getByTestId('session-snapshots-dialog').textContent
+    expect(text).toContain('进程不会复活')
+    // 真机冒烟发现：tmux 只给 pane_current_command（程序名，无 argv），带参数的命令重跑会失败
+    expect(text).toContain('带参数的命令按程序名重跑，可能起不来')
   })
 
   it('restores the selected snapshot, forwarding the replace flag', async () => {
