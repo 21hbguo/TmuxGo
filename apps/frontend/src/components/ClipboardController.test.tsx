@@ -9,30 +9,32 @@ const readClipboardTextOnly = vi.fn()
 const writeClipboardText = vi.fn()
 
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: ((selector: any) => selector({ pushToast })) as any,
+  useConsoleStore: (selector: (state: { pushToast: typeof pushToast }) => unknown) => selector({ pushToast }),
 }))
 vi.mock('@/lib/clipboard-text', () => ({
-  readClipboardTextOnly: (...args: any[]) => readClipboardTextOnly(...args),
-  writeClipboardText: (...args: any[]) => writeClipboardText(...args),
+  readClipboardTextOnly: (...args: unknown[]) => readClipboardTextOnly(...args),
+  writeClipboardText: (...args: unknown[]) => writeClipboardText(...args),
 }))
 vi.mock('@/lib/terminal-selection', () => ({
   requestTerminalSelection: vi.fn(),
 }))
 vi.mock('@/i18n', () => ({
-  useTranslation: () => ({ t: (key: string) => {
-    if (key === 'paste.title') return 'Confirm paste'
-    if (key === 'paste.manualTitle') return 'Paste manually'
-    if (key === 'paste.manualDesc') return 'Paste into box'
-    if (key === 'paste.cancel') return 'Cancel'
-    if (key === 'paste.retryPermission') return 'Retry Permission'
-    if (key === 'paste.escapePaste') return 'Escape Paste'
-    if (key === 'paste.send') return 'Send'
-    if (key === 'clipboard.meta.multiline') return 'multi-line'
-    if (key === 'clipboard.meta.controlChars') return 'control chars'
-    if (key === 'clipboard.meta.appClipboard') return 'app clipboard'
-    if (key === 'clipboard.meta.unavailable') return 'clipboard unavailable'
-    return key
-  } }),
+  useTranslation: () => ({
+    t: (key: string) => {
+      if (key === 'paste.title') return 'Confirm paste'
+      if (key === 'paste.manualTitle') return 'Paste manually'
+      if (key === 'paste.manualDesc') return 'Paste into box'
+      if (key === 'paste.cancel') return 'Cancel'
+      if (key === 'paste.retryPermission') return 'Retry Permission'
+      if (key === 'paste.escapePaste') return 'Escape Paste'
+      if (key === 'paste.send') return 'Send'
+      if (key === 'clipboard.meta.multiline') return 'multi-line'
+      if (key === 'clipboard.meta.controlChars') return 'control chars'
+      if (key === 'clipboard.meta.appClipboard') return 'app clipboard'
+      if (key === 'clipboard.meta.unavailable') return 'clipboard unavailable'
+      return key
+    },
+  }),
 }))
 
 describe('ClipboardController', () => {
@@ -47,7 +49,9 @@ describe('ClipboardController', () => {
     window.addEventListener('tmuxgo-terminal-input', terminalInput)
     render(React.createElement(ClipboardController))
     act(() => {
-      window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'echo a\necho b', source: 'system' } }))
+      window.dispatchEvent(
+        new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'echo a\necho b', source: 'system' } }),
+      )
     })
     expect(await screen.findByText('Confirm paste')).toBeInTheDocument()
     expect(screen.getByText('multi-line')).toBeInTheDocument()
@@ -60,7 +64,9 @@ describe('ClipboardController', () => {
     window.addEventListener('tmuxgo-terminal-input', terminalInput)
     render(React.createElement(ClipboardController))
     act(() => {
-      window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf ok', source: 'system' } }))
+      window.dispatchEvent(
+        new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf ok', source: 'system' } }),
+      )
     })
     expect(await screen.findByText('Confirm paste')).toBeInTheDocument()
     expect(screen.getByRole('textbox')).toHaveValue('printf ok')
@@ -74,7 +80,9 @@ describe('ClipboardController', () => {
     window.addEventListener('tmuxgo-terminal-input', terminalInput)
     render(React.createElement(ClipboardController))
     act(() => {
-      window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'echo a\necho b', source: 'system' } }))
+      window.dispatchEvent(
+        new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'echo a\necho b', source: 'system' } }),
+      )
     })
     await user.click(await screen.findByRole('button', { name: 'Send' }))
     expect(terminalInput).toHaveBeenCalledTimes(1)
@@ -91,7 +99,9 @@ describe('ClipboardController', () => {
     window.addEventListener('tmuxgo-terminal-input', terminalInput)
     render(React.createElement(ClipboardController))
     act(() => {
-      window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf ok', source: 'system' } }))
+      window.dispatchEvent(
+        new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf ok', source: 'system' } }),
+      )
     })
     await user.click(await screen.findByRole('button', { name: 'Send' }))
     await act(async () => {
@@ -110,7 +120,9 @@ describe('ClipboardController', () => {
     window.addEventListener('tmuxgo-focus-terminal', focusTerminal)
     render(React.createElement(ClipboardController))
     act(() => {
-      window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf ok', source: 'system' } }))
+      window.dispatchEvent(
+        new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf ok', source: 'system' } }),
+      )
     })
     await user.click(await screen.findByRole('button', { name: 'Send' }))
     await waitFor(() => expect(screen.queryByRole('textbox')).not.toBeInTheDocument())
@@ -135,7 +147,9 @@ describe('ClipboardController', () => {
     window.addEventListener('tmuxgo-terminal-input', terminalInput)
     render(React.createElement(ClipboardController))
     act(() => {
-      window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf ok', source: 'system' } }))
+      window.dispatchEvent(
+        new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf ok', source: 'system' } }),
+      )
     })
     await user.click(await screen.findByRole('button', { name: 'Send' }))
     helper.focus()
@@ -195,8 +209,12 @@ describe('ClipboardController', () => {
     window.addEventListener('tmuxgo-terminal-input', terminalInput)
     render(React.createElement(ClipboardController))
     act(() => {
-      window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf once', source: 'system' } }))
-      window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf once', source: 'system' } }))
+      window.dispatchEvent(
+        new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf once', source: 'system' } }),
+      )
+      window.dispatchEvent(
+        new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf once', source: 'system' } }),
+      )
     })
     expect(await screen.findByText('Confirm paste')).toBeInTheDocument()
     expect(terminalInput).not.toHaveBeenCalled()

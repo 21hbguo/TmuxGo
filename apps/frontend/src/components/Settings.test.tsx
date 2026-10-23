@@ -25,8 +25,9 @@ const restartStatusState: {
   refetch: vi.fn(),
 }
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: (selector: any) =>
-    selector({ pushToast, activeHostId: 'local', activeSessionId: 'session-local-dev' }),
+  useConsoleStore: (
+    selector: (state: { pushToast: typeof pushToast; activeHostId: string; activeSessionId: string }) => unknown,
+  ) => selector({ pushToast, activeHostId: 'local', activeSessionId: 'session-local-dev' }),
 }))
 vi.mock('@/hooks/usePreferences', () => ({
   usePreferences: () => ({
@@ -170,10 +171,10 @@ describe('Settings restart rebuild', () => {
     await waitFor(() => expect(restartRebuild).toHaveBeenCalledTimes(1))
   })
   it('submits the restart rebuild confirm only once on rapid double click', async () => {
-    let resolveRestart: (value: any) => void = () => {}
+    let resolveRestart: (value: unknown) => void = () => {}
     restartRebuild.mockImplementation(
       () =>
-        new Promise((resolve) => {
+        new Promise<unknown>((resolve) => {
           resolveRestart = resolve
         }),
     )

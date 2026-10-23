@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Terminal } from '@xterm/xterm'
 import { createTerminalLayout } from './terminal-layout'
 import { createTerminalResizeMask } from './terminal-resize-mask'
 import { createTerminalSizeState } from './terminal-size-state'
@@ -31,7 +32,26 @@ function createHarness({ shared = false, mobile = false, followedSize }: Harness
     clientHeight: { configurable: true, get: () => height },
   })
   const resizeCalls: Array<[number, number]> = []
-  const terminal: any = {
+  // 终端替身：只保留布局/掩码读写到的字段，_core 允许被用例删除
+  interface TerminalStub {
+    element: Element | null
+    cols: number
+    rows: number
+    options: { fontSize: number; fontFamily: string }
+    _core?: {
+      _renderService: {
+        dimensions: { css: { cell: { width: number; height: number }; canvas: { width: number; height: number } } }
+        clear: () => void
+      }
+    }
+    resize: (cols: number, rows: number) => void
+    refresh: () => void
+    scrollToBottom: () => void
+    clearTextureAtlas: () => void
+    clearSelection: () => void
+    buffer: { active: { baseY: number; viewportY: number } }
+  }
+  const terminal: TerminalStub = {
     element: container.firstElementChild,
     cols: 80,
     rows: 24,
@@ -43,8 +63,8 @@ function createHarness({ shared = false, mobile = false, followedSize }: Harness
       },
     },
     resize(cols: number, rows: number) {
-      this.cols = cols
-      this.rows = rows
+      terminal.cols = cols
+      terminal.rows = rows
       resizeCalls.push([cols, rows])
     },
     refresh: vi.fn(),
@@ -53,8 +73,12 @@ function createHarness({ shared = false, mobile = false, followedSize }: Harness
     clearSelection: vi.fn(),
     buffer: { active: { baseY: 0, viewportY: 0 } },
   }
+
   const maskElement = document.createElement('div')
-  const mask = createTerminalResizeMask({ mask: maskElement, getTerminal: () => terminal })
+  const mask = createTerminalResizeMask({
+    mask: maskElement,
+    getTerminal: () => terminal as unknown as Terminal,
+  })
   const onResize = vi.fn()
   const revealMask = vi.fn((generation?: number) => mask.reveal(generation))
   const sizeState = createTerminalSizeState({
@@ -68,7 +92,7 @@ function createHarness({ shared = false, mobile = false, followedSize }: Harness
   const layout = createTerminalLayout({
     container,
     isMobile: mobile,
-    getTerminal: () => terminal,
+    getTerminal: () => terminal as unknown as Terminal,
     isDisposed: () => false,
     preferencesRef: { current: { fontSize: 16, fontFamily: 'monospace', cursorBlink: true, terminalPadding: 0 } },
     size: sizeState,

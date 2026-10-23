@@ -5,10 +5,10 @@ import { GlobalFilePicker } from './GlobalFilePicker'
 
 const openUploadDialog = vi.fn()
 const setStagedUploadFiles = vi.fn()
-const pickerStore: any = { stagedUploadFiles: [] as File[] }
+const pickerStore: { stagedUploadFiles: File[] } = { stagedUploadFiles: [] }
 
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: Object.assign((selector: any) => selector({}), {
+  useConsoleStore: Object.assign((selector: (state: Record<string, unknown>) => unknown) => selector({}), {
     getState: () => ({ ...pickerStore, openUploadDialog, setStagedUploadFiles }),
   }),
 }))

@@ -41,8 +41,9 @@ vi.mock('./usePreferences', () => ({
   usePreferences: () => ({ preferences: preferenceState }),
 }))
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: ((selector: any) =>
-    selector({ connection: { status: 'disconnected' }, updateConnection: updateConnectionMock })) as any,
+  useConsoleStore: (
+    selector: (state: { connection: { status: string }; updateConnection: typeof updateConnectionMock }) => unknown,
+  ) => selector({ connection: { status: 'disconnected' }, updateConnection: updateConnectionMock }),
 }))
 vi.mock('@/lib/runtime-endpoints', () => ({
   getWebSocketBase: () => 'ws://localhost:3000/api/stream',
@@ -64,7 +65,7 @@ describe('useWebSocket', () => {
     getWebSocketUrlMock.mockReset()
     socketInstances.length = 0
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
-    vi.stubGlobal('WebSocket', MockWebSocket as any)
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
   })
   afterEach(() => {
     vi.runOnlyPendingTimers()

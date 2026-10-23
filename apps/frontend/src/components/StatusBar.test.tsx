@@ -65,7 +65,7 @@ vi.mock('@/i18n', () => ({
   }),
 }))
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: (selector: any) => selector(consoleStateMock),
+  useConsoleStore: (selector: (state: typeof consoleStateMock) => unknown) => selector(consoleStateMock),
 }))
 vi.mock('@/hooks/useSystemInfo', () => ({
   useSystemInfo: useSystemInfoMock,

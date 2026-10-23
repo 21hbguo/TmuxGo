@@ -1,3 +1,4 @@
+import type { Session } from '@/types'
 import { describe, expect, it } from 'vitest'
 import { moveItemsById, orderSessions } from './session-order'
 
@@ -13,7 +14,11 @@ describe('session-order', () => {
       { id: 'session-a', name: 'a' },
       { id: 'session-b', name: 'b' },
       { id: 'session-c', name: 'c' },
-    ] as any
-    expect(orderSessions(sessions, ['session-c', 'session-a']).map((item) => item.id)).toEqual(['session-c', 'session-a', 'session-b'])
+    ] as unknown as Session[]
+    expect(orderSessions(sessions, ['session-c', 'session-a']).map((item) => item.id)).toEqual([
+      'session-c',
+      'session-a',
+      'session-b',
+    ])
   })
 })

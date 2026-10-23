@@ -26,7 +26,7 @@ describe('useGitPreferencesSync', () => {
     vi.useFakeTimers()
     vi.clearAllMocks()
     updateMock.mockResolvedValue({})
-    useConsoleStore.setState({ gitByHost: {} } as any)
+    useConsoleStore.setState({ gitByHost: {} })
   })
 
   it('hydrates remote git state without immediately pushing it back', async () => {

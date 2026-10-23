@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MobileNav } from './MobileNav'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import type { TerminalPerfState } from '@/types'
 
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({
@@ -46,8 +47,9 @@ describe('MobileNav', () => {
     window.localStorage.clear()
     useConsoleStore.setState({
       connection: { status: 'connected', latency: 12, lastPing: '' },
-      terminalPerf: { attachLatency: 30 },
-    } as any)
+      // 只喂 attachLatency，其余性能指标沿用默认（stub 形状按实际注入值声明）
+      terminalPerf: { attachLatency: 30 } as unknown as TerminalPerfState,
+    })
   })
 
   it('renders nine nav buttons including inbox, desktop and browser', () => {
@@ -135,7 +137,7 @@ describe('MobileNav', () => {
     act(() => {
       useConsoleStore.setState({
         connection: { status: 'disconnected', latency: 0, lastPing: '' },
-      } as any)
+      })
     })
     expect(screen.getByText('Off')).toBeTruthy()
   })

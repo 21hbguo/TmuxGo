@@ -4,8 +4,13 @@ import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PaneNotifications, WatchButton } from './PaneNotifications'
 
+interface NotificationStub {
+  (title: string, options?: NotificationOptions): { close: () => void }
+  permission: NotificationPermission
+}
+
 const mocks = vi.hoisted(() => {
-  const queryCache = new Map<string, any>()
+  const queryCache = new Map<string, unknown>()
   return {
     preferenceState: { agentNotificationsEnabled: true, agentNotificationDurationMs: 5000 },
     consoleState: {
@@ -19,10 +24,13 @@ const mocks = vi.hoisted(() => {
     queryCache,
     queryClient: {
       getQueryData: vi.fn((key: unknown[]) => queryCache.get(JSON.stringify(key))),
-      setQueryData: vi.fn((key: unknown[], value: any) =>
+      // setQueryData 支持「函数式更新」：入参是 unknown，函数分支按同形状调用
+      setQueryData: vi.fn((key: unknown[], value: unknown) =>
         queryCache.set(
           JSON.stringify(key),
-          typeof value === 'function' ? value(queryCache.get(JSON.stringify(key))) : value,
+          typeof value === 'function'
+            ? (value as (prev: unknown) => unknown)(queryCache.get(JSON.stringify(key)))
+            : value,
         ),
       ),
     },
@@ -36,9 +44,12 @@ const { preferenceState, consoleState, queryCache, queryClient, snapshotGet, win
 vi.mock('@/hooks/usePreferences', () => ({ usePreferences: () => ({ preferences: mocks.preferenceState }) }))
 vi.mock('@/hooks/useOptionalQueryClient', () => ({ useOptionalQueryClient: () => mocks.queryClient }))
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: Object.assign((selector: any) => selector(mocks.consoleState), {
-    getState: () => mocks.consoleState,
-  }),
+  useConsoleStore: Object.assign(
+    (selector: (state: typeof mocks.consoleState) => unknown) => selector(mocks.consoleState),
+    {
+      getState: () => mocks.consoleState,
+    },
+  ),
 }))
 vi.mock('@/lib/api', () => ({
   api: {
@@ -285,9 +296,10 @@ describe('PaneNotifications', () => {
   it('uses a browser notification while the page is hidden', () => {
     const originalNotification = window.Notification
     const close = vi.fn()
-    const browserNotification = vi.fn(function (this: any) {
+    // 浏览器通知桩：既要是可调用构造，又带 permission 静态字段
+    const browserNotification = vi.fn(function (this: { close: () => void }) {
       this.close = close
-    }) as any
+    }) as unknown as NotificationStub
     browserNotification.permission = 'granted'
     Object.defineProperty(window, 'Notification', { configurable: true, value: browserNotification })
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })

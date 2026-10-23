@@ -2,6 +2,9 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { useSystemInfo } from './useSystemInfo'
 
+// 系统信息接口返回体的最小形状（断言只取 hostId/cpu）
+type SystemInfoPayload = ReturnType<typeof response>
+
 const systemInfo = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/api', () => ({ api: { system: { info: systemInfo } } }))
 function response(hostId: string, cpu: number) {
@@ -17,12 +20,12 @@ function response(hostId: string, cpu: number) {
 }
 describe('useSystemInfo', () => {
   it('clears stale metrics and ignores the previous host response', async () => {
-    let resolveLocal: (value: any) => void = () => {}
+    let resolveLocal: (value: SystemInfoPayload) => void = () => {}
     systemInfo.mockReset()
     systemInfo
       .mockImplementationOnce(
         () =>
-          new Promise((resolve) => {
+          new Promise<SystemInfoPayload>((resolve) => {
             resolveLocal = resolve
           }),
       )
@@ -87,10 +90,10 @@ describe('useSystemInfo enabled flag', () => {
 
   it('does not write results that resolve after disable or unmount', async () => {
     systemInfo.mockReset()
-    const pending: Array<(value: any) => void> = []
+    const pending: Array<(value: SystemInfoPayload) => void> = []
     systemInfo.mockImplementation(
       () =>
-        new Promise((resolve) => {
+        new Promise<SystemInfoPayload>((resolve) => {
           pending.push(resolve)
         }),
     )
@@ -114,7 +117,7 @@ describe('useSystemInfo overlapping polls', () => {
     vi.useFakeTimers()
     try {
       systemInfo.mockReset()
-      let resolveFirst: (value: any) => void = () => {}
+      let resolveFirst: (value: SystemInfoPayload) => void = () => {}
       systemInfo
         .mockImplementationOnce(
           () =>

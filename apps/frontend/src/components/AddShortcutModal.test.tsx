@@ -4,12 +4,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { AddShortcutModal } from './AddShortcutModal'
 import { I18nProvider } from '@/i18n'
 
-const renderModal = (props: {
-  onSave: (data: any) => void
-  onClose: () => void
-  isMobile?: boolean
-  initialShortcut?: any
-}) => render(React.createElement(I18nProvider, null, React.createElement(AddShortcutModal, props)))
+// 直接复用组件 props 声明（onSave 载荷 = Omit<CustomShortcut,'id'>，initialShortcut = CustomShortcut）
+const renderModal = (props: React.ComponentProps<typeof AddShortcutModal>) =>
+  render(React.createElement(I18nProvider, null, React.createElement(AddShortcutModal, props)))
 
 describe('AddShortcutModal macro validation', () => {
   it('disables save while a text step is empty and enables after typing', async () => {

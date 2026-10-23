@@ -18,7 +18,15 @@ const useOrderedSessionsMock = vi.fn((...args: unknown[]) => ({
 }))
 
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: ((selector?: any) => {
+  useConsoleStore: (
+    selector?: (state: {
+      activeSessionId: string
+      activeHostId: string
+      setActiveSession: typeof setActiveSession
+      pushToast: typeof pushToast
+      setSessionPanelExpanded: typeof setSessionPanelExpanded
+    }) => unknown,
+  ) => {
     const state = {
       activeSessionId: 'session-a',
       activeHostId: 'local',
@@ -27,7 +35,7 @@ vi.mock('@/stores/useConsoleStore', () => ({
       setSessionPanelExpanded,
     }
     return typeof selector === 'function' ? selector(state) : state
-  }) as any,
+  },
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
   useOrderedSessions: (...args: unknown[]) => useOrderedSessionsMock(...args),
@@ -41,7 +49,9 @@ vi.mock('./SessionTemplates', () => ({
   SessionTemplates: () => null,
 }))
 vi.mock('@/i18n', () => ({
-  useTranslation: () => ({ t: (key: string, vars?: any) => key === 'sidebar.windows' ? `${vars?.count ?? 0} windows` : key }),
+  useTranslation: () => ({
+    t: (key: string, vars?: { count?: number }) => (key === 'sidebar.windows' ? `${vars?.count ?? 0} windows` : key),
+  }),
 }))
 vi.mock('@/hooks/usePrompt', () => ({
   usePrompt: () => ({ prompt, PromptElement: null }),
@@ -54,7 +64,12 @@ describe('SessionRail', () => {
     expect(setActiveSession).toHaveBeenCalledWith('session-b')
   })
   it('keeps cached sessions visible after a refresh failure', () => {
-    useOrderedSessionsMock.mockReturnValueOnce({ data: [{ id: 'session-a', name: 'alpha', windowCount: 1 }], moveSession: vi.fn(), isError: true, refetch: vi.fn() })
+    useOrderedSessionsMock.mockReturnValueOnce({
+      data: [{ id: 'session-a', name: 'alpha', windowCount: 1 }],
+      moveSession: vi.fn(),
+      isError: true,
+      refetch: vi.fn(),
+    })
     render(React.createElement(SessionRail))
     expect(screen.getByText('alpha')).toBeInTheDocument()
   })

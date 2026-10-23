@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { EditorLayoutNode } from './useConsoleStore'
 
 const sampleEditor = {
   id: 'local:root-workspace:src/index.ts',
@@ -23,7 +24,7 @@ function createEditor(id: string, path: string, language = 'typescript') {
     type: 'file' as const,
   }
 }
-function collectGroupIds(node: any): string[] {
+function collectGroupIds(node: EditorLayoutNode | null): string[] {
   if (!node) return []
   if (node.type === 'group') return [node.groupId]
   return [...collectGroupIds(node.first), ...collectGroupIds(node.second)]
@@ -83,7 +84,10 @@ describe('useConsoleStore editor persistence', () => {
     expect(useConsoleStore.getState().openEditors).toHaveLength(4)
     flushPersistedStorage()
     const persisted = JSON.parse(localStorage.getItem('tmuxgo-console-state:desktop') || '{}')
-    expect(persisted.state.openEditors.map((editor: any) => editor.id)).toEqual([sampleEditor.id, editor2.id])
+    expect(persisted.state.openEditors.map((editor: { id: string }) => editor.id)).toEqual([
+      sampleEditor.id,
+      editor2.id,
+    ])
   })
   it('drops persisted git-diff/compare entries during merge rehydrate', async () => {
     const gitDiffEditor = { ...sampleEditor, id: 'git-diff?repo=%2Fworkspace', rootId: 'git', path: '' }

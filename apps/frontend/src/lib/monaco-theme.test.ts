@@ -1,3 +1,4 @@
+import type { Monaco } from '@monaco-editor/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cssColorToHex, ensureTmuxgoTheme, monacoBaseTheme, rgbTripletToHex, tmuxgoThemeName } from './monaco-theme'
 
@@ -32,7 +33,7 @@ describe('monaco-theme', () => {
     document.documentElement.style.setProperty('--text-1', '248 248 242')
     document.documentElement.style.setProperty('--accent', '189 147 249')
     const defineTheme = vi.fn()
-    const monaco = { editor: { defineTheme } } as any
+    const monaco = { editor: { defineTheme } } as unknown as Monaco
     const name = ensureTmuxgoTheme(monaco, 'dracula')
     expect(name).toBe('tmuxgo-dracula')
     expect(defineTheme).toHaveBeenCalledWith(
@@ -51,7 +52,7 @@ describe('monaco-theme', () => {
   })
   it('falls back to defaults when css vars missing', () => {
     const defineTheme = vi.fn()
-    ensureTmuxgoTheme({ editor: { defineTheme } } as any, 'light')
+    ensureTmuxgoTheme({ editor: { defineTheme } } as unknown as Monaco, 'light')
     expect(defineTheme.mock.calls[0][1].base).toBe('vs')
     expect(defineTheme.mock.calls[0][1].colors['editor.background']).toBe('#e8eaee')
   })
