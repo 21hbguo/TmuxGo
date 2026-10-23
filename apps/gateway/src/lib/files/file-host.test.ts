@@ -206,10 +206,11 @@ test('readPreviewForHost flags binary, large files and honours the line offset',
   assert.equal(binary.reason, 'binary-file')
   assert.deepEqual(binary.lines, [])
 
-  // 只看前 4096 字节：NUL 在后半段的文件被当文本（已知口径，改探测范围时这条会红）
+  // NUL 落在 4096 字节之后：判定必须全量扫描，否则会被当文本塞进编辑器
   const lateNul = await host.readPreviewForHost('local', 'root-0', 'late-nul.txt')
-  assert.equal(lateNul.binary, false)
-  assert.equal(lateNul.lines[0].content.startsWith('aaa'), true)
+  assert.equal(lateNul.binary, true)
+  assert.equal(lateNul.reason, 'binary-file')
+  assert.deepEqual(lateNul.lines, [])
 
   const large = await host.readPreviewForHost('local', 'root-0', 'big.txt')
   assert.equal(large.reason, 'large-file')
@@ -272,6 +273,13 @@ test('saveContentForHost enforces the optimistic-lock and read-only guards', asy
   ] as const) {
     await assert.rejects(host.saveContentForHost('local', 'root-0', target, 'x'), { message })
   }
+
+  // 头部无 NUL、NUL 在 4K 之后的二进制：曾按文本放行并被 utf8 覆盖（真实丢数据），
+  // 现在必须拒绝且原字节一个不动
+  await assert.rejects(host.saveContentForHost('local', 'root-0', 'late-nul.txt', 'clobbered\n'), {
+    message: 'Binary files are read only',
+  })
+  assert.deepEqual(await readFile(path.join(workspace, 'late-nul.txt')), LATE_NUL)
 })
 
 test('createFile/createDirectory/rename validate names and never overwrite', async () => {
@@ -743,4 +751,32 @@ test('remote python script runs the same guards as the local implementation', as
   assert.ok(staleSave)
   // 这行同时是上面那条 code 映射失效的原因：前缀藏在 traceback 末行
   assert.match(String(staleSave.stderr), /Exception: FILE_MODIFIED:File changed on disk/)
+
+  // 远端脚本的二进制判定同样必须全量：NUL 在 4K 之后也要按 binary 处理，
+  // 否则远端 save 会按 utf8 覆盖，和本地修复前的丢数据路径一模一样
+  const remoteLateNul = JSON.parse(
+    (await runRemoteScript({ op: 'preview', root: 'root-0', path: 'late-nul.txt' })).stdout,
+  ) as { binary: boolean; reason: string; truncated: boolean; lines: unknown[] }
+  assert.deepEqual(
+    {
+      binary: remoteLateNul.binary,
+      reason: remoteLateNul.reason,
+      truncated: remoteLateNul.truncated,
+      lines: remoteLateNul.lines,
+    },
+    { binary: true, reason: 'binary-file', truncated: false, lines: [] },
+  )
+
+  const remoteLateNulSave = await runRemoteScript({
+    op: 'save',
+    root: 'root-0',
+    path: 'late-nul.txt',
+    content: 'clobbered\n',
+  }).then(
+    () => null,
+    (error: Error & { stderr?: string }) => error,
+  )
+  assert.ok(remoteLateNulSave)
+  assert.match(String(remoteLateNulSave.stderr), /Binary files are read only/)
+  assert.deepEqual(await readFile(path.join(workspace, 'late-nul.txt')), LATE_NUL)
 })
