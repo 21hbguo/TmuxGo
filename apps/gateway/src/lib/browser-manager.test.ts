@@ -751,3 +751,25 @@ test('status() reflects engine/pid/cdpPort/pages and drops the error key once he
   inst.error = 'CDP socket closed'
   assert.equal(inst.status().error, 'CDP socket closed')
 })
+
+test('screenshot and resume snapshot both request jpeg at quality 70', async (t) => {
+  const { fake, inst } = await launchFake(t)
+  await inst.launch()
+  inst.activeTargetId = 'p1'
+  fake.handlers.set('Target.attachToTarget', () => ({ sessionId: 'sid-fmt' }))
+  fake.handlers.set('Page.captureScreenshot', () => ({ data: 'b64' }))
+  assert.equal(await inst.screenshot(), 'b64')
+  const shot = fake.callsOf('Page.captureScreenshot')[0]
+  // 对外契约：帧是 jpeg（前端按 .jpg 落盘/解码），quality 固定 70 控制体积
+  assert.deepEqual(shot?.params, { format: 'jpeg', quality: 70 })
+
+  // resume 时的补帧走同一条契约，不能退回 png
+  const client = await inst.addClient(() => {})
+  await inst.bindClient(client, 'p1')
+  await inst.clientPause(client, true)
+  await inst.clientPause(client, false)
+  const resume = fake.callsOf('Page.captureScreenshot').at(-1)
+  assert.equal(resume?.params?.format, 'jpeg')
+  assert.equal(resume?.params?.quality, 70)
+  await inst.removeClient(client)
+})
