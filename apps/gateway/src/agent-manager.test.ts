@@ -174,7 +174,10 @@ test('does not route commands through a timed out Agent socket', async () => {
   const messages: string[] = []
   const socket = { readyState: 1, send: (message: string) => messages.push(message) } as unknown as WebSocket
   manager.register(id, 'agent', '127.0.0.1', '1.0.0', socket)
-  ;((manager as any).agents.get(id) as { lastSeenAt: string }).lastSeenAt = new Date(0).toISOString()
+  // agents 是私有 Map：按结构化断言取记录后改写心跳时间，模拟过期 agent
+  const agentRecord = (manager as unknown as { agents: Map<string, { lastSeenAt: string }> }).agents.get(id)
+  assert.ok(agentRecord)
+  agentRecord.lastSeenAt = new Date(0).toISOString()
   assert.equal(manager.getAgent(id)?.online, false)
   await assert.rejects(manager.executeTmux(id, ['list-sessions']), /not connected/)
   await assert.rejects(manager.attachTerminal(id, 'dev', 80, 24, true), /not connected/)

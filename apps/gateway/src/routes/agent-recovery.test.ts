@@ -9,6 +9,15 @@ import { execTmuxFile, killTestTmuxSession, TEST_TMUX_SESSION } from '../test-tm
 import { upsertRecoveryCandidate } from '../lib/agent-recovery.js'
 import { agentRecoveryRoutes } from './agent-recovery.js'
 
+// 列表响应里测试只读这些字段：按形状声明，避免整包 any
+interface RecoveryCandidateJson {
+  id: string
+  status: string
+  blockReason?: string
+  resumable?: boolean
+  occupant?: string
+}
+
 // 真实 tmux 用例：只操作隔离 server 上的 test session（test-tmux.ts 约定）
 const hostId = 'local'
 process.env.TMUXGO_CONFIG_DIR = mkdtempSync(path.join(os.tmpdir(), 'tmuxgo-recovery-route-'))
@@ -58,7 +67,7 @@ test('lists recovery candidates with live occupant inspection', async () => {
     assert.equal(response.statusCode, 200)
     const body = response.json()
     assert.equal(body.version, 1)
-    const item = body.candidates.find((entry: any) => entry.id === saved.id)
+    const item = body.candidates.find((entry: RecoveryCandidateJson) => entry.id === saved.id)
     assert.ok(item)
     assert.equal(item.resumable, true)
     assert.equal(item.occupant, 'shell')
@@ -214,9 +223,15 @@ test('resume refuses an occupied or missing pane and never runs on its own', asy
     assert.equal(missing.json().code, 'pane_missing')
     // 未被确认的候选保持 pending：无任何隐式恢复路径
     const listed = (await fastify.inject({ method: 'GET', url: `/hosts/${hostId}/agent-recovery` })).json()
-    assert.equal(listed.candidates.filter((entry: any) => entry.status === 'pending').length, 2)
-    assert.equal(listed.candidates.find((entry: any) => entry.id === occupied.id).blockReason, 'pane_occupied')
-    assert.equal(listed.candidates.find((entry: any) => entry.id === gone.id).blockReason, 'pane_missing')
+    assert.equal(listed.candidates.filter((entry: RecoveryCandidateJson) => entry.status === 'pending').length, 2)
+    assert.equal(
+      listed.candidates.find((entry: RecoveryCandidateJson) => entry.id === occupied.id).blockReason,
+      'pane_occupied',
+    )
+    assert.equal(
+      listed.candidates.find((entry: RecoveryCandidateJson) => entry.id === gone.id).blockReason,
+      'pane_missing',
+    )
   } finally {
     await fastify.close()
     await killTestTmuxSession()

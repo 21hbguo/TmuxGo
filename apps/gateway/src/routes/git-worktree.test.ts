@@ -11,6 +11,21 @@ import { ZodError } from 'zod'
 import { gitRoutes } from './git.js'
 
 const execFileAsync = promisify(execFile)
+
+// 断言只取响应里的少数字段：按实际用到的形状声明，避免整包 any
+interface WorktreeJson {
+  id: string
+  path: string
+  branch: string
+  commit: string
+  sessionId?: string
+  provenance: { id: string }
+}
+interface ErrorJson {
+  code?: string
+  message?: string
+}
+const jsonOf = <T>(response: { json: () => unknown }) => response.json() as T
 async function runGit(repository: string, args: string[]) {
   return execFileAsync('git', ['-C', repository, ...args])
 }
@@ -49,16 +64,17 @@ test('creates, lists and links worktrees with provenance', async (t) => {
     payload: { path: repository, worktreePath, newBranch: 'feature' },
   })
   assert.equal(createResponse.statusCode, 200)
-  const created = (createResponse.json() as any).worktree
+  const created = jsonOf<{ worktree: WorktreeJson }>(createResponse).worktree
   assert.equal(created.branch, 'feature')
   assert.match(created.commit, /^[0-9a-f]{40}$/)
   const listResponse = await fastify.inject({
     method: 'GET',
     url: `/hosts/local/git/worktrees?path=${encodeURIComponent(repository)}`,
   })
-  const list = (listResponse.json() as any).worktrees
+  const list = jsonOf<{ worktrees: WorktreeJson[] }>(listResponse).worktrees
   assert.equal(list.length, 2)
-  const entry = list.find((item: any) => item.path === worktreePath)
+  const entry = list.find((item) => item.path === worktreePath)
+  assert.ok(entry)
   assert.equal(entry.branch, 'feature')
   assert.equal(entry.provenance.id, created.id)
   const linkResponse = await fastify.inject({
@@ -67,13 +83,13 @@ test('creates, lists and links worktrees with provenance', async (t) => {
     payload: { path: repository, worktreePath, sessionId: 'session-1', workspaceId: 'ws-1' },
   })
   assert.equal(linkResponse.statusCode, 200)
-  assert.equal((linkResponse.json() as any).worktree.sessionId, 'session-1')
+  assert.equal(jsonOf<{ worktree: WorktreeJson }>(linkResponse).worktree.sessionId, 'session-1')
   const missingLink = await fastify.inject({
     method: 'POST',
     url: '/hosts/local/git/worktrees/link',
     payload: { path: repository, worktreePath: path.join(configDir, 'nope'), sessionId: 'session-2' },
   })
-  assert.equal((missingLink.json() as any).code, 'missing')
+  assert.equal(jsonOf<ErrorJson>(missingLink).code, 'missing')
 })
 
 test('rejects unsafe paths and duplicate worktrees', async (t) => {
@@ -121,13 +137,13 @@ test('remove reports dirty worktree, honors force and keeps the branch', async (
     url: '/hosts/local/git/worktrees/remove',
     payload: { path: repository, worktreePath },
   })
-  assert.equal((dirtyResponse.json() as any).code, 'dirty')
+  assert.equal(jsonOf<ErrorJson>(dirtyResponse).code, 'dirty')
   const forceResponse = await fastify.inject({
     method: 'POST',
     url: '/hosts/local/git/worktrees/remove',
     payload: { path: repository, worktreePath, force: true },
   })
-  assert.equal((forceResponse.json() as any).ok, true)
+  assert.equal(jsonOf<{ ok?: boolean }>(forceResponse).ok, true)
   // 删除 worktree 不删除分支（显式红线）
   const { stdout } = await runGit(repository, ['branch', '--list', 'dirty-branch'])
   assert.equal(stdout.trim(), 'dirty-branch')
@@ -136,7 +152,7 @@ test('remove reports dirty worktree, honors force and keeps the branch', async (
     url: '/hosts/local/git/worktrees/remove',
     payload: { path: repository, worktreePath },
   })
-  assert.equal((removeAgain.json() as any).code, 'missing')
+  assert.equal(jsonOf<ErrorJson>(removeAgain).code, 'missing')
 })
 
 test('surfaces remote errors for unknown hosts', async (t) => {
@@ -146,5 +162,5 @@ test('surfaces remote errors for unknown hosts', async (t) => {
     url: `/hosts/no-such-host/git/worktrees?path=${encodeURIComponent(repository)}`,
   })
   assert.equal(response.statusCode, 500)
-  assert.match((response.json() as any).message, /not found/i)
+  assert.match(jsonOf<ErrorJson>(response).message ?? '', /not found/i)
 })

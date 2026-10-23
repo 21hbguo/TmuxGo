@@ -19,7 +19,14 @@ import {
 } from './stream-session.js'
 
 function createPeer(cols = 120, rows = 36) {
-  const sent: Array<{ type?: string; data?: string; sessionName?: string; hostId?: string }> = []
+  const sent: Array<{
+    type?: string
+    data?: string
+    sessionName?: string
+    hostId?: string
+    cols?: number
+    rows?: number
+  }> = []
   const writes: string[] = []
   const resized: Array<[number, number]> = []
   const socket = {
@@ -46,7 +53,7 @@ function createPeer(cols = 120, rows = 36) {
     kill() {},
     onData() {},
     onExit() {},
-  } as any
+  }
   session.registerPeer()
   return { session, sent, writes, resized }
 }
@@ -101,10 +108,10 @@ test('S2 owner disconnects; survivor can re-claim exclusive (phone leave / desk 
     const phone = createPeer(80, 24)
     const track = (peer: ReturnType<typeof createPeer>) => {
       const original = peer.session.ptyProcess!.resize.bind(peer.session.ptyProcess)
-      peer.session.ptyProcess!.resize = ((c: number, r: number) => {
+      peer.session.ptyProcess!.resize = (c: number, r: number) => {
         winSize = { cols: c, rows: r }
         original(c, r)
-      }) as any
+      }
     }
     track(desk)
     track(phone)
@@ -130,7 +137,7 @@ test('S2 owner disconnects; survivor can re-claim exclusive (phone leave / desk 
         kill: () => {},
         onData: () => {},
         onExit: () => {},
-      } as any
+      }
     }
 
     // 手机断开（上厕所回来关掉/切走）
@@ -207,10 +214,10 @@ test('S6 owner disconnects; demoted survivor restores window to its last exclusi
     const phone = createPeer(80, 24)
     const track = (peer: ReturnType<typeof createPeer>) => {
       const original = peer.session.ptyProcess!.resize.bind(peer.session.ptyProcess)
-      peer.session.ptyProcess!.resize = ((c: number, r: number) => {
+      peer.session.ptyProcess!.resize = (c: number, r: number) => {
         winSize = { cols: c, rows: r }
         original(c, r)
-      }) as any
+      }
     }
     track(desk)
     track(phone)
@@ -244,7 +251,7 @@ test('S6 owner disconnects; demoted survivor restores window to its last exclusi
         kill: () => {},
         onData: () => {},
         onExit: () => {},
-      } as any
+      }
     }
 
     // phone 断开且无人再 claim：reconcile fallback 由 desk 拉回 window
@@ -252,7 +259,7 @@ test('S6 owner disconnects; demoted survivor restores window to its last exclusi
     await new Promise((r) => setTimeout(r, 300))
     assert.deepEqual(winSize, { cols: 200, rows: 50 })
     // desk 收到 window-size 推送；恢复只改尺寸，不补发所有权
-    assert.ok(desk.sent.some((m) => m.type === 'window-size' && (m as any).cols === 200))
+    assert.ok(desk.sent.some((m) => m.type === 'window-size' && m.cols === 200))
     assert.equal(desk.session.isExclusiveOwner(), false)
     desk.session.cleanup()
   } finally {

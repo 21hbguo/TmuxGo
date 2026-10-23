@@ -11,7 +11,7 @@ import {
   openVncSshTunnel,
   pickFreeLoopbackPort,
 } from './tmux-executor.js'
-import { agentManager } from '../agent-manager.js'
+import { agentManager, type AgentSocket } from '../agent-manager.js'
 import { upsertRemoteHost } from './hosts.js'
 import { killTestTmuxSession, TEST_TMUX_SESSION } from '../test-tmux.js'
 
@@ -120,7 +120,7 @@ test('routes tmux and shell scans through an Agent host', async () => {
       const request = JSON.parse(message)
       if (request.type === 'tmux')
         void Promise.resolve().then(() =>
-          agentManager.handleMessage(hostId, socket as any, {
+          agentManager.handleMessage(hostId, socket, {
             type: 'tmux-result',
             requestId: request.requestId,
             stdout: 'agent-pane\n',
@@ -129,7 +129,7 @@ test('routes tmux and shell scans through an Agent host', async () => {
         )
       if (request.type === 'shell')
         void Promise.resolve().then(() =>
-          agentManager.handleMessage(hostId, socket as any, {
+          agentManager.handleMessage(hostId, socket, {
             type: 'shell-result',
             requestId: request.requestId,
             stdout: 'agent-shell',
@@ -138,7 +138,7 @@ test('routes tmux and shell scans through an Agent host', async () => {
           }),
         )
     },
-  } as any
+  } as unknown as AgentSocket /* 桩：只实现测试用到的 readyState/send，on/close 由注册路径不用 */
   agentManager.register(hostId, 'agent-host', '127.0.0.1', '1.0.0', socket)
   const tmux = await execTmux(hostId, ['list-panes'])
   const shell = await execHostShell(hostId, 'printf shell')

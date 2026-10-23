@@ -11,7 +11,15 @@ import { streamResizeMessageSchema } from '../request-validation.js'
 import { RESIZE_ACK_OUTPUT_WAIT_MS } from './stream-config.js'
 
 function createSession(cols = 120, rows = 36) {
-  const sent: any[] = []
+  // 帧形状按实际推送字段声明（断言只读这些字段）
+  const sent: Array<{
+    type?: string
+    requestId?: string
+    cols?: number
+    rows?: number
+    windowVersion?: number
+    ownerEpoch?: number
+  }> = []
   const resized: Array<[number, number]> = []
   const socket = {
     readyState: 1,
@@ -33,12 +41,12 @@ function createSession(cols = 120, rows = 36) {
     kill: () => {},
     onData: () => {},
     onExit: () => {},
-  } as any
+  }
   return { session, sent, resized }
 }
 
 function mockPty() {
-  return { pid: 2, resize: () => {}, write: () => {}, kill: () => {}, onData: () => {}, onExit: () => {} } as any
+  return { pid: 2, resize: () => {}, write: () => {}, kill: () => {}, onData: () => {}, onExit: () => {} }
 }
 
 test('resize schema accepts optional requestId, stays backward compatible', () => {
@@ -57,10 +65,11 @@ test('resized ack echoes requestId with windowVersion and ownerEpoch', async () 
   const { session, sent } = createSession()
   session.attachedExclusive = true
   claimExclusiveOwnership(session)
-  ;(session as any).refreshAttachedClient = async () => {}
+  // 测试缝：覆盖公开方法 refreshAttachedClient，避免触真实 tmux refresh
+  Object.assign(session, { refreshAttachedClient: async () => {} })
   session.resize(100, 40, 'req-42')
   await new Promise((r) => setTimeout(r, RESIZE_ACK_OUTPUT_WAIT_MS + 80))
-  const ack = sent.find((m) => m.type === 'resized')
+  const ack = sent.find((m) => m.type === 'resized')!
   assert.equal(ack.requestId, 'req-42')
   assert.equal(ack.windowVersion, 1)
   assert.equal(ack.ownerEpoch, session.ownerEpoch)
@@ -72,10 +81,11 @@ test('resized ack echoes requestId with windowVersion and ownerEpoch', async () 
 test('resized without requestId keeps the old wire shape', async () => {
   resetExclusiveOwnershipForTest()
   const { session, sent } = createSession()
-  ;(session as any).refreshAttachedClient = async () => {}
+  // 测试缝：覆盖公开方法 refreshAttachedClient，避免触真实 tmux refresh
+  Object.assign(session, { refreshAttachedClient: async () => {} })
   session.resize(100, 40)
   await new Promise((r) => setTimeout(r, RESIZE_ACK_OUTPUT_WAIT_MS + 80))
-  const ack = sent.find((m) => m.type === 'resized')
+  const ack = sent.find((m) => m.type === 'resized')!
   // undefined 字段被 JSON.stringify 丢弃：旧前端看不到多余字段
   assert.ok(!('requestId' in ack))
   assert.equal(ack.cols, 100)
@@ -88,11 +98,13 @@ test('superseded resize never acks the stale requestId', async () => {
   const { session, sent } = createSession()
   let resolveFirst: (() => void) | null = null
   let calls = 0
-  ;(session as any).refreshAttachedClient = () =>
-    new Promise<void>((resolve) => {
-      if (calls++ === 0) resolveFirst = resolve
-      else resolve()
-    })
+  Object.assign(session, {
+    refreshAttachedClient: () =>
+      new Promise<void>((resolve) => {
+        if (calls++ === 0) resolveFirst = resolve
+        else resolve()
+      }),
+  })
   session.resize(100, 40, 'first')
   session.resize(140, 44, 'second')
   resolveFirst!()
@@ -120,14 +132,14 @@ test('ownerEpoch bumps on steal; revoked and window-size carry the new epoch', (
   claimExclusiveOwnership(b.session)
   assert.ok(b.session.ownerEpoch > epochA)
   // 降级端收到的 exclusive-revoked 带新世代号；自身 ownerEpoch 已归零
-  const revoked = a.sent.find((m) => m.type === 'exclusive-revoked')
+  const revoked = a.sent.find((m) => m.type === 'exclusive-revoked')!
   assert.equal(revoked.ownerEpoch, b.session.ownerEpoch)
   assert.equal(a.session.ownerEpoch, 0)
 
   // demote 摘掉独占 pty；补回 mock 后仲裁下发的 window-size 同样带当前 epoch
   a.session.ptyProcess = mockPty()
   a.session.applyWindowSize(80, 24)
-  const pushed = a.sent.find((m) => m.type === 'window-size')
+  const pushed = a.sent.find((m) => m.type === 'window-size')!
   assert.equal(pushed.ownerEpoch, b.session.ownerEpoch)
   assert.equal(pushed.windowVersion, 1)
   a.session.cleanup()
@@ -141,14 +153,14 @@ test('windowVersion increments across owner asserts and arbitrated applies', asy
   const viewer = createSession(120, 36)
   owner.session.attachedExclusive = true
   claimExclusiveOwnership(owner.session)
-  ;(owner.session as any).refreshAttachedClient = async () => {}
+  Object.assign(owner.session, { refreshAttachedClient: async () => {} })
   owner.session.resize(100, 40, 'r1')
   viewer.session.applyWindowSize(100, 40)
-  const pushed = viewer.sent.find((m) => m.type === 'window-size')
+  const pushed = viewer.sent.find((m) => m.type === 'window-size')!
   // owner 主张 v1 后仲裁应用 v2：同 key 共享一条尺寸决策时间线
   assert.equal(pushed.windowVersion, 2)
   await new Promise((r) => setTimeout(r, RESIZE_ACK_OUTPUT_WAIT_MS + 80))
-  const ack = owner.sent.find((m) => m.type === 'resized')
+  const ack = owner.sent.find((m) => m.type === 'resized')!
   // ACK 携带主张时快照 v1：前端看到 v2 的 window-size 后可丢弃此旧 ACK
   assert.equal(ack.windowVersion, 1)
   owner.session.cleanup()
@@ -172,7 +184,7 @@ test('owner self-echo apply bumps version without pushing window-size', () => {
   session.attachedCols = 60
   session.attachedRows = 24
   session.applyWindowSize(137, 23, true)
-  const pushed = sent.find((m) => m.type === 'window-size')
+  const pushed = sent.find((m) => m.type === 'window-size')!
   assert.equal(pushed.windowVersion, 2)
   assert.equal(pushed.ownerEpoch, session.ownerEpoch)
   session.cleanup()

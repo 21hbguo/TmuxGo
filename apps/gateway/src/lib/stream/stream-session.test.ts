@@ -16,12 +16,13 @@ import {
 } from './stream-config.js'
 import { streamPerfMetrics } from '../perf-metrics.js'
 import { createRequire } from 'node:module'
-const { Terminal } = createRequire(import.meta.url)('@xterm/headless') as any
+const { Terminal } = createRequire(import.meta.url)('@xterm/headless') as typeof import('@xterm/headless')
 
 const FRAME_BEGIN = '\u001b[?25l'
 
 function createSession() {
-  const sent: Array<{ type?: string; data?: string }> = []
+  // 帧形状按实际推送字段声明：output/resized 用 data，window-size 用 cols/rows
+  const sent: Array<{ type?: string; data?: string; cols?: number; rows?: number }> = []
   const socket = {
     readyState: 1,
     bufferedAmount: 0,
@@ -35,7 +36,7 @@ function createSession() {
   session.attachedHostId = 'local'
   session.attachedCols = 80
   session.attachedRows = 24
-  session.ptyProcess = { pid: 0, resize() {}, write() {}, kill() {}, onData() {}, onExit() {} } as any
+  session.ptyProcess = { pid: 0, resize() {}, write() {}, kill() {}, onData() {}, onExit() {} }
   return { session, sent, socket }
 }
 
@@ -89,7 +90,8 @@ test('flushOutput sends buffered bytes in order regardless of content shape', ()
 
 test('flushOutputResync sends only the reset boundary, never a fabricated pane snapshot', async () => {
   const { session, sent } = createSession()
-  ;(session as any).redrawAttachedClient = async () => {}
+  // 测试缝：覆盖公开方法 redrawAttachedClient，避免触真实 tmux refresh（返回值不参与断言）
+  Object.assign(session, { redrawAttachedClient: async () => {} })
   session.outputResyncPending = true
   await session.flushOutputResync()
   // resync 负载必须是 DECSTR+ED+CUP 边界序列；真正的整屏内容由随后的
@@ -107,9 +109,11 @@ test('flushOutputResync re-arms pending when the tmux redraw fails', async () =>
   const { session, sent } = createSession()
   // 受控失败：refresh 拒绝后 resync 必须保持 pending 走整轮重试，
   // 而不是把清屏后的残局交给普通输出
-  ;(session as any).redrawAttachedClient = async () => {
-    throw new Error('refresh-client failure')
-  }
+  Object.assign(session, {
+    redrawAttachedClient: async () => {
+      throw new Error('refresh-client failure')
+    },
+  })
   session.outputResyncPending = true
   await session.flushOutputResync()
   assert.equal(sent[0]?.type, 'output_resync')
@@ -139,7 +143,8 @@ test('flushOutput defers while the socket buffer is at the high watermark, then 
 
 test('flushOutputResync defers at the high watermark and resumes the resync after drain', async () => {
   const { session, sent, socket } = createSession()
-  ;(session as any).redrawAttachedClient = async () => {}
+  // 测试缝：覆盖公开方法 redrawAttachedClient，避免触真实 tmux refresh（返回值不参与断言）
+  Object.assign(session, { redrawAttachedClient: async () => {} })
   // resync 同样受背压约束：水位超限先挂延迟，不得硬发 output_resync
   socket.bufferedAmount = SOCKET_BUFFER_HIGH_WATERMARK
   session.outputResyncPending = true
@@ -158,12 +163,12 @@ test('flushOutputResync defers at the high watermark and resumes the resync afte
 test('a stale resync failure must not touch the new attach epoch', async () => {
   const { session } = createSession()
   let reject: (e: Error) => void = () => {}
-  ;(session as any).redrawAttachedClient = () => new Promise((_, r) => (reject = r))
+  Object.assign(session, { redrawAttachedClient: () => new Promise((_, r) => (reject = r)) })
   session.outputResyncPending = true
   const work = session.flushOutputResync()
   // 模拟 cleanup + 新 attach：新一轮 resync 已在自己的 epoch 里运行
   session.cleanup()
-  session.ptyProcess = { pid: 2, resize() {}, write() {}, kill() {}, onData() {}, onExit() {} } as any
+  session.ptyProcess = { pid: 2, resize() {}, write() {}, kill() {}, onData() {}, onExit() {} }
   session.attachedSessionName = 'new'
   session.outputResyncPending = false
   session.outputResyncRunning = true
@@ -179,11 +184,11 @@ test('a stale resync failure must not touch the new attach epoch', async () => {
 test('a stale resync success must not touch the new attach epoch either', async () => {
   const { session } = createSession()
   let resolve: () => void = () => {}
-  ;(session as any).redrawAttachedClient = () => new Promise<void>((r) => (resolve = r))
+  Object.assign(session, { redrawAttachedClient: () => new Promise<void>((r) => (resolve = r)) })
   session.outputResyncPending = true
   const work = session.flushOutputResync()
   session.cleanup()
-  session.ptyProcess = { pid: 2, resize() {}, write() {}, kill() {}, onData() {}, onExit() {} } as any
+  session.ptyProcess = { pid: 2, resize() {}, write() {}, kill() {}, onData() {}, onExit() {} }
   session.attachedSessionName = 'new'
   session.outputResyncPending = false
   session.outputResyncRunning = true
@@ -209,6 +214,7 @@ test('RESYNC_RESET_SEQ clears repaint-breaking state but preserves input modes',
   assert.equal(t.modes.insertMode, false)
   assert.equal(t.modes.wraparoundMode, false)
   const line = t.buffer.active.getLine(0)
+  assert.ok(line)
   assert.equal(line.translateToString(true).trim(), '')
   t.dispose()
 })
@@ -216,7 +222,8 @@ test('RESYNC_RESET_SEQ clears repaint-breaking state but preserves input modes',
 test('setBackpressure high defers resync until congestion persists past hysteresis', async () => {
   const { session, sent } = createSession()
   // 测试缝：不触真实 tmux refresh
-  ;(session as any).redrawAttachedClient = async () => {}
+  // 测试缝：覆盖公开方法 redrawAttachedClient，避免触真实 tmux refresh（返回值不参与断言）
+  Object.assign(session, { redrawAttachedClient: async () => {} })
   session.outputBuffer = 'x'.repeat(20000)
   const before = streamPerfMetrics.backpressureSuppressed
   session.setBackpressure('high', false)
@@ -231,7 +238,8 @@ test('setBackpressure high defers resync until congestion persists past hysteres
 
 test('hysteresis filters a one-shot burst that drains before the recheck', async () => {
   const { session, sent } = createSession()
-  ;(session as any).redrawAttachedClient = async () => {}
+  // 测试缝：覆盖公开方法 redrawAttachedClient，避免触真实 tmux refresh（返回值不参与断言）
+  Object.assign(session, { redrawAttachedClient: async () => {} })
   session.outputBuffer = 'x'.repeat(20000)
   session.setBackpressure('high', false)
   // 突发在复查前排空（flushOutput 正常把缓冲发出去的场景）
@@ -254,7 +262,7 @@ test('passive attach drops input, scroll and copy-mode cancel', () => {
     kill() {},
     onData() {},
     onExit() {},
-  } as any
+  }
   session.attachedPassive = true
   session.input('x')
   session.queueScroll('dev', 'local', 3)
@@ -270,7 +278,8 @@ test('passive attach drops input, scroll and copy-mode cancel', () => {
 
 test('queueOutput over-limit also goes through hysteresis instead of instant resync', async () => {
   const { session, sent } = createSession()
-  ;(session as any).redrawAttachedClient = async () => {}
+  // 测试缝：覆盖公开方法 redrawAttachedClient，避免触真实 tmux refresh（返回值不参与断言）
+  Object.assign(session, { redrawAttachedClient: async () => {} })
   session.clientBackpressureHigh = true
   session.queueOutput('x'.repeat(20000))
   assert.equal(session.outputResyncPending, false)
@@ -294,7 +303,7 @@ function createPeer(cols: number, rows: number) {
     kill() {},
     onData() {},
     onExit() {},
-  } as any
+  }
   session.attachedCols = cols
   session.attachedRows = rows
   return { session, sent, resized }
@@ -306,7 +315,7 @@ test('applyWindowSize syncs the client pty to the window size and pushes the eve
   assert.deepEqual(resized, [[60, 24]])
   assert.equal(session.attachedCols, 60)
   assert.equal(session.attachedRows, 24)
-  const pushed = sent.find((m) => m.type === 'window-size') as any
+  const pushed = sent.find((m) => m.type === 'window-size')
   assert.equal(pushed?.cols, 60)
   assert.equal(pushed?.rows, 24)
   // 同尺寸收敛不重复推送
@@ -353,7 +362,7 @@ test('applyWindowSize suppresses the self-echo event to the exclusive owner', ()
   session.attachedRows = 24
   session.applyWindowSize(137, 23, true)
   assert.deepEqual(resized.at(-1), [137, 23])
-  assert.ok(sent.some((m) => m.type === 'window-size' && (m as any).cols === 137))
+  assert.ok(sent.some((m) => m.type === 'window-size' && m.cols === 137))
   session.cleanup()
 })
 
@@ -377,10 +386,10 @@ test('peer reconcile demotes peers to the window size and restores the surviving
     // pty resize 等价于尺寸主张：更新模拟的 window 尺寸源
     const track = (peer: ReturnType<typeof createPeer>) => {
       const original = peer.session.ptyProcess!.resize.bind(peer.session.ptyProcess)
-      peer.session.ptyProcess!.resize = ((c: number, r: number) => {
+      peer.session.ptyProcess!.resize = (c: number, r: number) => {
         winSize = { cols: c, rows: r }
         original(c, r)
-      }) as any
+      }
     }
     track(desk)
     track(phone)
@@ -390,13 +399,13 @@ test('peer reconcile demotes peers to the window size and restores the surviving
     await new Promise((r) => setTimeout(r, 120))
     // 仲裁后输家 pty 被同步到 window 尺寸并收到 window-size 推送
     assert.deepEqual(desk.resized.at(-1), [60, 24])
-    assert.ok(desk.sent.some((m) => m.type === 'window-size' && (m as any).cols === 60))
+    assert.ok(desk.sent.some((m) => m.type === 'window-size' && m.cols === 60))
     // owner 断开：tmux 不回弹，由幸存的最近主张独占端拉回期望尺寸
     phone.session.cleanup()
     await new Promise((r) => setTimeout(r, 200))
     assert.deepEqual(winSize, { cols: 200, rows: 50 })
     assert.equal(desk.session.attachedCols, 200)
-    assert.ok(desk.sent.some((m) => m.type === 'window-size' && (m as any).cols === 200))
+    assert.ok(desk.sent.some((m) => m.type === 'window-size' && m.cols === 200))
     desk.session.cleanup()
   } finally {
     setWindowSizeQueryForTest(null)
@@ -418,7 +427,7 @@ test('compressed and tiny frames keep FIFO across concurrent flushes', async () 
   session.attachedHostId = 'local'
   session.attachedCols = 80
   session.attachedRows = 24
-  session.ptyProcess = { pid: 0, resize() {}, write() {}, kill() {}, onData() {}, onExit() {} } as any
+  session.ptyProcess = { pid: 0, resize() {}, write() {}, kill() {}, onData() {}, onExit() {} }
   session.binaryOutputEnabled = true
   session.compressOutputEnabled = true
 

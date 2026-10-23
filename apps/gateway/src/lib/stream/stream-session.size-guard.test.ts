@@ -4,7 +4,8 @@ import test from 'node:test'
 import { StreamSession, claimExclusiveOwnership, resetExclusiveOwnershipForTest } from './stream-session.js'
 
 function createSession(cols = 120, rows = 36) {
-  const sent: any[] = []
+  // 帧形状按实际推送字段声明（断言只读这些字段）
+  const sent: Array<{ type?: string; cols?: number; rows?: number }> = []
   const resized: Array<[number, number]> = []
   const socket = {
     readyState: 1,
@@ -26,7 +27,7 @@ function createSession(cols = 120, rows = 36) {
     kill: () => {},
     onData: () => {},
     onExit: () => {},
-  } as any
+  }
   session.registerPeer()
   return { session, sent, resized }
 }
@@ -61,7 +62,7 @@ test('non-owner exclusive resize does not assert desired size', () => {
     kill: () => {},
     onData: () => {},
     onExit: () => {},
-  } as any
+  }
   loser.session.attachedPassive = false
   loser.session.attachedExclusive = true
   loser.session.resize(120, 36)

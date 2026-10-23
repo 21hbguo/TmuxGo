@@ -5,6 +5,7 @@ import type { IPty } from 'node-pty'
 import { setPtySpawnForTest } from '../terminal-attachment.js'
 import { setPrepareSessionAttachForTest } from '../tmux-policy.js'
 import { setRefreshExecForTest } from './stream-tmux.js'
+import type { TmuxExecResult } from '../tmux-executor.js'
 import {
   claimExclusiveOwnership,
   resetExclusiveOwnershipForTest,
@@ -70,11 +71,13 @@ function fakePty(pid: number): FakePty {
     get writes() {
       return writes
     },
-  } as unknown as FakePty
+  } as unknown as FakePty /* 桩：只实现测试用到的 IPty 成员，其余字段缺失 */
 }
 
 function createSocket() {
-  const sent: any[] = []
+  // 帧形状按实际推送字段声明：JSON 帧带 type/data/cols/rows，二进制帧以 __binary 标记
+  const sent: Array<{ type?: string; __binary?: boolean; buf?: Buffer; data?: string; cols?: number; rows?: number }> =
+    []
   const socket = {
     readyState: 1,
     bufferedAmount: 0,
@@ -103,13 +106,16 @@ function setupPtySpawn() {
 function setupEnv() {
   setPrepareSessionAttachForTest(async () => {})
   setWindowSizeQueryForTest(async () => ({ cols: 80, rows: 24 }))
-  setRefreshExecForTest(async () => ({ stdout: '1|/dev/pts/mock\n', stderr: '', host: null }) as any)
+  // 实现签名要求 host: HostRecord，但 refresh 路径只消费 stdout，桩按实际行为传 null
+  setRefreshExecForTest(
+    async () => ({ stdout: '1|/dev/pts/mock\n', stderr: '', host: null }) as unknown as TmuxExecResult,
+  )
 }
 
 function teardownEnv() {
-  setPtySpawnForTest((() => {
+  setPtySpawnForTest(() => {
     throw new Error('pty spawn not mocked')
-  }) as any)
+  })
   setPrepareSessionAttachForTest(null)
   setWindowSizeQueryForTest(null)
   setRefreshExecForTest(null)
@@ -130,8 +136,8 @@ test('two attaches on same host+session share one PTY and both receive output', 
   try {
     const a = createSocket()
     const b = createSocket()
-    const sa = new StreamSession(a.socket as any, null)
-    const sb = new StreamSession(b.socket as any, null)
+    const sa = new StreamSession(a.socket, null)
+    const sb = new StreamSession(b.socket, null)
     await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
     await sb.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
     assert.equal(spawns.length, 1, 'PTY must be created only once')
@@ -147,11 +153,11 @@ test('two attaches on same host+session share one PTY and both receive output', 
     await sa.flushOutput()
     await sb.flushOutput()
     assert.ok(
-      a.sent.some((m) => m.type === 'output' && m.data.includes('hello-fanout')),
+      a.sent.some((m) => m.type === 'output' && m.data?.includes('hello-fanout')),
       'client A should receive output',
     )
     assert.ok(
-      b.sent.some((m) => m.type === 'output' && m.data.includes('hello-fanout')),
+      b.sent.some((m) => m.type === 'output' && m.data?.includes('hello-fanout')),
       'client B should receive output',
     )
     // sanitize 只做一次（hub 级），不是每订阅者一次
@@ -174,8 +180,8 @@ test('one detach keeps PTY alive for the remaining subscriber; last detach kills
   try {
     const a = createSocket()
     const b = createSocket()
-    const sa = new StreamSession(a.socket as any, null)
-    const sb = new StreamSession(b.socket as any, null)
+    const sa = new StreamSession(a.socket, null)
+    const sb = new StreamSession(b.socket, null)
     await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
     await sb.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
     assert.equal(spawns.length, 1)
@@ -188,7 +194,7 @@ test('one detach keeps PTY alive for the remaining subscriber; last detach kills
 
     spawns[0].emitData('still-alive')
     await sb.flushOutput()
-    assert.ok(b.sent.some((m) => m.type === 'output' && m.data.includes('still-alive')))
+    assert.ok(b.sent.some((m) => m.type === 'output' && m.data?.includes('still-alive')))
 
     sb.cleanup()
     assert.equal(spawns[0].killed, true, 'PTY killed after last subscriber leaves')
@@ -206,8 +212,8 @@ test('exclusive claim demotes previous; passive stays write-blocked; resync only
   try {
     const a = createSocket()
     const b = createSocket()
-    const sa = new StreamSession(a.socket as any, null)
-    const sb = new StreamSession(b.socket as any, null)
+    const sa = new StreamSession(a.socket, null)
+    const sb = new StreamSession(b.socket, null)
     await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: true, cols: 120, rows: 40 })
     await sb.attach({ hostId: 'local', sessionName: 'test', exclusive: true, cols: 80, rows: 24 })
     // 后到 exclusive 踢掉前任
@@ -229,7 +235,8 @@ test('exclusive claim demotes previous; passive stays write-blocked; resync only
     // 其它端在重绘前收 output_resync 边界做原子替换，积压先 flush 不丢
     sa.outputBuffer = 'stale-a'
     sb.outputBuffer = 'stale-b'
-    ;(sa as any).redrawAttachedClient = async () => {}
+    // 测试缝：覆盖公开方法 redrawAttachedClient，避免触真实 tmux refresh
+    Object.assign(sa, { redrawAttachedClient: async () => {} })
     sa.requestLatestFrameResync()
     assert.equal(sa.outputResyncPending, true)
     assert.equal(sa.outputBuffer, '')
@@ -257,8 +264,8 @@ test('subscribers with different caps get their own encodings from shared output
   try {
     const a = createSocket()
     const b = createSocket()
-    const sa = new StreamSession(a.socket as any, null)
-    const sb = new StreamSession(b.socket as any, null)
+    const sa = new StreamSession(a.socket, null)
+    const sb = new StreamSession(b.socket, null)
     await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
     await sb.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
     assert.equal(spawns.length, 1)
@@ -305,8 +312,8 @@ test('sanitize runs once per hub chunk (sharedPtyReuses + sharedTerminals metric
     const beforeReuse = streamPerfMetrics.sharedPtyReuses
     const a = createSocket()
     const b = createSocket()
-    const sa = new StreamSession(a.socket as any, null)
-    const sb = new StreamSession(b.socket as any, null)
+    const sa = new StreamSession(a.socket, null)
+    const sb = new StreamSession(b.socket, null)
     await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
     await sb.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
     assert.equal(streamPerfMetrics.sharedPtyReuses, beforeReuse + 1)
@@ -331,8 +338,8 @@ test('PTY exit notifies all subscribers and clears the hub', async () => {
   try {
     const a = createSocket()
     const b = createSocket()
-    const sa = new StreamSession(a.socket as any, null)
-    const sb = new StreamSession(b.socket as any, null)
+    const sa = new StreamSession(a.socket, null)
+    const sb = new StreamSession(b.socket, null)
     await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
     await sb.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
     spawns[0].emitExit(0)
@@ -356,8 +363,8 @@ test('non-owner shared resize does not drive the shared PTY', async () => {
   try {
     const a = createSocket()
     const b = createSocket()
-    const sa = new StreamSession(a.socket as any, null)
-    const sb = new StreamSession(b.socket as any, null)
+    const sa = new StreamSession(a.socket, null)
+    const sb = new StreamSession(b.socket, null)
     // A exclusive owner, B shared viewer
     await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: true, cols: 120, rows: 40 })
     await sb.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
@@ -393,9 +400,9 @@ function setupRefreshExec(fail = false) {
     calls.push(args)
     if (args[0] === 'refresh-client') {
       if (fail) throw new Error('refresh-client failure')
-      return { stdout: '', stderr: '', host: null } as any
+      return { stdout: '', stderr: '', host: null } as unknown as TmuxExecResult
     }
-    return { stdout: '1000|/dev/pts/mock\n', stderr: '', host: null } as any
+    return { stdout: '1000|/dev/pts/mock\n', stderr: '', host: null } as unknown as TmuxExecResult
   })
   return () => calls.filter((args) => args[0] === 'refresh-client').length
 }
@@ -408,7 +415,7 @@ test('attach refresh dedup: visible output before the first slot cancels every r
   resetSharedTerminalsForTest()
   try {
     const a = createSocket()
-    const sa = new StreamSession(a.socket as any, null)
+    const sa = new StreamSession(a.socket, null)
     await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
     // attach 返回后同步到达的首个有效输出：0/48/120 槽位全部应取消
     spawns[0].emitData('seed-output')
@@ -428,7 +435,7 @@ test('attach refresh dedup: quiet pane fires once per merged slot (0/48/120 = 3,
   resetSharedTerminalsForTest()
   try {
     const a = createSocket()
-    const sa = new StreamSession(a.socket as any, null)
+    const sa = new StreamSession(a.socket, null)
     await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
     // 无输出：两路兜底原会在 48ms 撞车双发（0+48+48+120=4）；合并后每槽一次
     await sleep(200)
@@ -447,7 +454,7 @@ test('attach refresh dedup: failing refresh keeps exactly one bounded retry', as
   resetSharedTerminalsForTest()
   try {
     const a = createSocket()
-    const sa = new StreamSession(a.socket as any, null)
+    const sa = new StreamSession(a.socket, null)
     await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
     // t=0 失败 → t=48 重试失败 → done：t=120 不再发，总数 2 而非 3
     await sleep(200)
@@ -466,7 +473,7 @@ test('attach refresh dedup: output mid-window cancels the remaining slots', asyn
   resetSharedTerminalsForTest()
   try {
     const a = createSocket()
-    const sa = new StreamSession(a.socket as any, null)
+    const sa = new StreamSession(a.socket, null)
     await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
     await sleep(60) // 0/48 槽位已各发一次
     spawns[0].emitData('late-output')
@@ -487,8 +494,8 @@ test('fanout redraw broadcast: B attach redraws once and peers get the reset bou
   try {
     const a = createSocket()
     const b = createSocket()
-    const sa = new StreamSession(a.socket as any, null)
-    const sb = new StreamSession(b.socket as any, null)
+    const sa = new StreamSession(a.socket, null)
+    const sb = new StreamSession(b.socket, null)
     await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
     spawns[0].emitData('seed-a') // A 首轮有效输出 → A 的兜底计划直接 done
     await sleep(10)
@@ -504,12 +511,12 @@ test('fanout redraw broadcast: B attach redraws once and peers get the reset bou
     assert.equal(aResyncs.length, 1, 'A 只收一次 reset 边界')
     assert.equal(aResyncs[0].data, RESYNC_RESET_SEQ)
     const aRedraws = a.sent.filter(
-      (m) => m.type === 'output' && typeof m.data === 'string' && m.data.includes('REDRAW-MARKER'),
+      (m) => m.type === 'output' && typeof m.data === 'string' && m.data?.includes('REDRAW-MARKER'),
     )
     assert.equal(aRedraws.length, 1, 'A 收到的整屏重绘只一次')
     const resyncIdx = a.sent.findIndex((m) => m.type === 'output_resync')
     const redrawIdx = a.sent.findIndex(
-      (m) => m.type === 'output' && typeof m.data === 'string' && m.data.includes('REDRAW-MARKER'),
+      (m) => m.type === 'output' && typeof m.data === 'string' && m.data?.includes('REDRAW-MARKER'),
     )
     assert.ok(resyncIdx >= 0 && redrawIdx > resyncIdx, '帧序必须是 边界 → 重绘，才能原子替换')
     // 新订者同样收到一份边界（恢复语义按端下发，重绘字节只能广播）
@@ -525,11 +532,11 @@ test('claimExclusiveOwnership still demotes without hub (legacy path)', () => {
   resetExclusiveOwnershipForTest()
   const mk = () => {
     const { socket } = createSocket()
-    const s = new StreamSession(socket as any, null)
+    const s = new StreamSession(socket, null)
     s.attachedSessionName = 'dev'
     s.attachedHostId = 'local'
     s.attachedExclusive = true
-    s.ptyProcess = { pid: 1, resize() {}, write() {}, kill() {}, onData() {}, onExit() {} } as any
+    s.ptyProcess = { pid: 1, resize() {}, write() {}, kill() {}, onData() {}, onExit() {} }
     return s
   }
   const first = mk()
