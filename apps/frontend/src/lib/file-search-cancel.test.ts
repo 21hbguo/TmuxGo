@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 // 查询 generation：过期响应不得 setState
 function createSearchRunner() {

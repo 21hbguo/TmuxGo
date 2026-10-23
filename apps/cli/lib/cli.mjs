@@ -39,12 +39,16 @@ function brewPath() {
 function installMacDependencies() {
   let brew = brewPath()
   if (!brew) {
-    run('/bin/bash', ['-c', 'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'])
+    run('/bin/bash', [
+      '-c',
+      'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
+    ])
     brew = brewPath()
   }
   if (!brew) throw new Error('Homebrew installation did not produce brew')
   process.env.PATH = `${dirname(brew)}:${process.env.PATH}`
-  if (!['tmux', 'rg', 'python3', 'git', 'curl'].every(commandExists)) run(brew, ['install', 'tmux', 'ripgrep', 'python', 'git', 'curl'])
+  if (!['tmux', 'rg', 'python3', 'git', 'curl'].every(commandExists))
+    run(brew, ['install', 'tmux', 'ripgrep', 'python', 'git', 'curl'])
 }
 function installLinuxDependencies() {
   if (['tmux', 'rg', 'python3', 'git', 'curl'].every(commandExists)) return
@@ -87,7 +91,16 @@ function repairNativePermissions(nodeModules) {
         pending.push(target)
         continue
       }
-      if (!entry.isFile() || !(entry.name.endsWith('.node') || entry.name === 'spawn-helper' || entry.name === 'esbuild' || entry.name === 'swc')) continue
+      if (
+        !entry.isFile() ||
+        !(
+          entry.name.endsWith('.node') ||
+          entry.name === 'spawn-helper' ||
+          entry.name === 'esbuild' ||
+          entry.name === 'swc'
+        )
+      )
+        continue
       chmodSync(target, 0o755)
     }
   }
@@ -109,7 +122,6 @@ function launchdDomain() {
   return run('launchctl', ['print', `gui/${uid}`], true) ? `gui/${uid}` : `user/${uid}`
 }
 function installLaunchdService(runtimeRoot) {
-  const uid = process.getuid?.() ?? 0
   const domain = launchdDomain()
   const plistPath = join(homedir(), 'Library', 'LaunchAgents', `${serviceLabel}.plist`)
   const logDir = join(homedir(), 'Library', 'Logs', 'TmuxGo')
@@ -173,7 +185,10 @@ function uninstall() {
   }
   if (platform() === 'linux') {
     run('systemctl', ['--user', 'disable', '--now', 'tmuxgo-gateway.service'], true)
-    rmSync(join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'systemd', 'user', 'tmuxgo-gateway.service'), { force: true })
+    rmSync(
+      join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'systemd', 'user', 'tmuxgo-gateway.service'),
+      { force: true },
+    )
     run('systemctl', ['--user', 'daemon-reload'], true)
   }
 }
@@ -182,7 +197,8 @@ function status() {
   else run('systemctl', ['--user', '--no-pager', 'status', 'tmuxgo-gateway.service'])
 }
 const command = process.argv[2] || 'install'
-if (command === '--help' || command === '-h' || command === 'help') console.log('Usage: npx @21hbguo/tmuxgo [install|status|uninstall]')
+if (command === '--help' || command === '-h' || command === 'help')
+  console.log('Usage: npx @21hbguo/tmuxgo [install|status|uninstall]')
 else if (command === 'install') await install()
 else if (command === 'status') status()
 else if (command === 'uninstall') uninstall()

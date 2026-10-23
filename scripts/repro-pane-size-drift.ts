@@ -18,7 +18,7 @@
  *   npx tsx scripts/repro-pane-size-drift.ts
  *   npx tsx scripts/repro-pane-size-drift.ts --mode=both-exclusive --cycles=10
  */
-import { spawn, execFileSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import * as pty from 'node-pty'
 import { mkdirSync, appendFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'

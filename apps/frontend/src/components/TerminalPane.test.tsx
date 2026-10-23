@@ -2396,7 +2396,7 @@ describe('TerminalPane', () => {
     expect(helper.style.height).toBe('18px')
   })
   it('opens web link on ctrl click', async () => {
-    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
     terminalBufferLines = ['visit https://example.com/docs now']
     const initialHref = window.location.href
@@ -2411,7 +2411,7 @@ describe('TerminalPane', () => {
   })
   it('does not navigate current app when browser blocks new window', async () => {
     openWindowMock.mockReturnValueOnce(null)
-    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
     terminalBufferLines = ['visit https://example.com/docs now']
     const initialHref = window.location.href

@@ -4,7 +4,6 @@
  *
  * 运行: npx tsx scripts/repro-pane-size-drift-stream.ts --cycles=10
  */
-import * as pty from 'node-pty'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, appendFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -14,9 +13,8 @@ import {
   resetExclusiveOwnershipForTest,
   setWindowSizeQueryForTest,
 } from '../apps/gateway/src/lib/stream/stream-session.js'
-import { createTerminalAttachment } from '../apps/gateway/src/lib/terminal-attachment.js'
 
-// 测试缝：让 createTerminalAttachment 走真实 pty（默认就是），无需 mock
+// 测试缝：StreamSession 内部走真实 pty（默认就是），无需 mock
 const SESSION = 'test'
 const CYCLES = Number(process.argv.find((a) => a.startsWith('--cycles='))?.split('=')[1] || 10)
 const OUT_DIR = path.resolve('test-results/pane-size-drift')
