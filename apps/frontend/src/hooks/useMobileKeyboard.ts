@@ -51,7 +51,8 @@ export function isMobileDevice(): boolean {
 
 export function useMobileKeyboard(
   sendInput: (data: string) => void,
-  terminalRef: React.RefObject<HTMLDivElement | null>,
+  // 保留入参位置以维持公开 hook 签名，当前实现不使用该 ref
+  _terminalRef: React.RefObject<HTMLDivElement | null>,
 ) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const composingRef = useRef(false)

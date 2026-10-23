@@ -11,41 +11,39 @@ const SHORTCUTS_CHANGED_EVENT = 'tmuxgo-custom-shortcuts-changed'
 const PROFILE = 'default'
 
 const KEY_MAP: Record<string, string> = {
-  'enter': '\r',
-  'tab': '\t',
-  'esc': '\x1b',
-  'escape': '\x1b',
-  'backspace': '\x7f',
-  'delete': '\x1b[3~',
-  'up': '\x1b[A',
-  'down': '\x1b[B',
-  'right': '\x1b[C',
-  'left': '\x1b[D',
-  'home': '\x1b[H',
-  'end': '\x1b[F',
-  'insert': '\x1b[2~',
-  'pageup': '\x1b[5~',
-  'pagedown': '\x1b[6~',
-  'f1': '\x1bOP',
-  'f2': '\x1bOQ',
-  'f3': '\x1bOR',
-  'f4': '\x1bOS',
-  'f5': '\x1b[15~',
-  'f6': '\x1b[17~',
-  'f7': '\x1b[18~',
-  'f8': '\x1b[19~',
-  'f9': '\x1b[20~',
-  'f10': '\x1b[21~',
-  'f11': '\x1b[23~',
-  'f12': '\x1b[24~',
+  enter: '\r',
+  tab: '\t',
+  esc: '\x1b',
+  escape: '\x1b',
+  backspace: '\x7f',
+  delete: '\x1b[3~',
+  up: '\x1b[A',
+  down: '\x1b[B',
+  right: '\x1b[C',
+  left: '\x1b[D',
+  home: '\x1b[H',
+  end: '\x1b[F',
+  insert: '\x1b[2~',
+  pageup: '\x1b[5~',
+  pagedown: '\x1b[6~',
+  f1: '\x1bOP',
+  f2: '\x1bOQ',
+  f3: '\x1bOR',
+  f4: '\x1bOS',
+  f5: '\x1b[15~',
+  f6: '\x1b[17~',
+  f7: '\x1b[18~',
+  f8: '\x1b[19~',
+  f9: '\x1b[20~',
+  f10: '\x1b[21~',
+  f11: '\x1b[23~',
+  f12: '\x1b[24~',
 }
 
 export function keysToEscape(keys: string): string {
   const parts = keys.split('+').map((s) => s.trim().toLowerCase())
   const hasCtrl = parts.includes('ctrl')
   const hasShift = parts.includes('shift')
-  const hasAlt = parts.includes('alt')
-  const hasMeta = parts.includes('meta') || parts.includes('cmd')
   const key = parts.find((p) => !['ctrl', 'shift', 'alt', 'meta', 'cmd'].includes(p)) || ''
 
   if (!key) return ''
@@ -57,7 +55,6 @@ export function keysToEscape(keys: string): string {
   }
 
   if (key.length === 1) {
-    let code = key.charCodeAt(0)
     if (hasCtrl) {
       const upper = key.toUpperCase()
       const c = upper.charCodeAt(0)
@@ -89,7 +86,7 @@ export function shortcutToInput(shortcut: CustomShortcut): string {
 
 export function describeShortcut(shortcut: CustomShortcut): string {
   return shortcutToSteps(shortcut)
-    .map((s) => s.type === 'wait' ? `wait ${s.ms}ms` : s.type === 'text' ? s.text || '' : s.keys || '')
+    .map((s) => (s.type === 'wait' ? `wait ${s.ms}ms` : s.type === 'text' ? s.text || '' : s.keys || ''))
     .join(' › ')
 }
 
@@ -113,14 +110,38 @@ export function useCustomShortcuts() {
       const raw = localStorage.getItem(STORAGE_KEY)
       const data = raw ? JSON.parse(raw) : []
       const updatedAt = localStorage.getItem(STORAGE_UPDATED_AT_KEY) || ''
-      return { items: Array.isArray(data) ? data.filter((item): item is CustomShortcut => {
-        if (!item || typeof item.id !== 'string' || typeof item.label !== 'string') return false
-        if (Array.isArray(item.steps) && item.steps.length > 0) {
-          return item.steps.every((s: ShortcutStep) => !!s && (s.type === 'wait' ? typeof s.ms === 'number' && s.ms > 0 : s.type === 'text' ? typeof s.text === 'string' && s.text.length > 0 : s.type === 'keys' ? typeof s.keys === 'string' && s.keys.length > 0 : false))
-        }
-        if (item.mode === 'text') return typeof item.text === 'string' && item.text.length > 0 && (typeof item.appendEnter === 'undefined' || typeof item.appendEnter === 'boolean')
-        return (item.mode === undefined || item.mode === 'keys') && typeof item.keys === 'string' && item.keys.length > 0
-      }) : [], updatedAt }
+      return {
+        items: Array.isArray(data)
+          ? data.filter((item): item is CustomShortcut => {
+              if (!item || typeof item.id !== 'string' || typeof item.label !== 'string') return false
+              if (Array.isArray(item.steps) && item.steps.length > 0) {
+                return item.steps.every(
+                  (s: ShortcutStep) =>
+                    !!s &&
+                    (s.type === 'wait'
+                      ? typeof s.ms === 'number' && s.ms > 0
+                      : s.type === 'text'
+                        ? typeof s.text === 'string' && s.text.length > 0
+                        : s.type === 'keys'
+                          ? typeof s.keys === 'string' && s.keys.length > 0
+                          : false),
+                )
+              }
+              if (item.mode === 'text')
+                return (
+                  typeof item.text === 'string' &&
+                  item.text.length > 0 &&
+                  (typeof item.appendEnter === 'undefined' || typeof item.appendEnter === 'boolean')
+                )
+              return (
+                (item.mode === undefined || item.mode === 'keys') &&
+                typeof item.keys === 'string' &&
+                item.keys.length > 0
+              )
+            })
+          : [],
+        updatedAt,
+      }
     } catch {
       return { items: [], updatedAt: '' }
     }
@@ -152,7 +173,10 @@ export function useCustomShortcuts() {
           return
         }
         if (!Number.isNaN(localMs) && (Number.isNaN(remoteMs) || localMs > remoteMs)) {
-          await api.preferences.update({ customShortcuts: local.items, customShortcutsUpdatedAt: local.updatedAt }, PROFILE)
+          await api.preferences.update(
+            { customShortcuts: local.items, customShortcutsUpdatedAt: local.updatedAt },
+            PROFILE,
+          )
         }
       } catch {}
     })()
@@ -172,25 +196,51 @@ export function useCustomShortcuts() {
     const nextUpdatedAt = updatedAt || new Date().toISOString()
     setShortcuts(next)
     writeLocal(next, nextUpdatedAt)
-    void api.preferences.update({ customShortcuts: next, customShortcutsUpdatedAt: nextUpdatedAt }, PROFILE).catch(() => {})
+    void api.preferences
+      .update({ customShortcuts: next, customShortcutsUpdatedAt: nextUpdatedAt }, PROFILE)
+      .catch(() => {})
   }, [])
 
-  const addShortcut = useCallback((s: Omit<CustomShortcut, 'id'>) => {
-    persist([...shortcuts, { ...s, id: Date.now().toString(36) + Math.random().toString(36).slice(2) }], new Date().toISOString())
-  }, [shortcuts, persist])
+  const addShortcut = useCallback(
+    (s: Omit<CustomShortcut, 'id'>) => {
+      persist(
+        [...shortcuts, { ...s, id: Date.now().toString(36) + Math.random().toString(36).slice(2) }],
+        new Date().toISOString(),
+      )
+    },
+    [shortcuts, persist],
+  )
 
-  const updateShortcut = useCallback((id: string, s: Omit<CustomShortcut, 'id'>) => {
-    persist(shortcuts.map((item) => item.id === id ? { ...s, id } : item), new Date().toISOString())
-  }, [shortcuts, persist])
+  const updateShortcut = useCallback(
+    (id: string, s: Omit<CustomShortcut, 'id'>) => {
+      persist(
+        shortcuts.map((item) => (item.id === id ? { ...s, id } : item)),
+        new Date().toISOString(),
+      )
+    },
+    [shortcuts, persist],
+  )
 
-  const removeShortcut = useCallback((id: string) => {
-    persist(shortcuts.filter((s) => s.id !== id), new Date().toISOString())
-  }, [shortcuts, persist])
+  const removeShortcut = useCallback(
+    (id: string) => {
+      persist(
+        shortcuts.filter((s) => s.id !== id),
+        new Date().toISOString(),
+      )
+    },
+    [shortcuts, persist],
+  )
 
-  const removeShortcuts = useCallback((ids: string[]) => {
-    const idSet = new Set(ids)
-    persist(shortcuts.filter((s) => !idSet.has(s.id)), new Date().toISOString())
-  }, [shortcuts, persist])
+  const removeShortcuts = useCallback(
+    (ids: string[]) => {
+      const idSet = new Set(ids)
+      persist(
+        shortcuts.filter((s) => !idSet.has(s.id)),
+        new Date().toISOString(),
+      )
+    },
+    [shortcuts, persist],
+  )
 
   return { shortcuts, addShortcut, updateShortcut, removeShortcut, removeShortcuts }
 }

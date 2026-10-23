@@ -22,8 +22,6 @@ interface TerminalSearchProps {
 
 export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<number[]>([])
-  const [currentResult, setCurrentResult] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const { t } = useTranslation()
 
@@ -33,15 +31,10 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
 
   const search = (term: string) => {
     setQuery(term)
-    if (!terminal || !term) {
-      setResults([])
-      return
-    }
+    if (!terminal || !term) return
     const searchAddon = terminal._addonManager?._addons?.find((a) => a.instance?.findNext)?.instance
     if (searchAddon) {
       searchAddon.findNext?.(term, {})
-      setResults([0])
-      setCurrentResult(0)
     }
   }
 

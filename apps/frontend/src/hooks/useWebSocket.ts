@@ -13,7 +13,7 @@ import {
   decodeCellSnapshot,
   decodeCellSnapshotV2,
 } from '@/lib/terminal-grid/decode-cell'
-import { applyCellToXterm, diffToAnsi, snapshotToAnsi } from '@/lib/terminal-grid/apply-cell'
+import { diffToAnsi, snapshotToAnsi } from '@/lib/terminal-grid/apply-cell'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import {
   netStatsFlushPending,
@@ -458,7 +458,7 @@ export function useWebSocket() {
           recordMobileDebug('ws-error', { visibility: document.visibilityState })
           wsState.onError?.()
         }
-      } catch (err) {
+      } catch {
         resetMobileInteractiveProfile()
         clearConnectTimer()
         clearPongTimer()

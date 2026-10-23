@@ -81,19 +81,20 @@ export function removeAgentPaneEvent(panes: Pane[], paneId: string) {
   return panes.map((pane) => {
     if (pane.id !== paneId) return pane
     const {
-      agent,
-      agentSessionId,
-      agentStatus,
-      phase,
-      lastEvent,
-      source,
-      confidence,
-      since,
-      updatedAt,
-      eventId,
-      message,
-      revision,
-      display,
+      // 解构 + rest 用于剔除 agent 事件字段；剔除项本地绑定统一 _ 前缀规避 unused 告警
+      agent: _agent,
+      agentSessionId: _agentSessionId,
+      agentStatus: _agentStatus,
+      phase: _phase,
+      lastEvent: _lastEvent,
+      source: _source,
+      confidence: _confidence,
+      since: _since,
+      updatedAt: _updatedAt,
+      eventId: _eventId,
+      message: _message,
+      revision: _revision,
+      display: _display,
       ...terminalPane
     } = pane
     return terminalPane

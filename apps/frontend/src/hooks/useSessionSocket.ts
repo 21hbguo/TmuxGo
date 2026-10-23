@@ -50,7 +50,6 @@ const connections = new Map<string, ConnectionState>()
 let cellLastSeq = 0
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 15000
-const PING_INTERVAL_MS = 10000
 const PONG_TIMEOUT_MS = 8000
 const STALE_PONG_MS = 25000
 function getKey(hostId: string, sessionId: string) {

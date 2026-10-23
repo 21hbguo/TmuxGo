@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, type MouseEvent, type TouchEvent } from 'react'
+import { useEffect, useRef } from 'react'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
@@ -50,9 +50,6 @@ export function PasteConfirmDialog({
     }
   }, [open, isManual])
   if (!open) return null
-  const preventFocus = (e: MouseEvent<HTMLButtonElement> | TouchEvent<HTMLButtonElement>) => {
-    e.preventDefault()
-  }
   return (
     // modal 按键层接管 Esc/弹窗外 Enter；弹窗内 Enter 仍走下面 onKeyDownCapture（textarea 也直接发送）
     <ModalPortal

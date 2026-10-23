@@ -4,7 +4,7 @@ import { isPersistableEditorMeta, TERMINAL_DOCK_POSITIONS, useConsoleStore } fro
 import { api } from '@/lib/api'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import type { FileDocumentHandle, FileEditorDocument } from '@/types'
-import { getEditorLanguage, openFileInEditor } from '@/lib/editor-open'
+import { openFileInEditor } from '@/lib/editor-open'
 import { clearActiveDraggedFile, FILE_DRAG_MIME, getActiveDraggedFile, readDraggedFile } from '@/lib/editor-drag'
 import { ActivityBar } from './ActivityBar'
 import dynamic from '@/lib/dynamic'
@@ -73,7 +73,6 @@ export function DesktopWorkbench() {
   useEffect(() => {
     setMounted(true)
   }, [])
-  const activeHostId = useConsoleStore((state) => state.activeHostId)
   const sessionPanelExpanded = useConsoleStore((state) => state.sessionPanelExpanded)
   const sessionPanelWidth = useConsoleStore((state) => state.sessionPanelWidth)
   const sidePanelWidth = useConsoleStore((state) => state.sidePanelWidth)
@@ -137,7 +136,6 @@ export function DesktopWorkbench() {
   const terminalMinWidth = clampValue(Math.floor(viewportWidth * 0.18), 260, 440)
   // 侧向停靠时给编辑区保留 ≥160px 即可，终端可以拉到接近全宽
   const terminalMaxWidth = clampValue(workspaceWidth - 160, terminalMinWidth, 2000)
-  const terminalPanelHeight = useConsoleStore((state) => state.terminalPanelHeight)
   const terminalDock = useConsoleStore((state) => state.terminalDock)
   const setTerminalDock = useConsoleStore((state) => state.setTerminalDock)
   const editorsHydrated = useConsoleStore((state) => state.editorsHydrated)

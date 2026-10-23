@@ -54,7 +54,6 @@ import type {
   TrashEntry,
   UiPreferences,
   UploadJobResult,
-  UploadedFile,
   Window,
   WindowsMutationResult,
   WorkspaceEntry,
