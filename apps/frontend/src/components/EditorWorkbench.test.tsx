@@ -940,6 +940,69 @@ describe('EditorWorkbench', () => {
     await dispatchDragEvent(button, 'drop', dataTransfer, { clientX: 80, clientY: 0 })
     expect(useConsoleStore.getState().editorPrimaryGroupIds).toEqual([editor2.id, editor1.id, editor3.id])
   })
+  it('creates a compare view when a tab is dropped on the middle of another tab', async () => {
+    const onCreateCompare = vi.fn(async () => {})
+    setWorkbenchState({
+      openEditors: [editor1, editor2],
+      activeEditorId: editor2.id,
+      editorGroups: [createGroup('group-1', [editor1.id, editor2.id], editor2.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench({ onCreateCompare })
+    const button = screen.getByRole('button', { name: 'other.ts' })
+    ;(button as HTMLButtonElement).getBoundingClientRect = vi.fn(() => createRect(100, 42))
+    const dataTransfer = createDataTransfer({
+      'application/x-tmuxgo-file': JSON.stringify({
+        id: editor1.id,
+        hostId: editor1.hostId,
+        rootId: editor1.rootId,
+        rootLabel: editor1.rootLabel,
+        rootPath: editor1.rootPath,
+        path: editor1.path,
+        name: editor1.name,
+        absolutePath: editor1.absolutePath,
+      }),
+      'text/plain': editor1.absolutePath,
+    })
+    // 中段 40%（30%–70%）是「生成对比」落区：source=拖拽 tab，target=落点 tab
+    await dispatchDragEvent(button, 'drop', dataTransfer, { clientX: 60, clientY: 0 })
+    await vi.waitFor(() =>
+      expect(onCreateCompare).toHaveBeenCalledWith(expect.objectContaining({ id: editor1.id }), editor2.id),
+    )
+    // 对比不是换位：两侧 tab 顺序与分组都不变
+    expect(useConsoleStore.getState().editorPrimaryGroupIds).toEqual([editor1.id, editor2.id])
+    expect(useConsoleStore.getState().editorSecondaryGroupIds).toEqual([])
+  })
+  it('highlights the whole tab on middle-zone dragover and keeps the 2px line on edges', async () => {
+    setWorkbenchState({
+      openEditors: [editor1, editor2],
+      activeEditorId: editor2.id,
+      editorGroups: [createGroup('group-1', [editor1.id, editor2.id], editor2.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
+    const button = screen.getByRole('button', { name: 'other.ts' })
+    ;(button as HTMLButtonElement).getBoundingClientRect = vi.fn(() => createRect(100, 42))
+    const dataTransfer = createDataTransfer({
+      'application/x-tmuxgo-file': JSON.stringify({
+        id: editor1.id,
+        hostId: editor1.hostId,
+        rootId: editor1.rootId,
+        rootLabel: editor1.rootLabel,
+        rootPath: editor1.rootPath,
+        path: editor1.path,
+        name: editor1.name,
+        absolutePath: editor1.absolutePath,
+      }),
+      'text/plain': editor1.absolutePath,
+    })
+    await dispatchDragEvent(button, 'dragover', dataTransfer, { clientX: 60, clientY: 0 })
+    expect(screen.getByTestId(`tab-compare-target-${editor2.id}`)).toBeTruthy()
+    await dispatchDragEvent(button, 'dragover', dataTransfer, { clientX: 95, clientY: 0 })
+    expect(screen.queryByTestId(`tab-compare-target-${editor2.id}`)).toBeNull()
+  })
   it('moves a dragged tab across a nested 4-group layout and collapses the emptied group', async () => {
     setWorkbenchState({
       openEditors: [editor1, editor2, editor3, editor4],

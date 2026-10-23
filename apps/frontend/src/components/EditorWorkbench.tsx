@@ -75,7 +75,8 @@ interface FindControllerLike {
   start?(options: Record<string, unknown>, searchStateSeed?: Record<string, unknown>): void
 }
 type DropPlacement = 'center' | 'left' | 'right' | 'top' | 'bottom'
-type TabInsertSide = 'before' | 'after'
+// 'compare' 不在插入序里：它是 tab 中段落区，落下去生成对比视图而不是换位
+type TabInsertSide = 'before' | 'after' | 'compare'
 interface NavigationEntry {
   id: string
   hostId: string
@@ -162,8 +163,7 @@ export function EditorWorkbench({
   onSaveEditor,
   onOpenFile,
   onOpenFileAtPosition = async (file) => file.id,
-  // 对比视图尚未接入：保留 prop 签名（调用方已传），本地绑定加 _ 前缀规避 unused 告警
-  onCreateCompare: _onCreateCompare,
+  onCreateCompare,
 }: {
   onSaveEditor: (editor: FileEditorDocument) => Promise<void>
   onOpenFile: (file: FileDocumentHandle) => Promise<string>
@@ -326,8 +326,15 @@ export function EditorWorkbench({
   const isOpenEditorId = (id: string) => openEditors.some((item) => item.id === id)
   const getDragDropEffect = (dragged: FileDocumentHandle | null) =>
     dragged && isOpenEditorId(dragged.id) ? 'move' : 'copy'
-  const getTabInsertSide = (rect: DOMRect, clientX: number) =>
-    clientX <= rect.left + rect.width / 2 ? ('before' as const) : ('after' as const)
+  // 三段落区：左右各 30% 维持 before/after 插入，中段 40% 是「生成对比」落区（产品方案 A）。
+  // 中段不放宽到整条 tab：拖拽换位是高频操作，误落换位比误落对比更难撤销
+  const TAB_INSERT_EDGE_RATIO = 0.3
+  const getTabInsertSide = (rect: DOMRect, clientX: number): TabInsertSide => {
+    const offset = clientX - rect.left
+    if (offset < rect.width * TAB_INSERT_EDGE_RATIO) return 'before'
+    if (offset > rect.width * (1 - TAB_INSERT_EDGE_RATIO)) return 'after'
+    return 'compare'
+  }
   const getNavigationPosition = (editorId: string) => {
     // 存活实例优先：cursorById 是 React 提交后的快照，连续操作时可能滞后一拍
     const position = editorRefs.current[editorId]?.getPosition?.()
@@ -652,7 +659,7 @@ export function EditorWorkbench({
     groupEditors: FileEditorDocument[],
     draggedId: string,
     targetId: string,
-    side: TabInsertSide,
+    side: 'before' | 'after',
   ) => {
     if (side === 'before') return targetId
     const baseIds = groupEditors.map((item) => item.id).filter((item) => item !== draggedId)
@@ -703,6 +710,11 @@ export function EditorWorkbench({
     side: TabInsertSide,
   ) => {
     cancelPendingDefinition()
+    if (side === 'compare') {
+      // source=dragged、target=落点 tab；binary/truncated/loading 的守卫在 onCreateCompare 内统一处理
+      await onCreateCompare(dragged, targetEditor.id)
+      return
+    }
     const insertTargetId = resolveTabInsertTargetId(groupEditors, dragged.id, targetEditor.id, side)
     if (isOpenEditorId(dragged.id)) {
       moveEditorToGroup(dragged.id, groupId, insertTargetId)
@@ -1163,11 +1175,19 @@ export function EditorWorkbench({
       >
         ×
       </Chip>
-      {tabInsertionTarget?.groupId === groupId && tabInsertionTarget.editorId === editor.id && (
-        <span
-          className={`pointer-events-none absolute inset-y-1 z-20 w-[2px] rounded-full bg-accent shadow-[0_0_0_1px_rgba(30,200,255,0.2)] ${tabInsertionTarget.side === 'before' ? 'left-0' : 'right-0'}`}
-        />
-      )}
+      {tabInsertionTarget?.groupId === groupId &&
+        tabInsertionTarget.editorId === editor.id &&
+        (tabInsertionTarget.side === 'compare' ? (
+          // 中段落区：整 tab 底色高亮（对比是"合并两个 tab"的语义，边线表达不出来）
+          <span
+            data-testid={`tab-compare-target-${editor.id}`}
+            className="pointer-events-none absolute inset-0 z-20 rounded-[3px] bg-accent/20 ring-1 ring-inset ring-accent/60"
+          />
+        ) : (
+          <span
+            className={`pointer-events-none absolute inset-y-1 z-20 w-[2px] rounded-full bg-accent shadow-[0_0_0_1px_rgba(30,200,255,0.2)] ${tabInsertionTarget.side === 'before' ? 'left-0' : 'right-0'}`}
+          />
+        ))}
     </div>
   )
   // VSCode 式落点提示：只高亮实际落点区域（分屏半区/整组），不再平铺全部候选区
