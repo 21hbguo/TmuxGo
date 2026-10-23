@@ -388,6 +388,10 @@ vi.mock('@xterm/xterm', () => {
       terminalWriteParsedHandlers.push(handler)
       return { dispose: vi.fn() }
     }
+    // search addon 在 activate 时订阅 onResize/onWriteParsed，缺了它会抛错并中断终端初始化
+    onResize() {
+      return { dispose: vi.fn() }
+    }
     onSelectionChange(handler: () => void) {
       onSelectionChangeHandlers.push(handler)
       return { dispose: vi.fn() }
@@ -396,6 +400,10 @@ vi.mock('@xterm/xterm', () => {
       customKeyHandler = handler
       return undefined
     }
+    clearSelection() {
+      terminalSelection = ''
+    }
+    // 关搜索面板时组件会清高亮 + 清选中，假终端得和真 xterm 一样支持 clearSelection
     getSelection() {
       return terminalSelection
     }
@@ -1007,6 +1015,21 @@ describe('TerminalPane', () => {
     expect(document.execCommand).toHaveBeenCalledWith('copy')
     expect(requestCopy).not.toHaveBeenCalled()
     window.removeEventListener('tmuxgo-request-terminal-copy', requestCopy)
+  })
+  it('opens the search overlay on ctrl/cmd f and closes it on escape', async () => {
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const root = container.querySelector('[data-terminal]') as HTMLElement
+    expect(root).toBeTruthy()
+    root.focus()
+    // capture 阶段拦下，浏览器原生查找条不许抢
+    const openEvent = new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true })
+    window.dispatchEvent(openEvent)
+    expect(openEvent.defaultPrevented).toBe(true)
+    const panel = await screen.findByTestId('terminal-search')
+    expect(panel).toBeTruthy()
+    fireEvent.keyDown(panel.querySelector('input') as HTMLInputElement, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByTestId('terminal-search')).toBeNull())
   })
   it('keeps ctrl c for terminal interrupt when no selection exists', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)

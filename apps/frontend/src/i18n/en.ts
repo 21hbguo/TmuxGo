@@ -685,6 +685,11 @@ export const en = {
 
   // TerminalSearch
   'terminalSearch.placeholder': 'Search...',
+  'terminalSearch.noResults': 'No results',
+  'terminalSearch.caseSensitive': 'Match case',
+  'terminalSearch.previous': 'Previous match',
+  'terminalSearch.next': 'Next match',
+  'terminalSearch.close': 'Close search',
   'quick.attachModeTitle': 'Attach mode',
   'quick.attachShared': 'Shared',
   'quick.attachExclusive': 'Exclusive',
