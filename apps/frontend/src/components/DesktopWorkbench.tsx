@@ -378,7 +378,7 @@ export function DesktopWorkbench() {
         pushToast({ type: 'error', message })
       }
     },
-    [markEditorSaved, pushToast, setEditorSaving, setEditorSaveError],
+    [markEditorSaved, pushToast, setEditorSaving, setEditorSaveError, t],
   )
   if (!mounted) {
     return (

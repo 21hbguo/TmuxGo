@@ -192,14 +192,17 @@ export function useCustomShortcuts() {
     }
   }, [readLocal])
 
-  const persist = useCallback((next: CustomShortcut[], updatedAt?: string) => {
-    const nextUpdatedAt = updatedAt || new Date().toISOString()
-    setShortcuts(next)
-    writeLocal(next, nextUpdatedAt)
-    void api.preferences
-      .update({ customShortcuts: next, customShortcutsUpdatedAt: nextUpdatedAt }, PROFILE)
-      .catch(() => {})
-  }, [])
+  const persist = useCallback(
+    (next: CustomShortcut[], updatedAt?: string) => {
+      const nextUpdatedAt = updatedAt || new Date().toISOString()
+      setShortcuts(next)
+      writeLocal(next, nextUpdatedAt)
+      void api.preferences
+        .update({ customShortcuts: next, customShortcutsUpdatedAt: nextUpdatedAt }, PROFILE)
+        .catch(() => {})
+    },
+    [writeLocal],
+  )
 
   const addShortcut = useCallback(
     (s: Omit<CustomShortcut, 'id'>) => {

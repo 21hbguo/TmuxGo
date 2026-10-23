@@ -301,7 +301,7 @@ function StatusTab({
         type: 'file',
       })
     },
-    [hostId, onOpenDiff, repoPath, t],
+    [hostId, onOpenDiff, pushToast, repoPath, t],
   )
 
   if (isError) return <GitLoadError onRetry={() => void refetch()} t={t} />

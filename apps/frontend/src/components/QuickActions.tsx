@@ -341,7 +341,7 @@ function useQuickActionController() {
       }
       if (result.unavailable) pushToast({ type: 'info', message: t('clipboard.unavailable') })
     })
-  }, [pushToast])
+  }, [pushToast, t])
   const handlePaste = useCallback(() => window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste')), [])
   const handleKillPane = useCallback(async () => {
     const paneId = await resolveFreshActivePaneId()

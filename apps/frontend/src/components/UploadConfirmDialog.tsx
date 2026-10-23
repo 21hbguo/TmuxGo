@@ -153,18 +153,19 @@ export function UploadConfirmDialog() {
     setTargetRootId(roots[0].id)
   }, [open, uploadRequest?.temporary, targetRootId, roots])
 
-  const activeRoot =
-    temporaryTarget && temporaryTarget.rootId === targetRootId
-      ? { id: temporaryTarget.rootId, label: temporaryTarget.rootLabel, path: temporaryTarget.rootPath }
-      : roots.find((item) => item.id === targetRootId) || roots[0] || null
+  // activeRoot 是条件表达式产物（每次 render 新对象），搬进 useMemo 内部计算，避免依赖恒变
   const pathPreview = useMemo(() => {
+    const activeRoot =
+      temporaryTarget && temporaryTarget.rootId === targetRootId
+        ? { id: temporaryTarget.rootId, label: temporaryTarget.rootLabel, path: temporaryTarget.rootPath }
+        : roots.find((item) => item.id === targetRootId) || roots[0] || null
     if (!activeRoot) return ''
     const normalized = targetPath
       .split(/[\\/]+/)
       .filter(Boolean)
       .join('/')
     return normalized ? `${activeRoot.path}/${normalized}` : activeRoot.path
-  }, [activeRoot, targetPath])
+  }, [roots, targetPath, targetRootId, temporaryTarget])
 
   const handleCancel = () => {
     if (submitting) return

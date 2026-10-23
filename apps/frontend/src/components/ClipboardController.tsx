@@ -12,25 +12,33 @@ import { PasteConfirmDialog } from './PasteConfirmDialog'
 export function ClipboardController() {
   const { t } = useTranslation()
   const pushToast = useConsoleStore((s) => s.pushToast)
-  const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[]; mode?: 'confirm' | 'manual'; source?: 'system' | 'memory' | 'empty' } | null>(null)
+  const [pendingPaste, setPendingPaste] = useState<{
+    text: string
+    meta: string[]
+    mode?: 'confirm' | 'manual'
+    source?: 'system' | 'memory' | 'empty'
+  } | null>(null)
   const closePasteDialog = useCallback(() => {
     setPendingPaste(null)
   }, [])
   const sendTerminalInput = useCallback((data: string) => {
     window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data } }))
   }, [])
-  const routePasteText = useCallback((text: string, source: 'system' | 'memory' | 'empty' = 'system') => {
-    if (!text) return false
-    armImeDiagnostics('paste-confirm-dialog')
-    const analysis = analyzePaste(text)
-    const meta = []
-    if (analysis.hasNewline) meta.push(t('clipboard.meta.multiline'))
-    if (analysis.hasControlChars) meta.push(t('clipboard.meta.controlChars'))
-    if (analysis.isLong) meta.push(`${text.length} chars`)
-    if (source === 'memory') meta.push(t('clipboard.meta.appClipboard'))
-    setPendingPaste({ text, meta, source })
-    return false
-  }, [])
+  const routePasteText = useCallback(
+    (text: string, source: 'system' | 'memory' | 'empty' = 'system') => {
+      if (!text) return false
+      armImeDiagnostics('paste-confirm-dialog')
+      const analysis = analyzePaste(text)
+      const meta = []
+      if (analysis.hasNewline) meta.push(t('clipboard.meta.multiline'))
+      if (analysis.hasControlChars) meta.push(t('clipboard.meta.controlChars'))
+      if (analysis.isLong) meta.push(`${text.length} chars`)
+      if (source === 'memory') meta.push(t('clipboard.meta.appClipboard'))
+      setPendingPaste({ text, meta, source })
+      return false
+    },
+    [t],
+  )
   const handleCopy = useCallback(async () => {
     const text = await requestTerminalSelection()
     if (!text) return
@@ -40,7 +48,7 @@ export function ClipboardController() {
       return
     }
     if (result.unavailable) pushToast({ type: 'info', message: t('clipboard.unavailable') })
-  }, [pushToast])
+  }, [pushToast, t])
   const handlePaste = useCallback(async () => {
     try {
       const result = await readClipboardTextOnly()
@@ -55,7 +63,7 @@ export function ClipboardController() {
       setPendingPaste({ text: '', meta: [t('clipboard.meta.unavailable')], mode: 'manual' })
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('clipboard.pasteFailed') })
     }
-  }, [pushToast, routePasteText])
+  }, [pushToast, routePasteText, t])
   useEffect(() => {
     const onCopy = () => void handleCopy()
     const onPaste = (event: Event) => {
@@ -79,7 +87,7 @@ export function ClipboardController() {
       text={pendingPaste?.text || ''}
       meta={pendingPaste?.meta || []}
       mode={pendingPaste?.mode}
-      onTextChange={(text) => setPendingPaste((current) => current ? { ...current, text } : current)}
+      onTextChange={(text) => setPendingPaste((current) => (current ? { ...current, text } : current))}
       onRetryPermission={() => void handlePaste()}
       onCancel={closePasteDialog}
       onSend={() => {

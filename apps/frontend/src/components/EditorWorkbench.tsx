@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from 'react'
 import type { FileDocumentHandle, FileEditorDocument } from '@/types'
 import type { EditorLayoutNode, EditorLayoutSplit } from '@/stores/useConsoleStore'
@@ -639,6 +639,15 @@ export function EditorWorkbench({
       if (definitionAbortRef.current === controller) definitionAbortRef.current = null
     }
   }
+  // 全局键位监听是 mount-once 语义：导航函数每次 render 重建（内部读 ref/最新状态），
+  // 用 latest-ref 让 handler 始终取到最新实现，避免把它们塞进 effect deps 导致监听每 render 重挂
+  const navigationHandlersRef = useRef({
+    getNavigationPosition,
+    goBackInNavigation,
+    goForwardInNavigation,
+    goToDefinition,
+  })
+  navigationHandlersRef.current = { getNavigationPosition, goBackInNavigation, goForwardInNavigation, goToDefinition }
   const resolveTabInsertTargetId = (
     groupEditors: FileEditorDocument[],
     draggedId: string,
@@ -768,20 +777,21 @@ export function EditorWorkbench({
         // stopPropagation：防止 Monaco 原生按键/外层处理对同一动作二次响应
         event.preventDefault()
         event.stopPropagation()
-        const position = getNavigationPosition(activeEditor.id)
-        if (position) void goToDefinition(activeEditor, position)
+        const handlers = navigationHandlersRef.current
+        const position = handlers.getNavigationPosition(activeEditor.id)
+        if (position) void handlers.goToDefinition(activeEditor, position)
         return
       }
       if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key === 'ArrowLeft') {
         event.preventDefault()
         event.stopPropagation()
-        void goBackInNavigation()
+        void navigationHandlersRef.current.goBackInNavigation()
         return
       }
       if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key === 'ArrowRight') {
         event.preventDefault()
         event.stopPropagation()
-        void goForwardInNavigation()
+        void navigationHandlersRef.current.goForwardInNavigation()
         return
       }
       if (!(event.metaKey || event.ctrlKey) || !activeEditor) return
@@ -909,74 +919,81 @@ export function EditorWorkbench({
   // 隐藏/未布局实例上 reveal/setScrollTop 会静默落空（position 已对但 scroll 不动——
   // openFileInEditor 先 dispatch location 再异步取内容，loading 门恰在此窗内）。
   // 按帧校验视口真实生效、未生效重试；实例被替换或新落位覆盖时作废旧重试
-  const retryViewApply = (
-    editorId: string,
-    instance: monacoEditor.IStandaloneCodeEditor,
-    settled: () => boolean,
-    apply: () => void,
-    attempts = 60,
-  ) => {
-    const tick = (left: number) => {
-      // 新 pending 出现即让位——新落位自带重试链，旧链继续会与其互抢视口
-      if (left <= 0 || editorRefs.current[editorId] !== instance || pendingLocationRef.current[editorId] || settled())
-        return
-      apply()
-      requestAnimationFrame(() => tick(left - 1))
-    }
-    // 首检也走帧回调：本 pending 删除在 applyPendingLocation 同步段尾，帧前已完成
-    requestAnimationFrame(() => tick(attempts))
-  }
+  // 只读写 ref，无组件状态依赖：稳定化后可作为 applyPendingLocation 的稳定依赖
+  const retryViewApply = useCallback(
+    (
+      editorId: string,
+      instance: monacoEditor.IStandaloneCodeEditor,
+      settled: () => boolean,
+      apply: () => void,
+      attempts = 60,
+    ) => {
+      const tick = (left: number) => {
+        // 新 pending 出现即让位——新落位自带重试链，旧链继续会与其互抢视口
+        if (left <= 0 || editorRefs.current[editorId] !== instance || pendingLocationRef.current[editorId] || settled())
+          return
+        apply()
+        requestAnimationFrame(() => tick(left - 1))
+      }
+      // 首检也走帧回调：本 pending 删除在 applyPendingLocation 同步段尾，帧前已完成
+      requestAnimationFrame(() => tick(attempts))
+    },
+    [],
+  )
   // 落位应用+校验：行列按当前模型范围钳制，setPosition 后 getPosition 未达目标视为实例将销毁/未就绪，
   // 保留 pending 交给 remount 兜底；落位成功即一次性消费——同一导航的 loading/StrictMode 重挂改由
   // viewStateRef 快照恢复，不再用固定时间窗判定所有权，避免覆盖用户之后手动改的位置
-  const applyPendingLocation = (editorId: string, instance: monacoEditor.IStandaloneCodeEditor | undefined) => {
-    const pending = pendingLocationRef.current[editorId]
-    if (!pending || !instance) return false
-    const model = instance.getModel?.()
-    const lineCount = model?.getLineCount?.() ?? 0
-    const line = lineCount ? Math.min(pending.line, lineCount) : pending.line
-    const maxColumn = model?.getLineMaxColumn?.(line) ?? pending.column
-    const column = Math.max(1, Math.min(pending.column, maxColumn))
-    instance.setPosition?.({ lineNumber: line, column })
-    const restore = pending.viewState
-    if (pending.reveal === 'preserve') {
-      // 返回/前进：还原历史选区与视口，不强制把目标行拉到屏幕中央
-      if (restore?.selection) instance.setSelection?.(restore.selection)
-      if (restore) {
-        instance.setScrollTop?.(restore.scrollTop ?? 0)
-        instance.setScrollLeft?.(restore.scrollLeft ?? 0)
-        const targetTop = restore.scrollTop ?? 0
-        retryViewApply(
-          editorId,
-          instance,
-          () => Math.abs((instance.getScrollTop?.() ?? 0) - targetTop) <= 2,
-          () => instance.setScrollTop?.(targetTop),
+  const applyPendingLocation = useCallback(
+    (editorId: string, instance: monacoEditor.IStandaloneCodeEditor | undefined) => {
+      const pending = pendingLocationRef.current[editorId]
+      if (!pending || !instance) return false
+      const model = instance.getModel?.()
+      const lineCount = model?.getLineCount?.() ?? 0
+      const line = lineCount ? Math.min(pending.line, lineCount) : pending.line
+      const maxColumn = model?.getLineMaxColumn?.(line) ?? pending.column
+      const column = Math.max(1, Math.min(pending.column, maxColumn))
+      instance.setPosition?.({ lineNumber: line, column })
+      const restore = pending.viewState
+      if (pending.reveal === 'preserve') {
+        // 返回/前进：还原历史选区与视口，不强制把目标行拉到屏幕中央
+        if (restore?.selection) instance.setSelection?.(restore.selection)
+        if (restore) {
+          instance.setScrollTop?.(restore.scrollTop ?? 0)
+          instance.setScrollLeft?.(restore.scrollLeft ?? 0)
+          const targetTop = restore.scrollTop ?? 0
+          retryViewApply(
+            editorId,
+            instance,
+            () => Math.abs((instance.getScrollTop?.() ?? 0) - targetTop) <= 2,
+            () => instance.setScrollTop?.(targetTop),
+          )
+        }
+      } else {
+        instance.revealPositionInCenter?.({ lineNumber: line, column })
+        const targetInView = () =>
+          (instance.getVisibleRanges?.() || []).some(
+            (range) => range.startLineNumber <= line && line <= range.endLineNumber,
+          )
+        retryViewApply(editorId, instance, targetInView, () =>
+          instance.revealPositionInCenter?.({ lineNumber: line, column }),
         )
       }
-    } else {
-      instance.revealPositionInCenter?.({ lineNumber: line, column })
-      const targetInView = () =>
-        (instance.getVisibleRanges?.() || []).some(
-          (range) => range.startLineNumber <= line && line <= range.endLineNumber,
-        )
-      retryViewApply(editorId, instance, targetInView, () =>
-        instance.revealPositionInCenter?.({ lineNumber: line, column }),
-      )
-    }
-    instance.focus?.()
-    if (instance.getPosition?.()?.lineNumber !== line) return false
-    delete pendingLocationRef.current[editorId]
-    const snapshot = viewStateRef.current[editorId]
-    if (snapshot) {
-      snapshot.position = { line, column }
-      if (pending.reveal === 'preserve' && restore) {
-        snapshot.selection = restore.selection ?? null
-        snapshot.scrollTop = restore.scrollTop ?? snapshot.scrollTop
-        snapshot.scrollLeft = restore.scrollLeft ?? snapshot.scrollLeft
+      instance.focus?.()
+      if (instance.getPosition?.()?.lineNumber !== line) return false
+      delete pendingLocationRef.current[editorId]
+      const snapshot = viewStateRef.current[editorId]
+      if (snapshot) {
+        snapshot.position = { line, column }
+        if (pending.reveal === 'preserve' && restore) {
+          snapshot.selection = restore.selection ?? null
+          snapshot.scrollTop = restore.scrollTop ?? snapshot.scrollTop
+          snapshot.scrollLeft = restore.scrollLeft ?? snapshot.scrollLeft
+        }
       }
-    }
-    return true
-  }
+      return true
+    },
+    [retryViewApply],
+  )
   // remount 兜底：无新落位请求时把用户最后的光标/选区/视口恢复到新实例上
   const restoreViewSnapshot = (editorId: string, instance: monacoEditor.IStandaloneCodeEditor | undefined) => {
     const snapshot = viewStateRef.current[editorId]
@@ -1039,7 +1056,7 @@ export function EditorWorkbench({
     }
     window.addEventListener(OPEN_EDITOR_LOCATION_EVENT, handleOpenEditorLocation as EventListener)
     return () => window.removeEventListener(OPEN_EDITOR_LOCATION_EVENT, handleOpenEditorLocation as EventListener)
-  }, [setActiveEditor])
+  }, [applyPendingLocation, setActiveEditor])
   // 已关闭 tab 的 pending/快照/光标即时作废：定位数据只随打开中的文件存活，重开同一文件不被陈旧落位劫持
   useEffect(() => {
     for (const id of Object.keys(pendingLocationRef.current))

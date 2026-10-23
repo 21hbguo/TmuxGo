@@ -47,7 +47,8 @@ export function TaskCenter({ onClose }: { onClose: () => void }) {
   const { data, isLoading } = useSystemTasks()
   const cancelTask = useCancelSystemTask()
   const retryTask = useRetrySystemTask()
-  const tasks = data?.tasks || []
+  // data 未就绪时 `|| []` 每次 render 都是新数组，作为 useMemo 依赖会让 selectedTask 每次都重算
+  const tasks = useMemo(() => data?.tasks || [], [data?.tasks])
   const [selectedTaskId, setSelectedTaskId] = useState('')
   const selectedTask = useMemo(
     () => tasks.find((task) => task.id === selectedTaskId) || tasks[0] || null,
