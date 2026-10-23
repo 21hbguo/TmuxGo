@@ -52,12 +52,20 @@ function shimStdout(stdout: string, exitCode = 0) {
   process.env.SHIM_SSH_EXIT = String(exitCode)
 }
 
-// 每次 ssh 调用的 argv（shim 以 tab 分隔记录）
+// 每次 ssh 调用的 argv（shim 以 tab 分隔记录）。VNC 脚本本身含换行，日志会把它拆成多行，
+// 这里按「SSHPASS= 结尾」切分调用并把续行拼回最后一个参数
 function sshCalls(shims: Shims) {
-  return shims
-    .readLog()
-    .filter((line) => line.startsWith('ssh\t'))
-    .map((line) => line.split('\t').slice(1))
+  const calls: string[][] = []
+  for (const line of shims.readLog()) {
+    if (line.startsWith('ssh\t')) {
+      calls.push(line.split('\t').slice(1))
+      continue
+    }
+    const current = calls[calls.length - 1]
+    if (!current || line.startsWith('SSHPASS=')) continue
+    current[current.length - 1] += `\n${line}`
+  }
+  return calls
 }
 
 async function buildApp(t: TestContext) {
@@ -121,4 +129,79 @@ test('vnc route rejects ports outside the display range', async (t) => {
     ws.addEventListener('close', (event) => resolve(event.code), { once: true }),
   )
   assert.equal(code, 1008)
+})
+
+test('vnc setup probe reports a host without any VNC server as needing install', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  shimStdout('os=Linux\nsession=x11\n')
+  const { app } = await buildApp(t)
+  const response = await app.inject({ method: 'GET', url: '/api/vnc/setup?hostId=devbox' })
+  assert.equal(response.statusCode, 200)
+  const body = response.json() as { status: Record<string, unknown>; manualCommand: string }
+  assert.deepEqual(body.status, {
+    os: 'Linux',
+    server: null,
+    session: 'x11',
+    listening: false,
+    sudo: false,
+    supported: true,
+    hint: 'need-install',
+  })
+  // 手动安装命令随响应下发，前端可直接复制
+  assert.match(body.manualCommand, /apt-get install -y x11vnc/)
+  // 探测走 ssh 通道，脚本内容必须原样到达（只读探测，不含安装动作）
+  const calls = sshCalls(shims)
+  assert.equal(calls.length, 1)
+  const command = calls[0].join(' ')
+  assert.match(command, /command -v x11vnc/)
+  assert.match(command, /echo "os=\$\(uname -s\)"/)
+  assert.doesNotMatch(command, /apt-get install/)
+})
+
+test('vnc setup probe reports a running server as ready and surfaces sudo availability', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  shimStdout('os=Linux\nsession=x11\nserver=x11vnc\nlistening=1\nrunning=1\nsudo=ok\n')
+  const { app } = await buildApp(t)
+  const response = await app.inject({ method: 'GET', url: '/api/vnc/setup?hostId=devbox' })
+  assert.equal(response.statusCode, 200)
+  const status = (response.json() as { status: Record<string, unknown> }).status
+  assert.equal(status.server, 'x11vnc')
+  assert.equal(status.listening, true)
+  assert.equal(status.sudo, true)
+  // 已有 server 且非 wayland：无需任何提示
+  assert.equal(status.hint, '')
+})
+
+test('vnc setup probe reports a wayland session as compositor-bound', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  shimStdout('os=Linux\nsession=wayland\nwayvnc=1\n')
+  const { app } = await buildApp(t)
+  const response = await app.inject({ method: 'GET', url: '/api/vnc/setup?hostId=devbox' })
+  const status = (response.json() as { status: Record<string, unknown> }).status
+  assert.equal(status.server, 'wayvnc')
+  assert.equal(status.session, 'wayland')
+  // x11vnc 贴不上 wayland 会话，前端据此给合成器方案
+  assert.equal(status.hint, 'wayland-compositor')
+})
+
+test('vnc setup probe maps an ssh failure to 502 without echoing raw transport detail', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  process.env.SHIM_SSH_STDOUT = ''
+  process.env.SHIM_SSH_STDERR = 'dev@192.0.2.110: Permission denied (publickey).'
+  process.env.SHIM_SSH_EXIT = '255'
+  const { app } = await buildApp(t)
+  const response = await app.inject({ method: 'GET', url: '/api/vnc/setup?hostId=devbox' })
+  assert.equal(response.statusCode, 502)
+  const body = response.json() as { error: string }
+  // 归一化成动作级原因，不把 ssh 原始 stderr（含用户@地址）直接回显给前端
+  assert.equal(body.error, 'SSH authentication failed')
+  assert.doesNotMatch(body.error, /dev@|publickey/)
 })
