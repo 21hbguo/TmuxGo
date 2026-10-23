@@ -725,3 +725,29 @@ test('launch after stop returns to ready with a fresh CDP session', async (t) =>
   // 重新握手会再发一次 setDiscoverTargets：证明走的是新连接而非复用旧 ws
   assert.equal(fake.callsOf('Target.setDiscoverTargets').length, before + 1)
 })
+
+test('status() reflects engine/pid/cdpPort/pages and drops the error key once healthy', async (t) => {
+  const { fake, inst, fakeBin } = await launchFake(t)
+  await inst.launch()
+  fake.push({
+    method: 'Target.targetCreated',
+    params: { targetInfo: { targetId: 'p1', type: 'page', url: 'a', title: 'A' } },
+  })
+  await tick(20)
+  const healthy = inst.status()
+  assert.equal(healthy.state, 'ready')
+  assert.equal(healthy.engine, fakeBin)
+  assert.equal(healthy.pid, null)
+  assert.equal(healthy.cdpPort, fake.port)
+  assert.deepEqual(
+    healthy.pages.map((page) => page.id),
+    ['p1'],
+  )
+  assert.equal(healthy.activeTargetId, 'p1')
+  // 无错误时字段为 undefined：前端据此区分「没错误」和「错误信息为空」
+  assert.equal(healthy.error, undefined)
+
+  inst.state = 'error'
+  inst.error = 'CDP socket closed'
+  assert.equal(inst.status().error, 'CDP socket closed')
+})
