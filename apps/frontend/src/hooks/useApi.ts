@@ -840,6 +840,26 @@ export function useGitPull() {
   })
 }
 
+// 同步输入广播组：查询 + 整组替换（成员增删都走整组 PUT，服务端无部分更新语义）
+export function useSyncPanes() {
+  return useQuery({
+    queryKey: ['sync-panes'],
+    queryFn: () => api.syncPanes.get(),
+    // 广播组是低频人工操作，但多客户端/多标签要尽快看到变化
+    staleTime: 3000,
+  })
+}
+
+export function useSetSyncPanes() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (panes: { paneId: string; sessionName: string }[]) => api.syncPanes.replace(panes),
+    onSuccess: (data) => {
+      qc.setQueryData(['sync-panes'], data)
+    },
+  })
+}
+
 export function useGitPush() {
   const qc = useQueryClient()
   return useMutation({

@@ -7,7 +7,7 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { useTranslation } from '@/i18n'
 import { usePreferences } from '@/hooks/usePreferences'
 import { isMobileDevice } from '@/hooks/useMobileKeyboard'
-import { useHosts, useSessionSnapshot, useWindows } from '@/hooks/useApi'
+import { useHosts, useSessionSnapshot, useSetSyncPanes, useSyncPanes, useWindows } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { api } from '@/lib/api'
@@ -95,6 +95,9 @@ export function PaneGrid({
   const pushToast = useConsoleStore((s) => s.pushToast)
   const setActiveSession = useConsoleStore((s) => s.setActiveSession)
   const setActivePane = useConsoleStore((s) => s.setActivePane)
+  // 同步输入广播组（服务端持久）：本格显示的是当前会话的活动 pane，开关就作用于它
+  const { data: syncPaneData } = useSyncPanes()
+  const setSyncPanes = useSetSyncPanes()
   const toggleSshPanel = useConsoleStore((s) => s.toggleSshPanel)
   const setSessionPanelExpanded = useConsoleStore((s) => s.setSessionPanelExpanded)
   const sessionId = controlledSessionId === undefined ? activeSessionId : controlledSessionId
@@ -103,6 +106,16 @@ export function PaneGrid({
   const { data: hostsData } = useHosts()
   const { data: windowsData = [] } = useWindows(activeHostId || '', sessionId || '')
   const { data: snapshotData } = useSessionSnapshot(activeHostId || '', sessionId || '')
+  // 输入帧要带 paneId：网关靠它认出这一帧来自哪个成员 pane，缺省不广播。
+  // 用 ref 取最新值，避免 handleInput 的依赖链随活动 pane 变化而重建
+  const currentPaneId = String(snapshotData?.activePaneId || '')
+  const currentPaneIdRef = useRef('')
+  currentPaneIdRef.current = currentPaneId
+  // 所有 input 帧都带当前 pane：网关靠它决定这次击键要不要广播给组内其他成员
+  const sendInputFrame = useCallback(
+    (data: string) => send({ type: 'input', data, paneId: currentPaneIdRef.current || undefined }),
+    [send],
+  )
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', sessionId || '')
   const [pageActive, setPageActive] = useState(
     () => typeof document === 'undefined' || (document.visibilityState !== 'hidden' && document.hasFocus()),
@@ -204,6 +217,32 @@ export function PaneGrid({
   const sessionName = parseSessionName(activeHostId || 'local', sessionId || '')
   const targetSessionName = pendingSessionNameRef.current || sessionName
   const renderedSessionName = targetSessionName
+  // useMemo 固定引用：syncMembers 参与 toggleSyncPane 的依赖，写法内联会让回调每次渲染重建
+  const syncMembers = useMemo<{ paneId: string; sessionName: string }[]>(
+    () => syncPaneData?.panes || [],
+    [syncPaneData],
+  )
+  const syncPaneMax = syncPaneData?.max || 16
+  const currentSyncMember = currentPaneId
+    ? syncMembers.some((member: { paneId: string }) => member.paneId === currentPaneId)
+    : false
+  const toggleSyncPane = useCallback(() => {
+    if (!currentPaneId) return
+    const next = currentSyncMember
+      ? syncMembers.filter((member: { paneId: string }) => member.paneId !== currentPaneId)
+      : [...syncMembers, { paneId: currentPaneId, sessionName: renderedSessionName }]
+    if (!currentSyncMember && next.length > syncPaneMax) {
+      pushToast({ type: 'error', message: t('sync.limit', { max: syncPaneMax }) })
+      return
+    }
+    setSyncPanes.mutate(
+      next.map((member: { paneId: string; sessionName: string }) => ({
+        paneId: member.paneId,
+        sessionName: member.sessionName,
+      })),
+      { onError: (err) => pushToast({ type: 'error', message: err.message }) },
+    )
+  }, [currentPaneId, currentSyncMember, pushToast, renderedSessionName, setSyncPanes, syncMembers, syncPaneMax, t])
 
   const sessionWindows = useMemo(
     () => windowsData.filter((w: Window) => w.sessionId === sessionId),
@@ -680,17 +719,17 @@ export function PaneGrid({
     for (const chunk of queued) {
       if (!chunk) continue
       if (batch.length + chunk.length > INPUT_BATCH_CHARS && batch) {
-        send({ type: 'input', data: batch })
+        sendInputFrame(batch)
         batch = ''
       }
       batch += chunk
       if (batch.length >= INPUT_BATCH_CHARS) {
-        send({ type: 'input', data: batch })
+        sendInputFrame(batch)
         batch = ''
       }
     }
-    if (batch) send({ type: 'input', data: batch })
-  }, [clearInputFlushTimer, isConnected, send, targetSessionName])
+    if (batch) sendInputFrame(batch)
+  }, [clearInputFlushTimer, isConnected, sendInputFrame, targetSessionName])
   const scheduleInputFlush = useCallback(() => {
     if (inputFlushTimerRef.current) return
     inputFlushTimerRef.current = setTimeout(() => {
@@ -1086,6 +1125,7 @@ export function PaneGrid({
       if (canWriteDirectly && shouldUsePasteBinary(data)) {
         send({
           type: 'input',
+          paneId: currentPaneIdRef.current || undefined,
           data,
           hostId: activeHostId || 'local',
           sessionName: targetSessionName,
@@ -1094,7 +1134,7 @@ export function PaneGrid({
       }
       if (canWriteDirectly) {
         if (inputQueueRef.current.length === 0 && data.length <= INPUT_BATCH_CHARS) {
-          send({ type: 'input', data })
+          sendInputFrame(data)
           return
         }
         inputQueueRef.current.push(data)
@@ -1121,6 +1161,7 @@ export function PaneGrid({
       targetSessionName,
       scheduleInputFlush,
       scheduleContinuityFlush,
+      sendInputFrame,
     ],
   )
   useEffect(() => {
@@ -1346,7 +1387,12 @@ export function PaneGrid({
   // 按钮不被裁掉、可换行；容器 pointer-events-none 不吞终端首行触摸
   const statusCollapsed = ownershipStatus === 'owned' && pendingInputCount === 0 && !takeoverPending
   return (
-    <div className="tmuxgo-content-surface relative h-full w-full min-h-0 min-w-0 overflow-hidden">
+    <div
+      data-sync-member={currentSyncMember ? 'true' : undefined}
+      className={`tmuxgo-content-surface relative h-full w-full min-h-0 min-w-0 overflow-hidden ${
+        currentSyncMember ? 'ring-2 ring-inset ring-accent/60' : ''
+      }`}
+    >
       <div
         data-ownership={ownershipStatus}
         style={{ top: 'calc(0.5rem + env(safe-area-inset-top, 0px))' }}
@@ -1377,6 +1423,21 @@ export function PaneGrid({
               {t('grid.control.takeover')}
             </button>
           )
+        )}
+        {currentPaneId && (
+          <button
+            data-testid="sync-pane-toggle"
+            aria-pressed={currentSyncMember}
+            className={`pointer-events-auto hover:underline ${currentSyncMember ? 'text-accent' : 'text-text-3'}`}
+            onClick={toggleSyncPane}
+          >
+            {currentSyncMember ? t('sync.leave') : t('sync.join')}
+          </button>
+        )}
+        {syncMembers.length > 0 && (
+          <span data-testid="sync-pane-count" className="text-accent">
+            {t('sync.active', { count: syncMembers.length })}
+          </span>
         )}
         {linkDown && linkDownAlerted && retryConnection && (
           <button className="pointer-events-auto text-accent hover:underline" onClick={retryConnection}>

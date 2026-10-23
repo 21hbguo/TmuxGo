@@ -17,6 +17,7 @@ import {
 import { consumeWebSocketTicket, isAuthEnabled } from '../lib/auth.js'
 import { appendAuditEvent } from '../lib/audit-log.js'
 import { scopeAllowsHost, scopeAllowsSession, scopeIsRestricted } from '../lib/access-scope.js'
+import { fanOutSyncInput } from '../lib/sync-panes.js'
 import { appendWsMessageAudit, wsMessageTarget, type WsMessageErrorKind } from '../lib/ws-audit.js'
 import { ZodError } from 'zod'
 import { shareLinkStore, type ShareTicket } from '../lib/share-links.js'
@@ -321,6 +322,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
           case 'input': {
             const input = streamInputMessageSchema.parse(data)
             session.input(input.data)
+            // 同步输入广播（自制扇出，不是 tmux 原生 synchronize-panes）：本 pane 已由 pty 收到
+            // 输入，其余成员补发。不 await——击键路径要低延迟，扇出失败逐个兜在 fanOut 里，
+            // agent 通道的帧不是键盘输入，不参与
+            if (!agentId) void fanOutSyncInput({ data: input.data, sourcePaneId: input.paneId, scope: userScope })
             break
           }
           case 'agent_seen':
