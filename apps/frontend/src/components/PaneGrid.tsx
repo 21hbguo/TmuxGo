@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { TerminalPane } from './TerminalPane'
+import { SwitchHud, type SwitchHudPayload } from './SwitchHud'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useTranslation } from '@/i18n'
 import { usePreferences } from '@/hooks/usePreferences'
@@ -302,14 +303,84 @@ export function PaneGrid({
     },
     [snapshotData, activeWindow, activeWindowZoomed, setActivePane, queryClient, activeHostId, sessionId, pushToast, t],
   )
+  // 滑动切换后的方位提示（仅移动端）：数据全部从现有 windows/panes 算，不新增 store 字段
+  const [switchHud, setSwitchHud] = useState<SwitchHudPayload | null>(null)
+  const buildWindowHud = useCallback(
+    (direction: -1 | 1): SwitchHudPayload | null => {
+      if (!sessionWindows.length) return null
+      const currentIndex = Math.max(
+        0,
+        sessionWindows.findIndex((window: Window) => window.active),
+      )
+      const nextIndex = currentIndex + direction
+      // 到头会切 session（switchWindow 内部行为）：此时没有 window 邻居可预告，只报当前位
+      const inRange = nextIndex >= 0 && nextIndex < sessionWindows.length
+      const targetIndex = inRange ? nextIndex : currentIndex
+      const target = sessionWindows[targetIndex]
+      return {
+        windowIndex: targetIndex + 1,
+        windowTotal: sessionWindows.length,
+        windowName: target?.name || '',
+        // 邻居以切换后的落点为基准：否则刚落位的这一屏会把自己显示成邻居
+        prevLabel: sessionWindows[targetIndex - 1]?.name,
+        nextLabel: sessionWindows[targetIndex + 1]?.name,
+      }
+    },
+    [sessionWindows],
+  )
+  const buildPaneHud = useCallback(
+    (direction: -1 | 1): SwitchHudPayload | null => {
+      const panes = Array.isArray(snapshotData?.panes) ? snapshotData.panes : []
+      const windowId = snapshotData?.activeWindowId || activeWindow?.id || ''
+      const windowPanes = panes
+        .filter((pane: Pane) => pane.windowId === windowId)
+        .sort((a: Pane, b: Pane) => (a.index ?? 0) - (b.index ?? 0))
+      if (windowPanes.length <= 1) return null
+      const currentPaneId = String(snapshotData?.activePaneId || useConsoleStore.getState().activePaneId || '')
+      const currentIndex = Math.max(
+        0,
+        windowPanes.findIndex((pane: Pane) => pane.id === currentPaneId),
+      )
+      const nextIndex = (currentIndex + direction + windowPanes.length) % windowPanes.length
+      const next = windowPanes[nextIndex]
+      if (!next) return null
+      const windowIndex = Math.max(
+        0,
+        sessionWindows.findIndex((window: Window) => window.active),
+      )
+      // zoom 态 pane 级：邻居用 pane title（无 title 退回序号），窗口信息仍由当前窗口提供。
+      // 与 window 级一致，邻居围绕落点算；列表循环（与 switchPane 的回绕语义对齐）
+      const label = (pane: Pane | undefined) => (pane ? pane.title || `#${(pane.index ?? 0) + 1}` : undefined)
+      const prevPane = windowPanes[(nextIndex - 1 + windowPanes.length) % windowPanes.length]
+      const nextPane = windowPanes[(nextIndex + 1) % windowPanes.length]
+      return {
+        windowIndex: windowIndex + 1,
+        windowTotal: sessionWindows.length || 1,
+        windowName: sessionWindows[windowIndex]?.name || '',
+        paneIndex: nextIndex + 1,
+        paneTotal: windowPanes.length,
+        prevLabel: prevPane?.id === next.id ? undefined : label(prevPane),
+        nextLabel: nextPane?.id === next.id ? undefined : label(nextPane),
+      }
+    },
+    [snapshotData, activeWindow, sessionWindows],
+  )
   const handleSwipeRef = useRef<(direction: -1 | 1) => void>(() => {})
   useEffect(() => {
     handleSwipeRef.current = (direction: -1 | 1) => {
       const now = Date.now()
+      // 400ms 手势防抖窗口内的连续滑动直接丢弃，HUD 也不闪
       if (now - navLockRef.current < 400) return
       navLockRef.current = now
-      if (activeWindowZoomed && zoomedPaneCount > 1) void switchPane(direction)
-      else void switchWindow(direction)
+      if (activeWindowZoomed && zoomedPaneCount > 1) {
+        const hud = buildPaneHud(direction)
+        if (hud) setSwitchHud(hud)
+        void switchPane(direction)
+      } else {
+        const hud = buildWindowHud(direction)
+        if (hud) setSwitchHud(hud)
+        void switchWindow(direction)
+      }
     }
   })
   const handleSwipeLeft = useCallback(() => {
@@ -1321,6 +1392,7 @@ export function PaneGrid({
           </>
         )}
       </div>
+      {isMobile && <SwitchHud payload={switchHud} />}
       <TerminalPane
         sessionName={renderedSessionName}
         onInput={handleInput}
