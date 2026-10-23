@@ -141,3 +141,180 @@ test('browser full loop: launch → WS frames → navigate → snapshot → clic
 
   ws.close()
 })
+
+// 路由层桩：只替换 manager 的对外方法，绝不真起浏览器
+function stubManager(t: { after: (fn: () => void) => void }) {
+  const inst = browserManager.get('local')!
+  const orig = { launch: inst.launch, stop: inst.stop, navigate: inst.navigate, status: inst.status }
+  const calls = { launch: 0, stop: 0, navigate: [] as { url: string; targetId?: string }[] }
+  const state = { launchError: null as Error | null, navigateError: null as Error | null }
+  inst.launch = async () => {
+    calls.launch++
+    if (state.launchError) throw state.launchError
+    inst.state = 'ready'
+    inst.engine = '/usr/bin/fake-chrome'
+  }
+  inst.stop = async () => {
+    calls.stop++
+    inst.state = 'idle'
+  }
+  inst.navigate = async (url: string, targetId?: string) => {
+    calls.navigate.push({ url, targetId })
+    if (state.navigateError) throw state.navigateError
+    return { ok: true }
+  }
+  inst.status = () => ({
+    state: inst.state,
+    engine: inst.engine,
+    pid: inst.proc?.pid ?? null,
+    cdpPort: inst.cdpPort,
+    pages: [],
+    activeTargetId: null,
+    error: inst.error ?? undefined,
+  })
+  t.after(() => {
+    inst.launch = orig.launch
+    inst.stop = orig.stop
+    inst.navigate = orig.navigate
+    inst.status = orig.status
+    inst.state = 'idle'
+    inst.engine = null
+    inst.error = null
+    inst.cdpPort = null
+  })
+  return { calls, state, inst }
+}
+
+test('GET /browser/status returns the manager status shape without an error key when healthy', async (t) => {
+  const { app, port } = await setup()
+  t.after(() => app.close())
+  const { inst } = stubManager(t)
+  inst.state = 'ready'
+  inst.cdpPort = 9222
+  const res = await fetch(`http://127.0.0.1:${port}/api/browser/status`)
+  assert.equal(res.status, 200)
+  const body = (await res.json()) as Record<string, unknown>
+  assert.equal(body.state, 'ready')
+  assert.equal(body.cdpPort, 9222)
+  assert.deepEqual(body.pages, [])
+  assert.equal(body.activeTargetId, null)
+  // 健康时 error 走 undefined（JSON 里不出现），前端据此不显示错误条
+  assert.equal('error' in body, false)
+
+  inst.state = 'error'
+  inst.error = 'CDP socket closed'
+  const failed = (await (await fetch(`http://127.0.0.1:${port}/api/browser/status`)).json()) as Record<string, unknown>
+  assert.equal(failed.state, 'error')
+  assert.equal(failed.error, 'CDP socket closed')
+})
+
+test('POST /browser/stop is idempotent from the API surface', async (t) => {
+  const { app, port } = await setup()
+  t.after(() => app.close())
+  const { calls } = stubManager(t)
+  for (const _ of [1, 2]) {
+    const res = await fetch(`http://127.0.0.1:${port}/api/browser/stop`, { method: 'POST' })
+    assert.equal(res.status, 200)
+    assert.deepEqual(await res.json(), { ok: true })
+  }
+  // 重复 stop 不该被路由层挡住——幂等由 manager 保证
+  assert.equal(calls.stop, 2)
+})
+
+test('POST /browser/navigate forwards url/targetId and maps failures to 400', async (t) => {
+  const { app, port } = await setup()
+  t.after(() => app.close())
+  const { calls, state } = stubManager(t)
+  const ok = await fetch(`http://127.0.0.1:${port}/api/browser/navigate`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ url: 'https://example.com/a', targetId: 'p1' }),
+  })
+  assert.equal(ok.status, 200)
+  assert.deepEqual(await ok.json(), { ok: true })
+  assert.deepEqual(calls.navigate, [{ url: 'https://example.com/a', targetId: 'p1' }])
+
+  state.navigateError = new Error('net::ERR_NAME_NOT_RESOLVED')
+  const failed = await fetch(`http://127.0.0.1:${port}/api/browser/navigate`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ url: 'https://nowhere.invalid' }),
+  })
+  assert.equal(failed.status, 400)
+  assert.deepEqual(await failed.json(), { error: 'net::ERR_NAME_NOT_RESOLVED' })
+})
+
+test('POST /browser/navigate rejects an empty or oversized url before reaching the manager', async (t) => {
+  const { app, port } = await setup()
+  t.after(() => app.close())
+  const { calls } = stubManager(t)
+  for (const url of ['', 'x'.repeat(4097)]) {
+    const res = await fetch(`http://127.0.0.1:${port}/api/browser/navigate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url }),
+    })
+    assert.equal(res.status, 400, `url len=${url.length}`)
+    assert.ok((await res.json()).error)
+  }
+  assert.equal(calls.navigate.length, 0)
+})
+
+test('POST /browser/launch maps a missing binary to 400 and other failures to 502', async (t) => {
+  const { app, port } = await setup()
+  t.after(() => app.close())
+  const { calls, state } = stubManager(t)
+  const ok = await fetch(`http://127.0.0.1:${port}/api/browser/launch`, { method: 'POST' })
+  assert.equal(ok.status, 200)
+  const okBody = (await ok.json()) as Record<string, unknown>
+  assert.equal(okBody.ok, true)
+  assert.equal(okBody.state, 'ready')
+
+  state.launchError = new Error('NO_BROWSER_BINARY')
+  const missing = await fetch(`http://127.0.0.1:${port}/api/browser/launch`, { method: 'POST' })
+  assert.equal(missing.status, 400)
+  const missingBody = (await missing.json()) as { error: string; hint: string }
+  assert.equal(missingBody.error, 'NO_BROWSER_BINARY')
+  // 两条错误路径都要带安装提示，前端直接展示
+  assert.match(missingBody.hint, /playwright/)
+
+  state.launchError = new Error('DevToolsActivePort timeout')
+  const broken = await fetch(`http://127.0.0.1:${port}/api/browser/launch`, { method: 'POST' })
+  assert.equal(broken.status, 502)
+  const brokenBody = (await broken.json()) as { error: string; hint: string }
+  assert.equal(brokenBody.error, 'DevToolsActivePort timeout')
+  assert.match(brokenBody.hint, /playwright/)
+  assert.equal(calls.launch, 3)
+})
+
+test('control op status/stop/navigate mirror the REST surface', async (t) => {
+  const { app, port } = await setup()
+  t.after(() => app.close())
+  const { calls, state, inst } = stubManager(t)
+  inst.state = 'ready'
+  const ctrl = (body: Record<string, unknown>) =>
+    fetch(`http://127.0.0.1:${port}/api/v1/control/browser`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-tmuxgo-env': '1', 'x-tmuxgo-agent-token': AGENT_TOKEN },
+      body: JSON.stringify(body),
+    })
+  const status = (await (await ctrl({ op: 'status' })).json()) as Record<string, unknown>
+  assert.equal(status.ok, true)
+  assert.equal(status.state, 'ready')
+
+  const nav = (await (await ctrl({ op: 'navigate', url: 'https://example.com/b' })).json()) as Record<string, unknown>
+  assert.equal(nav.ok, true)
+  assert.deepEqual(nav.result, { ok: true })
+
+  state.navigateError = new Error('browser not connected')
+  const navFail = await ctrl({ op: 'navigate', url: 'https://example.com/c' })
+  assert.equal(navFail.status, 400)
+  const navFailBody = (await navFail.json()) as { message: string; code: string }
+  // 控制面错误形态与 REST 不同：{ message, code }
+  assert.deepEqual(navFailBody, { message: 'browser not connected', code: 'BROWSER_OP_FAILED' })
+
+  const stop = await ctrl({ op: 'stop' })
+  assert.equal(stop.status, 200)
+  assert.deepEqual(await stop.json(), { ok: true })
+  assert.ok(calls.stop >= 1)
+})
