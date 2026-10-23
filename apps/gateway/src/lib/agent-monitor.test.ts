@@ -1,8 +1,20 @@
 import '../test-env.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { AgentMonitor } from './agent-monitor.js'
+import { AgentMonitor, type AgentMonitorEvent } from './agent-monitor.js'
 import type { AgentPaneState } from './agent-state.js'
+import type { RecoveryCandidateInput } from './agent-recovery.js'
+
+// 测试缝：refreshHosts 是私有方法，单测按结构化断言取用（不改实现可见性）
+function callRefreshHosts(monitor: AgentMonitor, pollNewHosts?: boolean) {
+  return (monitor as unknown as { refreshHosts: (pollNewHosts?: boolean) => Promise<void> }).refreshHosts(pollNewHosts)
+}
+
+type RemovedEvent = Extract<AgentMonitorEvent, { type: 'agent_status_removed' }>
+// 事件是判别联合：断言里要取 removed 专属字段，先用谓词收窄再 find
+function findRemoved(events: AgentMonitorEvent[], paneId: string) {
+  return events.find((event): event is RemovedEvent => event.type === 'agent_status_removed' && event.paneId === paneId)
+}
 
 function pane(
   paneId: string,
@@ -31,8 +43,8 @@ function pane(
 test('uses one host scan for multiple subscribers and separates snapshots from notifications', async () => {
   let scanCount = 0
   let states = [pane('local:%1'), pane('local:%2')]
-  const eventsA: any[] = []
-  const eventsB: any[] = []
+  const eventsA: AgentMonitorEvent[] = []
+  const eventsB: AgentMonitorEvent[] = []
   const monitor = new AgentMonitor({
     getHostIds: async () => ['local'],
     scan: async () => {
@@ -68,7 +80,7 @@ test('uses one host scan for multiple subscribers and separates snapshots from n
 test('publishes removed panes and does not convert a scan failure into completion', async () => {
   let fail = false
   let states: AgentPaneState[] = [pane('local:%1')]
-  const events: any[] = []
+  const events: AgentMonitorEvent[] = []
   const monitor = new AgentMonitor({
     getHostIds: async () => ['local'],
     scan: async () => {
@@ -101,7 +113,7 @@ test('publishes removed panes and does not convert a scan failure into completio
 test('emits a disconnected notification once and a reconnected change after recovery', async () => {
   let fail = false
   const states: AgentPaneState[] = [pane('local:%2')]
-  const events: any[] = []
+  const events: AgentMonitorEvent[] = []
   const monitor = new AgentMonitor({
     getHostIds: async () => ['local'],
     scan: async () => {
@@ -132,7 +144,7 @@ test('emits a disconnected notification once and a reconnected change after reco
 test('throttles repeated notifications for the same pane and stage', async () => {
   let now = 1000000
   let states: AgentPaneState[] = [pane('local:%1')]
-  const events: any[] = []
+  const events: AgentMonitorEvent[] = []
   const monitor = new AgentMonitor({
     getHostIds: async () => ['local'],
     scan: async () => states,
@@ -174,7 +186,7 @@ test('clears the notification throttle when the pane is removed', async () => {
   let states: AgentPaneState[] = [
     { ...pane('local:%1', 'failed', 'failed'), revision: 2, eventId: 'local:%1:failed:2' },
   ]
-  const events: any[] = []
+  const events: AgentMonitorEvent[] = []
   const monitor = new AgentMonitor({
     getHostIds: async () => ['local'],
     scan: async () => states,
@@ -222,7 +234,7 @@ test('removes deleted sessions and hosts without affecting other monitor state',
     local: [pane('local:%1')],
     remote: [pane('remote:%2')],
   }
-  const events: any[] = []
+  const events: AgentMonitorEvent[] = []
   const monitor = new AgentMonitor({
     getHostIds: async () => hostIds,
     scan: async (hostId) => states[hostId] || [],
@@ -232,20 +244,14 @@ test('removes deleted sessions and hosts without affecting other monitor state',
   await monitor.start()
   states = { local: [], remote: [pane('remote:%2')] }
   await monitor.pollNow('local')
-  assert.equal(
-    events.find((event) => event.type === 'agent_status_removed' && event.paneId === 'local:%1')?.reason,
-    'pane_exited',
-  )
+  assert.equal(findRemoved(events, 'local:%1')?.reason, 'pane_exited')
   assert.deepEqual(
     monitor.getStates('remote')?.map((item) => item.paneId),
     ['remote:%2'],
   )
   hostIds = ['local']
-  await (monitor as any).refreshHosts(false)
-  assert.equal(
-    events.find((event) => event.type === 'agent_status_removed' && event.paneId === 'remote:%2')?.reason,
-    'host_removed',
-  )
+  await callRefreshHosts(monitor, false)
+  assert.equal(findRemoved(events, 'remote:%2')?.reason, 'host_removed')
   assert.equal(monitor.getStates('remote'), null)
   unsubscribe()
   monitor.stop()
@@ -253,7 +259,7 @@ test('removes deleted sessions and hosts without affecting other monitor state',
 
 test('applies display metadata patches with seq dedup and ttl expiry', async () => {
   const states: AgentPaneState[] = [pane('local:%5')]
-  const events: any[] = []
+  const events: AgentMonitorEvent[] = []
   let now = 5000
   const monitor = new AgentMonitor({
     getHostIds: async () => ['local'],
@@ -380,7 +386,7 @@ test('stamps stateSeq once and only advances it on real state changes', async ()
 test('discards an in-flight scan after stop and emits a fresh snapshot after restart', async () => {
   let releaseScan: (states: AgentPaneState[]) => void = () => {}
   let scanCount = 0
-  const events: any[] = []
+  const events: AgentMonitorEvent[] = []
   const monitor = new AgentMonitor({
     getHostIds: async () => ['local'],
     scan: async () => {
@@ -415,7 +421,7 @@ test('discards an in-flight scan after stop and emits a fresh snapshot after res
 
 test('publishes the first snapshot after an initially unavailable host recovers', async () => {
   let fail = true
-  const events: any[] = []
+  const events: AgentMonitorEvent[] = []
   const monitor = new AgentMonitor({
     getHostIds: async () => ['local'],
     scan: async () => {
@@ -442,7 +448,7 @@ test('publishes the first snapshot after an initially unavailable host recovers'
 })
 
 test('records recovery candidates on pane removal, ended transitions and host removal', async () => {
-  const seen: any[] = []
+  const seen: RecoveryCandidateInput[] = []
   let states: AgentPaneState[] = [
     { ...pane('local:%7'), nativeAgentSessionId: 'claude-sess-1', cwd: '/repo' },
     pane('local:%8'),
@@ -483,7 +489,7 @@ test('records recovery candidates on pane removal, ended transitions and host re
   assert.equal(ended?.agentSessionId, 'thread-99')
   // host 下线 → 全部 pane 记 host_removed
   hostIds = []
-  await (monitor as any).refreshHosts()
+  await callRefreshHosts(monitor)
   assert.ok(seen.filter((item) => item.reason === 'host_removed').length >= 1)
   unsubscribe()
   monitor.stop()
@@ -531,7 +537,7 @@ test('markSeen clears stale completed protocol overlay so done does not reapply'
     scan: async () => states,
     intervalMs: 1000,
   })
-  const events: any[] = []
+  const events: AgentMonitorEvent[] = []
   const unsubscribe = monitor.subscribe((event) => events.push(event))
   await monitor.start()
   monitor.ingestProtocolEvent({

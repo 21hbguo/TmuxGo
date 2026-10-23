@@ -5,6 +5,9 @@ import os from 'os'
 import path from 'path'
 import test from 'node:test'
 
+// 动态 import 的 hosts 模块入参类型：stub 只填必要字段，其余按实现口径断言
+type HostStoreInput = Parameters<typeof import('./hosts.js').saveHostConfig>[0]
+
 test('migrates host credentials out of hosts.json with restricted permissions', async () => {
   const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-hosts-'))
   process.env.TMUXGO_CONFIG_DIR = configDir
@@ -99,7 +102,7 @@ test('saves a full host config replacing hosts and credentials', async (t) => {
     hosts: {
       version: 2,
       hosts: [{ id: 'alpha', name: 'Alpha', address: 'alpha.example', user: 'guo', port: 22 }],
-    } as any,
+    } as unknown as HostStoreInput['hosts'],
     credentials: { version: 1, credentials: { alpha: { password: 'secret', passwordEnv: '', privateKeyPath: '' } } },
   })
   assert.equal(saved.hosts.hosts.length, 1)
@@ -126,7 +129,7 @@ test('updates hosts without touching existing credentials', async (t) => {
     hosts: {
       version: 2,
       hosts: [{ id: 'alpha', name: 'Alpha', address: 'alpha.example', user: 'guo', port: 22 }],
-    } as any,
+    } as unknown as HostStoreInput['hosts'],
     credentials: { version: 1, credentials: { alpha: { password: 'keep-me', passwordEnv: '', privateKeyPath: '' } } },
   })
   const updated = await hosts.saveHostConfig({
@@ -136,7 +139,7 @@ test('updates hosts without touching existing credentials', async (t) => {
         { id: 'beta', name: 'Beta', address: 'beta.example', user: 'guo', port: 22 },
         { id: 'alpha', name: 'Alpha', address: 'alpha.example', user: 'guo', port: 22 },
       ],
-    } as any,
+    } as unknown as HostStoreInput['hosts'],
   })
   assert.equal(updated.hosts.hosts.length, 2)
   assert.equal(updated.credentials.credentials.alpha.password, 'keep-me')
@@ -152,15 +155,22 @@ test('rejects an invalid host config structure', async (t) => {
     await rm(configDir, { recursive: true, force: true })
   })
   const hosts = await import(`./hosts.js?config-invalid=${Date.now()}-${Math.random()}`)
-  await assert.rejects(hosts.saveHostConfig({ hosts: { version: 1, hosts: [] } } as any), /Invalid host store/)
+  // 故意非法结构：类型上按 store 形状断言，运行期由实现校验拒绝
+  await assert.rejects(
+    hosts.saveHostConfig({ hosts: { version: 1, hosts: [] } as unknown as HostStoreInput['hosts'] }),
+    /Invalid host store/,
+  )
   await assert.rejects(
     hosts.saveHostConfig({
-      hosts: { version: 2, hosts: [{ id: 'local', name: 'Local', address: '127.0.0.1', user: 'guo', port: 22 }] },
-    } as any),
+      hosts: {
+        version: 2,
+        hosts: [{ id: 'local', name: 'Local', address: '127.0.0.1', user: 'guo', port: 22 }],
+      } as unknown as HostStoreInput['hosts'],
+    }),
     /Invalid host id/,
   )
   await assert.rejects(
-    hosts.saveHostConfig({ credentials: { version: 2, credentials: {} } } as any),
+    hosts.saveHostConfig({ credentials: { version: 2, credentials: {} } as unknown as HostStoreInput['credentials'] }),
     /Invalid credential store/,
   )
 })

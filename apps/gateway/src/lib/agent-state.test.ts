@@ -35,22 +35,40 @@ test('ignores ordinary node processes', () => {
   assert.equal(detectAgentPaneState('node', 'gateway', 'Gateway listening on port 3001'), null)
 })
 test('skips capture only when last output time is stable and non-empty', () => {
-  const previous: any = { paneId: 'local:%1', lastOutputTime: '1723000000', paneDead: false }
-  const noTime: any = { paneId: 'local:%1', tmuxHookEvent: undefined, lastOutputTime: '', paneDead: false }
-  const stable: any = { paneId: 'local:%1', tmuxHookEvent: undefined, lastOutputTime: '1723000000', paneDead: false }
-  const changed: any = { paneId: 'local:%1', tmuxHookEvent: undefined, lastOutputTime: '1723000500', paneDead: false }
-  const hookEvent: any = {
+  // 采集记录在生产里由 tmux 全量填充，单测只喂判定相关字段 → 按缺字段 stub 断言
+  type CaptureRecord = NonNullable<Parameters<typeof shouldSkipCapture>[0]>
+  type CaptureCandidate = Parameters<typeof shouldSkipCapture>[1]
+  const previous = { paneId: 'local:%1', lastOutputTime: '1723000000', paneDead: false } as unknown as CaptureRecord
+  const noTime = {
+    paneId: 'local:%1',
+    tmuxHookEvent: undefined,
+    lastOutputTime: '',
+    paneDead: false,
+  } as unknown as CaptureCandidate
+  const stable = {
+    paneId: 'local:%1',
+    tmuxHookEvent: undefined,
+    lastOutputTime: '1723000000',
+    paneDead: false,
+  } as unknown as CaptureCandidate
+  const changed = {
+    paneId: 'local:%1',
+    tmuxHookEvent: undefined,
+    lastOutputTime: '1723000500',
+    paneDead: false,
+  } as unknown as CaptureCandidate
+  const hookEvent = {
     paneId: 'local:%1',
     tmuxHookEvent: { paneId: '%1', event: 'pane-command-started' },
     lastOutputTime: '1723000000',
     paneDead: false,
-  }
-  const deadChanged: any = {
+  } as unknown as CaptureCandidate
+  const deadChanged = {
     paneId: 'local:%1',
     tmuxHookEvent: undefined,
     lastOutputTime: '1723000000',
     paneDead: true,
-  }
+  } as unknown as CaptureCandidate
   assert.equal(shouldSkipCapture(previous, noTime), false)
   assert.equal(shouldSkipCapture(previous, stable), true)
   assert.equal(shouldSkipCapture(previous, changed), false)

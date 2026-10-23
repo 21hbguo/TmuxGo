@@ -145,7 +145,7 @@ test('exports a session layout and re-imports it as a new session', async () => 
       '-F',
       '#{window_name}',
     ])
-    assert.deepEqual(windowNames.trim().split('\n').sort(), doc.windows.map((w: any) => w.name).sort())
+    assert.deepEqual(windowNames.trim().split('\n').sort(), doc.windows.map((w: { name: string }) => w.name).sort())
     const { stdout: paneCount } = await execTmuxFile('tmux', [
       'list-panes',
       '-s',

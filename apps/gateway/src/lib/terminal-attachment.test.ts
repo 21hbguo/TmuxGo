@@ -9,7 +9,7 @@ import * as pty from 'node-pty'
 import { createTerminalAttachment, setAttachFlagProbeForTest, setPtySpawnForTest } from './terminal-attachment.js'
 import { TEST_TMUX_SESSION, execTmuxFile, killTestTmuxSession } from '../test-tmux.js'
 import { upsertRemoteHost } from './hosts.js'
-import { agentManager } from '../agent-manager.js'
+import { agentManager, type AgentSocket } from '../agent-manager.js'
 
 function fakePty(pid: number) {
   const dataListeners: Array<(data: string) => void> = []
@@ -174,7 +174,7 @@ test('creates an agent attachment and adapts onExit to a plain exit code', async
       if (request.type === 'terminal-attach') {
         attachmentId = request.attachmentId
         void Promise.resolve().then(() =>
-          agentManager.handleMessage(hostId, socket as any, {
+          agentManager.handleMessage(hostId, socket, {
             type: 'terminal-attached',
             requestId: request.requestId,
             attachmentId: request.attachmentId,
@@ -183,7 +183,7 @@ test('creates an agent attachment and adapts onExit to a plain exit code', async
         )
       }
     },
-  } as any
+  } as unknown as AgentSocket /* 桩：只实现测试用到的 readyState/send，on/close 由注册路径不用 */
   agentManager.register(hostId, 'agent-host', '127.0.0.1', '1.0.0', socket)
   const attachment = await createTerminalAttachment({
     hostId,

@@ -4,6 +4,21 @@ import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import test from 'node:test'
+
+// 动态 import 的 hosts 模块类型不可解析，listAllHosts 结果按测试读取的字段声明
+interface HostListEntry {
+  id: string
+  source: string
+  name: string
+  address: string
+  user: string
+  port: number
+  identityFile?: string
+  favorite?: boolean
+  groups?: string[]
+  tmuxPath?: string
+  useAgent?: boolean
+}
 import { appendSshConfigHost, listSshConfigHosts, readSshConfigText, writeSshConfigText } from './ssh-config.js'
 
 async function withTempDir(t: test.TestContext, fn: (dir: string) => Promise<void>) {
@@ -206,7 +221,7 @@ Host plain
     })
     await hosts.upsertRemoteHost({ id: 'manual', name: 'Manual', address: 'manual.example', user: 'me', port: 2022 })
     const all = await hosts.listAllHosts()
-    const devbox = all.find((h: any) => h.id === 'devbox')!
+    const devbox = all.find((h: HostListEntry) => h.id === 'devbox')!
     assert.equal(devbox.source, 'sshconfig')
     assert.equal(devbox.address, '192.0.2.110')
     assert.equal(devbox.user, 'dev')
@@ -217,10 +232,10 @@ Host plain
     assert.deepEqual(devbox.groups, ['prod'])
     assert.equal(devbox.tmuxPath, '/opt/tmux')
     assert.equal(devbox.useAgent, true)
-    const manual = all.find((h: any) => h.id === 'manual')!
+    const manual = all.find((h: HostListEntry) => h.id === 'manual')!
     assert.equal(manual.source, 'store')
     assert.equal(manual.port, 2022)
-    const plain = all.find((h: any) => h.id === 'plain')!
+    const plain = all.find((h: HostListEntry) => h.id === 'plain')!
     assert.equal(plain.source, 'sshconfig')
     assert.equal(plain.name, 'plain')
     assert.equal(plain.user, '')

@@ -36,7 +36,21 @@ test('zodToJsonSchema converts the protocol subset faithfully', () => {
 
 test('protocol document mirrors the zod request models', () => {
   const doc = buildControlProtocolSchema()
-  const methods = doc.methods as Record<string, { params?: { properties: Record<string, any>; required?: string[] } }>
+  // 文档是 JSON Schema 树：只声明断言用到的字段（number 约束 / pattern / enum / anyOf）
+  interface FieldShape {
+    maximum?: number
+    minimum?: number
+    maxLength?: number
+    pattern?: string
+    maxItems?: number
+    enum?: string[]
+    anyOf?: Array<{ required: string[] }>
+    items?: FieldShape
+  }
+  const methods = doc.methods as Record<
+    string,
+    { params?: { properties: Record<string, FieldShape>; required?: string[] } }
+  >
 
   // Task9 编排原语：bounds 与 zod 一致
   assert.equal(methods['panes.snapshot'].params!.properties.lines.maximum, 100)
@@ -49,7 +63,7 @@ test('protocol document mirrors the zod request models', () => {
 
   // Task12 agent actions：args pattern / opId pattern / ackTimeoutMs 范围不丢
   const start = methods['agent.start'].params!.properties
-  assert.equal(start.args.items.pattern, '^-{0,2}[A-Za-z0-9][A-Za-z0-9._:/=-]{0,126}$')
+  assert.equal(start.args.items?.pattern, '^-{0,2}[A-Za-z0-9][A-Za-z0-9._:/=-]{0,126}$')
   assert.equal(start.args.maxItems, 8)
   assert.equal(start.ackTimeoutMs.maximum, 30000)
   assert.equal(start.opId.pattern, '^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$')

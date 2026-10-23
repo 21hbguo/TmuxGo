@@ -2,14 +2,16 @@ import '../../test-env.js'
 import assert from 'node:assert/strict'
 import test, { afterEach } from 'node:test'
 import { refreshAttachedClient, setRefreshExecForTest } from './stream-tmux.js'
+import type { TmuxExecResult } from '../tmux-executor.js'
 
 type ExecCall = { hostId: string; args: string[] }
 function mockExec(impl: (args: string[]) => { stdout: string }) {
   const calls: ExecCall[] = []
-  setRefreshExecForTest((async (hostId: string, args: string[]) => {
+  // 实现签名要求 host: HostRecord，但 refresh 路径只消费 stdout，桩按实际行为传 null
+  setRefreshExecForTest(async (hostId: string, args: string[]) => {
     calls.push({ hostId, args })
-    return { ...impl(args), stderr: '', host: null }
-  }) as any)
+    return { ...impl(args), stderr: '', host: null } as unknown as TmuxExecResult
+  })
   return calls
 }
 afterEach(() => setRefreshExecForTest(null))

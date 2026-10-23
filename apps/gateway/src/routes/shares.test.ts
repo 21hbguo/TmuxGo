@@ -5,6 +5,7 @@ import os from 'os'
 import path from 'path'
 import Fastify from 'fastify'
 import test from 'node:test'
+import type { AgentSocket } from '../agent-manager.js'
 
 test('creates, exchanges, and revokes scoped share links without exposing tokens', async () => {
   const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-share-route-'))
@@ -15,10 +16,12 @@ test('creates, exchanges, and revokes scoped share links without exposing tokens
   process.env.TMUXGO_AUDIT_LOG = auditPath
   try {
     const { agentManager } = await import('../agent-manager.js')
+    // 动态 import 拿不到类型，按注册签名静态引入类型
     const { shareRoutes } = await import(`./shares.js?test=${Date.now()}-${Math.random()}`)
     const fastify = Fastify()
     await fastify.register(shareRoutes)
-    const agentSocket = { readyState: 1, send: () => {} } as any
+    // 桩：只实现注册路径用到的 readyState/send
+    const agentSocket = { readyState: 1, send: () => {} } as unknown as AgentSocket
     agentManager.register('agent-only', 'Agent only', '127.0.0.1', '1.0.0', agentSocket)
     const missingHost = await fastify.inject({
       method: 'POST',
