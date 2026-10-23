@@ -667,3 +667,61 @@ test('screenshot failure still detaches the temporary session', async (t) => {
   await assert.rejects(inst.screenshot(), /Could not capture/)
   assert.equal(fake.callsOf('Target.detachFromTarget')[0]?.params?.sessionId, 'sid-shot')
 })
+
+test('stop tears down clients, socket and process, and is idempotent', async (t) => {
+  const { fake, inst } = await launchFake(t)
+  await inst.launch()
+  const signals: string[] = []
+  // 假进程：只记录信号，stop 的 SIGTERM→SIGKILL 兜底逻辑照走
+  ;(inst as unknown as { proc: unknown }).proc = {
+    pid: 4242,
+    kill: (signal: string) => {
+      signals.push(signal)
+      return true
+    },
+  }
+  const messages: Record<string, unknown>[] = []
+  const client = await inst.addClient((msg) => messages.push(msg))
+  fake.handlers.set('Target.attachToTarget', () => ({ sessionId: 'sid-stop' }))
+  await inst.bindClient(client, 'p1')
+  assert.equal(client.sessionId, 'sid-stop')
+
+  await inst.stop()
+  assert.equal(inst.state, 'idle')
+  assert.deepEqual(signals, ['SIGTERM'])
+  // 已开 stream 的客户端：解绑 session 并收到 status=idle，随后不再持有 client
+  assert.equal(fake.callsOf('Target.detachFromTarget').at(-1)?.params?.sessionId, 'sid-stop')
+  // 现状：stop 先把 client 移出集合再 setState 广播，所以这条连接收不到 status=idle，
+  // 只会在自身 WS 关闭时感知（见回报里的「已开 stream 客户端收什么」）。
+  const statusMsg = messages.filter((msg) => msg.type === 'status').at(-1) as { state: string }
+  assert.equal(statusMsg.state, 'ready')
+  assert.equal(inst.status().pages.length, 0)
+  assert.equal(inst.activeTargetId, null)
+
+  // 幂等：第二次 stop 不再发信号、不抛错
+  await inst.stop()
+  await inst.stop()
+  assert.deepEqual(signals, ['SIGTERM'])
+  assert.equal(inst.state, 'idle')
+})
+
+test('stop before any launch is a no-op', async (t) => {
+  const inst = new BrowserInstance()
+  t.after(() => inst.stop())
+  await inst.stop()
+  assert.equal(inst.state, 'idle')
+  assert.equal(inst.status().pid, null)
+  assert.deepEqual(inst.status().pages, [])
+})
+
+test('launch after stop returns to ready with a fresh CDP session', async (t) => {
+  const { fake, inst } = await launchFake(t)
+  await inst.launch()
+  await inst.stop()
+  assert.equal(inst.state, 'idle')
+  const before = fake.callsOf('Target.setDiscoverTargets').length
+  await inst.launch()
+  assert.equal(inst.state, 'ready')
+  // 重新握手会再发一次 setDiscoverTargets：证明走的是新连接而非复用旧 ws
+  assert.equal(fake.callsOf('Target.setDiscoverTargets').length, before + 1)
+})
