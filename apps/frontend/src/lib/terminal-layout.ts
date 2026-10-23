@@ -1,5 +1,26 @@
+import type { Terminal } from '@xterm/xterm'
 import { recordMobileDebug } from './terminal-debug'
 import type { TerminalSizeState } from './terminal-size-state'
+
+// xterm 私有渲染服务入口（非公开 API）：dimensions.css 提供 cell/canvas 像素几何，
+// clear() 清字形图集；字段缺失时全链路可选链降级
+type LayoutTerminal = Terminal & {
+  _core?: {
+    _renderService?: {
+      dimensions?: {
+        css?: { canvas?: { width?: number; height?: number }; cell?: { width?: number; height?: number } }
+      }
+      clear?: () => void
+    }
+  }
+}
+// layout 只消费 preferences 的四个字段
+interface TerminalLayoutPreferences {
+  terminalPadding: number
+  fontSize: number
+  fontFamily: string
+  cursorBlink: boolean
+}
 const TERMINAL_REPAINT_DELAYS = [0, 16, 48, 120, 260]
 const MOBILE_TERMINAL_REPAINT_DELAYS = [96]
 const TERMINAL_RECOVERY_REPAINT_DELAYS = [0, 16, 64, 180]
@@ -12,9 +33,9 @@ const DRAG_FIT_INTERVAL_MS = 140
 interface TerminalLayoutOptions {
   container: HTMLElement
   isMobile: boolean
-  getTerminal: () => any
+  getTerminal: () => LayoutTerminal | null | undefined
   isDisposed: () => boolean
-  preferencesRef: { current: any }
+  preferencesRef: { current: TerminalLayoutPreferences }
   // 尺寸协商状态（owner 主张/共享跟随/降级跟随/在途 ACK）：由 runtime 创建并
   // 喂入协议事件，layout 只做本地转移，不再各自散写多个 ref
   size: TerminalSizeState
@@ -250,7 +271,7 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
       if (cellHeight)
         renderer.rows.style.setProperty(
           '--terminal-last-row-height',
-          `${cellHeight + Math.max(0, getAvailableSize().height - cellHeight * terminal.rows)}px`,
+          `${cellHeight + Math.max(0, getAvailableSize().height - cellHeight * terminal!.rows)}px`,
         )
     } else {
       renderer.rows.style.removeProperty('height')

@@ -8,12 +8,27 @@ import {
   decodeCellDiffV2,
   decodeCellSnapshot,
   decodeCellSnapshotV2,
+  type CellDiff,
+  type CellSnapshot,
 } from '@/lib/terminal-grid/decode-cell'
 import { diffToAnsi, snapshotToAnsi } from '@/lib/terminal-grid/apply-cell'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 type OutputMessage = { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }
 type OutputListener = (message: OutputMessage) => void
-type SocketOutputMessage = OutputMessage & { type?: string }
+type SocketOutputMessage = OutputMessage & {
+  type?: string
+  cell?: { kind: 'snapshot'; snapshot: CellSnapshot } | { kind: 'diff'; diff: CellDiff }
+}
+// 服务端 JSON 帧：type 为分派键，其余字段按帧类型取用；开放式协议，索引签名兜底未列字段
+type ServerMessage = {
+  type?: string
+  data?: string
+  sessionName?: string | null
+  hostId?: string | null
+  compactHeader?: boolean
+  routeIdx?: unknown
+  [key: string]: unknown
+}
 interface ConnectionState {
   key: string
   routes: Map<number, { hostId: string; sessionName: string }>
@@ -168,7 +183,7 @@ function connect(connection: ConnectionState) {
                 sessionName: decoded.sessionName,
                 hostId: decoded.hostId,
                 cell: { kind: 'snapshot', snapshot: snap },
-              } as any)
+              })
               return
             }
             if ((decoded.type === 'cell_diff' || decoded.type === 'cell_diff_v2') && decoded.cellPayload) {
@@ -194,7 +209,7 @@ function connect(connection: ConnectionState) {
                 sessionName: decoded.sessionName,
                 hostId: decoded.hostId,
                 cell: { kind: 'diff', diff },
-              } as any)
+              })
               return
             }
             dispatchOutput(connection, {
@@ -273,7 +288,7 @@ function dispatchOutput(connection: ConnectionState, message: SocketOutputMessag
     listener({ data: message.data, sessionName: message.sessionName, hostId: message.hostId, resync: message.resync }),
   )
 }
-function handleMessage(connection: ConnectionState, data: any) {
+function handleMessage(connection: ConnectionState, data: ServerMessage) {
   switch (data.type) {
     case 'pong':
       connection.lastPongAt = Date.now()
@@ -282,7 +297,8 @@ function handleMessage(connection: ConnectionState, data: any) {
     case 'output':
     case 'output_resync':
       dispatchOutput(connection, {
-        data: data.data,
+        // output 帧契约上 data 必有；协议容错起见原样透传，不做补默认值
+        data: data.data as string,
         sessionName: data.sessionName ?? null,
         hostId: data.hostId ?? null,
         resync: data.type === 'output_resync',
@@ -358,7 +374,7 @@ export function useSessionSocket(hostId: string, sessionId: string) {
   if (!connectionRef.current) connectionRef.current = getConnection(getKey(hostId, sessionId))
   const connection = connectionRef.current
   const send = useCallback(
-    (data: any) => {
+    (data: Record<string, unknown>) => {
       if (connection.ws?.readyState === WebSocket.OPEN) {
         connection.ws.send(JSON.stringify(data))
         return true

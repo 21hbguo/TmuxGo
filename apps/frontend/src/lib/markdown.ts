@@ -1,5 +1,11 @@
-import { marked } from 'marked'
+import { marked, type Token, type Tokens } from 'marked'
 import DOMPurify from 'dompurify'
+
+type MarkedRenderer = InstanceType<typeof marked.Renderer>
+// 调试收集槽：临时排障用，挂在 globalThis 上缺省不存在
+type MdCollectGlobal = typeof globalThis & {
+  __mdCollect?: { t: string; raw: string; off: number; l: number }[]
+}
 interface MarkdownSegment {
   text: string
   offset: number
@@ -26,9 +32,9 @@ function countLines(text: string) {
 const LINE_BLOCK_TYPES = new Set(['heading', 'paragraph', 'list', 'list_item', 'blockquote', 'code', 'table', 'hr'])
 function collectBlockLines(content: string) {
   const lines: number[] = []
-  ;(globalThis as any).__mdCollect = []
+  ;(globalThis as MdCollectGlobal).__mdCollect = []
   const segments = splitMarkdownSegments(content)
-  const walk = (tokens: any[], text: string, baseOffset: number) => {
+  const walk = (tokens: Token[], text: string, baseOffset: number) => {
     let from = 0
     for (const token of tokens) {
       if (token.type === 'space') {
@@ -40,7 +46,7 @@ function collectBlockLines(content: string) {
       if (LINE_BLOCK_TYPES.has(token.type)) {
         const l = 1 + countLines(content.slice(0, baseOffset + start))
         lines.push(l)
-        ;(globalThis as any).__mdCollect.push({
+        ;(globalThis as MdCollectGlobal).__mdCollect!.push({
           t: token.type,
           raw: token.raw.slice(0, 12),
           off: baseOffset + start,
@@ -50,11 +56,11 @@ function collectBlockLines(content: string) {
       from = start + token.raw.length
       if (token.type === 'list') walk(token.items, token.raw, baseOffset + start)
       else if (token.type === 'list_item' || token.type === 'blockquote')
-        walk(token.tokens, token.raw, baseOffset + start)
+        walk(token.tokens!, token.raw, baseOffset + start)
     }
   }
   for (const segment of segments) {
-    walk(marked.lexer(segment.text) as any[], segment.text, segment.offset)
+    walk(marked.lexer(segment.text), segment.text, segment.offset)
   }
   return lines
 }
@@ -64,44 +70,44 @@ function createLineRenderer(lines: number[]) {
   const proto = marked.Renderer.prototype
   const renderer = new marked.Renderer()
   const heading = proto.heading
-  renderer.heading = function (this: any, token: any) {
+  renderer.heading = function (this: MarkedRenderer, token: Tokens.Heading) {
     const line = take()
     return heading
       .call(this, token)
       .replace(/^<h([1-6])>/, (_: string, depth: string) => `<h${depth} data-line="${line}">`)
   }
   const paragraph = proto.paragraph
-  renderer.paragraph = function (this: any, token: any) {
+  renderer.paragraph = function (this: MarkedRenderer, token: Tokens.Paragraph) {
     const line = take()
     return paragraph.call(this, token).replace(/^<p>/, () => `<p data-line="${line}">`)
   }
   const list = proto.list
-  renderer.list = function (this: any, token: any) {
+  renderer.list = function (this: MarkedRenderer, token: Tokens.List) {
     const line = take()
     return list.call(this, token).replace(/^<(ul|ol)\b/, (_: string, tag: string) => `<${tag} data-line="${line}"`)
   }
   const listitem = proto.listitem
-  renderer.listitem = function (this: any, token: any) {
+  renderer.listitem = function (this: MarkedRenderer, token: Tokens.ListItem) {
     const line = take()
     return listitem.call(this, token).replace(/^<li>/, () => `<li data-line="${line}">`)
   }
   const blockquote = proto.blockquote
-  renderer.blockquote = function (this: any, token: any) {
+  renderer.blockquote = function (this: MarkedRenderer, token: Tokens.Blockquote) {
     const line = take()
     return blockquote.call(this, token).replace(/^<blockquote>/, () => `<blockquote data-line="${line}">`)
   }
   const code = proto.code
-  renderer.code = function (this: any, token: any) {
+  renderer.code = function (this: MarkedRenderer, token: Tokens.Code) {
     const line = take()
     return code.call(this, token).replace(/^<pre>/, () => `<pre data-line="${line}">`)
   }
   const table = proto.table
-  renderer.table = function (this: any, token: any) {
+  renderer.table = function (this: MarkedRenderer, token: Tokens.Table) {
     const line = take()
     return table.call(this, token).replace(/^<table>/, () => `<table data-line="${line}">`)
   }
   const hr = proto.hr
-  renderer.hr = function (this: any, token: any) {
+  renderer.hr = function (this: MarkedRenderer, token: Tokens.Hr) {
     const line = take()
     return hr.call(this, token).replace(/^<hr/, () => `<hr data-line="${line}"`)
   }

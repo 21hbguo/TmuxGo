@@ -35,17 +35,41 @@ interface InstrumentedSock {
   __tmuxgoFbuTimer?: ReturnType<typeof setTimeout> | null
 }
 
+// RFB 类上可整体替换的协议方法表（noVNC 内部结构）：本模块只覆写
+// fbUpdateRequest/clientEncodings，setDesktopSize 在确认服务端支持后调用
+interface RfbMessagesTable {
+  fbUpdateRequest?: (sock: InstrumentedSock, incremental: boolean, x: number, y: number, w: number, h: number) => void
+  clientEncodings?: (sock: unknown, encs: number[]) => void
+  setDesktopSize: (sock: unknown, w: number, h: number, screenId: number, screenFlags: number) => void
+}
+
+// RFB 实例私有字段（noVNC 内部实现细节）：插桩与分辨率协商依赖。构造器即初始化的
+// 数值字段按 number 标（_fbWidth/_screenID 等恒存在），socket/方法槽位保持可选防御
+interface RfbInternals {
+  _sock?: InstrumentedSock
+  _framebufferUpdate?: () => boolean
+  _rfbConnectionState?: string
+  _sendEncodings?: () => void
+  _supportsSetDesktopSize?: boolean
+  _fbWidth: number
+  _fbHeight: number
+  _screenID: number
+  _screenFlags: number
+  __tmuxgoOriginalSize?: { w: number; h: number }
+  resizeSession?: boolean
+}
+
 // RFB 是拉取模型：每个 FBU 完成后客户端才发下一次 FramebufferUpdateRequest。
 // 在 messages.fbUpdateRequest 上节流即可压低服务端推帧频率（对 continuous-updates 服务端不生效）。
 // 该函数挂在导出类上（RFB.messages），属模块内可替换的属性，按 1.7.0 结构实现并带防御回退。
 let requestThrottled = false
 export function installVncRequestThrottle(RFB: typeof RFBType) {
   if (requestThrottled) return
-  const messages = (RFB as any).messages
+  const messages = (RFB as unknown as { messages?: RfbMessagesTable }).messages
   const original = messages?.fbUpdateRequest
   if (typeof original !== 'function') return
   requestThrottled = true
-  messages.fbUpdateRequest = (
+  messages!.fbUpdateRequest = (
     sock: InstrumentedSock,
     incremental: boolean,
     x: number,
@@ -89,11 +113,11 @@ let losslessActive = false
 let encodingsPatched = false
 export function installVncLosslessFilter(RFB: typeof RFBType) {
   if (encodingsPatched) return
-  const messages = (RFB as any).messages
+  const messages = (RFB as unknown as { messages?: RfbMessagesTable }).messages
   const original = messages?.clientEncodings
   if (typeof original !== 'function') return
   encodingsPatched = true
-  messages.clientEncodings = (sock: unknown, encs: number[]) =>
+  messages!.clientEncodings = (sock: unknown, encs: number[]) =>
     original(sock, losslessActive ? encs.filter((e) => !LOSSY_ENCODINGS.has(e)) : encs)
 }
 
@@ -108,8 +132,8 @@ export function attachVncInstrumentation(rfb: RFBType): VncInstrumentation {
     sample: () => ({ fps: 0, inKbps: 0, outKbps: 0 }),
     dispose: () => {},
   }
-  const anyRfb = rfb as any
-  const sock = anyRfb._sock as InstrumentedSock | undefined
+  const anyRfb = rfb as unknown as RfbInternals
+  const sock = anyRfb._sock
   const ws = sock?._websocket
   if (!sock || !ws || typeof anyRfb._framebufferUpdate !== 'function') return noop
 
@@ -126,8 +150,9 @@ export function attachVncInstrumentation(rfb: RFBType): VncInstrumentation {
   }
   ws.addEventListener('message', onMessage)
   const originalSend = ws.send.bind(ws)
-  ws.send = (data: any) => {
-    bytesOut += typeof data?.byteLength === 'number' ? data.byteLength : data?.size || 0
+  ws.send = (data: string | ArrayBufferLike | Blob | ArrayBufferView) => {
+    const sized = data as { byteLength?: number; size?: number }
+    bytesOut += typeof sized.byteLength === 'number' ? sized.byteLength : sized.size || 0
     return originalSend(data)
   }
 
@@ -173,7 +198,7 @@ export function attachVncInstrumentation(rfb: RFBType): VncInstrumentation {
 export const VNC_RESOLUTION_PRESETS = ['2560x1440', '1920x1080', '1600x900', '1366x768', '1280x720'] as const
 
 export function applyVncResolution(rfb: RFBType, RFB: typeof RFBType, mode: string, viewOnly: boolean): () => void {
-  const anyRfb = rfb as any
+  const anyRfb = rfb as unknown as RfbInternals
   // 仅查看模式下禁止改远端分辨率
   if (viewOnly || mode === 'off') return () => {}
   const match = /^(\d{3,4})x(\d{3,4})$/.exec(mode)
@@ -181,7 +206,13 @@ export function applyVncResolution(rfb: RFBType, RFB: typeof RFBType, mode: stri
   if (mode !== 'auto' && !fixed) return () => {}
   const send = (w: number, h: number) => {
     if (!anyRfb._sock || !anyRfb._supportsSetDesktopSize) return
-    ;(RFB as any).messages.setDesktopSize(anyRfb._sock, w, h, anyRfb._screenID, anyRfb._screenFlags)
+    ;(RFB as unknown as { messages: RfbMessagesTable }).messages.setDesktopSize(
+      anyRfb._sock,
+      w,
+      h,
+      anyRfb._screenID,
+      anyRfb._screenFlags,
+    )
   }
   let applied = false
   let tries = 0

@@ -1,9 +1,32 @@
+import type { Pane, SessionSnapshot, Window } from '@/types'
+
 interface PaneBounds {
   id: string
   left: number
   top: number
   cols: number
   rows: number
+}
+
+// snapshot pane 几何字段存在两种线上形态：新版 size.{cols,rows}+left/top，
+// 旧版/派生数据可能走 position.{left,top} 或顶层 cols/rows——逐字段探测兜底
+type SnapshotPane = Pane & { position?: { left?: number; top?: number }; cols?: number; rows?: number }
+
+// xterm 公开 API 的最小切面：与测试 mock、字段缺失的旧版实现保持兼容
+interface XtermGeometrySource {
+  element?: HTMLElement | null
+  cols?: number
+  rows?: number
+  buffer?: {
+    active?: {
+      baseY?: number
+      getLine?: (
+        y: number,
+      ) => { translateToString: (trimRight?: boolean, start?: number, end?: number) => string } | undefined
+    }
+  }
+  getSelection?: () => string
+  getSelectionPosition?: () => { start: { x: number; y: number }; end: { x: number; y: number } } | undefined
 }
 
 // SGR (1006) 鼠标按下上报 `\x1b[<Cb;Cx;CyM`：Cb 低 2 位是按键，bit5(32)=motion、
@@ -28,12 +51,12 @@ export interface PaneResizeTarget {
 }
 
 export function createTerminalPaneInteractions(
-  getTerminal: () => any,
+  getTerminal: () => XtermGeometrySource | null | undefined,
   container: HTMLElement,
-  readSessionSnapshot: () => any,
+  readSessionSnapshot: () => SessionSnapshot | null | undefined,
 ) {
-  let cache: { snapshot: any; windowId: string; bounds: PaneBounds[] } | null = null
-  const getPaneBounds = (pane: any): PaneBounds | null => {
+  let cache: { snapshot: SessionSnapshot; windowId: string; bounds: PaneBounds[] } | null = null
+  const getPaneBounds = (pane: SnapshotPane): PaneBounds | null => {
     const id = String(pane?.id ?? pane?.tmuxPaneId ?? '')
     const left = Number(pane?.left ?? pane?.position?.left)
     const top = Number(pane?.top ?? pane?.position?.top)
@@ -46,15 +69,16 @@ export function createTerminalPaneInteractions(
     if (!snapshot) return [] as PaneBounds[]
     const windows = Array.isArray(snapshot?.windows) ? snapshot.windows : []
     const activeWindow =
-      windows.find((item: any) => item.id === snapshot?.activeWindowId) || windows.find((item: any) => item.active)
+      windows.find((item: Window) => item.id === snapshot?.activeWindowId) ||
+      windows.find((item: Window) => item.active)
     const activePaneId = String(snapshot?.activePaneId || '')
     const windowId = String(activeWindow?.id || '')
     if (cache && cache.snapshot === snapshot && cache.windowId === windowId) return cache.bounds
     const panes = Array.isArray(snapshot?.panes) ? snapshot.panes : []
-    const filtered = windowId ? panes.filter((pane: any) => String(pane.windowId || '') === windowId) : panes
+    const filtered = windowId ? panes.filter((pane: Pane) => String(pane.windowId || '') === windowId) : panes
     const visible =
       activeWindow?.zoomed && activePaneId
-        ? filtered.filter((pane: any) => String(pane?.id || pane?.tmuxPaneId || '') === activePaneId)
+        ? filtered.filter((pane: Pane) => String(pane?.id || pane?.tmuxPaneId || '') === activePaneId)
         : filtered
     const bounds = visible.map(getPaneBounds).filter(Boolean) as PaneBounds[]
     cache = { snapshot, windowId, bounds }

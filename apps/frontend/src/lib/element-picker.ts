@@ -88,18 +88,36 @@ export function elementLabel(el: Element): string {
   return `${el.localName}${id}${classes}`
 }
 
+// React fiber 私有字段（react-reconciler 挂在 DOM 上的内部对象）：
+// type 可为函数/类组件或 forwardRef/memo 包装对象，return 为父 fiber 链
+interface FiberLike {
+  type?: unknown
+  return?: FiberLike | null
+}
+// 函数组件命名：displayName（调试名）优先，回退函数 .name
+const fiberTypeName = (type: unknown): string | null => {
+  if (typeof type !== 'function') return null
+  const fn = type as { displayName?: string; name?: string }
+  return fn.displayName || fn.name || null
+}
+
 // React 会把 fiber 挂在 DOM 的 __reactFiber$* / __reactContainer$* 键上（生产构建同样存在，
 // 只是组件名可能被压缩）。沿 return 链找第一个有名函数/类组件；拿不到返回 null
 export function componentNameOf(el: Element): string | null {
   const key = Object.keys(el).find((name) => name.startsWith('__reactFiber$') || name.startsWith('__reactContainer$'))
-  let fiber: any = key ? (el as any)[key] : null
+  let fiber: FiberLike | null = key ? ((el as unknown as Record<string, unknown>)[key] as FiberLike | null) : null
   while (fiber) {
-    const type = fiber.type
-    if (typeof type === 'function' && (type.displayName || type.name)) return type.displayName || type.name
+    const direct = fiberTypeName(fiber.type)
+    if (direct) return direct
     // forwardRef/memo 包裹：真实组件在 render/type 上
-    const inner = type && typeof type === 'object' ? type.render || type.type : null
-    if (typeof inner === 'function' && (inner.displayName || inner.name)) return inner.displayName || inner.name
-    fiber = fiber.return
+    const type = fiber.type
+    const inner =
+      type && typeof type === 'object'
+        ? (type as { render?: unknown }).render || (type as { type?: unknown }).type
+        : null
+    const wrapped = fiberTypeName(inner)
+    if (wrapped) return wrapped
+    fiber = fiber.return ?? null
   }
   return null
 }

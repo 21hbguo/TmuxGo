@@ -1,14 +1,16 @@
+import type { QueryClient } from '@tanstack/react-query'
+import type { SessionSnapshot } from '@/types'
 import { buildSessionId } from './session-id'
 interface SessionSnapshotLoaderOptions {
-  queryClient: any
-  getSnapshot: (hostId: string, sessionName: string) => Promise<any>
+  queryClient: QueryClient | null
+  getSnapshot: (hostId: string, sessionName: string) => Promise<SessionSnapshot>
   hostIdRef: { current: string | null }
   sessionNameRef: { current: string | undefined }
 }
 export function createSessionSnapshotLoader(options: SessionSnapshotLoaderOptions) {
   const { queryClient } = options
-  let snapshotRef: any | null = null
-  let requestRef: { key: string; promise: Promise<any> } | null = null
+  let snapshotRef: SessionSnapshot | null = null
+  let requestRef: { key: string; promise: Promise<SessionSnapshot> } | null = null
   let loadedRef = { key: '', at: 0 }
   const getKey = () => {
     const hostId = options.hostIdRef.current
@@ -24,7 +26,7 @@ export function createSessionSnapshotLoader(options: SessionSnapshotLoaderOption
   }
   const read = () => {
     const key = getKey()
-    const cached = key ? queryClient?.getQueryData?.(key) : null
+    const cached = key ? (queryClient?.getQueryData?.(key) as SessionSnapshot | undefined) : null
     if (cached) {
       snapshotRef = cached
       return cached

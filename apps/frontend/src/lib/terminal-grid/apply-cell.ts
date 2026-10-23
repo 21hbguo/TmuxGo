@@ -117,17 +117,22 @@ export function applyDiffToState(state: { seq: number; cols: number; rows: numbe
   return state
 }
 
+// xterm 内部 CellData（_bufferService 私有结构）：content 低 21 位是码点，fg/bg 打包色板
+type XtermCellData = { content: number; fg: number; bg: number }
+
 type XtermLike = {
   write?: (data: string, cb?: () => void) => void
   refresh?: (start: number, end: number) => void
+  cols?: number
   buffer?: { active?: unknown }
-  _core?: any
+  _core?: { _bufferService?: { buffer?: WritableBuffer } }
 }
 
 type WritableLine = {
+  length?: number
   setCellFromCodepoint?: (x: number, cp: number, width: number, ch: string) => void
-  loadCell?: (x: number, cell: any) => any
-  setCell?: (x: number, cell: any) => void
+  loadCell?: (x: number, cell: XtermCellData) => XtermCellData
+  setCell?: (x: number, cell: XtermCellData) => void
 }
 
 type WritableBuffer = {
@@ -135,7 +140,7 @@ type WritableBuffer = {
   ybase?: number
   x?: number
   y?: number
-  getNullCell?: () => any
+  getNullCell?: () => XtermCellData
 }
 
 /** 尝试取可写 buffer：公共 IBuffer 只读，走 xterm 内部 _core._bufferService */
@@ -143,7 +148,7 @@ function getWritableBuffer(terminal: XtermLike): WritableBuffer | null {
   try {
     const core = terminal?._core
     const buf = core?._bufferService?.buffer
-    if (buf?.lines?.get && typeof buf.getNullCell === 'function') return buf as WritableBuffer
+    if (buf?.lines?.get && typeof buf.getNullCell === 'function') return buf
   } catch {}
   return null
 }
@@ -249,7 +254,7 @@ export function applyCellToXterm(
       maxY = Math.max(maxY, change.y)
     }
     if (typeof buf.x === 'number') {
-      const cols = (buf.lines?.get(0) as any)?.length ?? (terminal as any).cols ?? 80
+      const cols = buf.lines?.get(0)?.length ?? terminal.cols ?? 80
       buf.x = Math.max(0, Math.min(Number(cols) - 1, diff.cursorX))
       buf.y = Math.max(0, diff.cursorY)
     }

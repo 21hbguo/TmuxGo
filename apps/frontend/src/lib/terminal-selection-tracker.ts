@@ -20,9 +20,21 @@ interface SelectionState {
   rectangle?: boolean
 }
 
+// xterm buffer 只读切面：覆盖真实 Terminal 与测试 mock；缺 buffer 时按无选区降级
+interface SelectionReadableBuffer {
+  baseY?: number
+  getLine: (
+    y: number,
+  ) => { translateToString: (trimRight: boolean, start?: number, end?: number) => string } | undefined
+}
+interface SelectionReadableTerminal {
+  cols: number
+  buffer?: { active?: SelectionReadableBuffer }
+}
+
 interface TerminalTmuxSelectionTrackerOptions {
   container: HTMLElement
-  getTerminal: () => any
+  getTerminal: () => SelectionReadableTerminal | null | undefined
   getPaneIdAtPoint: (x: number, y: number) => string | null
   getPaneBounds: (paneId: string) => PaneRect | null
   onDragSelection: (info: { chars: number; x: number; y: number; source: 'xterm' | 'tmux' } | null) => void
@@ -34,7 +46,7 @@ const POLL_MS = 160
 // tmux 选区坐标是 pane 相对坐标；xterm buffer 是整个 window → 换算回全局行列切片。
 // 计数对齐 copy-selection 语义：行选每行右修剪+逐行换行，矩形选按列段原样取。
 export function countTmuxSelectionChars(
-  terminal: any,
+  terminal: SelectionReadableTerminal | null | undefined,
   pane: PaneRect,
   state: { startX?: number; startY?: number; endX?: number; endY?: number; rectangle?: boolean },
 ) {

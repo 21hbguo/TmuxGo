@@ -1,3 +1,5 @@
+import type { ILink } from '@xterm/xterm'
+
 interface TerminalCoreOptions {
   container: HTMLElement
   preferences: { cursorBlink: boolean; fontSize: number; fontFamily: string }
@@ -6,7 +8,7 @@ interface TerminalCoreOptions {
   ensureAppFontLoaded: (fontFamily: string, fontSize: number) => Promise<unknown>
   isLinkOpenGesture: (event: MouseEvent) => boolean
   openUrl: (url: string) => void
-  createFileLinks: (bufferLineNumber: number) => any[]
+  createFileLinks: (bufferLineNumber: number) => ILink[]
   scheduleRendererStyleCorrection: () => void
   clearRendererCache: () => void
   recordRenderer: (renderer: 'dom' | 'webgl') => void
@@ -55,7 +57,7 @@ export async function createTerminalCore(options: TerminalCoreOptions) {
   )
   terminal.open(options.container)
   const linkProvider = terminal.registerLinkProvider({
-    provideLinks: (bufferLineNumber: number, callback: (links: any[] | undefined) => void) => {
+    provideLinks: (bufferLineNumber: number, callback: (links: ILink[] | undefined) => void) => {
       const links = options.createFileLinks(bufferLineNumber)
       callback(links.length ? links : undefined)
     },
