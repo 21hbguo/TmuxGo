@@ -26,7 +26,7 @@ const { streamRoutes } = await import('./stream.js')
 const { agentMonitor } = await import('../lib/agent-monitor.js')
 const { issueScopedWebSocketTicket } = await import('../lib/auth.js')
 
-type Frame = Record<string, any>
+type Frame = Record<string, unknown>
 type MonitorEvent = {
   type: string
   hostId?: string
