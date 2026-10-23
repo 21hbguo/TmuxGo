@@ -70,7 +70,7 @@ def resolve_inside(root_id, rel=''):
  if str(target)!=str(base) and str(target)[:len(str(base))+1]!=str(base)+os.sep: raise Exception('Path escapes root')
  return root,str(target),norm_rel(os.path.relpath(str(target),str(base)))
 def is_binary(data):
- return b'\\0' in data[:min(len(data),4096)]
+ return b'\\0' in data
 def file_item(root_path, abs_path, name):
  st=os.stat(abs_path)
  return {'name':name,'path':norm_rel(os.path.relpath(abs_path,root_path)),'type':'directory' if stat.S_ISDIR(st.st_mode) else 'file','size':st.st_size,'modifiedAt':iso(st.st_mtime),'mode':st.st_mode & 0o7777}
