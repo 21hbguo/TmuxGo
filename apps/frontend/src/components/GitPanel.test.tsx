@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { GitPanel } from './GitPanel'
@@ -17,6 +17,7 @@ const useGitWorktreesMock = vi.fn()
 const gitDetectMock = vi.fn()
 const gitCommitMutateMock = vi.fn()
 const gitMergeMutateMock = vi.fn()
+const gitPullMutateMock = vi.fn()
 const gitCreateWorktreeMutateMock = vi.fn()
 const gitRemoveWorktreeMutateMock = vi.fn()
 
@@ -43,7 +44,7 @@ vi.mock('@/hooks/useApi', () => ({
   useGitDeleteBranch: () => ({ mutate: vi.fn() }),
   useGitMerge: () => ({ mutate: (...args: unknown[]) => gitMergeMutateMock(...args) }),
   useGitFetch: () => ({ mutate: vi.fn() }),
-  useGitPull: () => ({ mutate: vi.fn() }),
+  useGitPull: () => ({ mutate: (...args: unknown[]) => gitPullMutateMock(...args), isPending: false }),
   useGitPush: () => ({ mutate: vi.fn() }),
   useGitWorktrees: (...args: unknown[]) => useGitWorktreesMock(...args),
   useGitCreateWorktree: () => ({ mutate: (...args: unknown[]) => gitCreateWorktreeMutateMock(...args) }),
@@ -141,6 +142,7 @@ describe('GitPanel', () => {
     gitRemoveWorktreeMutateMock.mockReset()
     gitCommitMutateMock.mockReset()
     gitMergeMutateMock.mockReset()
+    gitPullMutateMock.mockReset()
     useConsoleStore.setState({
       activeHostId: 'local',
       activePaneId: null,
@@ -232,6 +234,39 @@ describe('GitPanel', () => {
       task: { id: 'merge-1' },
     })
     expect(useConsoleStore.getState().toasts.at(-1)?.message).toBe('任务已开始')
+  })
+
+  it('offers rebase and merge when pull reports a diverged branch', async () => {
+    const user = userEvent.setup()
+    const queryClient = new QueryClient()
+    render(
+      React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(I18nProvider, null, React.createElement(GitPanel)),
+      ),
+    )
+    await user.click(screen.getByRole('button', { name: '拉取' }))
+    const firstCall = gitPullMutateMock.mock.calls[0] as [Record<string, unknown>, { onSuccess: (r: unknown) => void }]
+    // 常规拉取不带 strategy：选项只在分叉被拒后才出现
+    expect(firstCall[0]).toMatchObject({ path: '/workspace/app' })
+    expect(firstCall[0].strategy).toBeUndefined()
+    // onSuccess 里会 setState + 发 toast，必须包 act
+    await act(async () => {
+      firstCall[1].onSuccess({ ok: false, conflicts: false, diverged: true, ahead: 2, behind: 3, message: 'hint' })
+    })
+
+    const dialog = await screen.findByRole('dialog', { name: '分支已分叉' })
+    expect(dialog).toHaveTextContent('领先 2 个提交、落后 3 个提交')
+
+    await user.click(screen.getByRole('button', { name: '变基拉取' }))
+    const secondCall = gitPullMutateMock.mock.calls[1] as [Record<string, unknown>, { onSuccess: (r: unknown) => void }]
+    expect(secondCall[0]).toMatchObject({ path: '/workspace/app', strategy: 'rebase' })
+    await act(async () => {
+      secondCall[1].onSuccess({ ok: true, conflicts: false, message: 'ok' })
+    })
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '分支已分叉' })).not.toBeInTheDocument())
+    expect(useConsoleStore.getState().toasts.at(-1)?.message).toBe('拉取成功')
   })
 
   it('opens commit diff inside the mobile Git panel and returns one level', async () => {

@@ -33,6 +33,9 @@ export const fileTransferBodySchema = z.object({
 export const fileTrashBodySchema = z.object({ root: identifier, path: filePath })
 export const fileRestoreBodySchema = z.object({ trashId: identifier })
 export const fileRemoveQuerySchema = z.object({ root: identifier, path: filePath })
+// pull 的分叉协调策略：rebase 走 --rebase、merge 走 --no-rebase；缺省沿用 git 默认。
+// 非法值交给全局 ZodError handler → 400 INVALID_REQUEST
+export const gitPullStrategySchema = z.enum(['rebase', 'merge']).optional()
 export const paneIdBodySchema = z.object({ paneId: z.string().min(3).max(256) })
 // paneId/paneIds 二选一或同给；refine 保证至少一个有效 id
 export const paneMarkSeenBodySchema = z

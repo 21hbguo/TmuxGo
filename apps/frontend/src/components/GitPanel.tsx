@@ -999,6 +999,8 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
   const [selectedRemote, setSelectedRemote] = useState('')
   const [fetchPrune, setFetchPrune] = useState(false)
   const [pullRebase, setPullRebase] = useState(false)
+  // 分叉待决策：git 拒绝 pull 且 ahead/behind 双非零时挂这里，弹层让用户选 rebase/merge
+  const [divergedPull, setDivergedPull] = useState<{ ahead: number; behind: number } | null>(null)
   const [pushForce, setPushForce] = useState(false)
   const [pushSetUpstream, setPushSetUpstream] = useState(false)
   const [amend, setAmend] = useState(false)
@@ -1024,6 +1026,34 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
   const pull = useGitPull()
   const push = useGitPush()
   const queryClient = useQueryClient()
+  // strategy 显式给定时优先于「变基拉取」开关：分叉弹层里用户的点击就是最终选择
+  const runPull = (strategy?: 'rebase' | 'merge') => {
+    if (!activeHostId || !repoPath) return
+    pull.mutate(
+      {
+        hostId: activeHostId,
+        path: repoPath,
+        remote: selectedRemote || undefined,
+        rebase: pullRebase,
+        strategy,
+      },
+      {
+        onSuccess: (result) => {
+          if ('diverged' in result && result.diverged) {
+            setDivergedPull({ ahead: result.ahead ?? 0, behind: result.behind ?? 0 })
+            return
+          }
+          setDivergedPull(null)
+          pushToast({
+            type: 'success',
+            message: 'task' in result ? t('tasks.queued') : t('git.pullSuccess'),
+          })
+          queryClient.invalidateQueries({ queryKey: ['git-status'] })
+        },
+        onError: (err) => pushToast({ type: 'error', message: err.message }),
+      },
+    )
+  }
   const pinnedRepos = useMemo(
     () => (gitState?.recentRepos || []).filter((item) => item.pinned),
     [gitState?.recentRepos],
@@ -1253,26 +1283,26 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
               aria-label={t('git.pull')}
               title={t('git.pull')}
               disabled={pull.isPending}
-              onClick={() =>
-                activeHostId &&
-                pull.mutate(
-                  { hostId: activeHostId, path: repoPath, remote: selectedRemote || undefined, rebase: pullRebase },
-                  {
-                    onSuccess: (result) => {
-                      pushToast({
-                        type: 'success',
-                        message: 'task' in result ? t('tasks.queued') : t('git.pullSuccess'),
-                      })
-                      queryClient.invalidateQueries({ queryKey: ['git-status'] })
-                    },
-                    onError: (err) => pushToast({ type: 'error', message: err.message }),
-                  },
-                )
-              }
+              onClick={() => runPull()}
               className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--lg lg:h-7 lg:w-7"
             >
               <FiDownload aria-hidden="true" size={14} />
             </button>
+            <ConfirmDialog
+              open={!!divergedPull}
+              title={t('git.divergedTitle')}
+              message={t('git.divergedMessage', { ahead: divergedPull?.ahead ?? 0, behind: divergedPull?.behind ?? 0 })}
+              confirmLabel={t('git.pullWithRebase')}
+              extraLabel={t('git.pullWithMerge')}
+              cancelLabel={t('common.cancel')}
+              busy={pull.isPending}
+              onCancel={() => setDivergedPull(null)}
+              // 不在这里关闭：等 onSuccess 拿到结果再关（失败时留在弹层里可重试），
+              // busy 用 pull.isPending，避免连点提交两次
+              onConfirm={() => runPull('rebase')}
+              onExtra={() => runPull('merge')}
+            />
+
             <button
               aria-label={t('git.push')}
               title={t('git.push')}

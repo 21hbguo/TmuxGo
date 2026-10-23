@@ -826,13 +826,18 @@ export function useGitPull() {
       remote,
       branch,
       rebase,
+      strategy,
     }: {
       hostId: string
       path: string
       remote?: string
       branch?: string
       rebase?: boolean
-    }) => api.git.pull(hostId, path, { remote, branch, rebase, background: true }),
+      strategy?: 'rebase' | 'merge'
+    }) =>
+      // 前台拉取：只有拿得到响应体才知道 git 是不是因为分叉而拒绝（后台任务只会给 task id），
+      // 分叉提示因此依赖这条前台路径；耗时上限是网关侧 pull 的 30s
+      api.git.pull(hostId, path, { remote, branch, rebase, strategy }),
     onSuccess: (_, { hostId, path }) => {
       qc.invalidateQueries({ queryKey: ['git-status', hostId, path] })
       qc.invalidateQueries({ queryKey: ['git-log', hostId, path] })
