@@ -50,7 +50,7 @@ function injectScript(): Promise<NovncModule> {
     const script = document.createElement('script')
     script.src = `${getApiBase()}/novnc-rfb.js?v=${APP_BUILD_ID}`
     script.onload = () => {
-      const mod = (window as any)[NOVNC_GLOBAL]
+      const mod = (window as unknown as Record<string, unknown>)[NOVNC_GLOBAL]
       if (mod) resolve(mod as NovncModule)
       else reject(new Error('no global'))
     }

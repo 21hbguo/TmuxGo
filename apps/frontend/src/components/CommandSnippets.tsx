@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useTranslation } from '@/i18n'
+import { useTranslation, type TranslationKey } from '@/i18n'
 import { Button } from './Button'
 import { Chip } from './Chip'
 import { useSnippets, SNIPPET_NAME_KEYS } from '@/hooks/useSnippets'
@@ -33,7 +33,7 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
 
   const getSnippetName = (snippet: { id: string; name: string }) => {
     const nameKey = SNIPPET_NAME_KEYS[snippet.id]
-    if (nameKey) return t(nameKey as any)
+    if (nameKey) return t(nameKey as TranslationKey)
     return snippet.name
   }
 

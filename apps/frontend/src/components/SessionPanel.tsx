@@ -54,7 +54,7 @@ import {
 import { HostSwitcher } from './HostSwitcher'
 import { AgentStatusBadge } from './AgentStatusBadge'
 import { getAgentAttentionRank, mergeAgentSummaries } from '@/lib/agent-status'
-import type { AgentStatus, AgentSummary, Pane, Session, WorkspaceEntry } from '@/types'
+import type { AgentStatus, AgentSummary, Pane, Session, SessionSnapshot, WorkspaceEntry } from '@/types'
 import { ModalPortal } from './ModalPortal'
 import { api } from '@/lib/api'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
@@ -387,7 +387,7 @@ export function SessionPanel() {
       const hostId = activeHostId
       const sessionId = session.id
       const key = ['session-snapshot', hostId, sessionId]
-      const cached = queryClient?.getQueryData?.(key) as any
+      const cached = queryClient?.getQueryData?.<SessionSnapshot>(key)
       const snapshot = cached?.panes?.some?.((p: Pane) => p.id === pane.paneId)
         ? cached
         : await api.snapshot.get(hostId, sessionId)
