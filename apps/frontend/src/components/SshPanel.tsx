@@ -17,6 +17,7 @@ import {
   useTestHost,
 } from '@/hooks/useApi'
 import { type CredentialStoreFile, type HostStoreFile } from '@/lib/api'
+import type { Host, Session } from '@/types'
 import { isImeKeyEvent } from '@/lib/terminal-platform'
 import { useTranslation } from '@/i18n'
 import { useClipboard } from '@/hooks/useClipboard'
@@ -26,7 +27,13 @@ import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Select } from './Select'
 
-function StatusDot({ host }: { host: any }) {
+// sshconfig 来源主机带 gateway 透传的解析字段，共享 Host 类型未声明
+interface SshConfigHostFields {
+  identityFile?: string
+  forwardAgent?: string
+}
+
+function StatusDot({ host }: { host: Host }) {
   const isOnline = host.agent ? host.agent.online === true : host.status === 'online'
   const isWarn = !host.agent && (host.status === 'unknown' || host.status === 'unreachable')
   return (
@@ -129,17 +136,19 @@ export function SshPanel() {
   const saveHostsConfig = useSaveHostsConfig()
   const sshConfig = useSshConfig(sshConfigOpen)
   const { data: sessions = [] } = useSessions(attachHostId || '')
-  const localHosts = hosts.filter((host: any) => host.id === 'local')
-  const agentHosts = hosts.filter((host: any) => host.id !== 'local' && (host.agent || host.connectionMode === 'agent'))
-  const remoteHosts = hosts.filter(
-    (host: any) => host.id !== 'local' && !(host.agent || host.connectionMode === 'agent'),
+  const localHosts = hosts.filter((host: Host) => host.id === 'local')
+  const agentHosts = hosts.filter(
+    (host: Host) => host.id !== 'local' && (host.agent || host.connectionMode === 'agent'),
   )
-  const selectedHost = hosts.find((host: any) => host.id === selectedHostId) || null
-  const pendingDeleteHost = hosts.find((host: any) => host.id === pendingDeleteHostId)
+  const remoteHosts = hosts.filter(
+    (host: Host) => host.id !== 'local' && !(host.agent || host.connectionMode === 'agent'),
+  )
+  const selectedHost = hosts.find((host: Host) => host.id === selectedHostId) || null
+  const pendingDeleteHost = hosts.find((host: Host) => host.id === pendingDeleteHostId)
   const toggleGroup = (group: string) => setCollapsedGroups((prev) => ({ ...prev, [group]: !prev[group] }))
   // 远程主机按来源文件分组（VSCode Remote Explorer 语义）：每个 ssh config 文件一组，hosts.json 托管条目一组
   const remoteGroups = (() => {
-    const groups = new Map<string, { title: string; hosts: any[] }>()
+    const groups = new Map<string, { title: string; hosts: Host[] }>()
     for (const host of remoteHosts) {
       const key = host.source === 'sshconfig' && host.configFile ? host.configFile : 'hosts.json'
       const entry = groups.get(key) || { title: key === 'hosts.json' ? 'hosts.json' : baseName(key), hosts: [] }
@@ -189,8 +198,8 @@ export function SshPanel() {
       setJsonConfigOpen(false)
       setJsonConfigError('')
       pushToast({ type: 'success', message: t('sshPanel.jsonConfigSaved') })
-    } catch (err: any) {
-      setJsonConfigError(err?.message || t('sshPanel.jsonConfigSaveFailed'))
+    } catch (err) {
+      setJsonConfigError(err instanceof Error ? err.message : t('sshPanel.jsonConfigSaveFailed'))
     }
   }
   const openSshConfig = () => {
@@ -207,8 +216,8 @@ export function SshPanel() {
       await saveSshConfig.mutateAsync(sshConfigDraft)
       setSshConfigOpen(false)
       pushToast({ type: 'success', message: t('sshPanel.sshConfigSaved') })
-    } catch (err: any) {
-      setSshConfigError(err?.message || t('sshPanel.sshConfigSaveFailed'))
+    } catch (err) {
+      setSshConfigError(err instanceof Error ? err.message : t('sshPanel.sshConfigSaveFailed'))
     }
   }
   const quickAddHost = async () => {
@@ -221,8 +230,8 @@ export function SshPanel() {
       await addSshConfigHost.mutateAsync(parsed)
       setQuickAddDraft('')
       setHostActionMessage(t('sshPanel.quickAddDone', { alias: parsed.alias }))
-    } catch (err: any) {
-      setHostActionMessage(err?.message || t('sshPanel.quickAddFailed'))
+    } catch (err) {
+      setHostActionMessage(err instanceof Error ? err.message : t('sshPanel.quickAddFailed'))
     }
   }
   const resetHostDraft = () => {
@@ -247,7 +256,7 @@ export function SshPanel() {
     setHostDialogOpen(true)
     setHostActionMessage('')
   }
-  const openEditHostDialog = (host: any) => {
+  const openEditHostDialog = (host: Host) => {
     setHostIdDraft(host.id || '')
     setHostNameDraft(host.name || '')
     setHostAddressDraft(host.address || '')
@@ -307,11 +316,11 @@ export function SshPanel() {
       setHostActionMessage(t('sshPanel.saved'))
       closeHostDialog()
       resetHostDraft()
-    } catch (err: any) {
-      setHostActionMessage(err?.message || t('sshPanel.saveFailed'))
+    } catch (err) {
+      setHostActionMessage(err instanceof Error ? err.message : t('sshPanel.saveFailed'))
     }
   }
-  const toggleFavorite = async (host: any) => {
+  const toggleFavorite = async (host: Host) => {
     if (host.id === 'local' || host.connectionMode === 'agent') return
     try {
       await createHost.mutateAsync({
@@ -321,8 +330,8 @@ export function SshPanel() {
         port: host.port || 22,
         favorite: !host.favorite,
       })
-    } catch (err: any) {
-      pushToast({ type: 'error', message: err?.message || t('sshPanel.saveFailed') })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('sshPanel.saveFailed') })
     }
   }
   const confirmDeleteHost = async () => {
@@ -332,21 +341,21 @@ export function SshPanel() {
       if (isAgent) await removeAgent.mutateAsync(pendingDeleteHostId)
       else await deleteHost.mutateAsync(pendingDeleteHostId)
       setHostActionMessage(t('sshPanel.removed'))
-    } catch (err: any) {
-      setHostActionMessage(err?.message || t('sshPanel.removeFailed'))
+    } catch (err) {
+      setHostActionMessage(err instanceof Error ? err.message : t('sshPanel.removeFailed'))
     }
     setPendingDeleteHostId(null)
   }
-  const handleTest = async (host: any) => {
+  const handleTest = async (host: Host) => {
     setHostActionMessage('')
     try {
       const result = await testHost.mutateAsync(host.id)
       setHostActionMessage(t('sshPanel.testResult', { host: host.id, title: result.task.title }))
-    } catch (err: any) {
-      setHostActionMessage(err?.message || t('sshPanel.testFailed'))
+    } catch (err) {
+      setHostActionMessage(err instanceof Error ? err.message : t('sshPanel.testFailed'))
     }
   }
-  const handleResolve = async (host: any) => {
+  const handleResolve = async (host: Host) => {
     try {
       const resolved = await resolveHost.mutateAsync(host.id)
       setResolvedDetails((prev) => ({ ...prev, [host.id]: resolved }))
@@ -367,7 +376,7 @@ export function SshPanel() {
     const ok = await copy(text)
     pushToast({ type: ok ? 'success' : 'error', message: ok ? t('sshPanel.copied') : t('clipboard.copyFailed') })
   }
-  const renderGroup = (title: string, groupHosts: any[], subtitle?: string, groupKey?: string) => {
+  const renderGroup = (title: string, groupHosts: Host[], subtitle?: string, groupKey?: string) => {
     if (!groupHosts.length) return null
     const collapsed = collapsedGroups[title] === true
     return (
@@ -383,7 +392,7 @@ export function SshPanel() {
         </button>
         {!collapsed && (
           <div>
-            {groupHosts.map((host: any) => {
+            {groupHosts.map((host: Host) => {
               const isSshConfig = host.source === 'sshconfig'
               const isAgent = !!(host.agent || host.connectionMode === 'agent')
               const resolved = resolvedDetails[host.id]
@@ -468,8 +477,11 @@ export function SshPanel() {
                                 : 'hosts.json'
                           }
                         />
-                        {isSshConfig && !!host.identityFile && (
-                          <DetailRow label={t('sshPanel.detail.identityFile')} value={host.identityFile} />
+                        {isSshConfig && !!(host as SshConfigHostFields).identityFile && (
+                          <DetailRow
+                            label={t('sshPanel.detail.identityFile')}
+                            value={(host as SshConfigHostFields).identityFile || ''}
+                          />
                         )}
                         <DetailRow
                           label={t('sshPanel.detail.favorite')}
@@ -484,7 +496,10 @@ export function SshPanel() {
                           value={((host.userTags || host.tags || []) as string[]).join(', ') || '-'}
                         />
                         {isSshConfig ? (
-                          <DetailRow label={t('sshPanel.detail.forwardAgent')} value={host.forwardAgent || '-'} />
+                          <DetailRow
+                            label={t('sshPanel.detail.forwardAgent')}
+                            value={(host as SshConfigHostFields).forwardAgent || '-'}
+                          />
                         ) : (
                           <DetailRow
                             label={t('sshPanel.detail.useAgent')}
@@ -613,7 +628,7 @@ export function SshPanel() {
             <div className="mt-2">
               <div className="mb-1 text-xs text-text-3">{t('sshPanel.selectSession')}</div>
               {!sessions.length && <div className="text-xs text-text-3">{t('sshPanel.noSessions')}</div>}
-              {sessions.map((session: any) => (
+              {sessions.map((session: Session) => (
                 <button
                   key={session.id}
                   onClick={() => attachSession(selectedHost.id, session.id)}

@@ -10,7 +10,7 @@ import { buildSessionId, parseSessionName } from '@/lib/session-id'
 import { mergeAgentPaneEvent, removeAgentPaneEvent, summarizeAgentStates } from '@/lib/agent-status'
 import { markAgentNotificationsRead, syncAgentPush, enableAgentPush } from '@/lib/agent-push'
 import { api, type AgentNotificationRecord } from '@/lib/api'
-import type { AgentPaneState, Session } from '@/types'
+import type { AgentPaneState, Pane, Session, SessionSnapshot } from '@/types'
 import { subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { FiAlertCircle, FiBell, FiBellOff, FiCheckCircle, FiX } from 'react-icons/fi'
 
@@ -266,11 +266,11 @@ export function PaneNotifications() {
   const openNotification = async (notification: NotificationItem) => {
     try {
       const key = ['session-snapshot', notification.hostId, notification.sessionId]
-      const cached = queryClient?.getQueryData?.(key) as any
-      const snapshot = cached?.panes?.some?.((pane: any) => pane.id === notification.paneId)
+      const cached = queryClient?.getQueryData?.(key) as SessionSnapshot | undefined
+      const snapshot = cached?.panes?.some?.((pane: Pane) => pane.id === notification.paneId)
         ? cached
         : await api.snapshot.get(notification.hostId, notification.sessionId)
-      const targetPane = snapshot?.panes?.find?.((pane: any) => pane.id === notification.paneId)
+      const targetPane = snapshot?.panes?.find?.((pane: Pane) => pane.id === notification.paneId)
       if (!targetPane) return
       if (targetPane.windowId && targetPane.windowId !== snapshot.activeWindowId)
         await api.windows.select(notification.hostId, notification.sessionId, targetPane.windowId)
@@ -376,7 +376,7 @@ export function PaneNotifications() {
   useEffect(() => {
     const updateSnapshot = (hostId: string, sessionName: string, pane: AgentPaneState) => {
       const sessionId = buildSessionId(hostId, sessionName)
-      queryClient?.setQueryData(['session-snapshot', hostId, sessionId], (snapshot: any) =>
+      queryClient?.setQueryData<SessionSnapshot>(['session-snapshot', hostId, sessionId], (snapshot) =>
         snapshot
           ? { ...snapshot, panes: mergeAgentPaneEvent(Array.isArray(snapshot.panes) ? snapshot.panes : [], pane) }
           : snapshot,
@@ -398,7 +398,7 @@ export function PaneNotifications() {
     }
     const removeAgentCache = (hostId: string, sessionName: string, paneId: string) => {
       const sessionId = buildSessionId(hostId, sessionName)
-      queryClient?.setQueryData(['session-snapshot', hostId, sessionId], (snapshot: any) =>
+      queryClient?.setQueryData<SessionSnapshot>(['session-snapshot', hostId, sessionId], (snapshot) =>
         snapshot
           ? { ...snapshot, panes: removeAgentPaneEvent(Array.isArray(snapshot.panes) ? snapshot.panes : [], paneId) }
           : snapshot,
@@ -423,12 +423,12 @@ export function PaneNotifications() {
       for (const query of snapshotQueries) {
         const sessionName = parseSessionName(hostId, String(query.queryKey[2] || ''))
         const agentByPane = new Map((bySession.get(sessionName) || []).map((pane) => [pane.paneId, pane]))
-        queryClient?.setQueryData(query.queryKey, (snapshot: any) =>
+        queryClient?.setQueryData<SessionSnapshot>(query.queryKey, (snapshot) =>
           snapshot
             ? {
                 ...snapshot,
                 panes: Array.isArray(snapshot.panes)
-                  ? snapshot.panes.map((pane: any) => {
+                  ? snapshot.panes.map((pane: Pane) => {
                       const incoming = agentByPane.get(pane.id)
                       return incoming
                         ? mergeAgentPaneEvent([pane], incoming, true)[0]

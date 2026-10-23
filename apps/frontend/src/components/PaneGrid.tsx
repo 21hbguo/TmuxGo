@@ -18,6 +18,7 @@ import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
 import { emitStreamEvent, subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { createTerminalSizeState, type TerminalSizeState } from '@/lib/terminal-size-state'
 import { shouldUsePasteBinary } from '@/lib/paste-safety'
+import type { Pane, Session, Window } from '@/types'
 
 const ATTACH_TIMEOUT = 5000
 const ATTACH_RETRY_DELAY = 900
@@ -46,7 +47,7 @@ let nextResizeRequestId = 0
 const LINK_DOWN_ALERT_MS = 1200
 
 export interface PaneGridSocket {
-  send: (data: any) => boolean
+  send: (data: Record<string, unknown>) => boolean
   isConnected: boolean
   isSocketReady: boolean
   subscribeOutput: (
@@ -204,15 +205,15 @@ export function PaneGrid({
   const renderedSessionName = targetSessionName
 
   const sessionWindows = useMemo(
-    () => windowsData.filter((w: any) => w.sessionId === sessionId),
+    () => windowsData.filter((w: Window) => w.sessionId === sessionId),
     [windowsData, sessionId],
   )
-  const activeWindowIndex = useMemo(() => sessionWindows.findIndex((w: any) => w.active), [sessionWindows])
+  const activeWindowIndex = useMemo(() => sessionWindows.findIndex((w: Window) => w.active), [sessionWindows])
   const navLockRef = useRef(0)
   const switchSession = useCallback(
     (direction: -1 | 1) => {
       if (!sessionId || orderedSessions.length <= 1) return
-      const currentIndex = orderedSessions.findIndex((item: any) => item.id === sessionId)
+      const currentIndex = orderedSessions.findIndex((item: Session) => item.id === sessionId)
       if (currentIndex < 0) return
       const next = orderedSessions[(currentIndex + direction + orderedSessions.length) % orderedSessions.length]
       if (next && next.id !== sessionId) setActiveSession(next.id)
@@ -231,7 +232,9 @@ export function PaneGrid({
       if (!targetWindow) return
       const previousWindows = getWindows()
       setWindows(
-        previousWindows.map((w: any) => (w.sessionId === sessionId ? { ...w, active: w.id === targetWindow.id } : w)),
+        previousWindows.map((w: Window) =>
+          w.sessionId === sessionId ? { ...w, active: w.id === targetWindow.id } : w,
+        ),
       )
       try {
         const result = await api.windows.select(activeHostId, sessionId, targetWindow.id)
@@ -255,32 +258,32 @@ export function PaneGrid({
       t,
     ],
   )
-  const activeWindow = sessionWindows.find((item: any) => item.active) || sessionWindows[0] || null
+  const activeWindow = sessionWindows.find((item: Window) => item.active) || sessionWindows[0] || null
   const activeWindowZoomed = useMemo(() => {
-    const snapshotWindows = Array.isArray((snapshotData as any)?.windows) ? (snapshotData as any).windows : []
+    const snapshotWindows = Array.isArray(snapshotData?.windows) ? snapshotData.windows : []
     const snapshotWindow =
-      snapshotWindows.find((w: any) => w.id === (snapshotData as any)?.activeWindowId) ||
-      snapshotWindows.find((w: any) => w.id === activeWindow?.id)
+      snapshotWindows.find((w: Window) => w.id === snapshotData?.activeWindowId) ||
+      snapshotWindows.find((w: Window) => w.id === activeWindow?.id)
     if (snapshotWindow) return Boolean(snapshotWindow.zoomed)
     return Boolean(activeWindow?.zoomed)
   }, [snapshotData, activeWindow])
   const zoomedPaneCount = useMemo(() => {
     if (!activeWindowZoomed || !activeWindow) return 0
-    const panes = Array.isArray((snapshotData as any)?.panes) ? (snapshotData as any).panes : []
-    return panes.filter((pane: any) => pane.windowId === activeWindow.id).length
+    const panes = Array.isArray(snapshotData?.panes) ? snapshotData.panes : []
+    return panes.filter((pane: Pane) => pane.windowId === activeWindow.id).length
   }, [activeWindowZoomed, activeWindow, snapshotData])
   const switchPane = useCallback(
     async (direction: -1 | 1) => {
-      const panes = Array.isArray((snapshotData as any)?.panes) ? (snapshotData as any).panes : []
-      const windowId = (snapshotData as any)?.activeWindowId || activeWindow?.id || ''
+      const panes = Array.isArray(snapshotData?.panes) ? snapshotData.panes : []
+      const windowId = snapshotData?.activeWindowId || activeWindow?.id || ''
       const windowPanes = panes
-        .filter((pane: any) => pane.windowId === windowId)
-        .sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0))
+        .filter((pane: Pane) => pane.windowId === windowId)
+        .sort((a: Pane, b: Pane) => (a.index ?? 0) - (b.index ?? 0))
       if (windowPanes.length <= 1) return
-      const currentPaneId = String((snapshotData as any)?.activePaneId || useConsoleStore.getState().activePaneId || '')
+      const currentPaneId = String(snapshotData?.activePaneId || useConsoleStore.getState().activePaneId || '')
       const currentIndex = Math.max(
         0,
-        windowPanes.findIndex((pane: any) => pane.id === currentPaneId),
+        windowPanes.findIndex((pane: Pane) => pane.id === currentPaneId),
       )
       const next = windowPanes[(currentIndex + direction + windowPanes.length) % windowPanes.length]
       if (!next || next.id === currentPaneId) return
@@ -506,7 +509,16 @@ export function PaneGrid({
   // 服务端 window 尺寸仲裁：本端 client pty 已被同步到推送尺寸——sentSize
   // 对齐推送值、在途作废弃置，随后布局回声走 isEchoSize/dedup 不再发包
   useEffect(() => {
-    const handleWindowSize = (detail: any = {}) => {
+    const handleWindowSize = (
+      detail: {
+        hostId?: string
+        sessionName?: string
+        cols?: number
+        rows?: number
+        windowVersion?: number
+        ownerEpoch?: number
+      } = {},
+    ) => {
       if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
       if (detail.sessionName !== targetSessionName) return
       const cols = Number(detail.cols)
@@ -535,7 +547,7 @@ export function PaneGrid({
   const flushResumePoint = useCallback(() => {
     if (isControlled || !sessionContinuity.enabled) return
     if (!activeHostId || !sessionId || !sessionName) return
-    const activeWindow = sessionWindows.find((item: any) => item.active) || sessionWindows[0] || null
+    const activeWindow = sessionWindows.find((item: Window) => item.active) || sessionWindows[0] || null
     const now = new Date().toISOString()
     const size = sizeState.claimedSize
     upsertResumePoint({
@@ -805,7 +817,7 @@ export function PaneGrid({
     setTakeoverPending(false)
   }, [targetSessionName, activeHostId])
   useEffect(() => {
-    const handleExclusiveRevoked = (detail: any = {}) => {
+    const handleExclusiveRevoked = (detail: { hostId?: string; sessionName?: string; ownerEpoch?: number } = {}) => {
       // 同 host 即降级：多端抢焦时 session 名解析可能短暂不一致，宁可降级也不双写
       if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
       if (detail.sessionName && targetSessionName && detail.sessionName !== targetSessionName) return
@@ -828,7 +840,17 @@ export function PaneGrid({
     // attachNow 必须进依赖：ownershipLost 翻转会连带更新 exclusive/passive 闭包
   }, [ownershipLost, attachNow, isSocketReady, targetSessionName, clearAttachTimers, clearRemoteResizeState])
   useEffect(() => {
-    const handleAttached = (detail: any = {}) => {
+    const handleAttached = (
+      detail: {
+        hostId?: string
+        sessionName?: string
+        cols?: number
+        rows?: number
+        exclusive?: boolean
+        windowVersion?: number
+        ownerEpoch?: number
+      } = {},
+    ) => {
       if (detail.sessionName !== targetSessionName) return
       if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
       clearAttachTimers()
@@ -875,7 +897,7 @@ export function PaneGrid({
     sizeState,
   ])
   useEffect(() => {
-    const handleDetached = (detail: any = {}) => {
+    const handleDetached = (detail: { hostId?: string; sessionName?: string } = {}) => {
       if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
       if (detail.sessionName && detail.sessionName !== targetSessionName) return
       attachedRef.current = null
@@ -904,7 +926,17 @@ export function PaneGrid({
     updateConnectionState,
   ])
   useEffect(() => {
-    const handleRemoteResized = (detail: any = {}) => {
+    const handleRemoteResized = (
+      detail: {
+        hostId?: string
+        sessionName?: string
+        cols?: number
+        rows?: number
+        requestId?: string | number
+        ownerEpoch?: number
+        localOnly?: boolean
+      } = {},
+    ) => {
       if (detail?.localOnly) return
       if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
       if (detail.sessionName && detail.sessionName !== targetSessionName) return
@@ -1178,7 +1210,7 @@ export function PaneGrid({
       pickRecentSessionId(
         sessionContinuity.resumePoints,
         activeHostId || 'local',
-        orderedSessions.map((item: any) => item.id),
+        orderedSessions.map((item: Session) => item.id),
       ) ?? orderedSessions[0]?.id
     const openCreateSession = () => {
       setSessionPanelExpanded(true)

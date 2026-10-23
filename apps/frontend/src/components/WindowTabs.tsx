@@ -17,6 +17,7 @@ import { PromptDialog } from './PromptDialog'
 import { summarizeAgentByWindow } from '@/lib/agent-status'
 import { setTerminalDockDragActive, TERMINAL_DOCK_DRAG_MIME, WINDOW_TAB_DRAG_MIME } from '@/lib/terminal-dock-drag'
 import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
+import type { Window } from '@/types'
 
 export function WindowTabs() {
   const activeHostId = useConsoleStore((s) => s.activeHostId)
@@ -58,7 +59,7 @@ export function WindowTabs() {
     return null
   }
 
-  const sessionWindows = windows.filter((w: any) => w.sessionId === activeSessionId)
+  const sessionWindows = windows.filter((w: Window) => w.sessionId === activeSessionId)
   if (sessionWindows.length === 0) {
     return null
   }
@@ -72,7 +73,7 @@ export function WindowTabs() {
     if (!activeHostId || !activeSessionId) return
     const previousWindows = getWindows()
     setWindows(
-      previousWindows.map((window: any) =>
+      previousWindows.map((window: Window) =>
         window.sessionId === activeSessionId ? { ...window, active: window.id === windowId } : window,
       ),
     )
@@ -86,7 +87,7 @@ export function WindowTabs() {
     }
   }
 
-  const handleCloseWindow = async (window: any) => {
+  const handleCloseWindow = async (window: Pick<Window, 'id'>) => {
     if (!activeHostId || !activeSessionId || isLastWindow) return
     try {
       const result = await api.windows.kill(activeHostId, activeSessionId, window.id)
@@ -101,9 +102,9 @@ export function WindowTabs() {
     }
   }
 
-  const handleCloseOthers = async (window: any) => {
+  const handleCloseOthers = async (window: Window) => {
     if (!activeHostId || !activeSessionId) return
-    const others = sessionWindows.filter((w: any) => w.id !== window.id).map((w: any) => w.id)
+    const others = sessionWindows.filter((w: Window) => w.id !== window.id).map((w: Window) => w.id)
     if (!others.length) return
     try {
       const results = await batchKillWindows.mutateAsync({
@@ -144,7 +145,7 @@ export function WindowTabs() {
 
   const handleTabDrop = async (dragId: string, targetId: string, side: 'before' | 'after') => {
     if (!dragId || dragId === targetId || !activeHostId || !activeSessionId) return
-    const ids = sessionWindows.map((w: any) => w.id).filter((id: string) => id !== dragId)
+    const ids = sessionWindows.map((w: Window) => w.id).filter((id: string) => id !== dragId)
     let index = ids.indexOf(targetId)
     if (index < 0) return
     if (side === 'after') index += 1
@@ -207,7 +208,7 @@ export function WindowTabs() {
     )
   }
 
-  const nonActiveIds = sessionWindows.filter((w: any) => !w.active).map((w: any) => w.id)
+  const nonActiveIds = sessionWindows.filter((w: Window) => !w.active).map((w: Window) => w.id)
 
   const handleBatchDelete = async () => {
     if (!activeHostId || !activeSessionId || selectedWindowIds.length === 0) return
@@ -239,7 +240,7 @@ export function WindowTabs() {
     }
   }
 
-  const tabMenuWindow = tabMenu ? sessionWindows.find((w: any) => w.id === tabMenu.id) : null
+  const tabMenuWindow = tabMenu ? sessionWindows.find((w: Window) => w.id === tabMenu.id) : null
 
   return (
     <div
@@ -289,7 +290,7 @@ export function WindowTabs() {
         role="tablist"
         className="tmuxgo-scrollbar-subtle flex min-w-0 flex-1 items-end overflow-x-auto"
       >
-        {sessionWindows.map((window: any) => {
+        {sessionWindows.map((window: Window) => {
           if (batchMode) {
             const selected = selectedWindowIds.includes(window.id)
             return (
@@ -543,8 +544,8 @@ export function WindowTabs() {
         title={t('window.batchDeleteTitle')}
         message={t('window.batchDeleteConfirm', { count: selectedWindowIds.length })}
         items={sessionWindows
-          .filter((window: any) => selectedWindowIds.includes(window.id))
-          .map((window: any) => window.name || `#${window.index}`)}
+          .filter((window: Window) => selectedWindowIds.includes(window.id))
+          .map((window: Window) => window.name || `#${window.index}`)}
         confirmLabel={t('window.batchDeleteSelected', { count: selectedWindowIds.length })}
         cancelLabel={t('common.cancel')}
         tone="danger"
