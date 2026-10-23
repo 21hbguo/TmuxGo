@@ -64,6 +64,29 @@ async function createFixture(t: TestContext): Promise<Fixture> {
   await fastify.register(gitRoutes, { taskManager: manager })
   return { base, repository, fastify, manager }
 }
+// 分叉夹具：远端与本地各推进一个不同文件——历史分道但没有内容冲突
+async function createDivergedFixture(t: TestContext) {
+  const fixture = await createFixture(t)
+  const { base, repository } = fixture
+  const origin = path.join(base, 'origin.git')
+  await runGit(base, ['init', '--bare', '--initial-branch=main', 'origin.git'])
+  await runGit(repository, ['remote', 'add', 'origin', origin])
+  await runGit(repository, ['push', '-u', 'origin', 'main'])
+  const other = path.join(base, 'other')
+  await runGit(base, ['clone', origin, 'other'])
+  await runGit(other, ['config', 'user.email', 'other@tmuxgo.dev'])
+  await runGit(other, ['config', 'user.name', 'Other'])
+  await runGit(other, ['config', 'commit.gpgsign', 'false'])
+  await writeFile(file(other, 'remote-only.txt'), 'remote\n')
+  await runGit(other, ['add', 'remote-only.txt'])
+  await runGit(other, ['commit', '-m', 'remote commit'])
+  await runGit(other, ['push', 'origin', 'main'])
+  await writeFile(file(repository, 'local-only.txt'), 'local\n')
+  await runGit(repository, ['add', 'local-only.txt'])
+  await runGit(repository, ['commit', '-m', 'local commit'])
+  return fixture
+}
+
 function file(repository: string, name: string) {
   return path.join(repository, name)
 }
@@ -743,26 +766,10 @@ test('pull reports conflicts instead of throwing when the branches diverged on t
 })
 
 test('pull reports a diverged branch instead of throwing when git refuses without a strategy', async (t) => {
-  const fixture = await createFixture(t)
-  const { base, repository } = fixture
-  const origin = path.join(base, 'origin.git')
-  await runGit(base, ['init', '--bare', '--initial-branch=main', 'origin.git'])
-  await runGit(repository, ['remote', 'add', 'origin', origin])
-  await runGit(repository, ['push', '-u', 'origin', 'main'])
-  const other = path.join(base, 'other')
-  await runGit(base, ['clone', origin, 'other'])
-  await runGit(other, ['config', 'user.email', 'other@tmuxgo.dev'])
-  await runGit(other, ['config', 'user.name', 'Other'])
-  await runGit(other, ['config', 'commit.gpgsign', 'false'])
-  // 两边各改一个不同文件：历史分叉但没有内容冲突。git ≥2.27 在未配置 pull.rebase/pull.ff 时
-  // 会直接拒绝这种 pull（提示需要指定策略），旧实现把这条 hint 当裸失败落 500
-  await writeFile(file(other, 'remote-only.txt'), 'remote\n')
-  await runGit(other, ['add', 'remote-only.txt'])
-  await runGit(other, ['commit', '-m', 'remote commit'])
-  await runGit(other, ['push', 'origin', 'main'])
-  await writeFile(file(repository, 'local-only.txt'), 'local\n')
-  await runGit(repository, ['add', 'local-only.txt'])
-  await runGit(repository, ['commit', '-m', 'local commit'])
+  // git ≥2.27 在未配置 pull.rebase/pull.ff 时会直接拒绝分叉分支的 pull，
+  // 旧实现把这条 hint 当裸失败落 500
+  const fixture = await createDivergedFixture(t)
+  const { repository } = fixture
   const headBefore = (await runGit(repository, ['rev-parse', 'HEAD'])).stdout.trim()
 
   const pulled = await inject(fixture, 'POST', 'pull', { path: repository })
@@ -815,6 +822,50 @@ test('pull keeps unclassified failures as errors when the branch is only behind'
   const pulled = await inject(fixture, 'POST', 'pull', { path: repository })
   assert.equal(pulled.statusCode, 500)
   assert.doesNotMatch(JSON.stringify(pulled.json()), /diverged/)
+})
+
+test('pull merges a diverged branch when the user picks merge, overriding pull.rebase', async (t) => {
+  const fixture = await createDivergedFixture(t)
+  const { repository } = fixture
+  // 配置成默认 rebase：strategy=merge 必须显式 --no-rebase 才能压住它，
+  // 否则"选 merge"会静默 rebase（用户的库历史被动改写）
+  await runGit(repository, ['config', 'pull.rebase', 'true'])
+
+  const pulled = await inject(fixture, 'POST', 'pull', { path: repository, strategy: 'merge' })
+  assert.equal(pulled.statusCode, 200)
+  const pullBody = body<{ ok: boolean; conflicts: boolean; diverged?: boolean }>(pulled)
+  assert.equal(pullBody.ok, true)
+  assert.equal(pullBody.conflicts, false)
+  assert.equal(pullBody.diverged, undefined)
+  // 真合并出两个父提交；rebase 则只有一个
+  const parents = (await runGit(repository, ['rev-list', '--parents', '-n', '1', 'HEAD'])).stdout.trim().split(/\s+/)
+  assert.equal(parents.length, 3)
+})
+
+test('pull rebases a diverged branch when the user picks rebase, overriding pull.rebase=false', async (t) => {
+  const fixture = await createDivergedFixture(t)
+  const { repository } = fixture
+  await runGit(repository, ['config', 'pull.rebase', 'false'])
+  const headBefore = (await runGit(repository, ['rev-parse', 'HEAD'])).stdout.trim()
+
+  const pulled = await inject(fixture, 'POST', 'pull', { path: repository, strategy: 'rebase' })
+  assert.equal(pulled.statusCode, 200)
+  const pullBody = body<{ ok: boolean; conflicts: boolean; diverged?: boolean }>(pulled)
+  assert.equal(pullBody.ok, true)
+  assert.equal(pullBody.diverged, undefined)
+  // 线性历史：HEAD 只有一个父提交，且本地提交被重放到远端之后（对象换了但内容在）
+  const parents = (await runGit(repository, ['rev-list', '--parents', '-n', '1', 'HEAD'])).stdout.trim().split(/\s+/)
+  assert.equal(parents.length, 2)
+  assert.notEqual((await runGit(repository, ['rev-parse', 'HEAD'])).stdout.trim(), headBefore)
+  assert.equal((await readFile(file(repository, 'local-only.txt'), 'utf8')).trim(), 'local')
+  assert.equal((await readFile(file(repository, 'remote-only.txt'), 'utf8')).trim(), 'remote')
+})
+
+test('pull rejects an unknown strategy with 400 instead of passing it through', async (t) => {
+  const fixture = await createFixture(t)
+  const pulled = await inject(fixture, 'POST', 'pull', { path: fixture.repository, strategy: 'octopus' })
+  assert.equal(pulled.statusCode, 400)
+  assert.equal(body<{ code: string }>(pulled).code, 'INVALID_REQUEST')
 })
 
 test('push reports a rejected non-fast-forward instead of throwing', async (t) => {

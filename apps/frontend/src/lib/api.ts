@@ -1221,12 +1221,20 @@ export const api = {
     pull: (
       hostId: string,
       path: string,
-      options?: { remote?: string; branch?: string; rebase?: boolean; background?: boolean },
+      options?: {
+        remote?: string
+        branch?: string
+        rebase?: boolean
+        /** 分叉协调策略：rebase→--rebase、merge→--no-rebase；缺省沿用 git 默认 */
+        strategy?: 'rebase' | 'merge'
+        background?: boolean
+      },
     ) =>
-      fetchApi<{ ok: boolean; conflicts: boolean; message: string } | BackgroundGitTaskResponse>(
-        `/api/hosts/${hostId}/git/pull`,
-        { method: 'POST', body: JSON.stringify({ path, ...options }) },
-      ),
+      // diverged/ahead/behind 只在分叉被 git 拒绝时出现，前端据此提示用户选策略
+      fetchApi<
+        | { ok: boolean; conflicts: boolean; message: string; diverged?: boolean; ahead?: number; behind?: number }
+        | BackgroundGitTaskResponse
+      >(`/api/hosts/${hostId}/git/pull`, { method: 'POST', body: JSON.stringify({ path, ...options }) }),
     push: (
       hostId: string,
       path: string,

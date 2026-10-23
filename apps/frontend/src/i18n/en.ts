@@ -1446,6 +1446,11 @@ export const en = {
   'git.pull': 'Pull',
   'git.push': 'Push',
   'git.fetchSuccess': 'Fetch successful',
+  'git.divergedTitle': 'Branches have diverged',
+  'git.divergedMessage':
+    'Local is {ahead} commit(s) ahead and {behind} behind. Choose how to reconcile: rebase replays your commits on top of the remote, merge creates a merge commit.',
+  'git.pullWithRebase': 'Pull with rebase',
+  'git.pullWithMerge': 'Pull with merge',
   'git.pullSuccess': 'Pull successful',
   'git.pushSuccess': 'Push successful',
   'git.pushRejected': 'Push rejected',

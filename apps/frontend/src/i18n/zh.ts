@@ -1436,6 +1436,11 @@ export const zh = {
   'git.pull': '拉取',
   'git.push': '推送',
   'git.fetchSuccess': '拉取成功',
+  'git.divergedTitle': '分支已分叉',
+  'git.divergedMessage':
+    '本地领先 {ahead} 个提交、落后 {behind} 个提交，需要选择如何与远端合并：变基会把本地提交重放到远端之后，合并会生成一个合并提交。',
+  'git.pullWithRebase': '变基拉取',
+  'git.pullWithMerge': '合并拉取',
   'git.pullSuccess': '拉取成功',
   'git.pushSuccess': '推送成功',
   'git.pushRejected': '推送被拒绝',

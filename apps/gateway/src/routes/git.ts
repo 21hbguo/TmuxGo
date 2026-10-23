@@ -8,11 +8,13 @@ import {
   gitCommitBodySchema,
   gitFilesBodySchema,
   gitOperationBodySchema,
+  gitPullStrategySchema,
   gitResolveBodySchema,
   gitWorktreeCreateBodySchema,
   gitWorktreeLinkBodySchema,
   gitWorktreeRemoveBodySchema,
   hostParamsSchema,
+  describeZodError,
 } from '../lib/request-validation.js'
 import {
   assertSafeWorktreePath,
@@ -593,11 +595,28 @@ export async function gitRoutes(fastify: FastifyInstance, options: { taskManager
       remote,
       branch,
       rebase,
+      strategy: rawStrategy,
       background,
-    } = request.body as { path: string; remote?: string; branch?: string; rebase?: boolean; background?: boolean }
+    } = request.body as {
+      path: string
+      remote?: string
+      branch?: string
+      rebase?: boolean
+      strategy?: 'rebase' | 'merge'
+      background?: boolean
+    }
     if (!repoPath) throw new Error('Missing path')
+    // 这里显式回 400 而不是抛 ZodError：路由在测试/嵌入式宿主里可能没有应用级
+    // ZodError→400 处理器，抛出去会落成 500，把"参数错"伪装成"服务错"
+    const strategyParse = gitPullStrategySchema.safeParse(rawStrategy)
+    if (!strategyParse.success)
+      return reply.status(400).send({ message: describeZodError(strategyParse.error), code: 'INVALID_REQUEST' })
+    const strategy = strategyParse.data
     const args = ['pull']
-    if (rebase) args.push('--rebase')
+    // strategy 是分叉提示里的显式选择，优先级高于老的 rebase 开关：
+    // --no-rebase 必须显式传，否则用户配了 pull.rebase=true 时"选 merge"会静默变 rebase
+    if (strategy) args.push(strategy === 'rebase' ? '--rebase' : '--no-rebase')
+    else if (rebase) args.push('--rebase')
     if (remote) args.push(remote)
     if (branch) args.push(branch)
     if (background)
