@@ -185,6 +185,11 @@ function getSafeStreamMetrics() {
     redrawRequests: safeNumber(streamPerfMetrics.redrawRequests),
     droppedDuplicateChunks: safeNumber(streamPerfMetrics.droppedDuplicateChunks),
     resizeAckWaitMs: safeNumber(streamPerfMetrics.resizeAckWaitMs),
+    agentSubs: safeNumber(streamPerfMetrics.agentSubs),
+    agentFramesSent: safeNumber(streamPerfMetrics.agentFramesSent),
+    agentFrameBytes: safeNumber(streamPerfMetrics.agentFrameBytes),
+    agentFramesCoalesced: safeNumber(streamPerfMetrics.agentFramesCoalesced),
+    agentResyncRequests: safeNumber(streamPerfMetrics.agentResyncRequests),
   }
 }
 async function getDependencies() {

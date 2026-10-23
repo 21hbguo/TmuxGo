@@ -168,6 +168,20 @@ export const streamResizeMessageSchema = z.object({
   // 声明会被 zod 默认剥离，网关 resized ACK 原样回声供前端配对/丢弃旧 ACK
   requestId: z.union([z.string().min(1).max(128), z.number().int()]).optional(),
 })
+// agent 推式订阅帧（AgentFeed v1）：hostId 用标识符校验，sessions 逐项卡长度，
+// 版本号只做宽松 int——具体支持列表在 AgentFeed 内判，便于未来 v2 灰度
+export const streamAgentSubscribeMessageSchema = z.object({
+  type: z.literal('agent_subscribe'),
+  agentProtoVersion: z.number().int().min(1).max(99).optional(),
+  hostId: identifier,
+  sessions: z.array(z.string().min(1).max(64)).max(64).optional(),
+  needFull: z.boolean().optional(),
+  wantNotifications: z.boolean().optional(),
+})
+export const streamAgentSubRefMessageSchema = z.object({
+  type: z.enum(['agent_resync', 'agent_unsubscribe']),
+  subId: z.string().min(3).max(32),
+})
 export const streamRegisterMessageSchema = z.object({
   type: z.literal('register'),
   version: z.string().min(1).max(128).optional(),

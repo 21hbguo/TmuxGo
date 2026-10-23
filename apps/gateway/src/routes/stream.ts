@@ -1,10 +1,13 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { agentManager, type AgentSocket } from '../agent-manager.js'
 import { recordStreamMetric, updateStreamMetric } from '../lib/perf-metrics.js'
-import { agentMonitor } from '../lib/agent-monitor.js'
+import { agentMonitor, type AgentMonitorEvent } from '../lib/agent-monitor.js'
+import { AgentFeed, AgentFeedError } from '../lib/agent-stream.js'
 import { subscribeInbox } from '../lib/agent-inbox.js'
 import { ingestAgentEvent } from '../lib/agent-events.js'
 import {
+  streamAgentSubRefMessageSchema,
+  streamAgentSubscribeMessageSchema,
   streamAttachMessageSchema,
   streamInputMessageSchema,
   streamMessageSchema,
@@ -19,7 +22,11 @@ import { ZodError } from 'zod'
 import { shareLinkStore, type ShareTicket } from '../lib/share-links.js'
 import { StreamSession } from '../lib/stream/stream-session.js'
 import { applyPasteDataFrame } from '../lib/stream/paste-binary.js'
-import { STREAM_PING_INTERVAL_MS, STREAM_PONG_TIMEOUT_MS } from '../lib/stream/stream-config.js'
+import {
+  SOCKET_BUFFER_HIGH_WATERMARK,
+  STREAM_PING_INTERVAL_MS,
+  STREAM_PONG_TIMEOUT_MS,
+} from '../lib/stream/stream-config.js'
 // stream 帧 schema 只校验 type，其余字段随 type 而异；各分支自行消费/由专用 schema 校验
 interface StreamMessage {
   type: string
@@ -91,6 +98,19 @@ export async function streamRoutes(fastify: FastifyInstance) {
     console.log('Client connected to stream')
     const agentSocket = socket
     const session = new StreamSession(socket, shareTicket, userScope)
+    // 推式 agent 订阅通道：每连接一个实例、一个 monitor listener（见文件尾扇出），
+    // 订阅数不参与 monitor 快/慢档判定——档位只看 listener 是否为 0
+    const agentFeed = new AgentFeed({
+      send: (frame) => {
+        session.send(frame)
+      },
+      getStates: (hostId) => agentMonitor.getStates(hostId),
+      getRevision: (hostId) => agentMonitor.getRevision(hostId),
+      // 拥塞判据与终端输出同一水位：pusle 只发水位，避免 delta 在发送链里排队
+      isCongested: () => session.getSocketBufferedBytes() >= SOCKET_BUFFER_HIGH_WATERMARK,
+      scope: userScope,
+      shareTicket: !!shareTicket,
+    })
     const targetAllowed = (hostId: unknown, sessionName?: unknown) =>
       !userScope ||
       (typeof hostId === 'string' &&
@@ -192,16 +212,19 @@ export async function streamRoutes(fastify: FastifyInstance) {
             socket.close(1008, 'Share link is unavailable')
             return
           }
-          if (
-            ![
+          // agent_seen / agent_* 订阅是只读动作，受限 readOnly 身份放行；
+          // share 观众不放行 agent_seen——替所有者清 done 徽标属于越权写副作用
+          const readOnlyAllowed =
+            [
               'attach',
               'detach',
               'ping',
               'stream_profile',
               'stream_backpressure',
               'stream_backpressure_suppressed',
-            ].includes(data.type)
-          ) {
+            ].includes(data.type) ||
+            (!shareTicket && ['agent_seen', 'agent_subscribe', 'agent_resync', 'agent_unsubscribe'].includes(data.type))
+          if (!readOnlyAllowed) {
             auditMsg(auditType, auditData, 'failure', 'denied')
             session.send({ type: 'error', code: 'SHARE_READ_ONLY', message: 'Shared terminal is read-only' })
             return
@@ -224,6 +247,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
             unsubscribeAgentMonitor = null
             unsubscribeInbox?.()
             unsubscribeInbox = null
+            // agent 通道只生产事件、不消费 UI 帧：订阅与 legacy 扇出一起关掉
+            agentFeed.dispose()
             agentManager.register(
               register.host.id,
               register.host.name,
@@ -297,6 +322,22 @@ export async function streamRoutes(fastify: FastifyInstance) {
           case 'agent_seen':
             session.markAgentSeen(String(data.paneId || ''))
             break
+          case 'agent_subscribe': {
+            const subscribe = streamAgentSubscribeMessageSchema.parse(data)
+            // 校验/scope/上限失败抛 AgentFeedError，catch 分支按 code 回帧并落 denied/invalid 审计
+            agentFeed.subscribe(subscribe)
+            break
+          }
+          case 'agent_resync': {
+            const ref = streamAgentSubRefMessageSchema.parse(data)
+            agentFeed.resync(ref.subId)
+            break
+          }
+          case 'agent_unsubscribe': {
+            const ref = streamAgentSubRefMessageSchema.parse(data)
+            agentFeed.unsubscribe(ref.subId)
+            break
+          }
           case 'stream_caps':
             session.applyCaps(data)
             break
@@ -347,7 +388,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
       } catch (err) {
         // 协议错误（JSON 解析失败/zod 校验失败）与下游异常都落审计，
         // message 只写类别词不回显下游细节；scope 越权归 denied(403)
-        const scopeDenied = err instanceof Error && err.message.startsWith('Access scope')
+        const scopeDenied =
+          err instanceof Error &&
+          (err.message.startsWith('Access scope') ||
+            (err instanceof AgentFeedError && err.code === 'AGENT_SCOPE_DENIED'))
         auditMsg(
           auditType,
           auditData,
@@ -357,6 +401,9 @@ export async function streamRoutes(fastify: FastifyInstance) {
         const errorMessage = err instanceof Error && err.message ? err.message : 'Invalid message format'
         console.error('Stream message error', errorMessage)
         const payload: Record<string, unknown> = { type: 'error', message: errorMessage }
+        // AgentFeed 错误带机器可读 code（AGENT_SUB_LIMIT / AGENT_PROTO_VERSION_UNSUPPORTED 等），
+        // 客户端据此决定降级还是重试；其余异常沿用无 code 的旧形状
+        if (err instanceof AgentFeedError) payload.code = err.code
         try {
           const data = JSON.parse(message.toString())
           if (typeof data?.hostId === 'string' && data.hostId.trim()) payload.hostId = data.hostId.trim()
@@ -375,29 +422,37 @@ export async function streamRoutes(fastify: FastifyInstance) {
       unsubscribeAgentMonitor = null
       unsubscribeInbox?.()
       unsubscribeInbox = null
+      agentFeed.dispose()
       updateStreamMetric('activeClients', streamPerfMetricsActiveClientsDelta(-1))
       if (agentId) agentManager.unregister(agentId, agentSocket, reason.toString() || `WebSocket closed (${code})`)
     })
     session.send({ type: 'connected', timestamp: Date.now() })
     // share-link 只读观众不能收 agent/inbox 事件：消息正文、title、route
-    // 全在内，扇出等于把用户收件箱泄露给持分享链接者；受限身份同理按 host 过滤
+    // 全在内，扇出等于把用户收件箱泄露给持分享链接者；受限身份同理按 host 过滤。
+    // 双发期（S1）：同一个 listener 先发 legacy 帧再喂 AgentFeed——
+    // legacy 在前保证旧前端行为不变，新帧走 100ms 合并窗天然排在其后；
+    // 每连接只挂这一个 listener（禁止按订阅挂，monitor 快/慢档按 listener 数算）
+    const legacyAgentFrames = process.env.TMUXGO_AGENT_LEGACY_FRAMES !== '0'
     let unsubscribeAgentMonitor: (() => void) | null = shareTicket
       ? null
       : agentMonitor.subscribe((event) => {
           const hostId = (event as { hostId?: unknown } | undefined)?.hostId
+          let delivered: AgentMonitorEvent = event
           if (scopeIsRestricted(userScope)) {
             if (typeof hostId !== 'string' || !scopeAllowsHost(userScope!, hostId)) return
             // session 白名单对 pane 事件同样生效（原先只过 host 闸是泄漏）：
             // snapshot 逐 pane 过滤 agents；changed/removed/notification 按
             // 顶层 sessionName 闸；monitor_error 无 session 维度只过 host 闸
-            if (event.type === 'agent_status_snapshot') {
-              const agents = event.agents.filter((pane) => scopeAllowsSession(userScope!, hostId, pane.sessionName))
-              session.send({ ...event, agents })
-              return
-            }
-            if ('sessionName' in event && !scopeAllowsSession(userScope!, hostId, event.sessionName)) return
+            if (event.type === 'agent_status_snapshot')
+              delivered = {
+                ...event,
+                agents: event.agents.filter((pane) => scopeAllowsSession(userScope!, hostId, pane.sessionName)),
+              }
+            else if ('sessionName' in event && !scopeAllowsSession(userScope!, hostId, event.sessionName)) return
           }
-          session.send(event)
+          if (legacyAgentFrames) session.send(delivered)
+          // feed 侧按 subscription 再做一次 scope/session 收敛（订阅后 scope 可能被改）
+          agentFeed.ingest(event)
         })
     // agent 推送收件箱事件与 monitor 同通道扇出（metadata-only，内容走 /api/inbox REST）
     // /api/inbox 对受限身份整体关闭，扇出同步关闭

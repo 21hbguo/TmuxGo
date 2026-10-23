@@ -5,6 +5,7 @@ import { getAttachSnapshotDelays } from '../attach-snapshot.js'
 import { execTmux, tmuxSessionExists } from '../tmux-executor.js'
 import { agentMonitor } from '../agent-monitor.js'
 import { markAgentPaneSeen } from '../agent-state.js'
+import { AGENT_PROTO_VERSION } from '../agent-stream.js'
 import { assertSessionAllowed, prepareSessionAttach } from '../tmux-policy.js'
 import { parseSessionRef } from '../tmux-target.js'
 import {
@@ -1549,6 +1550,9 @@ export class StreamSession {
       compressOutput: this.compressOutputEnabled ? 'gzip' : false,
       cellOutput: this.cellOutputEnabled,
       compactHeader: this.compactHeaderEnabled,
+      // 服务端声明的 agent 推式订阅协议版本：旧前端忽略该字段即可，
+      // 新前端据此决定是否发 agent_subscribe（不必等撞 Unknown message type 再降级）
+      agentPush: AGENT_PROTO_VERSION,
     })
   }
   requestCellResync() {
