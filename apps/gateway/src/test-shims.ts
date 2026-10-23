@@ -18,6 +18,8 @@ const SSH_SHIM = `#!/bin/sh
   for a in "$@"; do printf '\\t%s' "$a"; done
   printf '\\nSSHPASS=%s\\n' "\${SSHPASS:-}"
 } >> "$SHIM_LOG"
+# 上传通道要断言「真实字节到了远端」：把 stdin 落到 SHIM_CAPTURE_FILE 再按剧本退出
+if [ -n "\${SHIM_CAPTURE_FILE:-}" ]; then cat > "$SHIM_CAPTURE_FILE"; fi
 if [ -n "\${SSHPASS:-}" ]; then
   printf '%s' "\${SHIM_PASSWORD_STDOUT:-}"
   printf '%s' "\${SHIM_PASSWORD_STDERR:-}" >&2
@@ -104,6 +106,7 @@ export function installShims(names: ShimName[], options: { systemdRunPath?: stri
         'SHIM_PASSWORD_STDOUT',
         'SHIM_PASSWORD_STDERR',
         'SHIM_PASSWORD_EXIT',
+        'SHIM_CAPTURE_FILE',
       ])
         delete process.env[key]
       rmSync(dir, { recursive: true, force: true })
