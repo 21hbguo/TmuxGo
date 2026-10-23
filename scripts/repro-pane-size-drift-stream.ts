@@ -24,6 +24,32 @@ const stamp = Date.now()
 const OUT_FILE = path.join(OUT_DIR, `stream-repro-${stamp}.jsonl`)
 const SUMMARY_FILE = path.join(OUT_DIR, `stream-summary-${stamp}.json`)
 
+interface PaneRow {
+  paneId: string
+  paneIndex: number
+  w: number
+  h: number
+  active: boolean
+}
+// 一次采样的完整记录，字段与落盘 JSONL 行一一对应
+interface PaneSizeSample {
+  step: number
+  action: string
+  targetPane: string
+  client: string
+  exclusive: boolean
+  owner: boolean
+  passive: boolean
+  xterm_cols: number
+  xterm_rows: number
+  win_w: number
+  win_h: number
+  expect_rows_with_status: number
+  drift_strict: boolean
+  drift_status_tolerant: boolean
+  panes: PaneRow[]
+}
+
 function tmux(args: string[]) {
   return execFileSync('tmux', args, { encoding: 'utf8' })
 }
@@ -54,7 +80,7 @@ function readTmux() {
   ])
   let winW = 0
   let winH = 0
-  const panes: any[] = []
+  const panes: PaneRow[] = []
   for (const line of out.trim().split('\n').filter(Boolean)) {
     const [paneId, paneIndex, w, h, active, ww, wh] = line.split('|')
     panes.push({ paneId, paneIndex: +paneIndex, w: +w, h: +h, active: active === '1' })
@@ -66,7 +92,7 @@ function readTmux() {
 }
 
 function makeClient(name: string) {
-  const sent: any[] = []
+  const sent: unknown[] = []
   const socket = {
     readyState: 1,
     bufferedAmount: 0,
@@ -79,7 +105,8 @@ function makeClient(name: string) {
     },
     close() {},
   }
-  const session = new StreamSession(socket as any, null)
+  // 结构上满足 StreamSession 的 StreamSocketLike（readyState/send/close）
+  const session = new StreamSession(socket, null)
   return { name, session, sent }
 }
 
@@ -111,7 +138,7 @@ async function main() {
 
   const clients = [desk, phone]
   writeFileSync(OUT_FILE, '')
-  const all: any[] = []
+  const all: PaneSizeSample[] = []
   let step = 0
 
   const record = (action: string, target: string) => {

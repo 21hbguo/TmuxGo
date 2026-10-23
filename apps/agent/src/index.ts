@@ -46,6 +46,32 @@ const execFileAsync = promisify(execFile)
 // 上行/下行共用分块窗口：ack 逐块有序，8×192KB≈1.5MB 在途上限
 const FILE_CHUNK_BYTES = 192 * 1024
 const FILE_CHUNK_WINDOW = 8
+// gateway→agent 下行帧。字段按 gateway 实际发送形状定义（apps/gateway/src/agent-manager.ts
+// 与 docs/stream-transport-opt/PROTOCOL.md）；协议是开放 JSON，handler 内仍逐字段
+// typeof/Number.isInteger 校验，字段缺失或类型不符照旧走原有回退分支。
+// cols/rows/timeoutMs/offset/port 参与算术比较，故不标 optional。
+interface AgentInboundMessage {
+  type: string
+  requestId?: string
+  attachmentId?: string
+  uploadId?: string
+  downloadId?: string
+  connectionId?: string
+  sessionName?: string
+  command?: string
+  data?: string
+  path?: string
+  agentId?: string
+  args?: string[]
+  cols: number
+  rows: number
+  timeoutMs: number
+  offset: number
+  port: number
+  exclusive?: boolean
+  directory?: boolean
+  caps?: { compressTerminalOutput?: boolean }
+}
 interface FileUpload {
   path: string
   temporaryPath: string
@@ -172,7 +198,7 @@ class Agent {
     this.heartbeatTimer = null
   }
 
-  private async handleMessage(message: any) {
+  private async handleMessage(message: AgentInboundMessage) {
     switch (message.type) {
       case 'connected':
         return
@@ -250,7 +276,7 @@ class Agent {
     }
   }
 
-  private async handleTmux(message: any) {
+  private async handleTmux(message: AgentInboundMessage) {
     const requestId = typeof message.requestId === 'string' ? message.requestId : ''
     try {
       if (!requestId) throw new Error('Missing tmux request id')
@@ -260,16 +286,16 @@ class Agent {
         requestId,
         ...result,
       })
-    } catch (err: any) {
+    } catch (err) {
       this.send({
         type: 'tmux-error',
         requestId,
-        message: err.message,
+        message: err instanceof Error ? err.message : String(err),
       })
     }
   }
 
-  private async handleShell(message: any) {
+  private async handleShell(message: AgentInboundMessage) {
     const requestId = typeof message.requestId === 'string' ? message.requestId : ''
     const command = typeof message.command === 'string' ? message.command : ''
     const timeoutMs = Number.isInteger(message.timeoutMs) ? Math.max(1000, Math.min(message.timeoutMs, 120000)) : 30000
@@ -280,18 +306,20 @@ class Agent {
         maxBuffer: 32 * 1024 * 1024,
       })
       this.send({ type: 'shell-result', requestId, stdout, stderr, exitCode: 0 })
-    } catch (err: any) {
+    } catch (err) {
+      // execFile 失败是 ExecException（带 stdout/stderr/code），非 Error 时按空串兜底
+      const failure = (err ?? {}) as { stdout?: unknown; stderr?: unknown; message?: unknown; code?: unknown }
       this.send({
         type: 'shell-result',
         requestId,
-        stdout: String(err?.stdout || ''),
-        stderr: String(err?.stderr || err?.message || ''),
-        exitCode: typeof err?.code === 'number' ? err.code : 1,
+        stdout: String(failure.stdout || ''),
+        stderr: String(failure.stderr || failure.message || ''),
+        exitCode: typeof failure.code === 'number' ? failure.code : 1,
       })
     }
   }
 
-  private async startFileUpload(message: any) {
+  private async startFileUpload(message: AgentInboundMessage) {
     const uploadId = typeof message.uploadId === 'string' ? message.uploadId : ''
     const targetPath = typeof message.path === 'string' ? message.path : ''
     try {
@@ -317,7 +345,7 @@ class Agent {
     }
   }
 
-  private writeFileUploadChunk(message: any) {
+  private writeFileUploadChunk(message: AgentInboundMessage) {
     const uploadId = typeof message.uploadId === 'string' ? message.uploadId : ''
     const data = typeof message.data === 'string' ? message.data : ''
     const upload = this.uploads.get(uploadId)
@@ -330,7 +358,7 @@ class Agent {
     })
   }
 
-  private async completeFileUpload(message: any) {
+  private async completeFileUpload(message: AgentInboundMessage) {
     const uploadId = typeof message.uploadId === 'string' ? message.uploadId : ''
     const upload = this.uploads.get(uploadId)
     if (!upload) return
@@ -346,7 +374,7 @@ class Agent {
     }
   }
 
-  private abortFileUpload(message: any) {
+  private abortFileUpload(message: AgentInboundMessage) {
     const uploadId = typeof message.uploadId === 'string' ? message.uploadId : ''
     const upload = this.uploads.get(uploadId)
     if (!upload) return
@@ -368,7 +396,7 @@ class Agent {
     })
   }
 
-  private startFileDownload(message: any) {
+  private startFileDownload(message: AgentInboundMessage) {
     const downloadId = typeof message.downloadId === 'string' ? message.downloadId : ''
     const targetPath = typeof message.path === 'string' ? message.path : ''
     const offset = Number.isInteger(message.offset) && message.offset > 0 ? message.offset : 0
@@ -443,7 +471,7 @@ class Agent {
     }
   }
 
-  private ackFileDownload(message: any) {
+  private ackFileDownload(message: AgentInboundMessage) {
     const downloadId = typeof message.downloadId === 'string' ? message.downloadId : ''
     const download = this.downloads.get(downloadId)
     if (!download) return
@@ -451,7 +479,7 @@ class Agent {
     this.pumpFileDownload(downloadId)
   }
 
-  private abortFileDownload(message: any) {
+  private abortFileDownload(message: AgentInboundMessage) {
     const downloadId = typeof message.downloadId === 'string' ? message.downloadId : ''
     const download = this.downloads.get(downloadId)
     if (!download) return
@@ -481,7 +509,7 @@ class Agent {
     this.downloads.clear()
   }
 
-  private async attachTerminal(message: any) {
+  private async attachTerminal(message: AgentInboundMessage) {
     const requestId = typeof message.requestId === 'string' ? message.requestId : ''
     const attachmentId = typeof message.attachmentId === 'string' ? message.attachmentId : ''
     try {
@@ -511,18 +539,23 @@ class Agent {
         this.send({ type: 'terminal-exit', attachmentId, exitCode })
       })
       this.send({ type: 'terminal-attached', requestId, attachmentId, pid: terminal.pid })
-    } catch (err: any) {
-      this.send({ type: 'terminal-error', requestId, attachmentId, message: err.message })
+    } catch (err) {
+      this.send({
+        type: 'terminal-error',
+        requestId,
+        attachmentId,
+        message: err instanceof Error ? err.message : String(err),
+      })
     }
   }
 
-  private writeTerminal(message: any) {
+  private writeTerminal(message: AgentInboundMessage) {
     const attachmentId = typeof message.attachmentId === 'string' ? message.attachmentId : ''
     if (!attachmentId || typeof message.data !== 'string' || message.data.length > 1024 * 1024) return
     this.terminals.get(attachmentId)?.write(message.data)
   }
 
-  private resizeTerminal(message: any) {
+  private resizeTerminal(message: AgentInboundMessage) {
     const attachmentId = typeof message.attachmentId === 'string' ? message.attachmentId : ''
     if (
       !attachmentId ||
@@ -537,7 +570,7 @@ class Agent {
     this.terminals.get(attachmentId)?.resize(message.cols, message.rows)
   }
 
-  private detachTerminal(message: any) {
+  private detachTerminal(message: Pick<AgentInboundMessage, 'attachmentId'>) {
     const attachmentId = typeof message.attachmentId === 'string' ? message.attachmentId : ''
     const terminal = this.terminals.get(attachmentId)
     if (!terminal) return
@@ -560,7 +593,7 @@ class Agent {
 
   // VNC 只拨本机回环地址（gateway 侧已校验端口范围，这里再兜底一次），
   // RFB 二进制数据以 base64 复用现有 JSON 通道回传
-  private openVnc(message: any) {
+  private openVnc(message: AgentInboundMessage) {
     const connectionId = typeof message.connectionId === 'string' ? message.connectionId : ''
     const port = typeof message.port === 'number' ? message.port : 0
     if (!connectionId || !Number.isInteger(port) || port < 5900 || port > 5999) {
@@ -600,8 +633,8 @@ class Agent {
     }
   }
 
-  private closeVnc(message: any) {
-    this.vncSockets.get(message.connectionId)?.destroy()
+  private closeVnc(message: AgentInboundMessage) {
+    if (message.connectionId) this.vncSockets.get(message.connectionId)?.destroy()
   }
 
   private closeVncSockets() {
@@ -609,7 +642,7 @@ class Agent {
     this.vncSockets.clear()
   }
 
-  private send(data: any) {
+  private send(data: Record<string, unknown>) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data))
     }
