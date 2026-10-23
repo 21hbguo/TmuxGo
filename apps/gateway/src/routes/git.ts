@@ -32,6 +32,19 @@ function errorMessage(error: unknown, fallback = '') {
   return error instanceof Error && error.message ? error.message : fallback
 }
 
+// 合并类命令失败的分类不能看文案子串：git 的冲突报表在 zh_CN 下是「冲突（内容）：合并冲突于 x」，
+// 英文下才是 "CONFLICT (...)"；反过来分支名里带 conflict 字样会被子串误命中。
+// 唯一稳定信号是仓库状态本身——冲突一定留下未合并路径（merge/pull/rebase 都适用）。
+async function mergeLeftUnmergedPaths(hostId: string, repositoryPath: string) {
+  try {
+    const { stdout } = await execGit(hostId, ['diff', '--name-only', '--diff-filter=U'], repositoryPath, 10000)
+    return stdout.trim().length > 0
+  } catch {
+    // 连状态都问不到（如 SSH 掉线）时不要吞掉原始错误：交回上层按原样报
+    return false
+  }
+}
+
 interface GitFileChange {
   path: string
   status: 'added' | 'modified' | 'deleted' | 'renamed' | 'copied' | 'unmerged'
@@ -523,7 +536,7 @@ export async function gitRoutes(fastify: FastifyInstance, options: { taskManager
       return { ok: true, fastForward, conflicts: false, message: stdout.trim() }
     } catch (err) {
       const msg = errorMessage(err)
-      if (msg.includes('CONFLICT') || msg.includes('conflict')) {
+      if (await mergeLeftUnmergedPaths(hostId, repoPath)) {
         return { ok: false, fastForward: false, conflicts: true, message: msg }
       }
       throw err
@@ -582,7 +595,7 @@ export async function gitRoutes(fastify: FastifyInstance, options: { taskManager
       return { ok: true, conflicts: false, message: stdout.trim() }
     } catch (err) {
       const msg = errorMessage(err)
-      if (msg.includes('CONFLICT') || msg.includes('conflict')) {
+      if (await mergeLeftUnmergedPaths(hostId, repoPath)) {
         return { ok: false, conflicts: true, message: msg }
       }
       throw err

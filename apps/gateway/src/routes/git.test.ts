@@ -642,14 +642,16 @@ test('merge endpoint reports conflicts and fast-forwards as the disk state says'
   await runGit(repository, ['checkout', 'main'])
   await writeFile(file(repository, 'base.txt'), 'main side\n')
   await runGit(repository, ['commit', '-am', 'main side'])
-  // 已知缺陷（本次只记录不改实现）：本机通道的 execGit 只用 stderr 组装错误文案，
-  // 而 git merge 把 "CONFLICT (...)" 报表写在 stdout —— 于是端点拿到的是 Node 的
-  // "Command failed: git merge clash"，conflicts 判定落空，冲突被当 500 抛出。
-  // 分支名里带 "conflict" 字样时反而会因为子串命中而误判成 conflicts:true，
-  // 所以这里刻意用不含该词的 'clash' 断言真实行为；修好 stdout 映射后本用例应改为 ok:false/conflicts:true。
+  // 冲突必须被分类成业务结果（ok:false/conflicts:true + 200），而不是 500：
+  // 判定依据是「仓库里留下了未合并路径」，不依赖 git 的本地化文案
   const conflicted = await inject(fixture, 'POST', 'merge', { path: repository, branch: 'clash' })
-  assert.equal(conflicted.statusCode, 500)
-  assert.match(body<{ message: string }>(conflicted).message, /Command failed: git merge clash/)
+  assert.equal(conflicted.statusCode, 200)
+  const conflictBody = body<{ ok: boolean; fastForward: boolean; conflicts: boolean; message: string }>(conflicted)
+  assert.equal(conflictBody.ok, false)
+  assert.equal(conflictBody.fastForward, false)
+  assert.equal(conflictBody.conflicts, true)
+  // stdout 必须进错误文案：否则用户只看得到 "Command failed: git merge clash"，看不到冲突文件
+  assert.match(conflictBody.message, /base\.txt/)
   // 冲突留在工作区，交给 operation abort 收尾（用户改主意时走这条路）
   const conflictedStatus = await inject(fixture, 'GET', 'status?path=' + encodeURIComponent(repository))
   assert.equal(body<{ operation: string | null }>(conflictedStatus).operation, 'merge')
@@ -657,6 +659,17 @@ test('merge endpoint reports conflicts and fast-forwards as the disk state says'
   const missingBranch = await inject(fixture, 'POST', 'merge', { path: repository })
   assert.equal(missingBranch.statusCode, 500)
   assert.match(body<{ message: string }>(missingBranch).message, /Missing path or branch/)
+})
+
+test('merge classifier is not fooled by a branch whose name contains conflict', async (t) => {
+  const fixture = await createFixture(t)
+  // 分支不存在 + 名字里带 conflict：旧的子串判定会把它当成冲突（conflicts:true），实际是命令失败
+  const missing = await inject(fixture, 'POST', 'merge', { path: fixture.repository, branch: 'conflict-missing' })
+  assert.equal(missing.statusCode, 500)
+  assert.doesNotMatch(body<{ message: string }>(missing).message, /^$/)
+  // 且仓库没有留下未合并路径——分类不能只看文案
+  const status = await runGit(fixture.repository, ['diff', '--name-only', '--diff-filter=U'])
+  assert.equal(status.stdout.trim(), '')
 })
 
 test('fetch and pull move the remote state into the working repository', async (t) => {
@@ -696,6 +709,37 @@ test('fetch and pull move the remote state into the working repository', async (
   assert.equal(pullBody.ok, true)
   assert.equal(pullBody.conflicts, false)
   assert.equal((await readFile(file(repository, 'remote.txt'), 'utf8')).trim(), 'from-remote')
+})
+
+test('pull reports conflicts instead of throwing when the branches diverged on the same file', async (t) => {
+  const fixture = await createFixture(t)
+  const { base, repository } = fixture
+  const origin = path.join(base, 'origin.git')
+  await runGit(base, ['init', '--bare', '--initial-branch=main', 'origin.git'])
+  await runGit(repository, ['remote', 'add', 'origin', origin])
+  await runGit(repository, ['push', '-u', 'origin', 'main'])
+  const other = path.join(base, 'other')
+  await runGit(base, ['clone', origin, 'other'])
+  await runGit(other, ['config', 'user.email', 'other@tmuxgo.dev'])
+  await runGit(other, ['config', 'user.name', 'Other'])
+  await runGit(other, ['config', 'commit.gpgsign', 'false'])
+  // 两边都改 base.txt：pull 必然冲突，且冲突报表在 stdout（zh_CN 下还是中文文案）
+  await writeFile(file(other, 'base.txt'), 'remote side\n')
+  await runGit(other, ['commit', '-am', 'remote side'])
+  await runGit(other, ['push', 'origin', 'main'])
+  await writeFile(file(repository, 'base.txt'), 'local side\n')
+  await runGit(repository, ['commit', '-am', 'local side'])
+  // git ≥2.27 在分叉分支上默认拒绝 pull（要求显式 pull.rebase/pull.ff），这里按协作仓库的常见配置打开合并
+  await runGit(repository, ['config', 'pull.rebase', 'false'])
+
+  const pulled = await inject(fixture, 'POST', 'pull', { path: repository })
+  assert.equal(pulled.statusCode, 200)
+  const pullBody = body<{ ok: boolean; conflicts: boolean; message: string }>(pulled)
+  assert.equal(pullBody.ok, false)
+  assert.equal(pullBody.conflicts, true)
+  assert.match(pullBody.message, /base\.txt/)
+  assert.deepEqual((await runGit(repository, ['diff', '--name-only', '--diff-filter=U'])).stdout.trim(), 'base.txt')
+  await runGit(repository, ['merge', '--abort'])
 })
 
 test('push reports a rejected non-fast-forward instead of throwing', async (t) => {

@@ -644,11 +644,13 @@ test('remote payload round-trips quotes, newlines, unicode and NUL-free text', a
   assert.equal(payload.content, content, 'payload must survive base64+JSON round-trip byte for byte')
 })
 
-test('remote FILE_MODIFIED prefix never reaches the start of the message (mapping currently dead)', async () => {
+test('remote FILE_MODIFIED is mapped to a code the routes can turn into 409', async () => {
   process.env.SHIM_SSH_EXIT = '1'
   process.env.SHIM_SSH_STDOUT = ''
-  // 远端脚本 raise Exception('FILE_MODIFIED:...')，stderr 是 traceback，末行才是 Exception: FILE_MODIFIED:...
-  process.env.SHIM_SSH_STDERR = 'Traceback (most recent call last):\nException: FILE_MODIFIED:File changed on disk\n'
+  // 远端脚本 raise Exception('FILE_MODIFIED:...')，stderr 是整段 traceback，标记在末行——
+  // 只按开头 startsWith 判定会漏，必须按标记位置切
+  process.env.SHIM_SSH_STDERR =
+    'Traceback (most recent call last):\n  File "<string>", line 12, in <module>\nException: FILE_MODIFIED:File changed on disk\n'
   const error = await host
     .saveContentForHost(REMOTE_HOST.id, 'root-0', 'docs/a.md', 'x', '2026-01-01T00:00:00.000Z')
     .then(
@@ -656,11 +658,9 @@ test('remote FILE_MODIFIED prefix never reaches the start of the message (mappin
       (err: Error & { code?: string }) => err,
     )
   assert.ok(error)
-  // 现状：前缀不在 message 开头 → 不打 code，路由只能当 500 处理（本机通道正常给 409）。
-  // 修法是把 startsWith 改成 includes/末行匹配；修好后这里应改为 code === 'FILE_MODIFIED'。
-  assert.equal(error.code, undefined)
-  assert.match(error.message, /FILE_MODIFIED:File changed on disk/)
-  assert.equal(error.message.startsWith('File changed on disk'), false)
+  assert.equal(error.code, 'FILE_MODIFIED')
+  // traceback 不外泄：只留标记同行的人类文案
+  assert.equal(error.message, 'File changed on disk')
 })
 
 test('remote transport failures are classified and mark the host offline', async () => {
