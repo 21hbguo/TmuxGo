@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { slowSkip } from '../apps/gateway/src/test-slow.js'
 import { execFile } from 'node:child_process'
 import { access, mkdtemp, mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -23,9 +24,30 @@ test('links, runs, stores and removes a plugin', async (t) => {
   const pluginRoot = path.join(configRoot, 'fixture')
   await mkdir(path.join(pluginRoot, 'ui'), { recursive: true })
   const platform = process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux'
-  await writeFile(path.join(pluginRoot, 'tmuxgo-plugin.json'), JSON.stringify({ schemaVersion: 1, id: 'test.fixture', name: 'Test Fixture', version: '0.1.0', minTmuxGoVersion: '0.1.0', platforms: [platform], permissions: ['actions.execute', 'host.context', 'files.read', 'files.write'], contributes: { actions: [{ id: 'echo-context', title: 'Echo Context', command: [process.execPath, 'action.mjs'] }], views: [{ id: 'main', title: 'Fixture', entry: 'ui/index.html', placement: 'activity' }] } }))
-  await writeFile(path.join(pluginRoot, 'action.mjs'), "process.stdout.write(JSON.parse(process.env.TMUXGO_CONTEXT_JSON).hostId)")
-  await writeFile(path.join(pluginRoot, 'ui', 'index.html'), '<!doctype html><script src="/api/plugins/runtime.js"></script><div>fixture</div>')
+  await writeFile(
+    path.join(pluginRoot, 'tmuxgo-plugin.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      id: 'test.fixture',
+      name: 'Test Fixture',
+      version: '0.1.0',
+      minTmuxGoVersion: '0.1.0',
+      platforms: [platform],
+      permissions: ['actions.execute', 'host.context', 'files.read', 'files.write'],
+      contributes: {
+        actions: [{ id: 'echo-context', title: 'Echo Context', command: [process.execPath, 'action.mjs'] }],
+        views: [{ id: 'main', title: 'Fixture', entry: 'ui/index.html', placement: 'activity' }],
+      },
+    }),
+  )
+  await writeFile(
+    path.join(pluginRoot, 'action.mjs'),
+    'process.stdout.write(JSON.parse(process.env.TMUXGO_CONTEXT_JSON).hostId)',
+  )
+  await writeFile(
+    path.join(pluginRoot, 'ui', 'index.html'),
+    '<!doctype html><script src="/api/plugins/runtime.js"></script><div>fixture</div>',
+  )
   const { pluginRoutes } = await import('../apps/gateway/src/routes/plugins.ts')
   const app = Fastify()
   await app.register(pluginRoutes, { prefix: '/api' })
@@ -34,57 +56,132 @@ test('links, runs, stores and removes a plugin', async (t) => {
   assert.equal(linked.json().pluginId, 'test.fixture')
   const list = await app.inject({ method: 'GET', url: '/api/plugins' })
   assert.equal(list.json().plugins.length, 1)
-  const denied = await app.inject({ method: 'POST', url: '/api/plugins/test.fixture/actions/echo-context/invoke', payload: { context: { hostId: 'local' } } })
+  const denied = await app.inject({
+    method: 'POST',
+    url: '/api/plugins/test.fixture/actions/echo-context/invoke',
+    payload: { context: { hostId: 'local' } },
+  })
   assert.equal(denied.statusCode, 403)
   assert.equal(denied.json().code, 'PLUGIN_PERMISSION_DENIED')
-  const actionsGranted = await app.inject({ method: 'PUT', url: '/api/plugins/test.fixture/permissions', payload: { permissions: ['actions.execute'] } })
+  const actionsGranted = await app.inject({
+    method: 'PUT',
+    url: '/api/plugins/test.fixture/permissions',
+    payload: { permissions: ['actions.execute'] },
+  })
   assert.equal(actionsGranted.statusCode, 200)
-  const deniedContext = await app.inject({ method: 'POST', url: '/api/plugins/test.fixture/context', payload: { context: { hostId: 'local', sessionId: 'session-dev' } } })
+  const deniedContext = await app.inject({
+    method: 'POST',
+    url: '/api/plugins/test.fixture/context',
+    payload: { context: { hostId: 'local', sessionId: 'session-dev' } },
+  })
   assert.equal(deniedContext.statusCode, 403)
-  const invokedWithoutContext = await app.inject({ method: 'POST', url: '/api/plugins/test.fixture/actions/echo-context/invoke', payload: { context: { hostId: 'local' } } })
+  const invokedWithoutContext = await app.inject({
+    method: 'POST',
+    url: '/api/plugins/test.fixture/actions/echo-context/invoke',
+    payload: { context: { hostId: 'local' } },
+  })
   assert.equal(invokedWithoutContext.json().stdout, '')
-  const granted = await app.inject({ method: 'PUT', url: '/api/plugins/test.fixture/permissions', payload: { permissions: ['actions.execute', 'host.context'] } })
+  const granted = await app.inject({
+    method: 'PUT',
+    url: '/api/plugins/test.fixture/permissions',
+    payload: { permissions: ['actions.execute', 'host.context'] },
+  })
   assert.equal(granted.statusCode, 200)
   assert.deepEqual(granted.json().grantedPermissions, ['actions.execute', 'host.context'])
-  const pluginContext = await app.inject({ method: 'POST', url: '/api/plugins/test.fixture/context', payload: { context: { hostId: 'local', sessionId: 'session-dev' } } })
+  const pluginContext = await app.inject({
+    method: 'POST',
+    url: '/api/plugins/test.fixture/context',
+    payload: { context: { hostId: 'local', sessionId: 'session-dev' } },
+  })
   assert.deepEqual(pluginContext.json().context, { hostId: 'local', sessionId: 'session-dev' })
-  const invoked = await app.inject({ method: 'POST', url: '/api/plugins/test.fixture/actions/echo-context/invoke', payload: { context: { hostId: 'local' } } })
+  const invoked = await app.inject({
+    method: 'POST',
+    url: '/api/plugins/test.fixture/actions/echo-context/invoke',
+    payload: { context: { hostId: 'local' } },
+  })
   assert.equal(invoked.statusCode, 200)
   assert.equal(invoked.json().status, 'success')
   assert.equal(invoked.json().stdout, 'local')
   const fileRoot = `git:${encodeURIComponent(pluginRoot)}`
   const filePath = path.join(pluginRoot, 'plugin-file.txt')
   await writeFile(filePath, 'before')
-  const deniedFileRead = await app.inject({ method: 'POST', url: '/api/plugins/test.fixture/files/read', payload: { hostId: 'local', root: fileRoot, path: 'plugin-file.txt' } })
+  const deniedFileRead = await app.inject({
+    method: 'POST',
+    url: '/api/plugins/test.fixture/files/read',
+    payload: { hostId: 'local', root: fileRoot, path: 'plugin-file.txt' },
+  })
   assert.equal(deniedFileRead.statusCode, 403)
-  const filesGranted = await app.inject({ method: 'PUT', url: '/api/plugins/test.fixture/permissions', payload: { permissions: ['actions.execute', 'host.context', 'files.read', 'files.write'] } })
+  const filesGranted = await app.inject({
+    method: 'PUT',
+    url: '/api/plugins/test.fixture/permissions',
+    payload: { permissions: ['actions.execute', 'host.context', 'files.read', 'files.write'] },
+  })
   assert.equal(filesGranted.statusCode, 200)
-  const fileRead = await app.inject({ method: 'POST', url: '/api/plugins/test.fixture/files/read', payload: { hostId: 'local', root: fileRoot, path: 'plugin-file.txt' } })
+  const fileRead = await app.inject({
+    method: 'POST',
+    url: '/api/plugins/test.fixture/files/read',
+    payload: { hostId: 'local', root: fileRoot, path: 'plugin-file.txt' },
+  })
   assert.equal(fileRead.statusCode, 200)
   assert.equal(fileRead.json().content.content, 'before')
-  const fileWrite = await app.inject({ method: 'PUT', url: '/api/plugins/test.fixture/files/write', payload: { hostId: 'local', root: fileRoot, path: 'plugin-file.txt', content: 'after' } })
+  const fileWrite = await app.inject({
+    method: 'PUT',
+    url: '/api/plugins/test.fixture/files/write',
+    payload: { hostId: 'local', root: fileRoot, path: 'plugin-file.txt', content: 'after' },
+  })
   assert.equal(fileWrite.statusCode, 200)
   assert.equal(await readFile(filePath, 'utf8'), 'after')
-  const filesRevoked = await app.inject({ method: 'PUT', url: '/api/plugins/test.fixture/permissions', payload: { permissions: ['actions.execute', 'host.context'] } })
+  const filesRevoked = await app.inject({
+    method: 'PUT',
+    url: '/api/plugins/test.fixture/permissions',
+    payload: { permissions: ['actions.execute', 'host.context'] },
+  })
   assert.equal(filesRevoked.statusCode, 200)
-  const deniedFileWrite = await app.inject({ method: 'PUT', url: '/api/plugins/test.fixture/files/write', payload: { hostId: 'local', root: fileRoot, path: 'plugin-file.txt', content: 'blocked' } })
+  const deniedFileWrite = await app.inject({
+    method: 'PUT',
+    url: '/api/plugins/test.fixture/files/write',
+    payload: { hostId: 'local', root: fileRoot, path: 'plugin-file.txt', content: 'blocked' },
+  })
   assert.equal(deniedFileWrite.statusCode, 403)
-  const revoked = await app.inject({ method: 'PUT', url: '/api/plugins/test.fixture/permissions', payload: { permissions: [] } })
+  const revoked = await app.inject({
+    method: 'PUT',
+    url: '/api/plugins/test.fixture/permissions',
+    payload: { permissions: [] },
+  })
   assert.equal(revoked.statusCode, 200)
-  const rejectedAfterRevoke = await app.inject({ method: 'POST', url: '/api/plugins/test.fixture/actions/echo-context/invoke', payload: { context: { hostId: 'local' } } })
+  const rejectedAfterRevoke = await app.inject({
+    method: 'POST',
+    url: '/api/plugins/test.fixture/actions/echo-context/invoke',
+    payload: { context: { hostId: 'local' } },
+  })
   assert.equal(rejectedAfterRevoke.statusCode, 403)
   const permissionLogs = await app.inject({ method: 'GET', url: '/api/plugins/logs?pluginId=test.fixture' })
-  assert.equal(permissionLogs.json().logs.some((log: { status: string }) => log.status === 'permission_denied'), true)
-  const stored = await app.inject({ method: 'PUT', url: '/api/plugins/test.fixture/storage/config', payload: { value: { enabled: true } } })
+  assert.equal(
+    permissionLogs.json().logs.some((log: { status: string }) => log.status === 'permission_denied'),
+    true,
+  )
+  const stored = await app.inject({
+    method: 'PUT',
+    url: '/api/plugins/test.fixture/storage/config',
+    payload: { value: { enabled: true } },
+  })
   assert.equal(stored.statusCode, 200)
   const value = await app.inject({ method: 'GET', url: '/api/plugins/test.fixture/storage/config' })
   assert.deepEqual(value.json().value, { enabled: true })
   const asset = await app.inject({ method: 'GET', url: '/api/plugins/test.fixture/assets/ui/index.html' })
   assert.equal(asset.statusCode, 200)
   assert.match(asset.headers['content-security-policy'] || '', /connect-src 'none'/)
-  const disabled = await app.inject({ method: 'PATCH', url: '/api/plugins/test.fixture/enabled', payload: { enabled: false } })
+  const disabled = await app.inject({
+    method: 'PATCH',
+    url: '/api/plugins/test.fixture/enabled',
+    payload: { enabled: false },
+  })
   assert.equal(disabled.json().state, 'disabled')
-  const blocked = await app.inject({ method: 'POST', url: '/api/plugins/test.fixture/actions/echo-context/invoke', payload: { context: {} } })
+  const blocked = await app.inject({
+    method: 'POST',
+    url: '/api/plugins/test.fixture/actions/echo-context/invoke',
+    payload: { context: {} },
+  })
   assert.equal(blocked.statusCode, 400)
   const removed = await app.inject({ method: 'DELETE', url: '/api/plugins/test.fixture' })
   assert.equal(removed.statusCode, 200)
@@ -95,9 +192,44 @@ test('links, runs, stores and removes a plugin', async (t) => {
 test('rejects invalid and duplicate manifest contributions', async () => {
   const { parsePluginManifest } = await import('../apps/gateway/src/lib/plugin-manifest.ts')
   const platform = process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux'
-  assert.throws(() => parsePluginManifest({ schemaVersion: 1, id: '../bad', name: 'Bad', version: '0.1.0', minTmuxGoVersion: '0.1.0', platforms: [platform] }))
-  assert.throws(() => parsePluginManifest({ schemaVersion: 1, id: 'test.duplicate', name: 'Duplicate', version: '0.1.0', minTmuxGoVersion: '0.1.0', platforms: [platform], contributes: { actions: [{ id: 'run', title: 'Run', command: ['true'] }, { id: 'run', title: 'Run again', command: ['true'] }] } }))
-  assert.throws(() => parsePluginManifest({ schemaVersion: 1, id: 'test.script-view', name: 'Script View', version: '0.1.0', minTmuxGoVersion: '0.1.0', platforms: [platform], permissions: ['unknown.permission'], contributes: { views: [{ id: 'main', title: 'Main', entry: 'ui/main.js', placement: 'activity' }] } }))
+  assert.throws(() =>
+    parsePluginManifest({
+      schemaVersion: 1,
+      id: '../bad',
+      name: 'Bad',
+      version: '0.1.0',
+      minTmuxGoVersion: '0.1.0',
+      platforms: [platform],
+    }),
+  )
+  assert.throws(() =>
+    parsePluginManifest({
+      schemaVersion: 1,
+      id: 'test.duplicate',
+      name: 'Duplicate',
+      version: '0.1.0',
+      minTmuxGoVersion: '0.1.0',
+      platforms: [platform],
+      contributes: {
+        actions: [
+          { id: 'run', title: 'Run', command: ['true'] },
+          { id: 'run', title: 'Run again', command: ['true'] },
+        ],
+      },
+    }),
+  )
+  assert.throws(() =>
+    parsePluginManifest({
+      schemaVersion: 1,
+      id: 'test.script-view',
+      name: 'Script View',
+      version: '0.1.0',
+      minTmuxGoVersion: '0.1.0',
+      platforms: [platform],
+      permissions: ['unknown.permission'],
+      contributes: { views: [{ id: 'main', title: 'Main', entry: 'ui/main.js', placement: 'activity' }] },
+    }),
+  )
 })
 
 test('persists linked plugins and allows broken entries to be disabled and removed', async (t) => {
@@ -112,7 +244,18 @@ test('persists linked plugins and allows broken entries to be disabled and remov
   const pluginRoot = path.join(configRoot, 'fixture')
   await mkdir(pluginRoot, { recursive: true })
   const platform = process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux'
-  await writeFile(path.join(pluginRoot, 'tmuxgo-plugin.json'), JSON.stringify({ schemaVersion: 1, id: 'test.persisted', name: 'Persisted', version: '0.1.0', minTmuxGoVersion: '0.1.0', platforms: [platform], permissions: ['host.context'] }))
+  await writeFile(
+    path.join(pluginRoot, 'tmuxgo-plugin.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      id: 'test.persisted',
+      name: 'Persisted',
+      version: '0.1.0',
+      minTmuxGoVersion: '0.1.0',
+      platforms: [platform],
+      permissions: ['host.context'],
+    }),
+  )
   const { PluginManager } = await import('../apps/gateway/src/lib/plugin-manager.ts')
   const first = new PluginManager()
   await first.link(pluginRoot)
@@ -141,7 +284,33 @@ test('runs event hooks and enforces the command concurrency limit', async (t) =>
   const pluginRoot = path.join(configRoot, 'fixture')
   await mkdir(pluginRoot, { recursive: true })
   const platform = process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux'
-  await writeFile(path.join(pluginRoot, 'tmuxgo-plugin.json'), JSON.stringify({ schemaVersion: 1, id: 'test.events', name: 'Events', version: '0.1.0', minTmuxGoVersion: '0.1.0', platforms: [platform], permissions: ['actions.execute', 'host.context'], contributes: { actions: [{ id: 'wait', title: 'Wait', command: [process.execPath, '-e', 'setTimeout(() => process.exit(0), 250)'] }], events: [{ on: 'session.created', command: [process.execPath, '-e', 'process.stdout.write(JSON.parse(process.env.TMUXGO_CONTEXT_JSON).sessionName)'] }] } }))
+  await writeFile(
+    path.join(pluginRoot, 'tmuxgo-plugin.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      id: 'test.events',
+      name: 'Events',
+      version: '0.1.0',
+      minTmuxGoVersion: '0.1.0',
+      platforms: [platform],
+      permissions: ['actions.execute', 'host.context'],
+      contributes: {
+        actions: [
+          { id: 'wait', title: 'Wait', command: [process.execPath, '-e', 'setTimeout(() => process.exit(0), 250)'] },
+        ],
+        events: [
+          {
+            on: 'session.created',
+            command: [
+              process.execPath,
+              '-e',
+              'process.stdout.write(JSON.parse(process.env.TMUXGO_CONTEXT_JSON).sessionName)',
+            ],
+          },
+        ],
+      },
+    }),
+  )
   const { PluginManager } = await import('../apps/gateway/src/lib/plugin-manager.ts')
   const manager = new PluginManager()
   await manager.link(pluginRoot)
@@ -149,19 +318,23 @@ test('runs event hooks and enforces the command concurrency limit', async (t) =>
   await manager.emit('session.created', { sessionName: 'audit-session' })
   let eventLog
   for (let index = 0; index < 50; index++) {
-    eventLog = (await manager.listLogs('test.events')).find((log) => log.event === 'session.created' && log.status === 'success')
+    eventLog = (await manager.listLogs('test.events')).find(
+      (log) => log.event === 'session.created' && log.status === 'success',
+    )
     if (eventLog) break
     await delay(20)
   }
   assert.equal(eventLog?.stdout, 'audit-session')
-  const results = await Promise.allSettled(Array.from({ length: 17 }, () => manager.invokeAction('test.events', 'wait')))
+  const results = await Promise.allSettled(
+    Array.from({ length: 17 }, () => manager.invokeAction('test.events', 'wait')),
+  )
   const rejected = results.filter((result) => result.status === 'rejected')
   assert.equal(rejected.length, 1)
   assert.match(String((rejected[0] as PromiseRejectedResult).reason), /Maximum concurrent plugin commands reached/)
   await manager.shutdown()
 })
 
-test('terminates plugin process groups on timeout', { skip: process.platform === 'win32' }, async (t) => {
+test('terminates plugin process groups on timeout', { skip: process.platform === 'win32' || slowSkip }, async (t) => {
   const configRoot = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-plugin-timeout-'))
   const previousConfigRoot = process.env.TMUXGO_CONFIG_DIR
   process.env.TMUXGO_CONFIG_DIR = configRoot
@@ -174,8 +347,25 @@ test('terminates plugin process groups on timeout', { skip: process.platform ===
   await mkdir(pluginRoot, { recursive: true })
   const marker = path.join(configRoot, 'plugin-data', 'test.timeout', 'state', 'survived')
   const platform = process.platform === 'darwin' ? 'macos' : 'linux'
-  await writeFile(path.join(pluginRoot, 'tmuxgo-plugin.json'), JSON.stringify({ schemaVersion: 1, id: 'test.timeout', name: 'Timeout', version: '0.1.0', minTmuxGoVersion: '0.1.0', platforms: [platform], permissions: ['actions.execute'], contributes: { actions: [{ id: 'timeout', title: 'Timeout', timeoutMs: 1000, command: [process.execPath, 'action.mjs'] }] } }))
-  await writeFile(path.join(pluginRoot, 'action.mjs'), `import { spawn } from 'node:child_process';spawn(process.execPath,['-e',${JSON.stringify(`setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'x'), 1500)`)}],{stdio:'ignore'});setTimeout(()=>{},5000)`)
+  await writeFile(
+    path.join(pluginRoot, 'tmuxgo-plugin.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      id: 'test.timeout',
+      name: 'Timeout',
+      version: '0.1.0',
+      minTmuxGoVersion: '0.1.0',
+      platforms: [platform],
+      permissions: ['actions.execute'],
+      contributes: {
+        actions: [{ id: 'timeout', title: 'Timeout', timeoutMs: 1000, command: [process.execPath, 'action.mjs'] }],
+      },
+    }),
+  )
+  await writeFile(
+    path.join(pluginRoot, 'action.mjs'),
+    `import { spawn } from 'node:child_process';spawn(process.execPath,['-e',${JSON.stringify(`setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'x'), 1500)`)}],{stdio:'ignore'});setTimeout(()=>{},5000)`,
+  )
   const { PluginManager } = await import('../apps/gateway/src/lib/plugin-manager.ts')
   const manager = new PluginManager()
   await manager.link(pluginRoot)
@@ -214,8 +404,22 @@ test('previews, installs and transactionally updates a pinned GitHub checkout', 
   await execFileAsync('git', ['config', 'user.name', 'TmuxGo Test'], { cwd: repository })
   await execFileAsync('git', ['config', 'user.email', 'tmuxgo@example.invalid'], { cwd: repository })
   const platform = process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux'
-  await writeFile(path.join(pluginRoot, 'build.mjs'), "import { writeFileSync } from 'node:fs';writeFileSync('built.txt','ok')")
-  await writeFile(path.join(pluginRoot, 'tmuxgo-plugin.json'), JSON.stringify({ schemaVersion: 1, id: 'test.github', name: 'GitHub', version: '1.0.0', minTmuxGoVersion: '0.1.0', platforms: [platform], build: [{ command: [process.execPath, 'build.mjs'] }] }))
+  await writeFile(
+    path.join(pluginRoot, 'build.mjs'),
+    "import { writeFileSync } from 'node:fs';writeFileSync('built.txt','ok')",
+  )
+  await writeFile(
+    path.join(pluginRoot, 'tmuxgo-plugin.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      id: 'test.github',
+      name: 'GitHub',
+      version: '1.0.0',
+      minTmuxGoVersion: '0.1.0',
+      platforms: [platform],
+      build: [{ command: [process.execPath, 'build.mjs'] }],
+    }),
+  )
   await execFileAsync('git', ['add', '.'], { cwd: repository })
   await execFileAsync('git', ['commit', '--quiet', '-m', 'first'], { cwd: repository })
   const firstCommit = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repository })).stdout.trim()
@@ -232,7 +436,18 @@ test('previews, installs and transactionally updates a pinned GitHub checkout', 
   assert.equal(installed.manifest.version, '1.0.0')
   assert.equal(await readFile(path.join(installed.root, 'built.txt'), 'utf8'), 'ok')
   await manager.setStorage('test.github', 'kept', { value: true })
-  await writeFile(path.join(pluginRoot, 'tmuxgo-plugin.json'), JSON.stringify({ schemaVersion: 1, id: 'test.github', name: 'GitHub', version: '1.1.0', minTmuxGoVersion: '0.1.0', platforms: [platform], build: [{ command: [process.execPath, 'build.mjs'] }] }))
+  await writeFile(
+    path.join(pluginRoot, 'tmuxgo-plugin.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      id: 'test.github',
+      name: 'GitHub',
+      version: '1.1.0',
+      minTmuxGoVersion: '0.1.0',
+      platforms: [platform],
+      build: [{ command: [process.execPath, 'build.mjs'] }],
+    }),
+  )
   await execFileAsync('git', ['add', '.'], { cwd: repository })
   await execFileAsync('git', ['commit', '--quiet', '-m', 'second'], { cwd: repository })
   const secondCommit = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repository })).stdout.trim()
@@ -249,11 +464,25 @@ test('previews, installs and transactionally updates a pinned GitHub checkout', 
   const restored = await manager.rollback('test.github')
   assert.equal(restored.manifest.version, '1.1.0')
   assert.equal(restored.source.resolvedCommit, secondCommit)
-  await writeFile(path.join(pluginRoot, 'tmuxgo-plugin.json'), JSON.stringify({ schemaVersion: 1, id: 'test.github', name: 'GitHub', version: '2.0.0', minTmuxGoVersion: '0.1.0', platforms: [platform], build: [{ command: [process.execPath, '-e', 'process.exit(7)'] }] }))
+  await writeFile(
+    path.join(pluginRoot, 'tmuxgo-plugin.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      id: 'test.github',
+      name: 'GitHub',
+      version: '2.0.0',
+      minTmuxGoVersion: '0.1.0',
+      platforms: [platform],
+      build: [{ command: [process.execPath, '-e', 'process.exit(7)'] }],
+    }),
+  )
   await execFileAsync('git', ['add', '.'], { cwd: repository })
   await execFileAsync('git', ['commit', '--quiet', '-m', 'broken'], { cwd: repository })
   const brokenPreview = await manager.previewGit('owner/repo/packages/plugin', 'main')
-  await assert.rejects(manager.installGit(brokenPreview.source, brokenPreview.resolvedCommit, 'main'), /Plugin build failed/)
+  await assert.rejects(
+    manager.installGit(brokenPreview.source, brokenPreview.resolvedCommit, 'main'),
+    /Plugin build failed/,
+  )
   const afterRollback = (await manager.listPlugins())[0]
   assert.equal(afterRollback.manifest.version, '1.1.0')
   assert.equal(afterRollback.source.resolvedCommit, secondCommit)

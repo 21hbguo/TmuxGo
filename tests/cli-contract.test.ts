@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { slowSkip } from '../apps/gateway/src/test-slow.js'
 import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,7 +21,7 @@ test('cli rejects unknown commands', () => {
 })
 
 // npm pack 干跑校验打包契约：--ignore-scripts 跳过 prepack 全量构建，只验证 files 收集
-test('cli package is packable and ships its entry files', () => {
+test('cli package is packable and ships its entry files', { skip: slowSkip }, () => {
   const result = spawnSync('npm', ['pack', '--workspace=@21hbguo/tmuxgo', '--dry-run', '--ignore-scripts', '--json'], {
     cwd: root,
     encoding: 'utf8',
