@@ -306,19 +306,20 @@ class FakeCdp {
     this.calls.push(call)
     const handler = call.method ? this.handlers.get(call.method) : undefined
     // 无 handler 的命令一律成功应答 {}，需要挂起的用例显式注册一个返回 Promise 的 handler
-    const result = handler ? handler(call) : {}
-    Promise.resolve(result).then(
-      (value) => {
-        if (call.id === undefined) return
-        if (socket.readyState === 1) socket.send(JSON.stringify({ id: call.id, result: value ?? {} }))
-      },
-      (err: unknown) => {
-        if (call.id === undefined || socket.readyState !== 1) return
-        socket.send(
-          JSON.stringify({ id: call.id, error: { message: err instanceof Error ? err.message : String(err) } }),
-        )
-      },
-    )
+    const reply = (payload: Record<string, unknown>) => {
+      if (call.id === undefined || socket.readyState !== 1) return
+      socket.send(JSON.stringify({ id: call.id, ...payload }))
+    }
+    const fail = (err: unknown) => reply({ error: { message: err instanceof Error ? err.message : String(err) } })
+    let result: unknown
+    try {
+      result = handler ? handler(call) : {}
+    } catch (err) {
+      // 同步抛错等价于 CDP 立刻回 error（例如 Page.navigate 的 net::ERR_*）
+      fail(err)
+      return
+    }
+    Promise.resolve(result).then((value) => reply({ result: value ?? {} }), fail)
   }
 
   push(event: Record<string, unknown>) {
@@ -470,4 +471,109 @@ test('launch degrades to error when /json/version is not JSON', async (t) => {
   }
   await assert.rejects(inst.launch(), /bad \/json\/version/)
   assert.equal(inst.state, 'error')
+})
+
+test('navigate attaches a session, navigates and always detaches', async (t) => {
+  const { fake, inst } = await launchFake(t)
+  await inst.launch()
+  // 已有活动页：navigate 走 attach + Page.navigate（而不是开新 tab）
+  inst.activeTargetId = 'p1'
+  fake.handlers.set('Target.attachToTarget', () => ({ sessionId: 'sid-nav' }))
+  fake.handlers.set('Page.navigate', (call) => ({ frameId: 'f1', requestedUrl: call.params?.url }))
+  const result = (await inst.navigate('example.com')) as { frameId: string; requestedUrl: string }
+  // 无协议头的地址补 https://，避免被当成相对路径
+  assert.equal(result.requestedUrl, 'https://example.com')
+  const nav = fake.callsOf('Page.navigate')[0]
+  assert.equal(nav?.sessionId, 'sid-nav')
+  // session 用完即弃：不能把 attach 出来的 session 留在 handler 表里泄漏
+  assert.ok(fake.methods().includes('Target.detachFromTarget'))
+  assert.equal(fake.callsOf('Target.detachFromTarget')[0]?.params?.sessionId, 'sid-nav')
+})
+
+test('navigate surfaces a CDP load failure and still detaches', async (t) => {
+  const { fake, inst } = await launchFake(t)
+  await inst.launch()
+  inst.activeTargetId = 'p1'
+  fake.handlers.set('Target.attachToTarget', () => ({ sessionId: 'sid-err' }))
+  fake.handlers.set('Page.navigate', () => {
+    throw new Error('net::ERR_NAME_NOT_RESOLVED')
+  })
+  await assert.rejects(inst.navigate('https://nowhere.invalid'), /ERR_NAME_NOT_RESOLVED/)
+  assert.equal(fake.callsOf('Target.detachFromTarget')[0]?.params?.sessionId, 'sid-err')
+})
+
+test('navigate opens a page when no target is active yet', async (t) => {
+  const { fake, inst } = await launchFake(t)
+  await inst.launch()
+  // 无活动页分支：navigate 自己开 tab
+  fake.handlers.set('Target.createTarget', () => ({ targetId: 'new-1' }))
+  fake.handlers.set('Target.attachToTarget', () => ({ sessionId: 'sid-open' }))
+  const result = await inst.navigate('https://example.com/a')
+  assert.deepEqual(result, { ok: true })
+  assert.equal(inst.activeTargetId, 'new-1')
+  assert.equal(fake.callsOf('Target.createTarget').length, 1)
+  // 先建空白页再经常驻 session 导航：首个文档必须赶在 stealth 注入之后
+  const nav = fake.callsOf('Page.navigate')[0]
+  assert.equal(nav?.params?.url, 'https://example.com/a')
+  assert.equal(nav?.sessionId, 'sid-open')
+})
+
+test('tab lifecycle keeps the active target valid and broadcasts order to view clients', async (t) => {
+  const { fake, inst } = await launchFake(t)
+  await inst.launch()
+  const messages: Record<string, unknown>[] = []
+  const client = await inst.addClient((msg) => messages.push(msg))
+  fake.handlers.set('Target.attachToTarget', () => ({ sessionId: 'sid-tab' }))
+  // 首个 page 到位时补 activeTargetId（setDiscoverTargets 的存量 target 是异步事件）
+  fake.push({
+    method: 'Target.targetCreated',
+    params: { targetInfo: { targetId: 'p1', type: 'page', url: 'a', title: 'A' } },
+  })
+  fake.push({
+    method: 'Target.targetCreated',
+    params: { targetInfo: { targetId: 'p2', type: 'page', url: 'b', title: 'B' } },
+  })
+  // 非 page 类型（worker/iframe）不进 tab 清单
+  fake.push({
+    method: 'Target.targetCreated',
+    params: { targetInfo: { targetId: 'w1', type: 'worker', url: '', title: '' } },
+  })
+  await tick(30)
+  assert.deepEqual(
+    inst.status().pages.map((page) => page.id),
+    ['p1', 'p2'],
+  )
+  assert.equal(inst.activeTargetId, 'p1')
+  const targetsMsg = messages.filter((msg) => msg.type === 'targets').at(-1) as { activeTargetId: string }
+  assert.equal(targetsMsg.activeTargetId, 'p1')
+
+  // 激活第二个 tab：命令下发 + 广播新的 activeTargetId
+  await inst.clientTab(client, { action: 'activate', targetId: 'p2' })
+  assert.equal(inst.activeTargetId, 'p2')
+  assert.equal(fake.callsOf('Target.activateTarget')[0]?.params?.targetId, 'p2')
+
+  // 关掉当前活动页：活动指针自动落到剩余页，客户端跟随重绑
+  fake.push({ method: 'Target.targetDestroyed', params: { targetId: 'p2' } })
+  await tick(30)
+  assert.deepEqual(
+    inst.status().pages.map((page) => page.id),
+    ['p1'],
+  )
+  assert.equal(inst.activeTargetId, 'p1')
+  await inst.removeClient(client)
+})
+
+test('closing the last tab clears the active pointer instead of keeping a dangling id', async (t) => {
+  const { fake, inst } = await launchFake(t)
+  await inst.launch()
+  fake.push({
+    method: 'Target.targetCreated',
+    params: { targetInfo: { targetId: 'only', type: 'page', url: 'a', title: 'A' } },
+  })
+  await tick(20)
+  assert.equal(inst.activeTargetId, 'only')
+  fake.push({ method: 'Target.targetDestroyed', params: { targetId: 'only' } })
+  await tick(20)
+  assert.equal(inst.activeTargetId, null)
+  assert.deepEqual(inst.status().pages, [])
 })
