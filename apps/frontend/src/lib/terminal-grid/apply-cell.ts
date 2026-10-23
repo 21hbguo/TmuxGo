@@ -154,12 +154,8 @@ function getWritableBuffer(terminal: XtermLike): WritableBuffer | null {
 }
 
 const XTERM_DEFAULT_COLOR = 0x1000000
-const XTERM_INDEX256 = 0x2000000
 const XTERM_RGB = 0x3000000
 const XTERM_BOLD = 0x8000000
-const XTERM_UNDERLINE = 0x10000000
-const XTERM_INVERSE = 0x4000000
-const XTERM_DIM = 0x8000000
 
 function packFg(cell: Cell, bold: boolean): number {
   const mode = fgMode(cell.attr)

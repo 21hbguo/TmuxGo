@@ -1,8 +1,20 @@
 import { recordImeDebug } from './terminal-debug'
+import type { LayoutTerminal } from './terminal-layout'
+// getWidth 是 IBufferLine 未公开的宽字符探测方法，真实 Terminal 上存在、mock 上可缺省——
+// 用 Omit+自定义 buffer 覆盖公开类型，调用点保持 ?./try 防御
+type FocusTerminal = Omit<LayoutTerminal, 'buffer'> & {
+  buffer?: {
+    active?: {
+      cursorX?: number
+      cursorY?: number
+      getLine?: (y: number) => { length: number; getWidth?: (x: number) => number } | undefined
+    }
+  }
+}
 interface TerminalFocusOptions {
   container: HTMLElement
   isMobile: boolean
-  getTerminal: () => any
+  getTerminal: () => FocusTerminal | null | undefined
   focusKeyboard: () => void
   cancelTmuxCopyMode: () => void
 }

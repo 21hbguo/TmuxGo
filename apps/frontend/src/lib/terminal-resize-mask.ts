@@ -1,8 +1,9 @@
+import type { Terminal } from '@xterm/xterm'
 import { recordMobileDebug } from './terminal-debug'
 const RESIZE_MASK_FAILSAFE_MS = 900
 interface TerminalResizeMaskOptions {
   mask: HTMLElement | null
-  getTerminal: () => any
+  getTerminal: () => Terminal | null | undefined
   onPendingChange?: (pending: boolean) => void
 }
 export function createTerminalResizeMask(options: TerminalResizeMaskOptions) {

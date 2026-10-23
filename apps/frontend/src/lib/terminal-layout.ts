@@ -4,7 +4,7 @@ import type { TerminalSizeState } from './terminal-size-state'
 
 // xterm 私有渲染服务入口（非公开 API）：dimensions.css 提供 cell/canvas 像素几何，
 // clear() 清字形图集；字段缺失时全链路可选链降级
-type LayoutTerminal = Terminal & {
+export type LayoutTerminal = Terminal & {
   _core?: {
     _renderService?: {
       dimensions?: {

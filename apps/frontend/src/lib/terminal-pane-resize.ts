@@ -1,9 +1,10 @@
 import type { PaneResizeTarget } from './terminal-pane-interactions'
+import type { LayoutTerminal } from './terminal-layout'
 import { emitStreamEvent, STREAM_EVENT } from './stream-events'
 interface TerminalPaneResizeOptions {
   container: HTMLElement
   guide: HTMLElement | null
-  getTerminal: () => any
+  getTerminal: () => LayoutTerminal | null | undefined
   getMouseCell: (event: MouseEvent) => { x: number; y: number } | null
   getPaneResizeTarget: (event: MouseEvent) => PaneResizeTarget | null
   resizePane: (paneId: string, size: { cols?: number; rows?: number }) => Promise<unknown>

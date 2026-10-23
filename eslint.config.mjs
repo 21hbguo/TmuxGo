@@ -18,6 +18,7 @@ export default tseslint.config(
       'coverage/**',
       '**/*.cjs',
       '.dbg/**',
+      'notes/**',
     ],
   },
   js.configs.recommended,
@@ -71,6 +72,15 @@ export default tseslint.config(
     rules: {
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
+      // 生产源码 any 已清零，warn 档位接 warning-baseline ratchet 防回潮；
+      // 测试文件存量 any 留待分批清理，暂保持 off
+      '@typescript-eslint/no-explicit-any': 'warn',
+    },
+  },
+  {
+    files: ['apps/frontend/src/**/*.test.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
     },
   },
 )

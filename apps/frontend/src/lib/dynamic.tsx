@@ -76,8 +76,10 @@ class LazyBoundary extends Component<
 // lazy 实例按 loader 跨挂载缓存：同一面板再次打开时 lazy 已 fulfilled，同步渲染真实组件，
 // 不再 suspend 出 fallback（否则每次打开都会闪一帧 fallback）。import 失败的 lazy 永远 rejected，
 // 不能入缓存——由 LazyBoundary.onError 驱逐、以及 attempt>0 的重试路径整体换新
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- React LazyExoticComponent 泛型约束本身即 ComponentType<any>
 const lazyCache = new Map<() => Promise<{ default: ComponentType<any> }>, LazyExoticComponent<ComponentType<any>>>()
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上：动态组件 props 形状异构，React 签名即 any
 export default function dynamic<T extends ComponentType<any>>(
   loader: () => Promise<{ default: T }>,
   opts?: { fallback?: ReactNode },

@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef, useCallback, useState } from 'react'
+import type { LayoutTerminal } from '@/lib/terminal-layout'
 import '@xterm/xterm/css/xterm.css'
 import { usePreferences, ensureAppFontLoaded } from '@/hooks/usePreferences'
 import { useMobileKeyboard } from '@/hooks/useMobileKeyboard'
@@ -94,7 +95,7 @@ export function TerminalPane({
   const switchVeilRef = useRef<HTMLDivElement>(null)
   const resizeMaskApiRef = useRef<ReturnType<typeof createTerminalResizeMask> | null>(null)
   const touchMovedRef = useRef(false)
-  const terminalInstance = useRef<any>(null)
+  const terminalInstance = useRef<LayoutTerminal | null>(null)
   const [historyState, setHistoryState] = useState<{ away: boolean; fresh: boolean }>({ away: false, fresh: false })
   const viewportDisposersRef = useRef<Array<{ dispose: () => void } | undefined>>([])
   // 历史浏览提示：仅依赖 xterm 本地滚动状态（viewportY<baseY 表示离开实时
