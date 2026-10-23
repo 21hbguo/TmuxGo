@@ -5,7 +5,7 @@ import test, { type TestContext } from 'node:test'
 import Fastify from 'fastify'
 import websocket from '@fastify/websocket'
 import { WebSocket } from 'ws'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { installShims, type Shims } from '../test-shims.js'
@@ -565,4 +565,98 @@ test('vnc client-module answers 404 when the frontend build has no rfb chunk', a
   const response = await app.inject({ method: 'GET', url: '/api/vnc/client-module' })
   assert.equal(response.statusCode, 404)
   assert.deepEqual(response.json(), { message: 'vnc client module not built' })
+})
+
+// VNC 记忆密码的窄口在 hosts.ts（/hosts/:id/vnc/password），不在 vnc.ts：
+// 这里覆盖它的存储位置与「只回密码、不回整包凭据」的脱敏边界
+async function buildHostApp(t: TestContext) {
+  const { hostRoutes } = await import('./hosts.js')
+  const { describeZodError } = await import('../lib/request-validation.js')
+  const { ZodError } = await import('zod')
+  const app = Fastify()
+  // 与 index.ts 的 setErrorHandler 等价（该处已有单测覆盖），这里只为让 ZodError 落成 400
+  app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof ZodError)
+      return reply.code(400).send({ message: describeZodError(error), code: 'INVALID_REQUEST' })
+    return reply.send(error)
+  })
+  // index.ts 里以 /api 前缀注册；测试直挂根前缀，故下面用 /hosts/... 访问
+  await app.register(hostRoutes)
+  await app.listen({ port: 0, host: '127.0.0.1' })
+  t.after(() => app.close())
+  return app
+}
+
+test('vnc password narrow endpoints persist per display and never drip the credential bundle', async (t) => {
+  const configDir = await withVncHost(t)
+  const app = await buildHostApp(t)
+  const created = await app.inject({
+    method: 'PUT',
+    url: '/hosts/devbox/vnc/password',
+    payload: { display: 3, password: 'rfb-secret' },
+  })
+  assert.equal(created.statusCode, 200)
+  assert.deepEqual(created.json(), { success: true })
+
+  // 落盘位置：host-credentials.json 的 vncDisplays.<display>.password（与 ssh 凭据同库不同子键）
+  const stored = JSON.parse(await readFile(path.join(configDir, 'host-credentials.json'), 'utf8')) as {
+    credentials: Record<string, { vncDisplays?: Record<string, { password?: string }> }>
+  }
+  assert.equal(stored.credentials.devbox?.vncDisplays?.['3']?.password, 'rfb-secret')
+
+  const read = await app.inject({ method: 'GET', url: '/hosts/devbox/vnc/password?display=3' })
+  assert.equal(read.statusCode, 200)
+  // 窄口只回 password 一个字段：地址/用户/私钥路径等其它凭据字段一个都不下发
+  assert.deepEqual(read.json(), { password: 'rfb-secret' })
+  assert.deepEqual(Object.keys(read.json() as object), ['password'])
+
+  const other = await app.inject({ method: 'GET', url: '/hosts/devbox/vnc/password?display=4' })
+  assert.deepEqual(other.json(), {})
+
+  const removed = await app.inject({
+    method: 'DELETE',
+    url: '/hosts/devbox/vnc/password',
+    payload: { display: 3 },
+  })
+  assert.deepEqual(removed.json(), { success: true })
+  assert.deepEqual((await app.inject({ method: 'GET', url: '/hosts/devbox/vnc/password?display=3' })).json(), {})
+  const afterDelete = JSON.parse(await readFile(path.join(configDir, 'host-credentials.json'), 'utf8')) as {
+    credentials: Record<string, unknown>
+  }
+  // 只有 VNC 密码的宿主清空后整条剔除，文件不留空壳
+  assert.equal(afterDelete.credentials.devbox, undefined)
+})
+
+test('vnc password narrow endpoints reject display numbers outside 0-99', async (t) => {
+  await withVncHost(t)
+  const app = await buildHostApp(t)
+  for (const display of [100, -1]) {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/hosts/devbox/vnc/password?display=${display}`,
+    })
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), { message: 'Invalid display', code: 'INVALID_REQUEST' })
+  }
+})
+
+test('vnc password narrow endpoints reject an empty password before it reaches the store', async (t) => {
+  const configDir = await withVncHost(t)
+  const app = await buildHostApp(t)
+  for (const password of ['', undefined]) {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/hosts/devbox/vnc/password',
+      payload: { display: 3, password },
+    })
+    assert.equal(response.statusCode, 400, `password=${String(password)}`)
+    const body = response.json() as { code: string; message: string }
+    assert.equal(body.code, 'INVALID_REQUEST')
+    assert.match(body.message, /^password: /)
+  }
+  // 校验失败不该写盘：store 里连 vncDisplays 子键都不该出现
+  const store = JSON.parse(await readFile(path.join(configDir, 'host-credentials.json'), 'utf8')) as {
+    credentials: Record<string, { vncDisplays?: Record<string, unknown> }>
+  }
+  assert.equal(store.credentials.devbox?.vncDisplays, undefined)
 })
