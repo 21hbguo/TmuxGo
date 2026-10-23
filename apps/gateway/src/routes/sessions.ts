@@ -510,7 +510,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
           await applyTemplateLayout(hostId, name, layoutWithCwd)
         } catch (err) {
           await cleanupSession(hostId, name)
-          throw new Error(errorMessage(err, 'Template layout failed'))
+          throw new Error(errorMessage(err, 'Template layout failed'), { cause: err })
         }
       }
       await prepareSessionAttach(hostId, name)
@@ -532,7 +532,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
         const existingSession = sessions.find((s) => s.name === name)
         if (existingSession) return { ...existingSession, cwd: normalizedCwd, existed: true }
       }
-      throw new Error(errorMessage(err))
+      throw new Error(errorMessage(err), { cause: err })
     }
   })
   fastify.post('/hosts/:hostId/sessions/rename', async (request) => {
@@ -563,7 +563,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       })
       return renamed
     } catch (err) {
-      throw new Error(errorMessage(err))
+      throw new Error(errorMessage(err), { cause: err })
     }
   })
   fastify.post('/hosts/:hostId/sessions/batch-delete', async (request) => {
@@ -699,7 +699,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       await applyTemplateLayout(hostId, sessionName, layout)
     } catch (err) {
       await cleanupSession(hostId, sessionName)
-      throw new Error(errorMessage(err, 'Layout apply failed'))
+      throw new Error(errorMessage(err, 'Layout apply failed'), { cause: err })
     }
     await prepareSessionAttach(hostId, sessionName)
     const created = (await getHostTmuxSessions(hostId)).find((session) => session.name === sessionName) || {
@@ -723,7 +723,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       emitPluginEvent('session.deleted', { hostId, sessionId: buildSessionId(hostId, sessionName), sessionName })
       return { success: true, sessionId: buildSessionId(hostId, sessionName) }
     } catch (err) {
-      throw new Error(errorMessage(err))
+      throw new Error(errorMessage(err), { cause: err })
     }
   })
 }

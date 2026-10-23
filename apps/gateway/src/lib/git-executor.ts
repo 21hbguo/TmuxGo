@@ -172,7 +172,9 @@ export async function execGit(
       return { stdout, stderr }
     } catch (err) {
       const failure = asExecFailure(err)
-      throw new Error(normalizeErrorMessage(String(failure?.stderr || failure?.message || ''), 'git command failed'))
+      throw new Error(normalizeErrorMessage(String(failure?.stderr || failure?.message || ''), 'git command failed'), {
+        cause: err,
+      })
     }
   }
   const { stdout, stderr } = await runRemoteGit(host, args, cwd, timeout, acceptExitCodeOne, signal)

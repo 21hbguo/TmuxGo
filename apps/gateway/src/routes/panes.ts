@@ -42,7 +42,7 @@ export async function paneRoutes(fastify: FastifyInstance) {
         const { stdout } = await execTmux(hostId, ['display-message', '-p', '-t', tmuxPaneId, '#{window_zoomed_flag}'])
         if (stdout.trim() !== '1') await execTmux(hostId, ['resize-pane', '-Z', '-t', tmuxPaneId])
       }
-      agentMonitor.markSeen(paneId) || markAgentPaneSeen(paneId)
+      if (!agentMonitor.markSeen(paneId)) markAgentPaneSeen(paneId)
       return { ok: true }
     } catch (err) {
       return { ok: false, error: errorMessage(err) }

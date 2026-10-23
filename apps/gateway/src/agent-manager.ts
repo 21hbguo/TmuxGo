@@ -559,7 +559,6 @@ export class AgentManager {
       return Promise.reject(new Error('Invalid Agent terminal attachment'))
     const requestId = randomUUID()
     const attachmentId = randomUUID()
-    let state: AgentTerminalState
     const terminal: AgentTerminal = {
       id: attachmentId,
       pid: 0,
@@ -575,7 +574,8 @@ export class AgentManager {
         if (state.exitCode !== null) listener(state.exitCode)
       },
     }
-    state = {
+    // terminal 的回调在 attach 完成后才触发，此时 state 已初始化
+    const state: AgentTerminalState = {
       agentId: id,
       socket: agent.socket,
       terminal,

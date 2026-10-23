@@ -45,11 +45,17 @@ function trimOutput(value: string, maxBytes: number) {
 function isArchive(value: unknown): value is SessionArchive {
   if (!value || typeof value !== 'object') return false
   const archive = value as SessionArchive
-  return typeof archive.id === 'string' && typeof archive.hostId === 'string' && typeof archive.sessionId === 'string' && typeof archive.createdAt === 'string' && Array.isArray(archive.panes)
+  return (
+    typeof archive.id === 'string' &&
+    typeof archive.hostId === 'string' &&
+    typeof archive.sessionId === 'string' &&
+    typeof archive.createdAt === 'string' &&
+    Array.isArray(archive.panes)
+  )
 }
 async function readArchives(hostId: string) {
   const dir = getArchiveDir(hostId)
-  let files: string[] = []
+  let files: string[]
   try {
     files = (await readdir(dir)).filter((name) => /^[A-Za-z0-9_-]+\.json$/.test(name))
   } catch {
@@ -78,25 +84,60 @@ function toArchiveSummary(archive: SessionArchive) {
   const { panes, ...summary } = archive
   return summary
 }
-async function captureSessionArchive(hostId: string, sessionId: string, captureMode: SessionCaptureMode, maxBytes: number, retentionDays: number) {
+async function captureSessionArchive(
+  hostId: string,
+  sessionId: string,
+  captureMode: SessionCaptureMode,
+  maxBytes: number,
+  retentionDays: number,
+) {
   const sessionName = parseSessionRef(hostId, sessionId).sessionName
   assertSessionAllowed(sessionName)
-  const { stdout } = await execTmux(hostId, ['list-panes', '-s', '-t', sessionName, '-F', '#{pane_id}\t#{pane_title}\t#{window_name}\t#{pane_active}'])
-  const paneRows = stdout.trim().split('\n').filter(Boolean).map((line) => {
-    const [tmuxPaneId, title, windowName, active] = line.split('\t')
-    return { tmuxPaneId, title: title || 'shell', windowName: windowName || '', active: active === '1' }
-  }).filter((pane) => /^%\d+$/.test(pane.tmuxPaneId))
+  const { stdout } = await execTmux(hostId, [
+    'list-panes',
+    '-s',
+    '-t',
+    sessionName,
+    '-F',
+    '#{pane_id}\t#{pane_title}\t#{window_name}\t#{pane_active}',
+  ])
+  const paneRows = stdout
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [tmuxPaneId, title, windowName, active] = line.split('\t')
+      return { tmuxPaneId, title: title || 'shell', windowName: windowName || '', active: active === '1' }
+    })
+    .filter((pane) => /^%\d+$/.test(pane.tmuxPaneId))
   const bytesPerPane = paneRows.length ? Math.floor(maxBytes / paneRows.length) : 0
   const panes: SessionArchivePane[] = []
   for (const pane of paneRows) {
     const args = ['capture-pane', '-p', '-t', pane.tmuxPaneId]
     if (captureMode === 'history') args.push('-S', '-')
     const { stdout: data } = await execTmux(hostId, args)
-    panes.push({ paneId: `${hostId}:${pane.tmuxPaneId}`, title: pane.title, windowName: pane.windowName, active: pane.active, data: trimOutput(data, bytesPerPane) })
+    panes.push({
+      paneId: `${hostId}:${pane.tmuxPaneId}`,
+      title: pane.title,
+      windowName: pane.windowName,
+      active: pane.active,
+      data: trimOutput(data, bytesPerPane),
+    })
   }
   const createdAt = new Date().toISOString()
   const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-  const archive: SessionArchive = { id, hostId, sessionId, sessionName, captureMode, createdAt, expiresAt: new Date(Date.now() + retentionDays * 86400000).toISOString(), size: panes.reduce((sum, pane) => sum + Buffer.byteLength(pane.data, 'utf8'), 0), paneCount: panes.length, panes }
+  const archive: SessionArchive = {
+    id,
+    hostId,
+    sessionId,
+    sessionName,
+    captureMode,
+    createdAt,
+    expiresAt: new Date(Date.now() + retentionDays * 86400000).toISOString(),
+    size: panes.reduce((sum, pane) => sum + Buffer.byteLength(pane.data, 'utf8'), 0),
+    paneCount: panes.length,
+    panes,
+  }
   const dir = getArchiveDir(hostId)
   await mkdir(dir, { recursive: true })
   const file = path.join(dir, `${id}.json`)
@@ -111,7 +152,9 @@ export async function sessionArchiveRoutes(fastify: FastifyInstance) {
     const { hostId } = request.params as { hostId: string }
     const { sessionId } = request.query as { sessionId?: string }
     const archives = await readArchives(hostId)
-    return { archives: archives.filter((archive) => !sessionId || archive.sessionId === sessionId).map(toArchiveSummary) }
+    return {
+      archives: archives.filter((archive) => !sessionId || archive.sessionId === sessionId).map(toArchiveSummary),
+    }
   })
   fastify.get('/hosts/:hostId/session-archives/:archiveId', async (request, reply) => {
     const { hostId, archiveId } = request.params as { hostId: string; archiveId: string }
@@ -122,7 +165,12 @@ export async function sessionArchiveRoutes(fastify: FastifyInstance) {
   })
   fastify.post('/hosts/:hostId/session-archives', async (request) => {
     const { hostId } = request.params as { hostId: string }
-    const body = request.body as { sessionId?: string; captureMode?: string; maxBytesPerSession?: number; retentionDays?: number }
+    const body = request.body as {
+      sessionId?: string
+      captureMode?: string
+      maxBytesPerSession?: number
+      retentionDays?: number
+    }
     if (!body?.sessionId) throw new Error('Missing session id')
     const captureMode = body.captureMode === 'history' ? 'history' : 'visible'
     const maxBytes = normalizeInt(body.maxBytesPerSession, 262144, 0, maxArchiveBytes)
