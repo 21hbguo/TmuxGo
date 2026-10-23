@@ -380,8 +380,11 @@ test('cleans up exactly once when the client transport dies abruptly', { timeout
   await second.connected
   await waitFor(() => streamPerfMetrics.activeClients === baseline + 2, 'activeClients did not count both clients')
 
-  // 直接掐掉底层 TCP（RST/半关闭）：服务端走 error→terminate，close 未必带 1000
-  ;(first.ws as unknown as { _socket: { destroy: () => void } })._socket.destroy()
+  // 往底层 TCP 写非法帧：服务端 ws 报协议错误 → error 路径 terminate，
+  // 这条路径与 close 都可能触发清理，正是幂等守卫要压的场景
+  ;(first.ws as unknown as { _socket: { write: (chunk: Buffer) => void } })._socket.write(
+    Buffer.from([0x83, 0x80, 0x00, 0x00, 0x00, 0x00]),
+  )
   await waitClosed(first.closed, 5000)
   // 只死一个：若 error 与 close 各减一次，这里会掉到 baseline（重复 decrement）
   await waitFor(() => streamPerfMetrics.activeClients === baseline + 1, 'activeClients did not drop by exactly one')
