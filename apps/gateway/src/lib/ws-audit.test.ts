@@ -20,15 +20,26 @@ function useAuditFile(t: test.TestContext) {
   return file
 }
 
-async function readEvents(file: string) {
-  // appendAuditEvent 是 fire-and-forget，等一拍让 appendFile 落盘
-  await new Promise((resolve) => setImmediate(resolve))
-  await new Promise((resolve) => setTimeout(resolve, 10))
-  return readFileSync(file, 'utf8')
-    .trim()
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => JSON.parse(line))
+async function readEvents(file: string, expected = 1) {
+  // appendAuditEvent 是 fire-and-forget：轮询到期望条数再返回。固定等一拍在并发
+  // 负载下会读到空文件（合批复现过一次 0 !== 4）
+  const parse = () => {
+    try {
+      return readFileSync(file, 'utf8')
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+    } catch {
+      return []
+    }
+  }
+  const deadline = Date.now() + 2000
+  for (;;) {
+    const events = parse()
+    if (events.length >= expected || Date.now() > deadline) return events
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
 }
 
 test('ws message audit records success/denied/invalid/error with stable envelope', async (t) => {
@@ -70,7 +81,7 @@ test('ws message audit records success/denied/invalid/error with stable envelope
     hostId: 'local',
   })
 
-  const events = await readEvents(file)
+  const events = await readEvents(file, 4)
   assert.equal(events.length, 4)
 
   // appendAuditEvent 是 fire-and-forget，落盘顺序不保证——按字段查找而非按下标
@@ -136,7 +147,7 @@ test('ws message audit never persists message bodies, tokens or terminal output'
     hostId: 'h1',
   })
 
-  await readEvents(file) // 等待 fire-and-forget 落盘
+  await readEvents(file, 2) // 等待 fire-and-forget 落盘
   const raw = readFileSync(file, 'utf8')
   for (const secret of [
     'SECRET-KEYSTROKE',

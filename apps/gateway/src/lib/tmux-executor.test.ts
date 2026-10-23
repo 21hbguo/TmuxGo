@@ -96,7 +96,9 @@ test('creates session via cold start when tmux server is missing (setenv tolerat
   t.after(async () => {
     if (previousTmpDir === undefined) delete process.env.TMUX_TMPDIR
     else process.env.TMUX_TMPDIR = previousTmpDir
-    await rm(tmpDir, { recursive: true, force: true })
+    // server 退出/客户端启停收尾与删除目录存在竞态：遍历窗口内 socket/lock 文件
+    // 可能再现（ENOTEMPTY），rm 带重试收口
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
   })
   try {
     await execTmux('local', ['new-session', '-d', '-s', sessionName, '-e', 'TMUXGO_ENV=1'])
