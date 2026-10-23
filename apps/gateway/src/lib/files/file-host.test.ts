@@ -449,6 +449,12 @@ test('path guards reject traversal and symlink escapes on the local channel', as
   })
   await assert.rejects(host.listDirectoryForHost('local', 'root-0', 'link-out'))
   await assert.rejects(host.readContentForHost('local', 'no-such-root', 'x'), { message: 'Invalid root' })
+  // app-tmp 走的是独立的 resolveTemporaryInside 分支，逃逸守卫要单独验（变异验证时发现这里没盖住）
+  await assert.rejects(host.readContentForHost('local', 'app-tmp', '../escape.txt'), { message: 'Path escapes root' })
+  await symlink(outside, path.join(tmpUploadDir, 'tmp-link'))
+  await assert.rejects(host.readContentForHost('local', 'app-tmp', 'tmp-link/secret.txt'), {
+    message: 'Path escapes root',
+  })
   // git: 伪根同样要挡住越界与非法的 root id
   const gitRoot = `git:${encodeURIComponent(workspace)}`
   const insideGitRoot = await host.readContentForHost('local', gitRoot, 'docs/notes.md')
