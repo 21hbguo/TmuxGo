@@ -1,7 +1,7 @@
 import type { useTranslation } from '@/i18n'
 export const GITHUB_DEVICE_LOGIN_URL = 'https://github.com/login/device'
 const ANSI_ESCAPE_REGEX = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|\u001b\\))/g
-const TERMINAL_URL_REGEX = /(https?|HTTPS?):[/]{2}[^\s"'!*(){}|\\^<>`]*[^\s"':,.!?{}|\\^~\[\]`()<>]/g
+const TERMINAL_URL_REGEX = /(https?|HTTPS?):[/]{2}[^\s"'!*(){}|\\^<>`]*[^\s"':,.!?{}|\\^~[\]`()<>]/g
 const TERMINAL_FILE_LINK_REGEX =
   /(^|[\s([{'"`])((?:\/|\.{1,2}\/|~\/)?[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*(?::\d+){0,2})(?=$|[\s)\]}'"`,;.!?，。；、])/g
 export type TerminalLineLink =

@@ -104,7 +104,11 @@ vi.mock('./SessionTemplates', () => ({
   SessionTemplates: ({
     onSelect,
   }: {
-    onSelect: (template: { id: string; name: string; layout: { windows: { name: string; panes: {}[] }[] } }) => void
+    onSelect: (template: {
+      id: string
+      name: string
+      layout: { windows: { name: string; panes: Record<string, never>[] }[] }
+    }) => void
   }) =>
     React.createElement(
       'button',

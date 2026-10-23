@@ -1414,7 +1414,7 @@ describe('TerminalPane', () => {
     render(<TerminalPane sessionName="dev" onInput={onInput} onResize={vi.fn()} />)
     await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
     terminalDataHandler?.('pwd')
-    const output = '\u001b[?2004hprintf \"targeted_output_ok\"\\r\\n'
+    const output = '\u001b[?2004hprintf "targeted_output_ok"\\r\\n'
     webSocketMocks.lastOutputListener?.({ data: output, sessionName: 'dev', hostId: 'local' })
     await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith(output))
     expect(onInput).toHaveBeenCalledWith('pwd')

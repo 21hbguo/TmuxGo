@@ -12,14 +12,14 @@ let gzipFrames = 0
 let resyncs = 0
 let cellSnapshots = 0
 let cellDiffs = 0
-let fallbacks = 0
+const fallbacks = 0
 let startTime = 0
 let attached = false
 let timeoutHandle: NodeJS.Timeout | null = null
 function finish(label: string) {
   if (timeoutHandle) clearTimeout(timeoutHandle)
   const elapsed = (Date.now() - startTime) / 1000
-  const kbps = (bytesIn / 1024) / elapsed
+  const kbps = bytesIn / 1024 / elapsed
   const result = {
     label,
     elapsed_sec: Number(elapsed.toFixed(2)),
@@ -33,13 +33,17 @@ function finish(label: string) {
     fallbacks,
   }
   console.log(JSON.stringify(result, null, 2))
-  try { ws.close() } catch {}
+  try {
+    ws.close()
+  } catch {}
   process.exit(0)
 }
 ws.on('open', () => {
   ws.send(JSON.stringify({ type: 'stream_caps', binaryOutput: true, compressOutput: 'gzip', cellOutput: CELL_OUTPUT }))
   setTimeout(() => {
-    ws.send(JSON.stringify({ type: 'attach', hostId: 'local', sessionName: SESSION, exclusive: true, cols: 80, rows: 24 }))
+    ws.send(
+      JSON.stringify({ type: 'attach', hostId: 'local', sessionName: SESSION, exclusive: true, cols: 80, rows: 24 }),
+    )
   }, 200)
 })
 ws.on('message', (data: WebSocket.RawData, isBinary: boolean) => {
