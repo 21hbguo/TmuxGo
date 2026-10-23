@@ -7,7 +7,7 @@ const setActiveSession = vi.fn()
 const setSessionPanelExpanded = vi.fn()
 const pushToast = vi.fn()
 const prompt = vi.fn(async () => null)
-const useOrderedSessionsMock = vi.fn((...args: unknown[]) => ({
+const useOrderedSessionsMock = vi.fn((..._args: unknown[]) => ({
   data: [
     { id: 'session-a', name: 'alpha', windowCount: 1 },
     { id: 'session-b', name: 'beta', windowCount: 2 },
