@@ -45,6 +45,24 @@ async function mergeLeftUnmergedPaths(hostId: string, repositoryPath: string) {
   }
 }
 
+// 分叉分类同理不能看文案：git 2.27+ 的 hint 在 zh_CN 下是「你需要指定如何协调这些分支」，
+// 英文才是 "You have divergent branches"，版本之间措辞也改过。仓库状态是唯一稳定信号：
+// porcelain v2 的 branch.ab 同时给出 ahead/behind，两边都非零就是分叉。
+// 顺带把计数交给前端，才能提示「选 rebase 还是 merge」而不是只丢一句裸失败。
+async function branchDivergence(hostId: string, repositoryPath: string) {
+  try {
+    const { stdout } = await execGit(hostId, ['status', '--porcelain=v2', '--branch'], repositoryPath, 10000)
+    const match = /^# branch\.ab \+(\d+) -(\d+)$/m.exec(stdout)
+    if (!match) return null
+    const ahead = Number(match[1])
+    const behind = Number(match[2])
+    return ahead > 0 && behind > 0 ? { ahead, behind } : null
+  } catch {
+    // 状态问不到（SSH 掉线等）时保持原样抛错，不要伪造分叉结论
+    return null
+  }
+}
+
 interface GitFileChange {
   path: string
   status: 'added' | 'modified' | 'deleted' | 'renamed' | 'copied' | 'unmerged'
@@ -595,8 +613,13 @@ export async function gitRoutes(fastify: FastifyInstance, options: { taskManager
       return { ok: true, conflicts: false, message: stdout.trim() }
     } catch (err) {
       const msg = errorMessage(err)
+      // 顺序有意义：冲突优先（会有未合并路径），分叉是"没冲突但历史分道"的第二种可操作失败
       if (await mergeLeftUnmergedPaths(hostId, repoPath)) {
         return { ok: false, conflicts: true, message: msg }
+      }
+      const divergence = await branchDivergence(hostId, repoPath)
+      if (divergence) {
+        return { ok: false, conflicts: false, diverged: true, ...divergence, message: msg }
       }
       throw err
     }

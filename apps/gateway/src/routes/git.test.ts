@@ -742,6 +742,81 @@ test('pull reports conflicts instead of throwing when the branches diverged on t
   await runGit(repository, ['merge', '--abort'])
 })
 
+test('pull reports a diverged branch instead of throwing when git refuses without a strategy', async (t) => {
+  const fixture = await createFixture(t)
+  const { base, repository } = fixture
+  const origin = path.join(base, 'origin.git')
+  await runGit(base, ['init', '--bare', '--initial-branch=main', 'origin.git'])
+  await runGit(repository, ['remote', 'add', 'origin', origin])
+  await runGit(repository, ['push', '-u', 'origin', 'main'])
+  const other = path.join(base, 'other')
+  await runGit(base, ['clone', origin, 'other'])
+  await runGit(other, ['config', 'user.email', 'other@tmuxgo.dev'])
+  await runGit(other, ['config', 'user.name', 'Other'])
+  await runGit(other, ['config', 'commit.gpgsign', 'false'])
+  // 两边各改一个不同文件：历史分叉但没有内容冲突。git ≥2.27 在未配置 pull.rebase/pull.ff 时
+  // 会直接拒绝这种 pull（提示需要指定策略），旧实现把这条 hint 当裸失败落 500
+  await writeFile(file(other, 'remote-only.txt'), 'remote\n')
+  await runGit(other, ['add', 'remote-only.txt'])
+  await runGit(other, ['commit', '-m', 'remote commit'])
+  await runGit(other, ['push', 'origin', 'main'])
+  await writeFile(file(repository, 'local-only.txt'), 'local\n')
+  await runGit(repository, ['add', 'local-only.txt'])
+  await runGit(repository, ['commit', '-m', 'local commit'])
+  const headBefore = (await runGit(repository, ['rev-parse', 'HEAD'])).stdout.trim()
+
+  const pulled = await inject(fixture, 'POST', 'pull', { path: repository })
+  assert.equal(pulled.statusCode, 200)
+  const pullBody = body<{
+    ok: boolean
+    conflicts: boolean
+    diverged?: boolean
+    ahead?: number
+    behind?: number
+    message: string
+  }>(pulled)
+  assert.equal(pullBody.ok, false)
+  assert.equal(pullBody.conflicts, false)
+  assert.equal(pullBody.diverged, true)
+  assert.equal(pullBody.ahead, 1)
+  assert.equal(pullBody.behind, 1)
+  // hint 文案随 git 版本/locale 变（zh_CN 下不是 "divergent branches"），只断言不是空的
+  assert.notEqual(pullBody.message.trim(), '')
+  // 无未合并路径：分叉不是冲突，两者不能混判
+  assert.equal((await runGit(repository, ['diff', '--name-only', '--diff-filter=U'])).stdout.trim(), '')
+  // 归一化只做提示，不动仓库状态
+  assert.equal((await runGit(repository, ['rev-parse', 'HEAD'])).stdout.trim(), headBefore)
+  // 用户选策略后照常能成功：rebase 走通，且归零 ahead/behind
+  const rebased = await inject(fixture, 'POST', 'pull', { path: repository, rebase: true })
+  assert.equal(rebased.statusCode, 200)
+  assert.equal(body<{ ok: boolean }>(rebased).ok, true)
+  assert.equal((await readFile(file(repository, 'remote-only.txt'), 'utf8')).trim(), 'remote')
+})
+
+test('pull keeps unclassified failures as errors when the branch is only behind', async (t) => {
+  const fixture = await createFixture(t)
+  const { base, repository } = fixture
+  const origin = path.join(base, 'origin.git')
+  await runGit(base, ['init', '--bare', '--initial-branch=main', 'origin.git'])
+  await runGit(repository, ['remote', 'add', 'origin', origin])
+  await runGit(repository, ['push', '-u', 'origin', 'main'])
+  const other = path.join(base, 'other')
+  await runGit(base, ['clone', origin, 'other'])
+  await runGit(other, ['config', 'user.email', 'other@tmuxgo.dev'])
+  await runGit(other, ['config', 'user.name', 'Other'])
+  await runGit(other, ['config', 'commit.gpgsign', 'false'])
+  await writeFile(file(other, 'base.txt'), 'remote side\n')
+  await runGit(other, ['commit', '-am', 'remote side'])
+  await runGit(other, ['push', 'origin', 'main'])
+  // 只有 behind（ahead=0）+ 本地未提交改动：git 拒绝覆盖，但这既不是冲突也不是分叉。
+  // 分叉判定必须要求 ahead/behind 双非零，否则这类失败会被误归一成"需要选策略"
+  await writeFile(file(repository, 'base.txt'), 'uncommitted local edit\n')
+
+  const pulled = await inject(fixture, 'POST', 'pull', { path: repository })
+  assert.equal(pulled.statusCode, 500)
+  assert.doesNotMatch(JSON.stringify(pulled.json()), /diverged/)
+})
+
 test('push reports a rejected non-fast-forward instead of throwing', async (t) => {
   const fixture = await createFixture(t)
   const { base, repository } = fixture
