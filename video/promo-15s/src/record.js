@@ -1,5 +1,6 @@
 // 无头录屏：把 index.html 的 15s 动画录成 webm，并报告音频起播偏移
 // 用法: NODE_PATH=<dsh>/node_modules node src/record.js
+/* eslint-disable @typescript-eslint/no-require-imports -- 本目录是 CommonJS 脚本（package.json 无 type:module，且依赖 NODE_PATH 解析 playwright），改 ESM 会让 NODE_PATH 解析失效 */
 const fs = require('fs')
 const path = require('path')
 const { chromium } = require('playwright')

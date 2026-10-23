@@ -1,5 +1,6 @@
 // 分段生成 5 段中文配音并拼接为 audio/voice.mp3
 // 用法: node src/tts.js [rate]   rate 例如 +40% （默认不加速）
+/* eslint-disable @typescript-eslint/no-require-imports -- 本目录是 CommonJS 脚本（package.json 无 type:module，msedge-tts 以 CJS 方式加载），改 ESM 会破坏现有跑法 */
 const path = require('path')
 const fs = require('fs')
 const { execFileSync } = require('child_process')
