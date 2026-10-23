@@ -457,7 +457,8 @@ npm run dev:frontend
 npm run dev:gateway
 npm run dev:agent
 npm run build
-npm test
+npm test              # 全量：含真 tmux/CLI 集成用例
+npm run test:fast     # 快层：跳过 @slow 等待型用例与真 tmux 串行组，日常迭代用
 npm run test:frontend
 npm run test:e2e
 npm run verify
@@ -495,29 +496,29 @@ npm run test:ssh-e2e
 
 ### 环境变量
 
-| 变量                         | 默认值                           | 说明                                                        |
-| :--------------------------- | :------------------------------- | :---------------------------------------------------------- |
-| `PORT`                       | `3001`                           | Gateway 监听端口                                            |
-| `TMUXGO_HOST`                | `127.0.0.1`                      | Gateway 监听地址；远程部署前必须配置加密网络或 HTTPS        |
-| `VITE_API_URL`               | `http://127.0.0.1:3001`          | 构建/开发时代理或访问 Gateway 的基地址                      |
-| `TMUXGO_FRONTEND_DIST`       | `apps/frontend/dist`             | Gateway 托管的前端静态资源目录                              |
-| `TMUXGO_ENABLE_AGENT`        | `0`                              | 设为 `1` 时启动或安装 Agent                                 |
-| `GATEWAY_URL`                | `ws://localhost:3001/api/stream` | Agent 连接 Gateway 的 WebSocket 地址                        |
-| `TMUXGO_AUTH_USERNAME`       | `admin`                          | Gateway 登录账号                                            |
-| `TMUXGO_AUTH_PASSWORD`       | `admin123`                       | Gateway 登录密码；首次以默认密码登录时必须修改              |
-| `TMUXGO_PUBLIC_URL`          | 空                               | 对外访问地址；使用 `https://` 或 `wss://` 表示已配置 TLS    |
-| `TMUXGO_TLS_TERMINATED`      | `0`                              | 反向代理已完成 TLS 终止时设为 `1`                           |
-| `TMUXGO_ENCRYPTED_TRANSPORT` | `0`                              | Tailscale / WireGuard / SSH 隧道等外层加密已启用时设为 `1`  |
-| `TMUXGO_ALLOW_INSECURE`      | `0`                              | 允许非回环未认证 Gateway 启动；仅用于明确的临时测试         |
-| `GATEWAY_USERNAME`           | `admin`                          | Agent 连接 Gateway 使用的账号                               |
-| `GATEWAY_PASSWORD`           | 空                               | Agent 连接 Gateway 使用的密码，启用认证时必须显式设置       |
-| `HOST_ID`                    | `agent-local`                    | Agent 注册主机 ID                                           |
-| `HOST_NAME`                  | `local-machine` 或机器名         | Agent 注册显示名                                            |
+| 变量                         | 默认值                           | 说明                                                         |
+| :--------------------------- | :------------------------------- | :----------------------------------------------------------- |
+| `PORT`                       | `3001`                           | Gateway 监听端口                                             |
+| `TMUXGO_HOST`                | `127.0.0.1`                      | Gateway 监听地址；远程部署前必须配置加密网络或 HTTPS         |
+| `VITE_API_URL`               | `http://127.0.0.1:3001`          | 构建/开发时代理或访问 Gateway 的基地址                       |
+| `TMUXGO_FRONTEND_DIST`       | `apps/frontend/dist`             | Gateway 托管的前端静态资源目录                               |
+| `TMUXGO_ENABLE_AGENT`        | `0`                              | 设为 `1` 时启动或安装 Agent                                  |
+| `GATEWAY_URL`                | `ws://localhost:3001/api/stream` | Agent 连接 Gateway 的 WebSocket 地址                         |
+| `TMUXGO_AUTH_USERNAME`       | `admin`                          | Gateway 登录账号                                             |
+| `TMUXGO_AUTH_PASSWORD`       | `admin123`                       | Gateway 登录密码；首次以默认密码登录时必须修改               |
+| `TMUXGO_PUBLIC_URL`          | 空                               | 对外访问地址；使用 `https://` 或 `wss://` 表示已配置 TLS     |
+| `TMUXGO_TLS_TERMINATED`      | `0`                              | 反向代理已完成 TLS 终止时设为 `1`                            |
+| `TMUXGO_ENCRYPTED_TRANSPORT` | `0`                              | Tailscale / WireGuard / SSH 隧道等外层加密已启用时设为 `1`   |
+| `TMUXGO_ALLOW_INSECURE`      | `0`                              | 允许非回环未认证 Gateway 启动；仅用于明确的临时测试          |
+| `GATEWAY_USERNAME`           | `admin`                          | Agent 连接 Gateway 使用的账号                                |
+| `GATEWAY_PASSWORD`           | 空                               | Agent 连接 Gateway 使用的密码，启用认证时必须显式设置        |
+| `HOST_ID`                    | `agent-local`                    | Agent 注册主机 ID                                            |
+| `HOST_NAME`                  | `local-machine` 或机器名         | Agent 注册显示名                                             |
 | `TMUX_WEB_FILE_ROOTS`        | `workspace=<repo>:home=<home>`   | 文件树根目录列表，例如 `workspace=/srv/code:home=/home/user` |
-| `TMUXGO_PREFERENCES_DIR`     | `~/.tmuxgo/preferences`          | 偏好、收藏、会话持续化等同步存储目录                        |
-| `TMUXGO_CONFIG_DIR`          | `~/.tmuxgo`                      | 主机配置目录，默认包含 `hosts.json`                         |
-| `TMUXGO_ALLOWED_ORIGINS`     | 空                               | 额外允许访问 Gateway 的浏览器 Origin，多个值用逗号分隔      |
-| `TMUX_WEB_ALLOWED_SESSIONS`  | 空                               | 逗号分隔的 tmux 会话白名单                                  |
+| `TMUXGO_PREFERENCES_DIR`     | `~/.tmuxgo/preferences`          | 偏好、收藏、会话持续化等同步存储目录                         |
+| `TMUXGO_CONFIG_DIR`          | `~/.tmuxgo`                      | 主机配置目录，默认包含 `hosts.json`                          |
+| `TMUXGO_ALLOWED_ORIGINS`     | 空                               | 额外允许访问 Gateway 的浏览器 Origin，多个值用逗号分隔       |
+| `TMUX_WEB_ALLOWED_SESSIONS`  | 空                               | 逗号分隔的 tmux 会话白名单                                   |
 
 Gateway 默认启用账号认证。未登录访问受保护 API（如 `/api/hosts`）返回 `401`。认证状态与设备会话保存在 `~/.tmuxgo/auth.json`，浏览器首次登录后会自动续期；使用默认 `admin/admin123` 登录时必须修改密码，修改密码会撤销所有设备会话。认证是密码认证，不等同于 TLS；生产环境仍必须使用 HTTPS/WSS 或加密网络。
 

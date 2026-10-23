@@ -35,7 +35,12 @@ const TEST_SERVER_BOOTSTRAP_SESSION = '__tmuxgo_test_bootstrap__'
 // 可选过滤：`pnpm test <路径子串>…` 只跑匹配文件。跑单文件一律走这里——
 // 自造 TMUX/TMUX_TMPDIR env 直跑 tsx --test 曾漏清 TMUX，kill-server 误杀
 // 用户默认 server（TMUX 已设置时 tmux 忽略 TMUX_TMPDIR）
-const patterns = process.argv.slice(2)
+// 分层开关：`pnpm test --fast`（或 TMUXGO_TEST_FAST=1）只跑快层——跳过用 slowSkip
+// 标记的等待型用例（单次 >2s 的心跳/TTL/真子进程）和整组真 tmux 串行文件；
+// 不带参数/CI 一律全量，行为与分层前完全一致
+const args = process.argv.slice(2)
+const fastMode = args.includes('--fast') || process.env.TMUXGO_TEST_FAST === '1'
+const patterns = args.filter((arg) => arg !== '--fast')
 const collected = collectTests(join(root, 'apps/gateway/src')).concat(collectTests(join(root, 'tests')))
 const files = patterns.length ? collected.filter((f) => patterns.some((p) => f.includes(p))) : collected
 if (files.length === 0) {
@@ -52,7 +57,25 @@ const parallelFiles: string[] = []
 for (const file of files) {
   ;(realTmuxUsage.test(readFileSync(file, 'utf8')) ? serialFiles : parallelFiles).push(file)
 }
+// 快层不跑真 tmux 串行组：这批就是"真起会话"的集成文件，也是串行段的主要墙钟来源
+const skippedSerialFiles = fastMode ? serialFiles.splice(0, serialFiles.length) : []
+// 快层再整组跳过 CLI 契约面（打包/help/control 信封）：它们验证的是发布产物与
+// CLI 二进制边界，跑的是真子进程，跟 gateway 日常迭代零耦合，跳了不伤回归面。
+// 显式传了文件过滤时不套这条——想单跑 CLI 契约就是明确意图
+const fastSkippedCliFiles: string[] = []
+if (fastMode && patterns.length === 0) {
+  // 实际执行列表是 parallelFiles，过滤要落在这里（files 只是收集结果）
+  for (let index = parallelFiles.length - 1; index >= 0; index--) {
+    if (/\/cli-[^/]*contract\.test\.ts$/.test(parallelFiles[index]))
+      fastSkippedCliFiles.push(...parallelFiles.splice(index, 1))
+  }
+}
+if (fastMode) process.env.TMUXGO_TEST_FAST = '1'
 console.log(`collected ${files.length} test files (${serialFiles.length} serial tmux)`)
+if (fastMode)
+  console.log(
+    `FAST mode: skip ${skippedSerialFiles.length} real-tmux files, ${fastSkippedCliFiles.length} cli-contract files and @slow cases (slowSkip) — full run: pnpm test`,
+  )
 
 // Isolate unit-test side effects away from the real ~/.tmuxgo config dir.
 const previousConfigDir = process.env.TMUXGO_CONFIG_DIR
@@ -72,27 +95,28 @@ prepareTmuxSocketDir(tmuxDir)
 // "server exited unexpectedly"，socket/lock 文件也会在删目录窗口内再现（ENOTEMPTY）。
 // 这里起 server 后关掉 exit-empty：session 归零 server 仍在，用例边界零起停。
 // 引导用一次性 session，设完选项立刻删掉，不留可见 session
-spawnSync(
-  'tmux',
-  [
-    '-S',
-    tmuxSocketPath(tmuxDir),
-    'new-session',
-    '-d',
-    '-s',
-    TEST_SERVER_BOOTSTRAP_SESSION,
-    ';',
-    'set-option',
-    '-s',
-    'exit-empty',
-    'off',
-    ';',
-    'kill-session',
-    '-t',
-    TEST_SERVER_BOOTSTRAP_SESSION,
-  ],
-  { stdio: 'ignore', env: tmuxTestEnv(tmuxDir) },
-)
+if (!fastMode)
+  spawnSync(
+    'tmux',
+    [
+      '-S',
+      tmuxSocketPath(tmuxDir),
+      'new-session',
+      '-d',
+      '-s',
+      TEST_SERVER_BOOTSTRAP_SESSION,
+      ';',
+      'set-option',
+      '-s',
+      'exit-empty',
+      'off',
+      ';',
+      'kill-session',
+      '-t',
+      TEST_SERVER_BOOTSTRAP_SESSION,
+    ],
+    { stdio: 'ignore', env: tmuxTestEnv(tmuxDir) },
+  )
 process.env.TMUXGO_CONFIG_DIR = configDir
 process.env.TMUXGO_PREFERENCES_DIR = join(configDir, 'preferences')
 process.env.TMUXGO_TMP_DIR = join(configDir, 'tmp')

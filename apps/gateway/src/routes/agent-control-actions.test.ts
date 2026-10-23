@@ -1,4 +1,5 @@
 import '../test-env.js'
+import { slowSkip } from '../test-slow.js'
 import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs'
 import Fastify from 'fastify'
@@ -62,7 +63,7 @@ async function newShellPane(kind: 'split' | 'window' = 'split') {
   return id
 }
 
-test('agent start/prompt/cancel over real tmux', async (t) => {
+test('agent start/prompt/cancel over real tmux', { skip: slowSkip }, async (t) => {
   const previousToken = process.env.TMUXGO_AGENT_EVENT_TOKEN
   process.env.TMUXGO_AGENT_EVENT_TOKEN = 'agent-control-secret'
   t.after(() => {

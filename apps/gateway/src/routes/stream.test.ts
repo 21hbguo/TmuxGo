@@ -1,4 +1,5 @@
 import '../test-env.js'
+import { slowSkip } from '../test-slow.js'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -337,7 +338,7 @@ test('relays agent tmux results without writing message audit rows', async (t) =
   assert.equal((await waitAudit(file, (event) => event.action === 'ws-stream-register', 1)).length, 1)
 })
 
-test('keeps a client alive while it answers keepalive pings', async (t) => {
+test('keeps a client alive while it answers keepalive pings', { skip: slowSkip }, async (t) => {
   const { port } = await setup(t)
   const { ticket } = await issueScopedWebSocketTicket('alive', { hosts: ['local'], sessions: ['test'] })
   const client = connect(port, ticket)
@@ -348,7 +349,7 @@ test('keeps a client alive while it answers keepalive pings', async (t) => {
   client.ws.close()
 })
 
-test('terminates a client that stops answering keepalive pings', { timeout: 40000 }, async (t) => {
+test('terminates a client that stops answering keepalive pings', { timeout: 40000, skip: slowSkip }, async (t) => {
   const { port } = await setup(t)
   const baseline = await stableActiveClients()
   const { ticket } = await issueScopedWebSocketTicket('stalled', { hosts: ['local'], sessions: ['test'] })

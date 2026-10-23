@@ -1,4 +1,5 @@
 import '../test-env.js'
+import { slowSkip } from '../test-slow.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -204,7 +205,7 @@ test('creates an agent attachment and adapts onExit to a plain exit code', async
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-test('shared attach input follows window active pane after a mouse claim', async (t) => {
+test('shared attach input follows window active pane after a mouse claim', { skip: slowSkip }, async (t) => {
   // 回归：attach 曾带 -f active-pane，client 经鼠标点击后私记活动 pane
   // （cw->pane）。此后 CLI select-pane（api.panes.select 等价路径）只能改
   // window->active（CLI 的 cmdq client session 为 NULL，恒走

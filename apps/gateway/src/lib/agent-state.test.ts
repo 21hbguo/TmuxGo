@@ -1,4 +1,5 @@
 import '../test-env.js'
+import { slowSkip } from '../test-slow.js'
 import assert from 'node:assert/strict'
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import test from 'node:test'
@@ -163,7 +164,7 @@ test('scans a local tmux Agent pane through the real executor path', async () =>
 })
 // done 粘性回归：pane 周期重绘推进 lastOutputTime，强制每轮 scan 重跑检测——
 // 修复前第二轮 idle 检测会把 done 降回 idle（徽标自动消失）
-test('done state stays sticky across rescans while pane keeps ticking', async () => {
+test('done state stays sticky across rescans while pane keeps ticking', { skip: slowSkip }, async () => {
   const sessionName = TEST_TMUX_SESSION
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-agent-scan-'))
   const agentPath = path.join(tempDir, 'worker')
