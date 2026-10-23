@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply } from 'fastify'
 import { stat } from 'fs/promises'
 import { getNormalizedWindowMoves } from '../lib/template-utils.js'
 import { assertSessionAllowed, assertTargetAllowed } from '../lib/tmux-policy.js'
@@ -13,6 +13,36 @@ import { findSessionWorkspacePath } from './preferences.js'
 // catch 到的值不保证是 Error（tmux/SSH 通道可能抛字符串），统一收窄取文案
 function errorMessage(error: unknown, fallback = '') {
   return error instanceof Error && error.message ? error.message : fallback
+}
+
+// 路由错误归位（契约）：解析失败/跨 host 引用属于调用方错误 → 400；tmux 的 can't find ... 与
+// 未知 host 属于目标不存在 → 404。这两类以前会被 fastify 兜成 500 并回 tmux 英文原文。
+// 其它错误保持 500，但换成结构化 {message, code}，message 里仍带 tmux 原文。
+const MISSING_TARGET = /can't find (session|window|pane)|no such (session|window|pane)|unknown (session|window|pane)/i
+const INVALID_REQUEST_MESSAGE =
+  /^(Invalid |Window does not belong to host|Pane does not belong to host|Session is not allowed|orderedWindowIds is required)/
+// targetKind：tmux-policy 的 'Unable to resolve session' 只说「目标解析不到」，具体是 window 还是
+// pane 由端点自己知道，用它把 404 code 归到正确的资源名
+function classifiedErrorReply(
+  reply: FastifyReply,
+  error: unknown,
+  targetKind: 'session' | 'window' | 'pane' = 'session',
+) {
+  const message = errorMessage(error, 'Request failed')
+  const missing = MISSING_TARGET.exec(message)?.[1]?.toLowerCase()
+  if (missing) return reply.code(404).send({ message, code: `${missing.toUpperCase()}_NOT_FOUND` })
+  if (/^Unable to resolve/.test(message))
+    return reply.code(404).send({ message, code: `${targetKind.toUpperCase()}_NOT_FOUND` })
+  if (/^Host ".+" not found$/.test(message)) return reply.code(404).send({ message, code: 'HOST_NOT_FOUND' })
+  if (INVALID_REQUEST_MESSAGE.test(message)) return reply.code(400).send({ message, code: 'INVALID_REQUEST' })
+  return null
+}
+// 硬失败端点用：分类不上的一律 500 结构化，不再裸抛
+function failRoute(reply: FastifyReply, error: unknown, targetKind: 'session' | 'window' | 'pane' = 'session') {
+  return (
+    classifiedErrorReply(reply, error, targetKind) ??
+    reply.code(500).send({ message: errorMessage(error, 'Request failed'), code: 'TMUX_ERROR' })
+  )
 }
 
 // TMUXGO_AGENT_SNAPSHOT_SEEN：快照请求是否顺带清 done。默认开（=1），
@@ -188,90 +218,110 @@ async function parsePaneTarget(hostId: string, paneId: string) {
   return tmuxPaneId
 }
 export async function windowRoutes(fastify: FastifyInstance) {
-  fastify.get('/hosts/:hostId/sessions/:sessionId/windows', async (request) => {
+  fastify.get('/hosts/:hostId/sessions/:sessionId/windows', async (request, reply) => {
     const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
-    const sessionName = parseSessionName(hostId, sessionId)
-    return getTmuxWindows(hostId, sessionName)
+    try {
+      const sessionName = parseSessionName(hostId, sessionId)
+      return await getTmuxWindows(hostId, sessionName)
+    } catch (err) {
+      return failRoute(reply, err)
+    }
   })
-  fastify.get('/windows/:windowId/panes', async (request) => {
+  fastify.get('/windows/:windowId/panes', async (request, reply) => {
     const { windowId } = request.params as { windowId: string }
-    const { hostId, windowName } = parseWindowRouteParam(windowId)
-    const { stdout } = await execTmux(hostId, [
-      'display-message',
-      '-p',
-      '-t',
-      windowName,
-      '#{session_name}|#{window_index}',
-    ])
-    const [sessionName, windowIndexText] = stdout.trim().split('|')
-    const windowIndex = parseInt(windowIndexText, 10)
-    if (!sessionName || !Number.isFinite(windowIndex)) return []
-    return getTmuxPanes(hostId, sessionName, windowIndex)
-  })
-  fastify.get('/hosts/:hostId/sessions/:sessionId/panes', async (request) => {
-    const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
-    const sessionName = parseSessionName(hostId, sessionId)
-    return getTmuxSessionPanes(hostId, sessionName)
-  })
-  fastify.get('/hosts/:hostId/sessions/:sessionId/snapshot', async (request) => {
-    const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
-    const sessionName = parseSessionName(hostId, sessionId)
-    recordStreamMetric('snapshotRequests')
-    const [windows, panes] = await Promise.all([
-      getTmuxWindows(hostId, sessionName),
-      getTmuxSessionPanes(hostId, sessionName),
-    ])
-    const activeWindow = windows.find((window) => window.active) || windows[0] || null
-    const activePane =
-      panes.find((pane) => pane.windowId === activeWindow?.id && pane.active) ||
-      panes.find((pane) => pane.windowId === activeWindow?.id) ||
-      null
-    // 快照请求顺带清 done：老前端不发 agent_seen，靠这条边读边写的"搭便车"消徽标。
-    // 新前端有显式 agent_seen 后两条路双清同一个 done 无害，所以默认保持 1；
-    // 待旧客户端消亡再翻 0（S3），届时快照变成纯读，GET 不再有写副作用
-    if (activePane && snapshotSeenEnabled()) {
-      const seen = agentMonitor.markSeen(activePane.id) || markAgentPaneSeen(activePane.id)
-      if (seen)
-        Object.assign(activePane, {
-          agent: seen.agent,
-          agentSessionId: seen.agentSessionId,
-          agentStatus: seen.agentStatus,
-          phase: seen.phase,
-          lastEvent: seen.lastEvent,
-          source: seen.source,
-          confidence: seen.confidence,
-          since: seen.since,
-          updatedAt: seen.updatedAt,
-          eventId: seen.eventId,
-          message: seen.message,
-          revision: seen.revision,
-        })
-    }
-    return {
-      sessionId: buildSessionId(hostId, sessionName),
-      sessionName,
-      windows,
-      panes,
-      activeWindowId: activeWindow?.id || null,
-      activePaneId: activePane?.id || null,
+    try {
+      const { hostId, windowName } = parseWindowRouteParam(windowId)
+      const { stdout } = await execTmux(hostId, [
+        'display-message',
+        '-p',
+        '-t',
+        windowName,
+        '#{session_name}|#{window_index}',
+      ])
+      const [sessionName, windowIndexText] = stdout.trim().split('|')
+      const windowIndex = parseInt(windowIndexText, 10)
+      if (!sessionName || !Number.isFinite(windowIndex)) return []
+      return await getTmuxPanes(hostId, sessionName, windowIndex)
+    } catch (err) {
+      return failRoute(reply, err, 'window')
     }
   })
-  fastify.get('/panes/:paneId/output', async (request) => {
+  fastify.get('/hosts/:hostId/sessions/:sessionId/panes', async (request, reply) => {
+    const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
+    try {
+      const sessionName = parseSessionName(hostId, sessionId)
+      return await getTmuxSessionPanes(hostId, sessionName)
+    } catch (err) {
+      return failRoute(reply, err)
+    }
+  })
+  fastify.get('/hosts/:hostId/sessions/:sessionId/snapshot', async (request, reply) => {
+    const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
+    try {
+      const sessionName = parseSessionName(hostId, sessionId)
+      recordStreamMetric('snapshotRequests')
+      const [windows, panes] = await Promise.all([
+        getTmuxWindows(hostId, sessionName),
+        getTmuxSessionPanes(hostId, sessionName),
+      ])
+      const activeWindow = windows.find((window) => window.active) || windows[0] || null
+      const activePane =
+        panes.find((pane) => pane.windowId === activeWindow?.id && pane.active) ||
+        panes.find((pane) => pane.windowId === activeWindow?.id) ||
+        null
+      // 快照请求顺带清 done：老前端不发 agent_seen，靠这条边读边写的"搭便车"消徽标。
+      // 新前端有显式 agent_seen 后两条路双清同一个 done 无害，所以默认保持 1；
+      // 待旧客户端消亡再翻 0（S3），届时快照变成纯读，GET 不再有写副作用
+      if (activePane && snapshotSeenEnabled()) {
+        const seen = agentMonitor.markSeen(activePane.id) || markAgentPaneSeen(activePane.id)
+        if (seen)
+          Object.assign(activePane, {
+            agent: seen.agent,
+            agentSessionId: seen.agentSessionId,
+            agentStatus: seen.agentStatus,
+            phase: seen.phase,
+            lastEvent: seen.lastEvent,
+            source: seen.source,
+            confidence: seen.confidence,
+            since: seen.since,
+            updatedAt: seen.updatedAt,
+            eventId: seen.eventId,
+            message: seen.message,
+            revision: seen.revision,
+          })
+      }
+      return {
+        sessionId: buildSessionId(hostId, sessionName),
+        sessionName,
+        windows,
+        panes,
+        activeWindowId: activeWindow?.id || null,
+        activePaneId: activePane?.id || null,
+      }
+    } catch (err) {
+      return failRoute(reply, err)
+    }
+  })
+  fastify.get('/panes/:paneId/output', async (request, reply) => {
     const { paneId } = request.params as { paneId: string }
-    const sep = paneId.indexOf(':')
-    if (sep <= 0 || sep === paneId.length - 1) throw new Error('Invalid pane id')
-    const hostId = paneId.slice(0, sep)
-    const tmuxPaneId = await parsePaneTarget(hostId, paneId)
-    if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
-    const { stdout } = await execTmux(hostId, ['capture-pane', '-pt', tmuxPaneId, '-p'])
-    return { paneId, tmuxPaneId, data: stdout }
+    try {
+      const sep = paneId.indexOf(':')
+      if (sep <= 0 || sep === paneId.length - 1) throw new Error('Invalid pane id')
+      const hostId = paneId.slice(0, sep)
+      const tmuxPaneId = await parsePaneTarget(hostId, paneId)
+      if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
+      const { stdout } = await execTmux(hostId, ['capture-pane', '-pt', tmuxPaneId, '-p'])
+      return { paneId, tmuxPaneId, data: stdout }
+    } catch (err) {
+      return failRoute(reply, err, 'pane')
+    }
   })
-  fastify.post('/hosts/:hostId/sessions/:sessionId/windows', async (request) => {
+  fastify.post('/hosts/:hostId/sessions/:sessionId/windows', async (request, reply) => {
     const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
     const { name } = request.body as { name: string }
-    const sessionName = parseSessionName(hostId, sessionId)
-    assertSessionAllowed(sessionName)
     try {
+      const sessionName = parseSessionName(hostId, sessionId)
+      assertSessionAllowed(sessionName)
       // -c 落点优先级：session 绑定的工作区路径 > 活动 pane cwd；
       // 本地绑定失效（目录已删）时退回 pane cwd，远端路径无法本机校验按原样透传
       const boundCwd = await findSessionWorkspacePath(hostId, sessionId).catch(() => '')
@@ -299,15 +349,15 @@ export async function windowRoutes(fastify: FastifyInstance) {
         windows.find((window) => window.tmuxWindowId === createdWindowId) || windows.find((window) => window.active)
       )
     } catch (err) {
-      throw new Error(errorMessage(err), { cause: err })
+      return failRoute(reply, err)
     }
   })
-  fastify.post('/hosts/:hostId/sessions/:sessionId/windows/select', async (request) => {
+  fastify.post('/hosts/:hostId/sessions/:sessionId/windows/select', async (request, reply) => {
     const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
     const { windowId } = request.body as { windowId: string }
-    const sessionName = parseSessionName(hostId, sessionId)
-    const tmuxWindowId = parseWindowRef(hostId, windowId)
     try {
+      const sessionName = parseSessionName(hostId, sessionId)
+      const tmuxWindowId = parseWindowRef(hostId, windowId)
       assertSessionAllowed(sessionName)
       if (hostId === 'local') await assertTargetAllowed(tmuxWindowId, sessionName)
       await execTmux(hostId, ['select-window', '-t', tmuxWindowId])
@@ -317,69 +367,69 @@ export async function windowRoutes(fastify: FastifyInstance) {
       const windows = await getTmuxWindows(hostId, sessionName)
       return { ok: true, windows }
     } catch (err) {
-      return { ok: false, error: errorMessage(err) }
+      return classifiedErrorReply(reply, err, 'window') ?? { ok: false, error: errorMessage(err) }
     }
   })
-  fastify.post('/hosts/:hostId/sessions/:sessionId/windows/rename', async (request) => {
+  fastify.post('/hosts/:hostId/sessions/:sessionId/windows/rename', async (request, reply) => {
     const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
     const { windowId, name } = request.body as { windowId: string; name: string }
-    const sessionName = parseSessionName(hostId, sessionId)
-    const tmuxWindowId = parseWindowRef(hostId, windowId)
     try {
+      const sessionName = parseSessionName(hostId, sessionId)
+      const tmuxWindowId = parseWindowRef(hostId, windowId)
       assertSessionAllowed(sessionName)
       if (hostId === 'local') await assertTargetAllowed(tmuxWindowId, sessionName)
       await execTmux(hostId, ['rename-window', '-t', tmuxWindowId, name])
       const windows = await getTmuxWindows(hostId, sessionName)
       return { ok: true, windows }
     } catch (err) {
-      return { ok: false, error: errorMessage(err) }
+      return classifiedErrorReply(reply, err, 'window') ?? { ok: false, error: errorMessage(err) }
     }
   })
-  fastify.post('/hosts/:hostId/sessions/:sessionId/windows/move', async (request) => {
+  fastify.post('/hosts/:hostId/sessions/:sessionId/windows/move', async (request, reply) => {
     const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
     const { orderedWindowIds } = request.body as { orderedWindowIds?: string[] }
-    const sessionName = parseSessionName(hostId, sessionId)
     try {
+      const sessionName = parseSessionName(hostId, sessionId)
       assertSessionAllowed(sessionName)
       if (!orderedWindowIds?.length) throw new Error('orderedWindowIds is required')
       await normalizeWindowOrder(hostId, sessionName, orderedWindowIds)
       const windows = await getTmuxWindows(hostId, sessionName)
       return { ok: true, windows }
     } catch (err) {
-      return { ok: false, error: errorMessage(err) }
+      return classifiedErrorReply(reply, err, 'window') ?? { ok: false, error: errorMessage(err) }
     }
   })
-  fastify.post('/hosts/:hostId/sessions/:sessionId/windows/kill', async (request) => {
+  fastify.post('/hosts/:hostId/sessions/:sessionId/windows/kill', async (request, reply) => {
     const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
     const { windowId } = request.body as { windowId: string }
-    const sessionName = parseSessionName(hostId, sessionId)
-    const tmuxWindowId = parseWindowRef(hostId, windowId)
     try {
+      const sessionName = parseSessionName(hostId, sessionId)
+      const tmuxWindowId = parseWindowRef(hostId, windowId)
       assertSessionAllowed(sessionName)
       if (hostId === 'local') await assertTargetAllowed(tmuxWindowId, sessionName)
       await execTmux(hostId, ['kill-window', '-t', tmuxWindowId])
       const windows = await getTmuxWindows(hostId, sessionName)
       return { ok: true, windows }
     } catch (err) {
-      return { ok: false, error: errorMessage(err) }
+      return classifiedErrorReply(reply, err, 'window') ?? { ok: false, error: errorMessage(err) }
     }
   })
-  fastify.post('/windows/:windowId/panes', async (request) => {
+  fastify.post('/windows/:windowId/panes', async (request, reply) => {
     const { windowId } = request.params as { windowId: string }
     const { direction } = request.body as { direction: 'horizontal' | 'vertical' }
-    const { hostId, windowName } = parseWindowRouteParam(windowId)
-    const { stdout } = await execTmux(hostId, [
-      'display-message',
-      '-p',
-      '-t',
-      windowName,
-      '#{session_name}|#{window_index}',
-    ])
-    const [sessionName, windowIndexText] = stdout.trim().split('|')
-    const windowIndex = parseInt(windowIndexText, 10)
-    if (!sessionName || !Number.isFinite(windowIndex)) throw new Error('Invalid window target')
-    assertSessionAllowed(sessionName)
     try {
+      const { hostId, windowName } = parseWindowRouteParam(windowId)
+      const { stdout } = await execTmux(hostId, [
+        'display-message',
+        '-p',
+        '-t',
+        windowName,
+        '#{session_name}|#{window_index}',
+      ])
+      const [sessionName, windowIndexText] = stdout.trim().split('|')
+      const windowIndex = parseInt(windowIndexText, 10)
+      if (!sessionName || !Number.isFinite(windowIndex)) throw new Error('Invalid window target')
+      assertSessionAllowed(sessionName)
       const flag = direction === 'horizontal' ? '-h' : '-v'
       await execTmux(hostId, [
         'split-window',
@@ -392,7 +442,7 @@ export async function windowRoutes(fastify: FastifyInstance) {
       const panes = await getTmuxPanes(hostId, sessionName, windowIndex)
       return panes[panes.length - 1]
     } catch (err) {
-      throw new Error(errorMessage(err), { cause: err })
+      return failRoute(reply, err, 'window')
     }
   })
 }
