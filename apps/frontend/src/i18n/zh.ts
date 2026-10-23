@@ -93,7 +93,8 @@ export const zh = {
   'sidebar.exportLayout': '导出布局 JSON',
   'snapshot.title': '会话快照',
   'snapshot.entry': '会话快照',
-  'snapshot.restoreNotice': '恢复只重建窗口布局与目录、重跑命令，进程不会复活；下方内容是历史回显。',
+  'snapshot.restoreNotice':
+    '恢复只重建窗口布局与目录、重跑命令，进程不会复活；带参数的命令按程序名重跑，可能起不来；下方内容是历史回显。',
   'snapshot.capture': '快照当前会话',
   'snapshot.captured': '快照已保存',
   'snapshot.captureFailed': '快照失败',

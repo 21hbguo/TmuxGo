@@ -95,7 +95,7 @@ export const en = {
   'snapshot.title': 'Session snapshots',
   'snapshot.entry': 'Session snapshots',
   'snapshot.restoreNotice':
-    'Restore rebuilds the window layout, directories and commands only — processes are not revived. The text below is a history echo.',
+    'Restore rebuilds the window layout, directories and commands only — processes are not revived. Commands that took arguments are re-run by program name and may fail; the text below is a history echo.',
   'snapshot.capture': 'Snapshot current session',
   'snapshot.captured': 'Snapshot saved',
   'snapshot.captureFailed': 'Snapshot failed',
