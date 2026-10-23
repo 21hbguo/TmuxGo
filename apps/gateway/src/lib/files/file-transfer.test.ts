@@ -393,13 +393,24 @@ test('writeRemoteUpload streams bytes through ssh with a safely quoted remote pa
 })
 
 test('writeRemoteUpload reports normalized remote failures instead of hanging', async (t) => {
-  await withConfigDir(t)
+  const configDir = await withConfigDir(t)
   await upsertRemoteHost({ id: 'remote-fail', address: '192.0.2.110', user: 'dev', port: 22 })
+  const capture = path.join(configDir, 'failed-payload.bin')
   const shims = installShims(['ssh'])
   t.after(shims.restore)
-  setEnv(t, { SHIM_SSH_STDERR: 'dev@192.0.2.110: Permission denied (publickey).', SHIM_SSH_EXIT: '255' })
-  const source = Readable.from([Buffer.from('payload')])
+  // 桩必须先把 stdin 读到 EOF 再按预设退出（SHIM_CAPTURE_FILE 就是那条 drain 路径）：
+  // 否则「子进程已退、写端还在写」时本地先撞 EPIPE，断言会从「远端错误归一化」退化成
+  // 「本地写失败」——单核挤压下 3/3 复现。真 ssh 也是一直消费 stdin 的，顺手断言字节
+  // 确实到达传输层。本条只验错误归一化，写/退出的先后顺序不在范围内。
+  setEnv(t, {
+    SHIM_CAPTURE_FILE: capture,
+    SHIM_SSH_STDERR: 'dev@192.0.2.110: Permission denied (publickey).',
+    SHIM_SSH_EXIT: '255',
+  })
+  const payload = Buffer.from('payload')
+  const source = Readable.from([payload])
   await assert.rejects(writeRemoteUpload('remote-fail', '/tmp/file.bin', source, 10240), /SSH authentication failed/)
+  assert.deepEqual(await readFile(capture), payload)
 })
 
 // ---- 后台任务：状态迁移、冲突改名、失败清理 ----
