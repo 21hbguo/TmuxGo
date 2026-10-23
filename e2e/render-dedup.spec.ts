@@ -1,10 +1,11 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { apiUrl } from './endpoints'
 import { ensureSession, ensureTestWindow, openSession } from './session'
+import type { TerminalProbe } from './probe-types'
 
 // ---- tmux 调用守卫：仅 run-e2e 隔离环境下允许（TMUX='' + 独立 TMUX_TMPDIR）。
 // pane shell 自带 TMUX 指向用户默认 socket 且覆盖 TMUX_TMPDIR——缺一即拒，
@@ -38,9 +39,12 @@ function refreshCount() {
 
 // ---- WebSocket 入向报文计数探针：文本帧取 type；二进制流帧 TG magic + typeCode
 // 映射 output/output_resync/cell_*（对齐 apps/frontend/src/lib/stream-binary.ts）
-async function installWsProbe(page: any) {
+async function installWsProbe(page: Page) {
   await page.addInitScript(() => {
-    const w = window as any
+    const w = window as typeof window & {
+      __tmuxgoWsCounts?: Record<string, number>
+      __tmuxgoWsLast?: WebSocket
+    }
     const counts: Record<string, number> = {}
     w.__tmuxgoWsCounts = counts
     const bump = (key: string) => {
@@ -90,13 +94,15 @@ async function installWsProbe(page: any) {
     window.WebSocket = ProbeWebSocket as unknown as typeof WebSocket
   })
 }
-async function wsCounts(page: any): Promise<Record<string, number>> {
-  return page.evaluate(() => ({ ...((window as any).__tmuxgoWsCounts || {}) }))
+async function wsCounts(page: Page): Promise<Record<string, number>> {
+  return page.evaluate(() => ({
+    ...((window as typeof window & { __tmuxgoWsCounts?: Record<string, number> }).__tmuxgoWsCounts || {}),
+  }))
 }
 
 // ---- gateway 侧 stream 指标出口：/api/system.stream（attachRequests/
 // outputResync*/resizeRequests/redrawRequests 等）
-async function streamMetrics(request: any): Promise<Record<string, number>> {
+async function streamMetrics(request: APIRequestContext): Promise<Record<string, number>> {
   const response = await request.get(`${apiUrl}/api/system`)
   const body = await response.json()
   return { ...(body?.stream || {}) }
@@ -110,7 +116,7 @@ function delta(before: Record<string, number>, after: Record<string, number>) {
   }
   return out
 }
-function logCounts(label: string, data: Record<string, number>) {
+function logCounts(label: string, data: Record<string, unknown>) {
   console.log(`[render-dedup] ${label} ${JSON.stringify(data)}`)
 }
 
@@ -150,14 +156,14 @@ async function ensureShellReady(target: string) {
   }
   throw new Error(`pane ${target} shell not ready`)
 }
-async function termState(page: any) {
+async function termState(page: Page) {
   return page.evaluate(() => {
-    const t = (window as any).__tmuxgoTerminal
+    const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
     return { cols: t?.cols || 0, rows: t?.rows || 0 }
   })
 }
 // 同 multi-client-arbitration：激活页 xterm 行列与 tmux window 一致才算稳态
-async function expectSizeSync(page: any, sessionName: string) {
+async function expectSizeSync(page: Page, sessionName: string) {
   await expect
     .poll(
       async () => {
@@ -169,15 +175,19 @@ async function expectSizeSync(page: any, sessionName: string) {
     )
     .toBe(true)
 }
-async function waitTerminalReady(page: any) {
-  await page.waitForFunction(() => (window as any).__tmuxgoTerminal?.cols > 0, null, { timeout: 15000 })
+async function waitTerminalReady(page: Page) {
+  await page.waitForFunction(
+    () => ((window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal?.cols || 0) > 0,
+    null,
+    { timeout: 15000 },
+  )
 }
 
 // ---- marker 独立行计数：整行文本 === marker 才算一次渲染，命令回显行
 // （printf "MARKER\n"）天然不等，规避 includes 误报
-async function markerLineCount(page: any, marker: string): Promise<number> {
+async function markerLineCount(page: Page, marker: string): Promise<number> {
   return page.evaluate((value) => {
-    const t = (window as any).__tmuxgoTerminal
+    const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
     const buffer = t?.buffer?.active
     if (!buffer) return -1
     let count = 0
@@ -188,14 +198,14 @@ async function markerLineCount(page: any, marker: string): Promise<number> {
     return count
   }, marker)
 }
-async function writeMarker(page: any, marker: string) {
+async function writeMarker(page: Page, marker: string) {
   await page.evaluate((value) => {
     window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: `printf "${value}\\n"\r` } }))
   }, marker)
   await expect.poll(() => markerLineCount(page, marker), { timeout: 15000 }).toBeGreaterThanOrEqual(1)
 }
 // 先等 marker 出现、再等重绘窗口（attach/重连重绘都落在百毫秒级）后读终值
-async function expectMarkerOnce(page: any, marker: string) {
+async function expectMarkerOnce(page: Page, marker: string) {
   await expect.poll(() => markerLineCount(page, marker), { timeout: 15000 }).toBeGreaterThanOrEqual(1)
   await page.waitForTimeout(800)
   expect(await markerLineCount(page, marker)).toBe(1)
@@ -277,7 +287,9 @@ test.describe('render dedup regression', () => {
 
     const refreshBefore = refreshCount()
     // 探针持有的 socket 引用直接 close：等价断线，autoReconnect 走完整重连+重附着
-    await page.evaluate(() => (window as any).__tmuxgoWsLast?.close())
+    await page.evaluate(() =>
+      (window as typeof window & { __tmuxgoWsLast?: { close(): void } }).__tmuxgoWsLast?.close(),
+    )
     await expect
       .poll(async () => (await wsCounts(page))['msg:attached'] || 0, { timeout: 15000 })
       .toBeGreaterThanOrEqual(2)
@@ -364,7 +376,7 @@ test.describe('render dedup regression', () => {
 
     await page.evaluate(() => {
       Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
-      ;(document as any).hasFocus = () => false
+      document.hasFocus = () => false
       document.dispatchEvent(new Event('visibilitychange'))
       window.dispatchEvent(new Event('blur'))
     })
@@ -374,7 +386,7 @@ test.describe('render dedup regression', () => {
     const refreshBefore = refreshCount()
     await page.evaluate(() => {
       Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
-      ;(document as any).hasFocus = () => true
+      document.hasFocus = () => true
       document.dispatchEvent(new Event('visibilitychange'))
       window.dispatchEvent(new Event('focus'))
     })
@@ -456,7 +468,7 @@ test.describe('render dedup regression', () => {
     await expect.poll(async () => (await termState(pageA)).cols, { timeout: 10000 }).toBe(wide.cols)
 
     const dom = await pageA.evaluate(() => {
-      const t = (window as any).__tmuxgoTerminal
+      const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
       const rowsEl = document.querySelector('[data-terminal] .xterm-rows') as HTMLElement | null
       const cell = t?._core?._renderService?.dimensions?.css?.cell
       return {

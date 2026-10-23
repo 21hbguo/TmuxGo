@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { ensureTestWindow, openSession } from './session'
+import type { TerminalProbe } from './probe-types'
 const clipboardUnavailableText = /(clipboard unavailable|剪贴板不可用)/i
 
 test('copy observability smoke', async ({ page, request }) => {
@@ -19,7 +20,7 @@ test('copy observability smoke', async ({ page, request }) => {
   })
   const copyButton = page.getByRole('button', { name: '复制' })
   await page.waitForFunction(() => {
-    const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+    const terminal = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
     const buffer = terminal?.buffer?.active
     if (!buffer) return false
     for (let index = 0; index < buffer.length; index += 1) {
@@ -30,14 +31,15 @@ test('copy observability smoke', async ({ page, request }) => {
     return false
   })
   await copyButton.evaluate((button) => {
-    const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+    const terminal = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
     const buffer = terminal?.buffer?.active
-    for (let index = 0; index < (buffer?.length || 0); index += 1) {
+    if (!terminal || !buffer) return
+    for (let index = 0; index < buffer.length; index += 1) {
       const line = buffer.getLine(index)?.translateToString(true) || ''
       const column = line.indexOf('copy_debug_ok')
       if (column < 0) continue
       terminal.select(column, index, 'copy_debug_ok'.length)
-      button.click()
+      ;(button as HTMLElement).click()
       return
     }
   })

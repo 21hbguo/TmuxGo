@@ -8,6 +8,22 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { AddressInfo } from 'node:net'
 
+// JSON-RPC 报文的最小结构：测试只读取这些字段，其余透传
+interface RpcResult {
+  protocolVersion: string
+  serverInfo: { name: string }
+  capabilities: Record<string, unknown>
+  tools: Array<{ name: string }>
+  isError?: boolean
+  content: Array<{ text: string }>
+  route?: { tmuxPaneId?: string }
+}
+interface RpcMessage {
+  id?: number
+  result: RpcResult
+  error: { code: number; message: string }
+}
+
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const mcpEntry = join(root, 'apps/mcp/index.mjs')
 
@@ -20,8 +36,8 @@ function startMcp(env: Record<string, string> = {}) {
     stdio: ['pipe', 'pipe', 'inherit'],
   })
   let buffer = ''
-  const received: any[] = []
-  const waiters: { pred: (message: any) => boolean; resolve: (message: any) => void }[] = []
+  const received: RpcMessage[] = []
+  const waiters: { pred: (message: RpcMessage) => boolean; resolve: (message: RpcMessage) => void }[] = []
   child.stdout.setEncoding('utf8')
   child.stdout.on('data', (chunk) => {
     buffer += chunk
@@ -30,7 +46,7 @@ function startMcp(env: Record<string, string> = {}) {
       const line = buffer.slice(0, index).trim()
       buffer = buffer.slice(index + 1)
       if (!line) continue
-      const message = JSON.parse(line)
+      const message = JSON.parse(line) as RpcMessage
       received.push(message)
       for (let i = waiters.length - 1; i >= 0; i--) {
         if (waiters[i].pred(message)) {
@@ -41,8 +57,8 @@ function startMcp(env: Record<string, string> = {}) {
     }
   })
   const send = (message: object) => child.stdin.write(JSON.stringify(message) + '\n')
-  const waitFor = (pred: (message: any) => boolean) =>
-    new Promise<any>((resolve, reject) => {
+  const waitFor = (pred: (message: RpcMessage) => boolean) =>
+    new Promise<RpcMessage>((resolve, reject) => {
       const hit = received.find(pred)
       if (hit) return resolve(hit)
       waiters.push({ pred, resolve })
@@ -100,7 +116,12 @@ test('mcp handshake, tools/list and no-token tool-call contract', async (t) => {
 
 test('mcp tools/call proxies to isolated gateway with contract headers', async (t) => {
   // 随机端口 mock gateway：验证 tools/call 的 HTTP 契约（头、body、响应透出），不触 :3001
-  const received: { method: string; url: string; headers: Record<string, unknown>; body: any }[] = []
+  const received: Array<{
+    method: string
+    url: string
+    headers: Record<string, unknown>
+    body: Record<string, unknown> | undefined
+  }> = []
   const gateway: Server = createServer((req, res) => {
     let raw = ''
     req.on('data', (chunk) => (raw += chunk))
@@ -109,7 +130,7 @@ test('mcp tools/call proxies to isolated gateway with contract headers', async (
         method: req.method || '',
         url: req.url || '',
         headers: req.headers,
-        body: raw ? JSON.parse(raw) : undefined,
+        body: raw ? (JSON.parse(raw) as Record<string, unknown>) : undefined,
       })
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ ok: true, messageId: 'msg-1' }))
@@ -142,8 +163,8 @@ test('mcp tools/call proxies to isolated gateway with contract headers', async (
   assert.equal(req.url, '/api/v1/control/push')
   assert.equal(req.headers['x-tmuxgo-env'], '1')
   assert.equal(req.headers['x-tmuxgo-agent-token'], 'mcp-secret')
-  assert.equal(req.body.type, 'text')
-  assert.equal(req.body.text, 'hello')
+  assert.equal(req.body?.type, 'text')
+  assert.equal(req.body?.text, 'hello')
 
   // schema 导出工具：GET 透传同守卫头
   const schema = await server.rpc(6, 'tools/call', { name: 'tmuxgo_control_schema', arguments: {} })
@@ -185,12 +206,12 @@ test('mcp rejects malformed requests and unknown methods', async (t) => {
 
 test('mcp default route falls back to codex thread title when TMUX_PANE is absent', async (t) => {
   // 共享 app-server 派生的 MCP 子进程拿不到 TMUX_PANE，只能靠 CODEX_THREAD_ID 反查 pane_title
-  const received: any[] = []
+  const received: Array<{ route: { tmuxPaneId: string } }> = []
   const gateway: Server = createServer((req, res) => {
     let raw = ''
     req.on('data', (chunk) => (raw += chunk))
     req.on('end', () => {
-      received.push(JSON.parse(raw))
+      received.push(JSON.parse(raw) as { route: { tmuxPaneId: string } })
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ ok: true }))
     })

@@ -15,7 +15,7 @@ interface RecordedRequest {
   method: string
   url: string
   headers: Record<string, unknown>
-  body: any
+  body: Record<string, unknown> | undefined
 }
 function startMockGateway() {
   const requests: RecordedRequest[] = []
@@ -70,7 +70,7 @@ function startMockGateway() {
         method: req.method || '',
         url: req.url || '',
         headers: req.headers,
-        body: raw ? JSON.parse(raw) : undefined,
+        body: raw ? (JSON.parse(raw) as Record<string, unknown>) : undefined,
       })
       // 兼容旧键（裸 url）与新键（'METHOD url'）：方法限定键优先，保证 GET/POST 同路径可区分
       const canned = responses[`${req.method} ${req.url}`] || responses[req.url || '']
@@ -270,8 +270,8 @@ test('cli panes split/read forward contract and surface error envelope', async (
   const wait = await runCtl(['agent', 'wait', '--session', 'dev', '--agent', 'codex', '--status', 'blocked'], env)
   assert.equal(wait.status, 0, wait.stderr)
   const waitReq = gateway.requests.at(-1)!
-  assert.deepEqual(waitReq.body.target, { sessionName: 'dev', agent: 'codex' })
-  assert.deepEqual(waitReq.body.condition, { status: 'blocked' })
+  assert.deepEqual(waitReq.body?.target, { sessionName: 'dev', agent: 'codex' })
+  assert.deepEqual(waitReq.body?.condition, { status: 'blocked' })
 })
 
 test('cli local validation and env guard contract', async () => {

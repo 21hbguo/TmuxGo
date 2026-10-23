@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type ConsoleMessage, type Page, type Response } from '@playwright/test'
 import path from 'node:path'
 import { appUrl, apiUrl } from './endpoints'
 
@@ -6,39 +6,71 @@ let linkedByTest = false
 
 test.describe.configure({ mode: 'serial' })
 test.beforeAll(async ({ request }) => {
-  const response = await request.post(`${apiUrl}/api/plugins/link`, { data: { path: path.resolve('examples/plugins/hello-tmuxgo') } })
+  const response = await request.post(`${apiUrl}/api/plugins/link`, {
+    data: { path: path.resolve('examples/plugins/hello-tmuxgo') },
+  })
   linkedByTest = response.ok()
   expect([200, 409]).toContain(response.status())
-  const permissions = await request.put(`${apiUrl}/api/plugins/examples.hello-tmuxgo/permissions`, { data: { permissions: ['actions.execute', 'host.context'] } })
+  const permissions = await request.put(`${apiUrl}/api/plugins/examples.hello-tmuxgo/permissions`, {
+    data: { permissions: ['actions.execute', 'host.context'] },
+  })
   expect(permissions.ok()).toBeTruthy()
 })
 test.afterAll(async ({ request }) => {
   if (linkedByTest) await request.delete(`${apiUrl}/api/plugins/examples.hello-tmuxgo?keepData=true`)
 })
 
-async function openPluginSettings(page: any) {
+async function openPluginSettings(page: Page) {
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' })
-  await page.getByRole('button', { name: /设置|Settings/ }).last().click()
+  await page
+    .getByRole('button', { name: /设置|Settings/ })
+    .last()
+    .click()
   await page.getByRole('button', { name: /^插件$|^Plugins$/ }).click()
   await expect(page.getByText('Hello TmuxGo').last()).toBeVisible()
 }
-function collectPageErrors(page: any) {
+function collectPageErrors(page: Page) {
   const errors: string[] = []
   page.on('pageerror', (error: Error) => errors.push(error.message))
-  page.on('console', (message: any) => {
+  page.on('console', (message: ConsoleMessage) => {
     if (message.type() !== 'error') return
     const text = message.text()
     const url = message.location().url
-    if ((!text.startsWith('Failed to load resource') || url.includes('/api/plugins')) && !url.includes('/files/read')) errors.push(`${text} ${url}`.trim())
+    if ((!text.startsWith('Failed to load resource') || url.includes('/api/plugins')) && !url.includes('/files/read'))
+      errors.push(`${text} ${url}`.trim())
   })
-  page.on('response', (response: any) => { if (response.status() >= 400 && response.url().includes('/api/plugins') && !response.url().includes('/files/read')) errors.push(`HTTP ${response.status()} ${response.url()}`) })
+  page.on('response', (response: Response) => {
+    if (response.status() >= 400 && response.url().includes('/api/plugins') && !response.url().includes('/files/read'))
+      errors.push(`HTTP ${response.status()} ${response.url()}`)
+  })
   return errors
 }
 
 test('previews commands and opens a sandboxed desktop plugin view', async ({ page, request }) => {
   const errors = collectPageErrors(page)
   await page.route('**/api/plugins/github/preview', async (route) => {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ source: 'owner/repo/plugin', resolvedCommit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', replacing: false, manifest: { schemaVersion: 1, id: 'preview.fixture', name: 'Preview Fixture', version: '1.0.0', minTmuxGoVersion: '0.1.0', platforms: ['linux'], build: [{ command: ['npm', 'run', 'build'] }], contributes: { actions: [{ id: 'inspect', title: 'Inspect', command: ['node', 'action.mjs'] }], events: [{ on: 'session.created', command: ['node', 'event.mjs'] }] } } }) })
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        source: 'owner/repo/plugin',
+        resolvedCommit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        replacing: false,
+        manifest: {
+          schemaVersion: 1,
+          id: 'preview.fixture',
+          name: 'Preview Fixture',
+          version: '1.0.0',
+          minTmuxGoVersion: '0.1.0',
+          platforms: ['linux'],
+          build: [{ command: ['npm', 'run', 'build'] }],
+          contributes: {
+            actions: [{ id: 'inspect', title: 'Inspect', command: ['node', 'action.mjs'] }],
+            events: [{ on: 'session.created', command: ['node', 'event.mjs'] }],
+          },
+        },
+      }),
+    })
   })
   await openPluginSettings(page)
   await page.getByPlaceholder('owner/repo[/subdir]').fill('owner/repo/plugin')
@@ -58,7 +90,9 @@ test('previews commands and opens a sandboxed desktop plugin view', async ({ pag
   await expect(plugin.getByText(/host=local session=session-/)).toBeVisible()
   await plugin.getByRole('button', { name: 'Read README' }).click()
   await expect(plugin.getByText(/Plugin permission files\.read is not granted/)).toBeVisible()
-  const permissions = await request.put(`${apiUrl}/api/plugins/examples.hello-tmuxgo/permissions`, { data: { permissions: ['actions.execute', 'host.context', 'files.read'] } })
+  const permissions = await request.put(`${apiUrl}/api/plugins/examples.hello-tmuxgo/permissions`, {
+    data: { permissions: ['actions.execute', 'host.context', 'files.read'] },
+  })
   expect(permissions.ok()).toBeTruthy()
   await plugin.getByRole('button', { name: 'Read README' }).click()
   await expect(plugin.locator('#output')).not.toHaveText(/Plugin permission files\.read is not granted/)

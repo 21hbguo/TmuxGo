@@ -1,8 +1,9 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { apiUrl } from './endpoints'
 import { ensureSession, openSession, TEST_SESSION_NAME } from './session'
+import type { MonacoApi } from './probe-types'
 
 // 编辑器 tab 切换视口还原回归：真实 Monaco。A 文件滚到中部 → 切 B → 回 A 必须回到
 // 原滚动位置而非顶部。定位数据只存浏览器内存（viewStateRef），文件关闭即清。
@@ -27,10 +28,10 @@ const fileAbs = (name: string) => path.join(fixtureDir, name)
 const fileTab = (name: string) => name.split('/').pop() || name
 
 // 按模型路径找存活实例：切 tab 会卸载旧实例挂新实例，getEditors 只含当前组内可见实例
-async function editorView(page: any, absPath: string) {
+async function editorView(page: Page, absPath: string) {
   return page.evaluate((p) => {
-    const editors = (window as any).monaco?.editor?.getEditors?.() || []
-    const editor = editors.find((item: any) => item?.getModel?.()?.uri?.path === p)
+    const editors = (window as typeof window & { monaco?: MonacoApi }).monaco?.editor?.getEditors?.() || []
+    const editor = editors.find((item) => item?.getModel?.()?.uri?.path === p)
     if (!editor) return null
     return {
       scrollTop: editor.getScrollTop?.() ?? 0,
@@ -45,14 +46,14 @@ async function editorView(page: any, absPath: string) {
 }
 // 挂载早期 scrollWidth 未测量时 setScrollLeft 会被钳回 0（scrollHeight 由行数×行高立即可知、
 // 纵向不受影响）：真实用户会拖到视口动为止，这里同样按帧补到光标+两个轴向都落位
-async function setView(page: any, absPath: string, view: View) {
+async function setView(page: Page, absPath: string, view: View) {
   await expect
     .poll(
       async () => {
         const last = await page.evaluate(
-          ([p, v]) => {
-            const editors = (window as any).monaco?.editor?.getEditors?.() || []
-            const editor = editors.find((item: any) => item?.getModel?.()?.uri?.path === p)
+          ({ p, v }) => {
+            const editors = (window as typeof window & { monaco?: MonacoApi }).monaco?.editor?.getEditors?.() || []
+            const editor = editors.find((item) => item?.getModel?.()?.uri?.path === p)
             if (!editor) return null
             editor.setPosition?.({ lineNumber: v.line, column: v.column })
             editor.setScrollTop?.(v.top)
@@ -64,7 +65,7 @@ async function setView(page: any, absPath: string, view: View) {
               column: editor.getPosition?.()?.column ?? 0,
             }
           },
-          [absPath, view],
+          { p: absPath, v: view },
         )
         return (
           !!last &&
@@ -79,7 +80,7 @@ async function setView(page: any, absPath: string, view: View) {
     .toBe(true)
 }
 // remount 恢复走 onMount+逐帧校验，轮询到目标容差内而不是定点读一次
-async function expectView(page: any, absPath: string, view: View, timeout = 15000) {
+async function expectView(page: Page, absPath: string, view: View, timeout = 15000) {
   let last: Awaited<ReturnType<typeof editorView>> = null
   try {
     await expect
@@ -101,15 +102,15 @@ async function expectView(page: any, absPath: string, view: View, timeout = 1500
     throw new Error(`view mismatch: want ${JSON.stringify(view)} got ${JSON.stringify(last)}`)
   }
 }
-async function switchTab(page: any, name: string, absPath: string) {
+async function switchTab(page: Page, name: string, absPath: string) {
   await page.getByRole('button', { name: fileTab(name), exact: true }).click()
   await expect.poll(async () => (await editorView(page, absPath)) !== null).toBe(true)
 }
 // 面板单开是预览 tab，下一个文件会原位替换；标脏即钉住才能并存多 tab
-async function markDirty(page: any, absPath: string) {
+async function markDirty(page: Page, absPath: string) {
   await page.evaluate((p) => {
-    const editors = (window as any).monaco?.editor?.getEditors?.() || []
-    const editor = editors.find((item: any) => item?.getModel?.()?.uri?.path === p)
+    const editors = (window as typeof window & { monaco?: MonacoApi }).monaco?.editor?.getEditors?.() || []
+    const editor = editors.find((item) => item?.getModel?.()?.uri?.path === p)
     editor?.executeEdits?.('e2e', [
       {
         range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 },
@@ -119,13 +120,13 @@ async function markDirty(page: any, absPath: string) {
   }, absPath)
 }
 
-function filePanelBox(page: any) {
+function filePanelBox(page: Page) {
   // 根选择是自定义 combobox；文件面板是唯一含文件名搜索框的 content-surface
   return page
     .locator('.tmuxgo-content-surface')
     .filter({ has: page.getByRole('textbox', { name: /^(搜索文件名|Search file names)$/ }) })
 }
-async function openFixtureFile(page: any, name: string) {
+async function openFixtureFile(page: Page, name: string) {
   const panel = filePanelBox(page)
   // Explorer 按钮是 toggle：面板已开时再点会把它关掉
   if (!(await panel.isVisible()))

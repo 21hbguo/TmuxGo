@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { apiUrl } from './endpoints'
 import { ensureTestWindow, openSession } from './session'
+import type { TerminalProbe } from './probe-types'
 
 test('fluency telemetry remains available during repeated output sampling', async ({ page, request }) => {
   let debugRequests = 0
@@ -21,7 +22,7 @@ test('fluency telemetry remains available during repeated output sampling', asyn
   )
   await page.waitForFunction(
     () => {
-      const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+      const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
       return !!t?.cols && !!t?.rows
     },
     undefined,
@@ -81,7 +82,7 @@ test('fluency telemetry remains available during repeated output sampling', asyn
   })
   await page.waitForFunction(
     () => {
-      const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+      const terminal = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
       const buffer = terminal?.buffer?.active
       if (!buffer) return false
       for (let index = Math.max(0, buffer.length - 120); index < buffer.length; index += 1) {
@@ -97,7 +98,7 @@ test('fluency telemetry remains available during repeated output sampling', asyn
   await page.keyboard.press('Enter')
   await page.waitForFunction(
     () => {
-      const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+      const terminal = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
       const buffer = terminal?.buffer?.active
       if (!buffer) return false
       for (let index = Math.max(0, buffer.length - 120); index < buffer.length; index += 1) {
@@ -110,7 +111,7 @@ test('fluency telemetry remains available during repeated output sampling', asyn
   )
   await page.waitForFunction(
     () => {
-      const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+      const terminal = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
       const buffer = terminal?.buffer?.active
       if (!buffer) return false
       for (let index = Math.max(0, buffer.length - 120); index < buffer.length; index += 1) {

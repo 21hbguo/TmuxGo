@@ -1,8 +1,9 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { ensureSession, ensureTestWindow } from './session'
+import type { TerminalProbe } from './probe-types'
 
 // U5 交互性能验收（pnpm measure:perf 驱动，TMUXGO_MEASURE_PERF=1 时才进入套件）：
 // 任务时间而非包体大小——冷启动到可输入、面板打开到可交互、切会话到正确输出出现；
@@ -40,9 +41,9 @@ function seedSession(id: string) {
   )
 }
 
-function bufferLines(page: any): Promise<string[]> {
+function bufferLines(page: Page): Promise<string[]> {
   return page.evaluate(() => {
-    const buffer = (window as any).__tmuxgoTerminal?.buffer?.active
+    const buffer = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal?.buffer?.active
     if (!buffer) return []
     const lines: string[] = []
     for (let i = 0; i < buffer.length; i += 1) lines.push(buffer.getLine(i)?.translateToString(true) || '')
@@ -50,10 +51,10 @@ function bufferLines(page: any): Promise<string[]> {
   })
 }
 
-async function waitForBufferLine(page: any, expected: string, timeout = 15000) {
+async function waitForBufferLine(page: Page, expected: string, timeout = 15000) {
   await page.waitForFunction(
     (want) => {
-      const buffer = (window as any).__tmuxgoTerminal?.buffer?.active
+      const buffer = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal?.buffer?.active
       if (!buffer) return false
       for (let i = 0; i < buffer.length; i += 1) {
         if ((buffer.getLine(i)?.translateToString(true) || '').trim() === want) return true
@@ -71,7 +72,7 @@ function tmuxType(target: string, text: string) {
   execFileSync('tmux', ['send-keys', '-t', target, text, 'Enter'])
 }
 
-async function focusTerminal(page: any) {
+async function focusTerminal(page: Page) {
   await page.getByRole('textbox', { name: 'Terminal input' }).focus()
   await page.waitForFunction(() => document.activeElement?.classList.contains('xterm-helper-textarea'), null, {
     timeout: 15000,

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -16,8 +16,12 @@ test.beforeAll(() => {
   }
 })
 
-async function browserStatus(page: any, path: string, method = 'GET') {
-  return page.evaluate(async ({ apiUrl, path, method }: { apiUrl: string; path: string; method: string }) => (await fetch(`${apiUrl}${path}`, { method, credentials: 'include' })).status, { apiUrl, path, method })
+async function browserStatus(page: Page, path: string, method = 'GET') {
+  return page.evaluate(
+    async ({ apiUrl, path, method }: { apiUrl: string; path: string; method: string }) =>
+      (await fetch(`${apiUrl}${path}`, { method, credentials: 'include' })).status,
+    { apiUrl, path, method },
+  )
 }
 
 test('default credentials require a password change before access', async ({ page }) => {

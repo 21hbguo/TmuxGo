@@ -1,6 +1,7 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { ensureSession, openSession } from './session'
+import type { TerminalProbe } from './probe-types'
 
 function tmuxSize(sessionName: string) {
   // window_height 是 pane 内容区，不含状态行；独占 client 的 pty/xterm 行数
@@ -23,9 +24,9 @@ function paneInMode(sessionName: string) {
   return execFileSync('tmux', ['display-message', '-p', '-t', sessionName, '#{pane_in_mode}']).toString().trim()
 }
 
-async function termState(page: any) {
+async function termState(page: Page) {
   return page.evaluate(() => {
-    const t = (window as any).__tmuxgoTerminal
+    const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
     const rows = document.querySelector('[data-terminal] .xterm-rows') as HTMLElement | null
     return {
       cols: t?.cols || 0,
@@ -41,7 +42,7 @@ async function termState(page: any) {
 // P1-C-4：tmux window cols === xterm.cols === DOM 行区宽换算列数。
 // 行区像素宽 / 渲染单元格宽得到的列数须与 window 一致——宽容器里右侧空半屏
 // 时该换算列数会明显小于 window cols（或 xterm cols 本身落后）
-async function expectWidthConsistency(page: any, sessionName: string) {
+async function expectWidthConsistency(page: Page, sessionName: string) {
   const t = await termState(page)
   const w = tmuxSize(sessionName)
   expect(t.cols).toBe(w.cols)
@@ -54,9 +55,9 @@ async function expectWidthConsistency(page: any, sessionName: string) {
 }
 
 // 激活页独占会话尺寸：tmux window 与 xterm 行列数一致才放行
-async function expectSizeSync(page: any, sessionName: string) {
-  let lastT: any = null
-  let lastW: any = null
+async function expectSizeSync(page: Page, sessionName: string) {
+  let lastT: Awaited<ReturnType<typeof termState>> | null = null
+  let lastW: ReturnType<typeof tmuxSize> | null = null
   await expect
     .poll(
       async () => {
@@ -67,7 +68,7 @@ async function expectSizeSync(page: any, sessionName: string) {
       { timeout: 8000, intervals: [200, 400, 800] },
     )
     .toBe(true)
-    .catch((error: any) => {
+    .catch((error: unknown) => {
       console.log('size mismatch, xterm=', JSON.stringify(lastT), 'tmux=', JSON.stringify(lastW))
       throw error
     })
@@ -82,16 +83,24 @@ test('background tmuxgo pages cannot disturb the active page', async ({ browser,
   const contextA = await browser.newContext({ baseURL, viewport: { width: 1400, height: 900 } })
   const pageA = await contextA.newPage()
   await openSession(pageA, sessionA, { expectHeader: false })
-  await pageA.waitForFunction(() => (window as any).__tmuxgoTerminal?.cols > 0, null, { timeout: 15000 })
+  await pageA.waitForFunction(
+    () => ((window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal?.cols || 0) > 0,
+    null,
+    { timeout: 15000 },
+  )
 
   // B 附着同一 session 后压成后台态（hidden + 失焦），等价于切走的标签页
   const contextB = await browser.newContext({ baseURL, viewport: { width: 880, height: 600 } })
   const pageB = await contextB.newPage()
   await openSession(pageB, sessionA, { expectHeader: false })
-  await pageB.waitForFunction(() => (window as any).__tmuxgoTerminal?.cols > 0, null, { timeout: 15000 })
+  await pageB.waitForFunction(
+    () => ((window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal?.cols || 0) > 0,
+    null,
+    { timeout: 15000 },
+  )
   await pageB.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
-    ;(document as any).hasFocus = () => false
+    document.hasFocus = () => false
     document.dispatchEvent(new Event('visibilitychange'))
     window.dispatchEvent(new Event('blur'))
   })
@@ -161,7 +170,11 @@ test('a narrower client demotes then restores the wider client view', async ({ b
   const contextA = await browser.newContext({ baseURL, viewport: { width: 1600, height: 900 } })
   const pageA = await contextA.newPage()
   await openSession(pageA, session, { expectHeader: false })
-  await pageA.waitForFunction(() => (window as any).__tmuxgoTerminal?.cols > 0, null, { timeout: 15000 })
+  await pageA.waitForFunction(
+    () => ((window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal?.cols || 0) > 0,
+    null,
+    { timeout: 15000 },
+  )
   await expectSizeSync(pageA, name)
   const wide = tmuxSize(name)
 
@@ -169,7 +182,11 @@ test('a narrower client demotes then restores the wider client view', async ({ b
   const contextB = await browser.newContext({ baseURL, viewport: { width: 760, height: 500 } })
   const pageB = await contextB.newPage()
   await openSession(pageB, session, { expectHeader: false })
-  await pageB.waitForFunction(() => (window as any).__tmuxgoTerminal?.cols > 0, null, { timeout: 15000 })
+  await pageB.waitForFunction(
+    () => ((window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal?.cols || 0) > 0,
+    null,
+    { timeout: 15000 },
+  )
   await pageB.bringToFront()
   await expectSizeSync(pageB, name)
   const narrow = tmuxSize(name)
@@ -195,7 +212,11 @@ test('a narrower client demotes then restores the wider client view', async ({ b
   const contextB2 = await browser.newContext({ baseURL, viewport: { width: 760, height: 500 } })
   const pageB2 = await contextB2.newPage()
   await openSession(pageB2, session, { expectHeader: false })
-  await pageB2.waitForFunction(() => (window as any).__tmuxgoTerminal?.cols > 0, null, { timeout: 15000 })
+  await pageB2.waitForFunction(
+    () => ((window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal?.cols || 0) > 0,
+    null,
+    { timeout: 15000 },
+  )
   await pageB2.bringToFront()
   await expectSizeSync(pageB2, name)
   expect(tmuxSize(name).cols).toBeLessThan(wide.cols)
@@ -225,13 +246,21 @@ test('focus in/out cycles keep tmux window size stable', async ({ browser, baseU
   const contextA = await browser.newContext({ baseURL, viewport: { width: 1400, height: 900 } })
   const pageA = await contextA.newPage()
   await openSession(pageA, session, { expectHeader: false })
-  await pageA.waitForFunction(() => (window as any).__tmuxgoTerminal?.cols > 0, null, { timeout: 15000 })
+  await pageA.waitForFunction(
+    () => ((window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal?.cols || 0) > 0,
+    null,
+    { timeout: 15000 },
+  )
   await expectSizeSync(pageA, name)
 
   const contextB = await browser.newContext({ baseURL, viewport: { width: 1400, height: 900 } })
   const pageB = await contextB.newPage()
   await openSession(pageB, session, { expectHeader: false })
-  await pageB.waitForFunction(() => (window as any).__tmuxgoTerminal?.cols > 0, null, { timeout: 15000 })
+  await pageB.waitForFunction(
+    () => ((window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal?.cols || 0) > 0,
+    null,
+    { timeout: 15000 },
+  )
 
   // B 新开抢焦点 → 先回到 A 取得基线
   await pageA.bringToFront()

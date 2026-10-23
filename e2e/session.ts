@@ -1,9 +1,20 @@
-import { expect } from '@playwright/test'
+import { expect, type APIRequestContext, type Page } from '@playwright/test'
 import { apiUrl } from './endpoints'
-export async function ensureSession(request: any, name: string, hostId = 'local') {
+
+export interface SessionInfo {
+  id: string
+  name: string
+}
+export interface WindowInfo {
+  id: string
+  name: string
+  tmuxWindowId: string
+}
+
+export async function ensureSession(request: APIRequestContext, name: string, hostId = 'local'): Promise<SessionInfo> {
   const response = await request.post(`${apiUrl}/api/hosts/${encodeURIComponent(hostId)}/sessions`, { data: { name } })
   if (!response.ok()) throw new Error(await response.text())
-  return response.json()
+  return (await response.json()) as SessionInfo
 }
 // 真实 tmux 行为场景统一在隔离 server 的 test session 内组织（对齐
 // apps/gateway/src/test-tmux.ts 约定）：每个用例在 test 里建独立 window
@@ -11,17 +22,20 @@ export async function ensureSession(request: any, name: string, hostId = 'local'
 // 多 host）的用例允许另行建 session——fixture 就是 session API，且仍落在
 // 隔离 server 上，不触碰用户日常 session
 export const TEST_SESSION_NAME = 'test'
-export async function ensureTestWindow(request: any, name: string) {
+export async function ensureTestWindow(
+  request: APIRequestContext,
+  name: string,
+): Promise<{ session: SessionInfo; window: WindowInfo }> {
   const session = await ensureSession(request, TEST_SESSION_NAME)
   const response = await request.post(`${apiUrl}/api/hosts/local/sessions/${encodeURIComponent(session.id)}/windows`, {
     data: { name },
   })
   if (!response.ok()) throw new Error(await response.text())
-  return { session, window: await response.json() }
+  return { session, window: (await response.json()) as WindowInfo }
 }
 export async function openSession(
-  page: any,
-  session: { id: string; name: string },
+  page: Page,
+  session: SessionInfo,
   options: { debugMobile?: boolean; expectHeader?: boolean } = {},
 ) {
   await page.addInitScript(
@@ -50,9 +64,9 @@ export async function openSession(
   if (options.expectHeader !== false)
     await expect(page.getByRole('button', { name: session.name, exact: false }).first()).toBeVisible({ timeout: 15000 })
 }
-export async function getActivePaneOutput(request: any, sessionId: string) {
+export async function getActivePaneOutput(request: APIRequestContext, sessionId: string) {
   const snapshot = await request.get(`${apiUrl}/api/hosts/local/sessions/${sessionId}/snapshot`)
   const data = await snapshot.json()
   const output = await request.get(`${apiUrl}/api/panes/${encodeURIComponent(data.activePaneId)}/output`)
-  return output.json()
+  return (await output.json()) as { data: string }
 }

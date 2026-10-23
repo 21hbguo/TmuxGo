@@ -8,8 +8,9 @@ import { mkdir, rm, writeFile, utimes } from 'node:fs/promises'
 // rootSpec/TTL 在模块加载时读取：必须先设 env 再动态 import。
 // tsx/cjs 不支持 top-level await，用 before 钩子装载。
 const rootDir = path.join(os.tmpdir(), `tmuxgo-list-cache-${process.pid}`)
-let invalidateListCache: any
-let listDirectory: any
+type FileOpsModule = typeof import('../apps/gateway/src/lib/files/file-ops.js')
+let invalidateListCache: FileOpsModule['invalidateListCache']
+let listDirectory: FileOpsModule['listDirectory']
 
 before(async () => {
   await mkdir(rootDir, { recursive: true })

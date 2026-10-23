@@ -27,8 +27,13 @@ test('window routes return the created window and active pane from the active wi
     assert.equal(created.active, true)
     const snapshotResponse = await fastify.inject({ method: 'GET', url: `/hosts/local/sessions/${sessionId}/snapshot` })
     assert.equal(snapshotResponse.statusCode, 200)
-    const snapshot = snapshotResponse.json()
-    const activePane = snapshot.panes.find((pane: any) => pane.id === snapshot.activePaneId)
+    const snapshot = snapshotResponse.json() as {
+      panes: Array<{ id: string; windowId: string }>
+      activePaneId: string
+      activeWindowId: string
+    }
+    const activePane = snapshot.panes.find((pane) => pane.id === snapshot.activePaneId)
+    assert.ok(activePane)
     assert.equal(activePane.windowId, snapshot.activeWindowId)
   } finally {
     await fastify.close()

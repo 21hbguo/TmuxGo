@@ -1,13 +1,31 @@
 import { execFileSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { test, expect } from '@playwright/test'
+import { test, expect, type APIRequestContext } from '@playwright/test'
 import { apiUrl } from './endpoints'
 import { ensureSession, openSession } from './session'
 
 // recovery 候选 manifest 由 gateway 从 $TMUXGO_CONFIG_DIR/agent-recovery.json 懒读
 // （JsonStore 每请求重读，无内存缓存），e2e 直接落文件模拟 agent 退出留下的候选。
 // 页面侧只呈现与确认，任何 resume 都必须经用户显式确认后由 gateway 复检执行。
+
+interface RecoveryCandidate {
+  id: string
+  hostId: string
+  sessionName: string
+  reason: string
+  status: string
+  lastSeenAt: string
+  createdAt: string
+  tmuxPaneId?: string
+  blockReason?: string
+  [key: string]: unknown
+}
+interface PaneSummary {
+  id: string
+  tmuxPaneId: string
+  windowId?: string
+}
 
 const hostId = 'local'
 const configDir = process.env.TMUXGO_CONFIG_DIR || ''
@@ -33,22 +51,22 @@ function paneTarget(tmuxPaneId: string) {
 async function waitPaneCommand(tmuxPaneId: string, ready: (command: string) => boolean) {
   await expect.poll(async () => ready(await paneCommand(tmuxPaneId)), { timeout: 15000 }).toBe(true)
 }
-async function paneOutput(request: any, paneId: string) {
+async function paneOutput(request: APIRequestContext, paneId: string) {
   const res = await request.get(`${apiUrl}/api/panes/${encodeURIComponent(paneId)}/output`)
   return ((await res.json()) as { data: string }).data
 }
-async function listCandidates(request: any) {
+async function listCandidates(request: APIRequestContext) {
   const res = await request.get(`${apiUrl}/api/hosts/${hostId}/agent-recovery`)
-  return ((await res.json()) as { candidates: any[] }).candidates
+  return ((await res.json()) as { candidates: RecoveryCandidate[] }).candidates
 }
-function seedCandidates(candidates: any[]) {
+function seedCandidates(candidates: RecoveryCandidate[]) {
   if (!configDir) throw new Error('TMUXGO_CONFIG_DIR is required for agent-recovery e2e')
   writeFileSync(manifestPath, `${JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), candidates })}\n`, {
     mode: 0o600,
   })
 }
 let candidateSeq = 0
-function candidate(overrides: Record<string, unknown>) {
+function candidate(overrides: Record<string, unknown>): RecoveryCandidate {
   const now = new Date().toISOString()
   return {
     id: `e2e-${Date.now().toString(36)}-${candidateSeq++}`,
@@ -62,16 +80,16 @@ function candidate(overrides: Record<string, unknown>) {
   }
 }
 // 在隔离 server 的 test session 开独立 window 取真实 pane 作候选目标
-async function newTestPane(request: any, windowName: string) {
+async function newTestPane(request: APIRequestContext, windowName: string) {
   const session = await ensureSession(request, 'test')
   const res = await request.post(`${apiUrl}/api/hosts/local/sessions/${encodeURIComponent(session.id)}/windows`, {
     data: { name: windowName },
   })
-  const window = await res.json()
-  const panes = await (
+  const window = (await res.json()) as { id: string }
+  const panes = (await (
     await request.get(`${apiUrl}/api/hosts/local/sessions/${encodeURIComponent(session.id)}/panes`)
-  ).json()
-  const pane = panes.find((item: any) => item.windowId === window.id)
+  ).json()) as PaneSummary[]
+  const pane = panes.find((item) => item.windowId === window.id)
   if (!pane) throw new Error(`No pane found for window ${windowName}`)
   // pane 进程异步就绪：occupant 判定前先等 shell 命令出现
   await waitPaneCommand(pane.tmuxPaneId, (command) => !!command && command !== 'tmux')

@@ -1,14 +1,15 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { ensureTestWindow, getActivePaneOutput, openSession } from './session'
+import type { TerminalProbe } from './probe-types'
 const manualPasteTitle = /^(Paste manually|手动粘贴)$/
 const confirmPasteTitle = /^(Confirm paste|确认粘贴)$/
 const clipboardUnavailableText = /(clipboard unavailable|剪贴板不可用)/i
 const pasteFromAppText = /^(Pasted from app clipboard|已从应用剪贴板粘贴)$/
 const sendButtonName = /^(Send|发送)$/
-function pasteTextarea(page: any) {
+function pasteTextarea(page: Page) {
   return page.locator('textarea').last()
 }
-async function focusTerminalInput(page: any) {
+async function focusTerminalInput(page: Page) {
   await page.getByRole('textbox', { name: 'Terminal input' }).focus()
   await page.waitForFunction(() => document.activeElement?.classList.contains('xterm-helper-textarea'))
 }
@@ -159,7 +160,7 @@ test('can copy into app clipboard and paste back when system clipboard is unavai
     window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: 'printf "memory_path_ok"\r' } }))
   })
   await page.waitForFunction(() => {
-    const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+    const terminal = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
     const buffer = terminal?.buffer?.active
     if (!buffer) return false
     for (let index = 0; index < buffer.length; index += 1) {
