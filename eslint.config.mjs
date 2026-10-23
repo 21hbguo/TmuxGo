@@ -38,7 +38,9 @@ export default tseslint.config(
       '@typescript-eslint/no-require-imports': 'warn',
       '@typescript-eslint/ban-ts-comment': 'warn',
       '@typescript-eslint/no-unused-expressions': 'warn',
-      'no-empty': 'warn',
+      // 空 catch 是协议容错/即发即弃的有意模式（全仓 171 处均为 catch{}）；
+      // allowEmptyCatch 豁免，保留对空 if/函数块等其他空块的告警
+      'no-empty': ['warn', { allowEmptyCatch: true }],
       'no-constant-condition': 'warn',
       'prefer-const': 'warn',
       'no-useless-escape': 'warn',
