@@ -10,11 +10,9 @@ async function sendKeys(request: APIRequestContext, sessionId: string, data: str
 async function terminalState(page: Page) {
   return page.evaluate(() => {
     const terminal = document.querySelector('[data-terminal]') as HTMLElement | null
-    const xterm = terminal?.querySelector('.xterm') as HTMLElement | null
     const rows = terminal?.querySelector('.xterm-rows') as HTMLElement | null
     const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
     const rect = terminal?.getBoundingClientRect()
-    const overlay = document.querySelector('[data-pane-grid] [class*="inset-0"]') as HTMLElement | null
     return {
       termWidth: rect?.width || 0,
       termHeight: rect?.height || 0,

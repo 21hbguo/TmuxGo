@@ -34,7 +34,8 @@ export default tseslint.config(
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
       ],
-      '@typescript-eslint/no-explicit-any': 'off',
+      // any 已全仓清零（源码+测试+e2e），error 档物理防回潮；plugins/ 示例在全局 ignores 里
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-require-imports': 'warn',
       '@typescript-eslint/ban-ts-comment': 'warn',
       '@typescript-eslint/no-unused-expressions': 'warn',
@@ -66,20 +67,6 @@ export default tseslint.config(
     files: ['examples/**/*.js'],
     languageOptions: {
       globals: { tmuxgo: 'readonly' },
-    },
-  },
-  {
-    // 生产源码 any 已全域清零（frontend/gateway/agent 源码+frontend 测试），
-    // error 档直接拦新增；gateway 测试、e2e、tests 存量 any 留待分批清理保持 off
-    files: ['apps/*/src/**/*.{ts,tsx}', 'scripts/**/*.ts'],
-    rules: {
-      '@typescript-eslint/no-explicit-any': 'error',
-    },
-  },
-  {
-    files: ['apps/gateway/**/*.test.{ts,tsx}', 'e2e/**/*.{ts,tsx}', 'tests/**/*.{ts,tsx}'],
-    rules: {
-      '@typescript-eslint/no-explicit-any': 'off',
     },
   },
   {

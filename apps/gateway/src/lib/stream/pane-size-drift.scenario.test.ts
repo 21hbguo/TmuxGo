@@ -50,7 +50,7 @@ function buildScenario(): Snap[] {
       snaps.push({
         xterm: { cols: 120, rows: 36 }, // desk xterm 尚未跟随
         win: { w: 80, h: 24 },
-        panes: ids.map((pid, i) => ({
+        panes: ids.map((pid) => ({
           paneId: pid,
           w: pid === id ? 80 : 0,
           h: pid === id ? 24 : 0,

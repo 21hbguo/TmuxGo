@@ -1,6 +1,6 @@
 import { JSDOM } from 'jsdom'
 import React from 'react'
-import { createRoot, type Root } from 'react-dom/client'
+import { createRoot } from 'react-dom/client'
 import { act } from 'react-dom/test-utils'
 
 export function setupDom() {
