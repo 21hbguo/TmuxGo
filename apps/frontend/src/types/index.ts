@@ -135,6 +135,8 @@ export interface Pane {
   eventId?: string
   message?: string
   revision?: number
+  // 服务端单调计数器：同 pane 的旧帧靠它丢弃（revision 是内容版本，stateSeq 是发生序）
+  stateSeq?: number
   display?: AgentDisplayMetadata
   // listBySession（-s 全量列 pane）比单 window 列表多带 window_name
   windowName?: string
@@ -180,6 +182,7 @@ export interface AgentPaneState {
   cwd?: string
   agentStatus: AgentStatus
   revision: number
+  stateSeq?: number
   phase?: AgentPhase
   lastEvent?: AgentEvent
   source?: AgentSource

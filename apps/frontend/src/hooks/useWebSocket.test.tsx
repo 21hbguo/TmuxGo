@@ -94,6 +94,27 @@ describe('useWebSocket', () => {
     unsubscribeError()
     unmount()
   })
+  it('treats an unknown agent frame type as a capability mismatch instead of a disconnect', () => {
+    const feedUnsupported = vi.fn()
+    const tmuxErrorListener = vi.fn()
+    const unsubscribeFeed = subscribeStreamEvent(STREAM_EVENT.agentFeedUnsupported, feedUnsupported)
+    const unsubscribeError = subscribeStreamEvent(STREAM_EVENT.error, tmuxErrorListener)
+    const { unmount } = renderHook(() => useWebSocket())
+    act(() => {
+      socketInstances[0].open()
+    })
+    updateConnectionMock.mockClear()
+    act(() => {
+      socketInstances[0].message({ type: 'error', message: 'Unknown message type: agent_subscribe' })
+    })
+    expect(feedUnsupported).toHaveBeenCalledTimes(1)
+    // 老网关只会回这一句：不能当成终端错误，更不能把连接打成断线触发重连
+    expect(tmuxErrorListener).not.toHaveBeenCalled()
+    expect(updateConnectionMock).not.toHaveBeenCalledWith({ status: 'disconnected' })
+    unsubscribeFeed()
+    unsubscribeError()
+    unmount()
+  })
   it('routes terminal output to its host and session listeners only', () => {
     const listener = vi.fn()
     const otherSessionListener = vi.fn()

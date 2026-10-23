@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useTranslation } from '@/i18n'
 import { Chip } from './Chip'
 import { usePreferences } from '@/hooks/usePreferences'
@@ -12,6 +12,10 @@ import { markAgentNotificationsRead, syncAgentPush, enableAgentPush } from '@/li
 import { api, type AgentNotificationRecord } from '@/lib/api'
 import type { AgentPaneState, Pane, Session, SessionSnapshot } from '@/types'
 import { subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
+import { AgentFeedClient, isAgentStateFrame, type AgentFeedUpdate } from '@/lib/agent-feed'
+import { useWebSocket } from '@/hooks/useWebSocket'
+import { useAgentSeen } from '@/hooks/useAgentSeen'
+import { useHosts } from '@/hooks/useApi'
 import { FiAlertCircle, FiBell, FiBellOff, FiCheckCircle, FiX } from 'react-icons/fi'
 
 interface NotificationItem {
@@ -27,12 +31,16 @@ interface NotificationItem {
 }
 type TranslateFn = ReturnType<typeof useTranslation>['t']
 function sanitizeNotificationMessage(value: string) {
-  return value
-    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
-    .replace(/(?:~|\/)[^\s,;)]{2,}/g, '[path]')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 240)
+  return (
+    value
+      // 剔除 ANSI 转义序列：这里故意匹配 ESC 控制字符
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+      .replace(/(?:~|\/)[^\s,;)]{2,}/g, '[path]')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 240)
+  )
 }
 function getAgentNotificationStatus(pane: AgentPaneState): NotificationItem['status'] | null {
   if (pane.phase === 'permission_required' || pane.lastEvent === 'permission_required') return 'permission_required'
@@ -157,6 +165,8 @@ export function PaneNotifications() {
   const { t } = useTranslation()
   const { preferences } = usePreferences()
   const queryClient = useOptionalQueryClient()
+  // done 停驻 800ms 后显式 ack（服务端 agent_seen 分支），与快照 markSeen 双清同一徽标
+  useAgentSeen()
   const setActiveHost = useConsoleStore((state) => state.setActiveHost)
   const setActiveSession = useConsoleStore((state) => state.setActiveSession)
   const setActivePane = useConsoleStore((state) => state.setActivePane)
@@ -178,6 +188,97 @@ export function PaneNotifications() {
     },
     [updateNotifications],
   )
+  const updateSnapshot = useCallback(
+    (hostId: string, sessionName: string, pane: AgentPaneState) => {
+      const sessionId = buildSessionId(hostId, sessionName)
+      queryClient?.setQueryData<SessionSnapshot>(['session-snapshot', hostId, sessionId], (snapshot) =>
+        snapshot
+          ? { ...snapshot, panes: mergeAgentPaneEvent(Array.isArray(snapshot.panes) ? snapshot.panes : [], pane) }
+          : snapshot,
+      )
+    },
+    [queryClient],
+  )
+  const updateSession = useCallback(
+    (hostId: string, sessionName: string, pane: AgentPaneState) => {
+      const sessionId = buildSessionId(hostId, sessionName)
+      queryClient?.setQueryData<Session[]>(['sessions', hostId], (sessions) =>
+        sessions?.map((session) => {
+          if (session.id !== sessionId) return session
+          const agents = [...(session.agents || []).filter((item) => item.paneId !== pane.paneId), pane]
+          return { ...session, agents, agentSummary: summarizeAgentStates(agents) }
+        }),
+      )
+    },
+    [queryClient],
+  )
+  const updateAgentCache = useCallback(
+    (hostId: string, sessionName: string, pane: AgentPaneState) => {
+      updateSnapshot(hostId, sessionName, pane)
+      updateSession(hostId, sessionName, pane)
+    },
+    [updateSnapshot, updateSession],
+  )
+  const removeAgentCache = useCallback(
+    (hostId: string, sessionName: string, paneId: string) => {
+      const sessionId = buildSessionId(hostId, sessionName)
+      queryClient?.setQueryData<SessionSnapshot>(['session-snapshot', hostId, sessionId], (snapshot) =>
+        snapshot
+          ? { ...snapshot, panes: removeAgentPaneEvent(Array.isArray(snapshot.panes) ? snapshot.panes : [], paneId) }
+          : snapshot,
+      )
+      queryClient?.setQueryData<Session[]>(['sessions', hostId], (sessions) =>
+        sessions?.map((session) => {
+          if (session.id !== sessionId) return session
+          const agents = (session.agents || []).filter((pane) => pane.paneId !== paneId)
+          return { ...session, agents, agentSummary: summarizeAgentStates(agents) }
+        }),
+      )
+    },
+    [queryClient],
+  )
+  const updateSnapshotCache = useCallback(
+    (hostId: string, agents: AgentPaneState[]) => {
+      const bySession = new Map<string, AgentPaneState[]>()
+      for (const pane of agents) {
+        const sessionAgents = bySession.get(pane.sessionName) || []
+        sessionAgents.push(pane)
+        bySession.set(pane.sessionName, sessionAgents)
+        removedAgentKeysRef.current.delete(`${hostId}:${pane.paneId}`)
+      }
+      const snapshotQueries = queryClient?.getQueryCache?.()?.findAll({ queryKey: ['session-snapshot', hostId] }) || []
+      for (const query of snapshotQueries) {
+        const sessionName = parseSessionName(hostId, String(query.queryKey[2] || ''))
+        const agentByPane = new Map((bySession.get(sessionName) || []).map((pane) => [pane.paneId, pane]))
+        queryClient?.setQueryData<SessionSnapshot>(query.queryKey, (snapshot) =>
+          snapshot
+            ? {
+                ...snapshot,
+                panes: Array.isArray(snapshot.panes)
+                  ? snapshot.panes.map((pane: Pane) => {
+                      const incoming = agentByPane.get(pane.id)
+                      return incoming
+                        ? mergeAgentPaneEvent([pane], incoming, true)[0]
+                        : removeAgentPaneEvent([pane], pane.id)[0]
+                    })
+                  : snapshot.panes,
+              }
+            : snapshot,
+        )
+      }
+      for (const pane of agents) {
+        updateSnapshot(hostId, pane.sessionName, pane)
+      }
+      queryClient?.setQueryData<Session[]>(['sessions', hostId], (sessions) =>
+        sessions?.map((session) => {
+          const sessionAgents = bySession.get(session.name) || []
+          return { ...session, agents: sessionAgents, agentSummary: summarizeAgentStates(sessionAgents) }
+        }),
+      )
+    },
+    [queryClient, updateSnapshot],
+  )
+
   const clearAll = () => {
     const ids = notificationsRef.current.map((notification) => notification.id)
     setVisibleIds([])
@@ -382,81 +483,6 @@ export function PaneNotifications() {
     return () => window.removeEventListener('tmuxgo-toggle-notifications', toggleCenter)
   }, [])
   useEffect(() => {
-    const updateSnapshot = (hostId: string, sessionName: string, pane: AgentPaneState) => {
-      const sessionId = buildSessionId(hostId, sessionName)
-      queryClient?.setQueryData<SessionSnapshot>(['session-snapshot', hostId, sessionId], (snapshot) =>
-        snapshot
-          ? { ...snapshot, panes: mergeAgentPaneEvent(Array.isArray(snapshot.panes) ? snapshot.panes : [], pane) }
-          : snapshot,
-      )
-    }
-    const updateSession = (hostId: string, sessionName: string, pane: AgentPaneState) => {
-      const sessionId = buildSessionId(hostId, sessionName)
-      queryClient?.setQueryData<Session[]>(['sessions', hostId], (sessions) =>
-        sessions?.map((session) => {
-          if (session.id !== sessionId) return session
-          const agents = [...(session.agents || []).filter((item) => item.paneId !== pane.paneId), pane]
-          return { ...session, agents, agentSummary: summarizeAgentStates(agents) }
-        }),
-      )
-    }
-    const updateAgentCache = (hostId: string, sessionName: string, pane: AgentPaneState) => {
-      updateSnapshot(hostId, sessionName, pane)
-      updateSession(hostId, sessionName, pane)
-    }
-    const removeAgentCache = (hostId: string, sessionName: string, paneId: string) => {
-      const sessionId = buildSessionId(hostId, sessionName)
-      queryClient?.setQueryData<SessionSnapshot>(['session-snapshot', hostId, sessionId], (snapshot) =>
-        snapshot
-          ? { ...snapshot, panes: removeAgentPaneEvent(Array.isArray(snapshot.panes) ? snapshot.panes : [], paneId) }
-          : snapshot,
-      )
-      queryClient?.setQueryData<Session[]>(['sessions', hostId], (sessions) =>
-        sessions?.map((session) => {
-          if (session.id !== sessionId) return session
-          const agents = (session.agents || []).filter((pane) => pane.paneId !== paneId)
-          return { ...session, agents, agentSummary: summarizeAgentStates(agents) }
-        }),
-      )
-    }
-    const updateSnapshotCache = (hostId: string, agents: AgentPaneState[]) => {
-      const bySession = new Map<string, AgentPaneState[]>()
-      for (const pane of agents) {
-        const sessionAgents = bySession.get(pane.sessionName) || []
-        sessionAgents.push(pane)
-        bySession.set(pane.sessionName, sessionAgents)
-        removedAgentKeysRef.current.delete(`${hostId}:${pane.paneId}`)
-      }
-      const snapshotQueries = queryClient?.getQueryCache?.()?.findAll({ queryKey: ['session-snapshot', hostId] }) || []
-      for (const query of snapshotQueries) {
-        const sessionName = parseSessionName(hostId, String(query.queryKey[2] || ''))
-        const agentByPane = new Map((bySession.get(sessionName) || []).map((pane) => [pane.paneId, pane]))
-        queryClient?.setQueryData<SessionSnapshot>(query.queryKey, (snapshot) =>
-          snapshot
-            ? {
-                ...snapshot,
-                panes: Array.isArray(snapshot.panes)
-                  ? snapshot.panes.map((pane: Pane) => {
-                      const incoming = agentByPane.get(pane.id)
-                      return incoming
-                        ? mergeAgentPaneEvent([pane], incoming, true)[0]
-                        : removeAgentPaneEvent([pane], pane.id)[0]
-                    })
-                  : snapshot.panes,
-              }
-            : snapshot,
-        )
-      }
-      for (const pane of agents) {
-        updateSnapshot(hostId, pane.sessionName, pane)
-      }
-      queryClient?.setQueryData<Session[]>(['sessions', hostId], (sessions) =>
-        sessions?.map((session) => {
-          const sessionAgents = bySession.get(session.name) || []
-          return { ...session, agents: sessionAgents, agentSummary: summarizeAgentStates(sessionAgents) }
-        }),
-      )
-    }
     const publishNotification = (hostId: string, sessionName: string, pane: AgentPaneState, eventId?: string) => {
       if (!preferences.agentNotificationsEnabled || readMutedPanes().includes(pane.paneId)) return
       const status = getAgentNotificationStatus(pane)
@@ -535,7 +561,127 @@ export function PaneNotifications() {
     return () => {
       for (const unsub of unsubs) unsub()
     }
-  }, [openNotification, preferences.agentNotificationsEnabled, queryClient, t, updateNotifications])
+  }, [
+    openNotification,
+    preferences.agentNotificationsEnabled,
+    queryClient,
+    removeAgentCache,
+    t,
+    updateAgentCache,
+    updateNotifications,
+    updateSnapshotCache,
+  ])
+  // v1 推式订阅：每个 host 一条订阅（hostId 是订阅意图的稳定键，subId 会随重连变）。
+  // 帧语义交给 AgentFeedClient 判 seq/断号；视图层只处理 full（整 host 替换）与
+  // delta（按 pane 合并、stateSeq 小者丢），pulse 只更新水位不动缓存
+  const { send: sendStreamFrame, isSocketReady } = useWebSocket()
+  const { data: hosts } = useHosts()
+  const hostIds = useMemo(
+    () =>
+      (hosts || [])
+        .map((host) => host.id)
+        .filter(Boolean)
+        .sort(),
+    [hosts],
+  )
+  const hostIdsRef = useRef(hostIds)
+  hostIdsRef.current = hostIds
+  const feedPortRef = useRef<{
+    update: (update: AgentFeedUpdate, hostId: string) => void
+    degraded: (hostId: string) => void
+  } | null>(null)
+  const feedRetryRef = useRef(new Map<string, { attempts: number; timer: ReturnType<typeof setTimeout> | null }>())
+  // 老网关不支持 v1 帧：一旦协商失败就永久走 legacy/REST，不再重试也不刷错
+  const feedUnsupportedRef = useRef(false)
+  const sendFrameRef = useRef(sendStreamFrame)
+  sendFrameRef.current = sendStreamFrame
+  const feedClientRef = useRef<AgentFeedClient | null>(null)
+  if (!feedClientRef.current) {
+    feedClientRef.current = new AgentFeedClient({
+      // socket 未就绪时 send 返回 false，AgentFeedClient 会撤掉占位订阅等下次重试
+      send: (frame) => sendFrameRef.current(frame),
+      onUpdate: (update) => feedPortRef.current?.update(update, update.hostId),
+      onDegraded: (hostId) => feedPortRef.current?.degraded(hostId),
+    })
+  }
+  feedPortRef.current = {
+    update: (update, hostId) => {
+      if (update.mode === 'full') {
+        // full 是整 host 替换：未出现的 pane 视为没有 agent 状态，交给 updateSnapshotCache 清理
+        updateSnapshotCache(hostId, update.changed)
+      } else {
+        for (const pane of update.changed) {
+          removedAgentKeysRef.current.delete(`${hostId}:${pane.paneId}`)
+          updateAgentCache(hostId, pane.sessionName, pane)
+        }
+      }
+      for (const removed of update.removed) {
+        removedAgentKeysRef.current.add(`${hostId}:${removed.paneId}`)
+        if (removed.sessionName) removeAgentCache(hostId, removed.sessionName, removed.paneId)
+      }
+      if (update.mode === 'full') feedRetryRef.current.delete(hostId)
+    },
+    degraded: (hostId) => {
+      // 断号重同步彻底失败：回落到 REST 快照，并按指数退避重开订阅（服务端 seq 从头算）
+      void queryClient?.invalidateQueries({ queryKey: ['sessions', hostId] })
+      void queryClient?.invalidateQueries({ queryKey: ['session-snapshot', hostId] })
+      const state = feedRetryRef.current.get(hostId) || { attempts: 0, timer: null }
+      state.attempts += 1
+      if (state.timer) clearTimeout(state.timer)
+      const delay = Math.min(5000 * 2 ** (state.attempts - 1), 60000)
+      state.timer = setTimeout(() => {
+        state.timer = null
+        feedClientRef.current?.subscribe(hostId)
+      }, delay)
+      feedRetryRef.current.set(hostId, state)
+    },
+  }
+  useEffect(() => {
+    const client = feedClientRef.current
+    if (!client || feedUnsupportedRef.current) return
+    if (!isSocketReady) return
+    for (const hostId of hostIds) client.subscribe(hostId)
+    for (const hostId of client.hosts()) if (!hostIds.includes(hostId)) client.unsubscribe(hostId)
+  }, [hostIds, isSocketReady])
+  useEffect(() => {
+    const client = feedClientRef.current
+    if (!client) return
+    const unsubscribe = subscribeStreamEvent<unknown>(STREAM_EVENT.agentState, (detail) => {
+      if (!isAgentStateFrame(detail)) return
+      client.handleFrame(detail)
+    })
+    // 重连后服务端订阅已消失：本地 seq 基线必须清零再重新订阅
+    const onReconnected = () => {
+      client.reset()
+      if (feedUnsupportedRef.current) return
+      for (const hostId of hostIdsRef.current) client.subscribe(hostId)
+    }
+    const unsubscribeReconnect = subscribeStreamEvent(STREAM_EVENT.reconnected, onReconnected)
+    // 能力协商失败：退回 legacy 帧（老网关本来就双发），清掉订阅与退避计时器
+    const unsubscribeUnsupported = subscribeStreamEvent(STREAM_EVENT.agentFeedUnsupported, () => {
+      if (feedUnsupportedRef.current) return
+      feedUnsupportedRef.current = true
+      client.reset()
+      for (const state of feedRetryRef.current.values()) if (state.timer) clearTimeout(state.timer)
+      feedRetryRef.current.clear()
+    })
+    return () => {
+      unsubscribe()
+      unsubscribeReconnect()
+      unsubscribeUnsupported()
+    }
+  }, [])
+  useEffect(() => {
+    const retries = feedRetryRef.current
+    const client = feedClientRef.current
+    return () => {
+      for (const state of retries.values()) if (state.timer) clearTimeout(state.timer)
+      retries.clear()
+      // 组件卸载但 socket 仍在（布局切换）：先退订，别让服务端继续按 host 推帧
+      for (const hostId of client?.hosts() || []) client?.unsubscribe(hostId)
+      client?.reset()
+    }
+  }, [])
   const displayed = centerOpen
     ? notifications
     : notifications.filter((notification) => visibleIds.includes(notification.id))

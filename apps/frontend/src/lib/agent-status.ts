@@ -55,9 +55,15 @@ export function summarizeAgentByWindow(
     statuses: statusDisplayOrder.filter((status) => states.some((state) => state.agentStatus === status)),
   }))
 }
+// 丢弃判据：双发期两路帧（legacy agent_status_changed 与 agent_state delta）会带同一个
+// pane 的不同快照，stateSeq 是服务端单调发生序，优先用它；老链路无 stateSeq 时退回 revision
+function isStaleAgentPane(pane: Pane, incoming: AgentPaneState) {
+  if (pane.stateSeq != null || incoming.stateSeq != null) return (pane.stateSeq ?? -1) > (incoming.stateSeq ?? -1)
+  return (pane.revision || 0) > incoming.revision
+}
 export function mergeAgentPaneEvent(panes: Pane[], incoming: AgentPaneState, force = false) {
   return panes.map((pane) =>
-    pane.id !== incoming.paneId || (!force && (pane.revision || 0) > incoming.revision)
+    pane.id !== incoming.paneId || (!force && isStaleAgentPane(pane, incoming))
       ? pane
       : {
           ...pane,
@@ -74,6 +80,7 @@ export function mergeAgentPaneEvent(panes: Pane[], incoming: AgentPaneState, for
           message: incoming.message,
           display: incoming.display,
           revision: incoming.revision,
+          stateSeq: incoming.stateSeq,
         },
   )
 }
@@ -94,6 +101,7 @@ export function removeAgentPaneEvent(panes: Pane[], paneId: string) {
       eventId: _eventId,
       message: _message,
       revision: _revision,
+      stateSeq: _stateSeq,
       display: _display,
       ...terminalPane
     } = pane
