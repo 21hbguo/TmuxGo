@@ -448,7 +448,9 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
         notifyReady()
         return true
       }
-    } catch (e) {}
+    } catch {
+      // 布局同步失败不阻断后续渲染，保持旧网格
+    }
     return false
   }
   const runLayoutSync = () => {

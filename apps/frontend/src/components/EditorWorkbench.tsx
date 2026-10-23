@@ -162,7 +162,8 @@ export function EditorWorkbench({
   onSaveEditor,
   onOpenFile,
   onOpenFileAtPosition = async (file) => file.id,
-  onCreateCompare,
+  // 对比视图尚未接入：保留 prop 签名（调用方已传），本地绑定加 _ 前缀规避 unused 告警
+  onCreateCompare: _onCreateCompare,
 }: {
   onSaveEditor: (editor: FileEditorDocument) => Promise<void>
   onOpenFile: (file: FileDocumentHandle) => Promise<string>

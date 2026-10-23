@@ -1,16 +1,7 @@
 import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, type CredentialStoreFile, type HostStoreFile, type SystemTaskResponse } from '@/lib/api'
 import type { PluginPermission, Session, SessionLayout, SessionMutationResult, SessionTemplate } from '@/types'
-import type {
-  GitBranchesResponse,
-  GitCommitResponse,
-  GitDetectResponse,
-  GitDiffResponse,
-  GitLogResponse,
-  GitMergeResponse,
-  GitRepositoryInfo,
-  GitStatusResponse,
-} from '@/types'
+import type { GitRepositoryInfo } from '@/types'
 
 function upsertSessionList(prev: Session[] | undefined, session: SessionMutationResult) {
   if (!session?.id) return prev || []

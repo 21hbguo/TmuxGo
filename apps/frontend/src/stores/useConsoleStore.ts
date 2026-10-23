@@ -360,21 +360,6 @@ function createEmptyEditorWorkspace() {
     activeEditorId: null as string | null,
   })
 }
-function createEditorWorkspaceFromEditors(openEditors: FileEditorDocument[], activeEditorId: string | null) {
-  const group = createEditorGroup(
-    openEditors.map((item) => item.id),
-    activeEditorId,
-  )
-  return withLegacyEditorState(
-    finalizeEditorWorkspace({
-      openEditors,
-      activeEditorId,
-      editorGroups: [group],
-      editorLayout: createEditorLayoutLeaf(group.id),
-      activeEditorGroupId: group.id,
-    }),
-  )
-}
 function moveEditorBetweenGroups(
   state: EditorWorkspaceState,
   id: string,

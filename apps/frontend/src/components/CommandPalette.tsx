@@ -45,7 +45,6 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const { t } = useTranslation()
   const {
     refreshSnapshot,
-    resolveActivePaneId,
     resolveFreshActivePaneId,
     syncAfterWindowChange,
     optimisticallyToggleWindowZoom,

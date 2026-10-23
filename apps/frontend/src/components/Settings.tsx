@@ -125,11 +125,7 @@ export function Settings({ onClose }: SettingsProps) {
   const [archiveLoading, setArchiveLoading] = useState(false)
   const { data: hosts = [] } = useHosts()
   const restartRebuild = useRestartRebuild()
-  const {
-    data: appVersionData,
-    isLoading: appVersionLoading,
-    error: appVersionError,
-  } = useAppVersion(activeTab === 'about')
+  const { data: appVersionData, error: appVersionError } = useAppVersion(activeTab === 'about')
   const appUpdateQuery = useAppUpdateStatus(activeTab === 'about')
   const updateTaskQuery = useAppUpdateTask(activeTab === 'about')
   const checkAppUpdate = useCheckAppUpdate()
@@ -218,10 +214,6 @@ export function Settings({ onClose }: SettingsProps) {
     { id: 'about' as const, label: t('settings.about') },
   ]
 
-  const commitTerminalPadding = () => {
-    if (terminalPaddingDraft === preferences.terminalPadding) return
-    updatePreferences({ terminalPadding: terminalPaddingDraft })
-  }
   const commitUploadRateLimit = () => {
     if (uploadRateLimitDraft === preferences.uploadRateLimitKBps) return
     updatePreferences({ uploadRateLimitKBps: uploadRateLimitDraft })
