@@ -206,19 +206,26 @@ export function isMobileBrowser() {
   return typeof navigator !== 'undefined' && MOBILE_BROWSER_UA.test(navigator.userAgent)
 }
 
+// webkit 前缀全屏 API 未进标准 DOM lib，此处只声明用到的最小形状
+type WebkitDocument = Document & {
+  webkitFullscreenElement?: Element | null
+  webkitExitFullscreen?: () => Promise<void> | void
+}
+type WebkitHTMLElement = HTMLElement & { webkitRequestFullscreen?: () => Promise<void> | void }
+
 export function getFullscreenElement() {
-  return document.fullscreenElement || (document as any).webkitFullscreenElement || null
+  return document.fullscreenElement || (document as WebkitDocument).webkitFullscreenElement || null
 }
 
 async function requestAppFullscreen() {
-  const el = document.documentElement as any
+  const el = document.documentElement as WebkitHTMLElement
   if (el.requestFullscreen) return el.requestFullscreen({ navigationUI: 'hide' })
   if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen()
   throw new Error('fullscreen-unsupported')
 }
 
 async function exitAppFullscreen() {
-  const doc = document as any
+  const doc = document as WebkitDocument
   if (document.exitFullscreen && getFullscreenElement()) return document.exitFullscreen()
   if (doc.webkitExitFullscreen && getFullscreenElement()) return doc.webkitExitFullscreen()
 }
@@ -360,11 +367,11 @@ export function usePreferences() {
       if (preferencesStore.immersiveFullscreen) applyImmersivePresentation(true)
     }
     document.addEventListener('fullscreenchange', syncFs)
-    document.addEventListener('webkitfullscreenchange', syncFs as any)
+    document.addEventListener('webkitfullscreenchange', syncFs)
     window.addEventListener('resize', onResize)
     return () => {
       document.removeEventListener('fullscreenchange', syncFs)
-      document.removeEventListener('webkitfullscreenchange', syncFs as any)
+      document.removeEventListener('webkitfullscreenchange', syncFs)
       window.removeEventListener('resize', onResize)
     }
   }, [])

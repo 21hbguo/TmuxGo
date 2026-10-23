@@ -1,6 +1,6 @@
 'use client'
 import { useRef, useState } from 'react'
-import { useTranslation } from '@/i18n'
+import { useTranslation, type TranslationKey } from '@/i18n'
 import { Button } from './Button'
 import { Chip } from './Chip'
 import { Select } from './Select'
@@ -251,8 +251,8 @@ export function SessionTemplates({
               onClick={() => onSelect(template)}
               className="rounded-apple border border-transparent bg-bg-2 p-4 text-left hover:border-accent hover:bg-bg-1"
             >
-              <div className="font-medium text-text-1">{t(templateI18nKeys[template.id].name as any)}</div>
-              <div className="mt-1 text-sm text-text-3">{t(templateI18nKeys[template.id].desc as any)}</div>
+              <div className="font-medium text-text-1">{t(templateI18nKeys[template.id].name as TranslationKey)}</div>
+              <div className="mt-1 text-sm text-text-3">{t(templateI18nKeys[template.id].desc as TranslationKey)}</div>
               <div className="mt-3 text-xs text-text-3">
                 {template.layout.windows.map((window) => `${window.name} (${window.panes.length})`).join(' · ')}
               </div>
@@ -340,14 +340,17 @@ export function SessionTemplates({
                       onChange={(v) => updateWindow(window.id, { splitDirection: v as SessionWindowSplitDirection })}
                       options={splitDirectionOptions.map((item) => ({
                         value: item.value,
-                        label: t(item.label as any),
+                        label: t(item.label as TranslationKey),
                       }))}
                       className="rounded-apple px-2 py-1.5 text-xs"
                     />
                     <Select
                       value={window.layoutPreset}
                       onChange={(v) => updateWindow(window.id, { layoutPreset: v as SessionWindowLayoutPreset })}
-                      options={layoutPresetOptions.map((item) => ({ value: item.value, label: t(item.label as any) }))}
+                      options={layoutPresetOptions.map((item) => ({
+                        value: item.value,
+                        label: t(item.label as TranslationKey),
+                      }))}
                       className="rounded-apple px-2 py-1.5 text-xs"
                     />
                     <Chip tone="danger" disabled={customWindows.length <= 1} onClick={() => removeWindow(window.id)}>

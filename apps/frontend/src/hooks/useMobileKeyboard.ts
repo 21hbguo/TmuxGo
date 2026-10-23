@@ -4,6 +4,14 @@ import { useEffect, useRef, useCallback } from 'react'
 import { hasModalLayerOpen } from '@/lib/modal-layers'
 import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
 
+// navigator.virtualKeyboard 为 Android Chrome 专有 API，未进标准 DOM lib
+interface VirtualKeyboardLike {
+  overlaysContent: boolean
+  boundingRect?: { height?: number }
+  addEventListener?: (type: string, cb: () => void) => void
+}
+const getVirtualKeyboard = () => (navigator as Navigator & { virtualKeyboard?: VirtualKeyboardLike }).virtualKeyboard
+
 const SENTINEL = '\u200b\u200b'
 const SENTINEL_CENTER = 1
 const KEYBOARD_OPEN_THRESHOLD = 120
@@ -88,7 +96,7 @@ export function useMobileKeyboard(
     keyboardVerifyTimerRef.current = null
   }, [])
   const getVirtualKeyboardInset = useCallback(() => {
-    const virtualKeyboard = (navigator as any).virtualKeyboard
+    const virtualKeyboard = getVirtualKeyboard()
     return Math.max(0, virtualKeyboard?.boundingRect?.height || 0)
   }, [])
   const getObservedKeyboardInset = useCallback(() => {
@@ -289,7 +297,7 @@ export function useMobileKeyboard(
     if (!ta) return
     const vv = window.visualViewport
     if (vv?.height) viewportBaseHeightRef.current = vv.height
-    const virtualKeyboard = (navigator as any).virtualKeyboard
+    const virtualKeyboard = getVirtualKeyboard()
     if (virtualKeyboard && !isEdgeAndroid()) {
       try {
         virtualKeyboard.overlaysContent = true

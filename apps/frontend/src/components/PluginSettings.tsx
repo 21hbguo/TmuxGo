@@ -25,7 +25,7 @@ import {
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useClipboard } from '@/hooks/useClipboard'
 import { isImeKeyEvent } from '@/lib/terminal-platform'
-import { useTranslation } from '@/i18n'
+import { useTranslation, type TranslationKey } from '@/i18n'
 import type { GitHubPluginPreview, PluginInfo, PluginPermission } from '@/types'
 import { Button } from './Button'
 import { Chip } from './Chip'
@@ -41,7 +41,7 @@ function PluginState({ plugin }: { plugin: PluginInfo }) {
         : 'bg-danger/12 text-danger'
   return (
     <span className={`rounded-apple px-2 py-0.5 text-caption ${className}`}>
-      {t(`plugins.state.${plugin.state}` as any)}
+      {t(`plugins.state.${plugin.state}` as TranslationKey)}
     </span>
   )
 }
@@ -335,7 +335,7 @@ export function PluginSettings() {
                             : setPendingPermission({ plugin, permission })
                         }
                       >
-                        {t(`plugins.permission.${permission}` as any)} ·{' '}
+                        {t(`plugins.permission.${permission}` as TranslationKey)} ·{' '}
                         {t(granted ? 'plugins.revoke' : 'plugins.grant')}
                       </Chip>
                     )
@@ -465,7 +465,9 @@ export function PluginSettings() {
         title={t('plugins.grantPermissionTitle')}
         message={t('plugins.grantPermissionMessage', {
           name: pendingPermission?.plugin.manifest.name || '',
-          permission: pendingPermission ? t(`plugins.permission.${pendingPermission.permission}` as any) : '',
+          permission: pendingPermission
+            ? t(`plugins.permission.${pendingPermission.permission}` as TranslationKey)
+            : '',
         })}
         confirmLabel={t('plugins.grant')}
         cancelLabel={t('common.cancel')}

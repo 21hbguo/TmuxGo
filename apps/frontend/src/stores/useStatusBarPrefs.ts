@@ -25,12 +25,17 @@ export const useStatusBarPrefs = create<StatusBarPrefsState>()(
       name: 'tmuxgo-statusbar',
       storage: createJSONStorage(() => createDebouncedStorage(120)),
       // 只持久化 hidden；非法条目在历史版本数据中可能存在，merge 时过滤掉
-      merge: (persisted, current) => ({
-        ...current,
-        hidden: Array.isArray((persisted as any)?.hidden)
-          ? (persisted as any).hidden.filter((k: unknown) => (STATUSBAR_ITEMS as readonly string[]).includes(String(k)))
-          : [],
-      }),
+      merge: (persisted, current) => {
+        const persistedHidden = (persisted as { hidden?: unknown[] } | undefined)?.hidden
+        return {
+          ...current,
+          hidden: Array.isArray(persistedHidden)
+            ? persistedHidden.filter((k): k is StatusBarItem =>
+                (STATUSBAR_ITEMS as readonly string[]).includes(String(k)),
+              )
+            : [],
+        }
+      },
     },
   ),
 )
