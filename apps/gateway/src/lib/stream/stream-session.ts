@@ -309,7 +309,7 @@ export class StreamSession {
   ) {
     this.syncOutputProfile('foreground')
   }
-  send(data: any): boolean | Promise<boolean> {
+  send(data: unknown): boolean | Promise<boolean> {
     // 任务内校验 attachSeq：cleanup/新 attach 后旧 epoch 在途帧作废，
     // 不得把上一轮的输出/控制消息写进新一轮会话
     const seq = this.attachSeq

@@ -10,6 +10,11 @@ import { agentMonitor } from '../lib/agent-monitor.js'
 import { schedulePeerWindowSync } from '../lib/stream/stream-session.js'
 import { findSessionWorkspacePath } from './preferences.js'
 
+// catch 到的值不保证是 Error（tmux/SSH 通道可能抛字符串），统一收窄取文案
+function errorMessage(error: unknown, fallback = '') {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
 function parseSessionName(hostId: string, sessionRef: string) {
   return parseSessionRef(hostId, sessionRef).sessionName
 }
@@ -283,8 +288,8 @@ export async function windowRoutes(fastify: FastifyInstance) {
       return (
         windows.find((window) => window.tmuxWindowId === createdWindowId) || windows.find((window) => window.active)
       )
-    } catch (err: any) {
-      throw new Error(err.message)
+    } catch (err) {
+      throw new Error(errorMessage(err))
     }
   })
   fastify.post('/hosts/:hostId/sessions/:sessionId/windows/select', async (request) => {
@@ -301,8 +306,8 @@ export async function windowRoutes(fastify: FastifyInstance) {
       schedulePeerWindowSync(hostId, sessionName)
       const windows = await getTmuxWindows(hostId, sessionName)
       return { ok: true, windows }
-    } catch (err: any) {
-      return { ok: false, error: err.message }
+    } catch (err) {
+      return { ok: false, error: errorMessage(err) }
     }
   })
   fastify.post('/hosts/:hostId/sessions/:sessionId/windows/rename', async (request) => {
@@ -316,8 +321,8 @@ export async function windowRoutes(fastify: FastifyInstance) {
       await execTmux(hostId, ['rename-window', '-t', tmuxWindowId, name])
       const windows = await getTmuxWindows(hostId, sessionName)
       return { ok: true, windows }
-    } catch (err: any) {
-      return { ok: false, error: err.message }
+    } catch (err) {
+      return { ok: false, error: errorMessage(err) }
     }
   })
   fastify.post('/hosts/:hostId/sessions/:sessionId/windows/move', async (request) => {
@@ -330,8 +335,8 @@ export async function windowRoutes(fastify: FastifyInstance) {
       await normalizeWindowOrder(hostId, sessionName, orderedWindowIds)
       const windows = await getTmuxWindows(hostId, sessionName)
       return { ok: true, windows }
-    } catch (err: any) {
-      return { ok: false, error: err.message }
+    } catch (err) {
+      return { ok: false, error: errorMessage(err) }
     }
   })
   fastify.post('/hosts/:hostId/sessions/:sessionId/windows/kill', async (request) => {
@@ -345,8 +350,8 @@ export async function windowRoutes(fastify: FastifyInstance) {
       await execTmux(hostId, ['kill-window', '-t', tmuxWindowId])
       const windows = await getTmuxWindows(hostId, sessionName)
       return { ok: true, windows }
-    } catch (err: any) {
-      return { ok: false, error: err.message }
+    } catch (err) {
+      return { ok: false, error: errorMessage(err) }
     }
   })
   fastify.post('/windows/:windowId/panes', async (request) => {
@@ -376,8 +381,8 @@ export async function windowRoutes(fastify: FastifyInstance) {
       ])
       const panes = await getTmuxPanes(hostId, sessionName, windowIndex)
       return panes[panes.length - 1]
-    } catch (err: any) {
-      throw new Error(err.message)
+    } catch (err) {
+      throw new Error(errorMessage(err))
     }
   })
 }

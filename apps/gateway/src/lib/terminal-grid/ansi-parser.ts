@@ -131,13 +131,14 @@ export class AnsiParser {
     const cols = this.grid.cols
     const rows = this.grid.rows
     const cells = Array.from({ length: cols * rows }, () => emptyCell())
-    const reusableCell = buffer.getNullCell() as BufferCellLike
+    // 复用同一个 cell 对象避免每帧分配；getNullCell 返回的 IBufferCell 与 BufferCellLike 结构一致
+    const reusableCell = buffer.getNullCell()
 
     for (let y = 0; y < rows; y++) {
       const line = buffer.getLine(buffer.viewportY + y)
       if (!line) continue
       for (let x = 0; x < cols; x++) {
-        const cell = line.getCell(x, reusableCell as any) as BufferCellLike | undefined
+        const cell = line.getCell(x, reusableCell)
         if (!cell) continue
 
         const attr = getAttr(cell)

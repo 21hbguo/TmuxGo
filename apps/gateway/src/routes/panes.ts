@@ -12,6 +12,11 @@ import {
   paneSplitBodySchema,
 } from '../lib/request-validation.js'
 
+// catch 到的值不保证是 Error（tmux/SSH 通道可能抛字符串），统一收窄取文案
+function errorMessage(error: unknown, fallback = '') {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
 function parsePaneId(paneId: string) {
   const separator = paneId.indexOf(':')
   if (separator <= 0 || separator === paneId.length - 1) throw new Error('Invalid pane id')
@@ -39,8 +44,8 @@ export async function paneRoutes(fastify: FastifyInstance) {
       }
       agentMonitor.markSeen(paneId) || markAgentPaneSeen(paneId)
       return { ok: true }
-    } catch (err: any) {
-      return { ok: false, error: err.message }
+    } catch (err) {
+      return { ok: false, error: errorMessage(err) }
     }
   })
   // 显式「标记已查看」入口：done→idle 幂等，不做 tmux select 副作用；
@@ -81,8 +86,8 @@ export async function paneRoutes(fastify: FastifyInstance) {
         endY: Number(ey) || 0,
         rectangle: rect === '1',
       }
-    } catch (err: any) {
-      return { ok: false, error: err.message }
+    } catch (err) {
+      return { ok: false, error: errorMessage(err) }
     }
   })
   // 拖选松手后 tmux 经 copy-selection-and-cancel 落最新 paste buffer：浏览器拿不到
@@ -110,8 +115,8 @@ export async function paneRoutes(fastify: FastifyInstance) {
       if (peek) return { ok: true, found: true, name }
       const { stdout } = await execTmux(hostId, ['show-buffer', '-b', name])
       return { ok: true, found: true, name, text: stdout }
-    } catch (err: any) {
-      return { ok: false, error: err.message }
+    } catch (err) {
+      return { ok: false, error: errorMessage(err) }
     }
   })
   fastify.post('/panes/cwd', async (request) => {
@@ -121,8 +126,8 @@ export async function paneRoutes(fastify: FastifyInstance) {
       if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
       const { stdout } = await execTmux(hostId, ['display-message', '-p', '-t', tmuxPaneId, '#{pane_current_path}'])
       return { ok: true, cwd: stdout.trim() }
-    } catch (err: any) {
-      return { ok: false, error: err.message }
+    } catch (err) {
+      return { ok: false, error: errorMessage(err) }
     }
   })
   fastify.post('/panes/split', async (request) => {
@@ -142,8 +147,8 @@ export async function paneRoutes(fastify: FastifyInstance) {
         flag,
       ])
       return { ok: true }
-    } catch (err: any) {
-      return { ok: false, error: err.message }
+    } catch (err) {
+      return { ok: false, error: errorMessage(err) }
     }
   })
   fastify.post('/panes/zoom', async (request) => {
@@ -155,8 +160,8 @@ export async function paneRoutes(fastify: FastifyInstance) {
       if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
       await execTmux(hostId, ['resize-pane', '-Z', '-t', tmuxPaneId])
       return { ok: true }
-    } catch (err: any) {
-      return { ok: false, error: err.message }
+    } catch (err) {
+      return { ok: false, error: errorMessage(err) }
     }
   })
   fastify.post('/panes/resize', async (request) => {
@@ -170,8 +175,8 @@ export async function paneRoutes(fastify: FastifyInstance) {
       if (args.length <= 3) return { ok: true }
       await execTmux(hostId, args)
       return { ok: true }
-    } catch (err: any) {
-      return { ok: false, error: err.message }
+    } catch (err) {
+      return { ok: false, error: errorMessage(err) }
     }
   })
   fastify.post('/panes/kill', async (request) => {
@@ -184,8 +189,8 @@ export async function paneRoutes(fastify: FastifyInstance) {
       if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
       await execTmux(hostId, ['kill-pane', '-t', tmuxPaneId])
       return { ok: true }
-    } catch (err: any) {
-      return { ok: false, error: err.message }
+    } catch (err) {
+      return { ok: false, error: errorMessage(err) }
     }
   })
 }

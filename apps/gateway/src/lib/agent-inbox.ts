@@ -179,9 +179,9 @@ async function loadStore() {
           revision: typeof parsed.revision === 'number' ? parsed.revision : 0,
         }
       else await backupCorruptStore()
-    } catch (err: any) {
+    } catch (err) {
       // JSON 损坏：留 .corrupt 副本供人工恢复再重建，别静默覆盖索引
-      if (err?.code !== 'ENOENT') await backupCorruptStore()
+      if (!(err instanceof Error && (err as NodeJS.ErrnoException).code === 'ENOENT')) await backupCorruptStore()
     }
     store = loaded || { version: STORE_VERSION, messages: [], assets: [], dedupe: {}, revision: 0 }
     loadedStorePath = currentPath

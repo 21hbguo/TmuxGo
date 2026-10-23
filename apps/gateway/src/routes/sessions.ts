@@ -21,6 +21,11 @@ import {
   type SessionLayoutPaneRow,
 } from '../lib/session-layout.js'
 
+// catch 到的值不保证是 Error（tmux/SSH 通道可能抛字符串），统一收窄取文案
+function errorMessage(error: unknown, fallback = '') {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
 // tmux kill-session 的 -t 非精确匹配：目标 session 不存在时回退为前缀/fnmatch
 // 模式匹配并杀掉全部命中项（删已死 session 会误杀同名前缀的所有会话）。
 // '=' 前缀强制精确匹配。
@@ -150,8 +155,8 @@ async function getHostTmuxSessions(hostId: string): Promise<HostTmuxSession[]> {
           attached: Number.isFinite(attachedCount) && attachedCount > 0,
         }
       })
-  } catch (err: any) {
-    const message = String(err?.message || '').toLowerCase()
+  } catch (err) {
+    const message = errorMessage(err).toLowerCase()
     if (
       // socket 文件已删（server 刚 exit-empty）时报 "error connecting to
       // <socket> (No such file or directory)"，socket 路径不固定（隔离测试
@@ -503,9 +508,9 @@ export async function sessionRoutes(fastify: FastifyInstance) {
               }
             : layout
           await applyTemplateLayout(hostId, name, layoutWithCwd)
-        } catch (err: any) {
+        } catch (err) {
           await cleanupSession(hostId, name)
-          throw new Error(err?.message || 'Template layout failed')
+          throw new Error(errorMessage(err, 'Template layout failed'))
         }
       }
       await prepareSessionAttach(hostId, name)
@@ -521,13 +526,13 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       }
       emitPluginEvent('session.created', { hostId, sessionId: created.id, sessionName: name })
       return { ...created, cwd: normalizedCwd }
-    } catch (err: any) {
-      if (String(err?.message || '').includes('duplicate session')) {
+    } catch (err) {
+      if (errorMessage(err).includes('duplicate session')) {
         const sessions = await getHostTmuxSessions(hostId)
         const existingSession = sessions.find((s) => s.name === name)
         if (existingSession) return { ...existingSession, cwd: normalizedCwd, existed: true }
       }
-      throw new Error(err.message)
+      throw new Error(errorMessage(err))
     }
   })
   fastify.post('/hosts/:hostId/sessions/rename', async (request) => {
@@ -557,8 +562,8 @@ export async function sessionRoutes(fastify: FastifyInstance) {
         previousSessionName: sessionName,
       })
       return renamed
-    } catch (err: any) {
-      throw new Error(err.message)
+    } catch (err) {
+      throw new Error(errorMessage(err))
     }
   })
   fastify.post('/hosts/:hostId/sessions/batch-delete', async (request) => {
@@ -597,8 +602,8 @@ export async function sessionRoutes(fastify: FastifyInstance) {
           sessionName: session.name,
           source: 'batch-delete',
         })
-      } catch (err: any) {
-        failed.push({ sessionId: session.id, name: session.name, reason: err?.message || 'delete_failed' })
+      } catch (err) {
+        failed.push({ sessionId: session.id, name: session.name, reason: errorMessage(err, 'delete_failed') })
       }
     }
     return {
@@ -692,9 +697,9 @@ export async function sessionRoutes(fastify: FastifyInstance) {
     try {
       await execTmux(hostId, ['new-session', '-d', '-s', sessionName, '-e', 'TMUXGO_ENV=1'])
       await applyTemplateLayout(hostId, sessionName, layout)
-    } catch (err: any) {
+    } catch (err) {
       await cleanupSession(hostId, sessionName)
-      throw new Error(err?.message || 'Layout apply failed')
+      throw new Error(errorMessage(err, 'Layout apply failed'))
     }
     await prepareSessionAttach(hostId, sessionName)
     const created = (await getHostTmuxSessions(hostId)).find((session) => session.name === sessionName) || {
@@ -717,8 +722,8 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       await execTmux(hostId, ['kill-session', '-t', exactSessionTarget(sessionName)])
       emitPluginEvent('session.deleted', { hostId, sessionId: buildSessionId(hostId, sessionName), sessionName })
       return { success: true, sessionId: buildSessionId(hostId, sessionName) }
-    } catch (err: any) {
-      throw new Error(err.message)
+    } catch (err) {
+      throw new Error(errorMessage(err))
     }
   })
 }

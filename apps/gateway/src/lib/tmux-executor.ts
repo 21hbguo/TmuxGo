@@ -34,6 +34,18 @@ const knownNetworkMarkers = ['Could not resolve hostname', 'Connection refused',
 const knownMissingTmuxMarkers = ['tmux: command not found']
 const knownPrivateKeyMarkers = ['identity file', 'Load key']
 
+// execFile 失败的错误对象在 message 之外还挂 stdout/stderr/退出码；类型层只声明 Error，
+// 这里按最小结构补齐。catch 值不保证是 Error（插件/子进程可能抛字符串），统一走这里收窄。
+interface ExecFileFailure extends Error {
+  code?: number | string
+  killed?: boolean
+  stdout?: string | Buffer
+  stderr?: string | Buffer
+}
+function asExecFailure(err: unknown): ExecFileFailure | null {
+  return err instanceof Error ? (err as ExecFileFailure) : null
+}
+
 export type TmuxExecMode = 'json' | 'plain'
 export interface TmuxExecOptions {
   mode?: TmuxExecMode
@@ -227,10 +239,11 @@ async function runRemoteTmux(host: HostRecord, args: string[], options: TmuxExec
         maxBuffer: 8 * 1024 * 1024,
       })
       return { stdout, stderr }
-    } catch (err: any) {
-      const stderr = String(err?.stderr || '')
-      const stdout = String(err?.stdout || '')
-      throw reportRemoteError(host, stderr, stdout, err?.message || 'SSH command failed')
+    } catch (err) {
+      const failure = asExecFailure(err)
+      const stderr = String(failure?.stderr || '')
+      const stdout = String(failure?.stdout || '')
+      throw reportRemoteError(host, stderr, stdout, failure?.message || 'SSH command failed')
     }
   }
   if (hasPassword && !canUseSshPass) {
@@ -242,10 +255,11 @@ async function runRemoteTmux(host: HostRecord, args: string[], options: TmuxExec
       maxBuffer: 8 * 1024 * 1024,
     })
     return { stdout, stderr }
-  } catch (err: any) {
-    const stderr = String(err?.stderr || '')
-    const stdout = String(err?.stdout || '')
-    throw reportRemoteError(host, stderr, stdout, err?.message || 'SSH command failed')
+  } catch (err) {
+    const failure = asExecFailure(err)
+    const stderr = String(failure?.stderr || '')
+    const stdout = String(failure?.stdout || '')
+    throw reportRemoteError(host, stderr, stdout, failure?.message || 'SSH command failed')
   }
 }
 async function runRemoteShell(host: HostRecord, command: string, options: TmuxExecOptions = {}) {
@@ -269,10 +283,11 @@ async function runRemoteShell(host: HostRecord, command: string, options: TmuxEx
         maxBuffer: 8 * 1024 * 1024,
       })
       return { stdout, stderr }
-    } catch (err: any) {
-      const stderr = String(err?.stderr || '')
-      const stdout = String(err?.stdout || '')
-      throw reportRemoteError(host, stderr, stdout, err?.message || 'SSH command failed')
+    } catch (err) {
+      const failure = asExecFailure(err)
+      const stderr = String(failure?.stderr || '')
+      const stdout = String(failure?.stdout || '')
+      throw reportRemoteError(host, stderr, stdout, failure?.message || 'SSH command failed')
     }
   }
   if (hasPassword && !canUseSshPass) {
@@ -284,10 +299,11 @@ async function runRemoteShell(host: HostRecord, command: string, options: TmuxEx
       maxBuffer: 8 * 1024 * 1024,
     })
     return { stdout, stderr }
-  } catch (err: any) {
-    const stderr = String(err?.stderr || '')
-    const stdout = String(err?.stdout || '')
-    throw reportRemoteError(host, stderr, stdout, err?.message || 'SSH command failed')
+  } catch (err) {
+    const failure = asExecFailure(err)
+    const stderr = String(failure?.stderr || '')
+    const stdout = String(failure?.stdout || '')
+    throw reportRemoteError(host, stderr, stdout, failure?.message || 'SSH command failed')
   }
 }
 function isTmuxServerMissingError(message: string) {
@@ -315,8 +331,8 @@ export async function execTmux(
     }
     try {
       await applyTmuxGoEnv(hostIdRaw, options)
-    } catch (err: any) {
-      if (!isTmuxServerMissingError(String(err?.message || ''))) throw err
+    } catch (err) {
+      if (!isTmuxServerMissingError(String(asExecFailure(err)?.message || ''))) throw err
       deferSetEnv = true
     }
   }
@@ -335,8 +351,9 @@ export async function execTmux(
       const result = await runLocalTmux(args, options)
       await retrySetEnvIfNeeded(deferSetEnv, hostId)
       return { ...result, host }
-    } catch (err: any) {
-      throw new Error(normalizeErrorMessage(String(err?.stderr || err?.message || ''), 'tmux command failed'), {
+    } catch (err) {
+      const failure = asExecFailure(err)
+      throw new Error(normalizeErrorMessage(String(failure?.stderr || failure?.message || ''), 'tmux command failed'), {
         cause: err,
       })
     }
@@ -384,10 +401,12 @@ export async function execHostShell(
     try {
       const result = await runLocalShell(command, options)
       return { ...result, host }
-    } catch (err: any) {
-      throw new Error(normalizeErrorMessage(String(err?.stderr || err?.message || ''), 'shell command failed'), {
-        cause: err,
-      })
+    } catch (err) {
+      const failure = asExecFailure(err)
+      throw new Error(
+        normalizeErrorMessage(String(failure?.stderr || failure?.message || ''), 'shell command failed'),
+        { cause: err },
+      )
     }
   }
   const result = await runRemoteShell(host, command, options)
@@ -543,10 +562,11 @@ export async function verifyHostConnectivity(hostIdRaw: string) {
         mode: 'password' as const,
         code: 'AUTHENTICATION_ERROR' as const,
       }
-    } catch (err: any) {
-      const stderr = String(err?.stderr || '')
-      const stdout = String(err?.stdout || '')
-      const message = extractErrorSummary(stderr, stdout, err?.message || 'ssh password validation failed')
+    } catch (err) {
+      const failure = asExecFailure(err)
+      const stderr = String(failure?.stderr || '')
+      const stdout = String(failure?.stdout || '')
+      const message = extractErrorSummary(stderr, stdout, failure?.message || 'ssh password validation failed')
       return { ok: false, message, mode: 'password' as const, code: getConnectionErrorCode(message) }
     }
   }
@@ -564,10 +584,11 @@ export async function verifyHostConnectivity(hostIdRaw: string) {
               ? ('agent' as const)
               : ('key' as const),
       }
-  } catch (err: any) {
-    const stderr = String(err?.stderr || '')
-    const stdout = String(err?.stdout || '')
-    const normalized = extractErrorSummary(stderr, stdout, err?.message || 'ssh validation failed')
+  } catch (err) {
+    const failure = asExecFailure(err)
+    const stderr = String(failure?.stderr || '')
+    const stdout = String(failure?.stdout || '')
+    const normalized = extractErrorSummary(stderr, stdout, failure?.message || 'ssh validation failed')
     const passwordResult = await tryPassword()
     if (passwordResult) return passwordResult
     return {

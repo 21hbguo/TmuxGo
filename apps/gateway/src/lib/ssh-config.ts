@@ -213,8 +213,8 @@ export async function readSshConfigText(configPath?: string) {
   const filePath = configPath || (await resolveSshConfigPath())
   try {
     return { path: filePath, content: await fs.readFile(filePath, 'utf8') }
-  } catch (err: any) {
-    if (err?.code === 'ENOENT') return { path: filePath, content: '' }
+  } catch (err) {
+    if (err instanceof Error && (err as NodeJS.ErrnoException).code === 'ENOENT') return { path: filePath, content: '' }
     throw err
   }
 }

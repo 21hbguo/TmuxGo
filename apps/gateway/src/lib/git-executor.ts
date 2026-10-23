@@ -29,6 +29,16 @@ function escapeShellSingleQuoted(input: string) {
   return `'${input.replace(/'/g, `'\\''`)}'`
 }
 
+// execFile 失败的错误对象在 message 之外还挂 stdout/stderr/退出码；类型层只声明 Error，
+// 这里按最小结构补齐（catch 值也可能是字符串，统一收窄）
+interface ExecFileFailure extends Error {
+  code?: number | string
+  stdout?: string | Buffer
+  stderr?: string | Buffer
+}
+function asExecFailure(err: unknown): ExecFileFailure | null {
+  return err instanceof Error ? (err as ExecFileFailure) : null
+}
 function normalizeErrorMessage(raw: string, fallback: string) {
   const value = raw.trim() || fallback
   if (knownHostKeyMarkers.some((m) => value.includes(m))) return 'Host key verification failed'
@@ -61,9 +71,10 @@ async function runLocalGit(
 ) {
   try {
     return await execFileAsync('git', args, { cwd, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024, signal })
-  } catch (err: any) {
-    if (acceptExitCodeOne && err?.code === 1)
-      return { stdout: String(err?.stdout || ''), stderr: String(err?.stderr || '') }
+  } catch (err) {
+    const failure = asExecFailure(err)
+    if (acceptExitCodeOne && failure?.code === 1)
+      return { stdout: String(failure?.stdout || ''), stderr: String(failure?.stderr || '') }
     throw err
   }
 }
@@ -104,25 +115,27 @@ async function runRemoteGit(
         maxBuffer: 8 * 1024 * 1024,
         signal,
       })
-    } catch (err: any) {
-      if (acceptExitCodeOne && err?.code === 1)
-        return { stdout: String(err?.stdout || ''), stderr: String(err?.stderr || '') }
+    } catch (err) {
+      const failure = asExecFailure(err)
+      if (acceptExitCodeOne && failure?.code === 1)
+        return { stdout: String(failure?.stdout || ''), stderr: String(failure?.stderr || '') }
       throw reportRemoteError(
         host,
-        `${err?.stderr || ''}\n${err?.stdout || ''}`,
-        err?.message || 'SSH git command failed',
+        `${failure?.stderr || ''}\n${failure?.stdout || ''}`,
+        failure?.message || 'SSH git command failed',
       )
     }
   }
   try {
     return await execFileAsync('ssh', sshArgs, { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024, signal })
-  } catch (err: any) {
-    if (acceptExitCodeOne && err?.code === 1)
-      return { stdout: String(err?.stdout || ''), stderr: String(err?.stderr || '') }
+  } catch (err) {
+    const failure = asExecFailure(err)
+    if (acceptExitCodeOne && failure?.code === 1)
+      return { stdout: String(failure?.stdout || ''), stderr: String(failure?.stderr || '') }
     throw reportRemoteError(
       host,
-      `${err?.stderr || ''}\n${err?.stdout || ''}`,
-      err?.message || 'SSH git command failed',
+      `${failure?.stderr || ''}\n${failure?.stdout || ''}`,
+      failure?.message || 'SSH git command failed',
     )
   }
 }
@@ -157,8 +170,9 @@ export async function execGit(
     try {
       const { stdout, stderr } = await runLocalGit(args, cwd, timeout, acceptExitCodeOne, signal)
       return { stdout, stderr }
-    } catch (err: any) {
-      throw new Error(normalizeErrorMessage(String(err?.stderr || err?.message || ''), 'git command failed'))
+    } catch (err) {
+      const failure = asExecFailure(err)
+      throw new Error(normalizeErrorMessage(String(failure?.stderr || failure?.message || ''), 'git command failed'))
     }
   }
   const { stdout, stderr } = await runRemoteGit(host, args, cwd, timeout, acceptExitCodeOne, signal)
