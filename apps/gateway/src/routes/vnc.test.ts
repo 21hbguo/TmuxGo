@@ -5,7 +5,7 @@ import test, { type TestContext } from 'node:test'
 import Fastify from 'fastify'
 import websocket from '@fastify/websocket'
 import { WebSocket } from 'ws'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { installShims, type Shims } from '../test-shims.js'
@@ -459,4 +459,110 @@ test('vnc displays stop kills by listening port and reports the freed display', 
   // 按端口找 pid，拿不到再退 fuser：两条路径都得在脚本里
   assert.match(stopScript, /port=5903/)
   assert.match(stopScript, /fuser -k/)
+})
+
+test('vnc route falls back to an ssh tunnel and reports the failure reason when the agent is offline', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  // 隧道 ssh 立刻失败：stderr 归一化成动作级原因后拼进 close reason（截 80 字符）
+  process.env.SHIM_SSH_STDOUT = ''
+  process.env.SHIM_SSH_STDERR = 'ssh: connect to host 192.0.2.110 port 22: Connection refused'
+  process.env.SHIM_SSH_EXIT = '255'
+  const { gatewayPort } = await buildApp(t)
+  const ws = new WebSocket(`ws://127.0.0.1:${gatewayPort}/api/vnc?hostId=devbox&port=5900`)
+  const closed = await new Promise<{ code: number; reason: string }>((resolve) =>
+    ws.addEventListener('close', (event) => resolve({ code: event.code, reason: String(event.reason) }), {
+      once: true,
+    }),
+  )
+  // 1011：服务端内部故障（agent 不在线且隧道失败），不是 1008 的鉴权/参数拒绝
+  assert.equal(closed.code, 1011)
+  assert.match(closed.reason, /^Agent offline; SSH tunnel failed: /)
+  assert.doesNotMatch(closed.reason, /192\.0\.2\.110|Connection refused/)
+  const args = sshCalls(shims)[0].join(' ')
+  // 隧道把远端 loopback 的 5900 映射到本机随机高位端口，只监听 127.0.0.1
+  assert.match(args, /-L 127\.0\.0\.1:\d+:127\.0\.0\.1:5900/)
+})
+
+test('vnc route rejects an invalid port before attempting any remote connection', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  const { gatewayPort } = await buildApp(t)
+  const ws = new WebSocket(`ws://127.0.0.1:${gatewayPort}/api/vnc?hostId=devbox&port=22`)
+  const closed = await new Promise<{ code: number; reason: string }>((resolve) =>
+    ws.addEventListener('close', (event) => resolve({ code: event.code, reason: String(event.reason) }), {
+      once: true,
+    }),
+  )
+  assert.equal(closed.code, 1008)
+  assert.equal(closed.reason, 'Invalid VNC port')
+  // 端口先于中继/隧道判定：参数不合法时不该留下任何 ssh 进程
+  assert.equal(sshCalls(shims).length, 0)
+})
+
+test('vnc ping answers without touching any host', async (t) => {
+  const { app } = await buildApp(t)
+  const response = await app.inject({ method: 'GET', url: '/api/vnc/ping' })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), { ok: true })
+})
+
+test('vnc client-module serves the prebuilt rfb chunk without caching', async (t) => {
+  const dist = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-vnc-dist-'))
+  const previousDist = process.env.TMUXGO_FRONTEND_DIST
+  process.env.TMUXGO_FRONTEND_DIST = dist
+  t.after(async () => {
+    if (previousDist === undefined) delete process.env.TMUXGO_FRONTEND_DIST
+    else process.env.TMUXGO_FRONTEND_DIST = previousDist
+    await rm(dist, { recursive: true, force: true })
+  })
+  await mkdir(path.join(dist, '.vite'), { recursive: true })
+  await mkdir(path.join(dist, 'assets'), { recursive: true })
+  await writeFile(path.join(dist, 'assets', 'rfb-abc123.js'), 'export const rfb = 1\n')
+  await writeFile(
+    path.join(dist, '.vite', 'manifest.json'),
+    JSON.stringify({ 'node_modules/@novnc/novnc/lib/rfb.js': { file: 'assets/rfb-abc123.js' } }),
+  )
+  const { app } = await buildApp(t)
+  const response = await app.inject({ method: 'GET', url: '/api/vnc/client-module' })
+  assert.equal(response.statusCode, 200)
+  assert.match(response.headers['content-type'] as string, /text\/javascript/)
+  // chunk hash 随构建变化，必须 no-store，否则移动端会拿到旧模块
+  assert.equal(response.headers['cache-control'], 'no-store')
+  assert.equal(response.body, 'export const rfb = 1\n')
+})
+
+test('vnc client-module falls back to the rfb glob when the manifest is missing', async (t) => {
+  const dist = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-vnc-dist-'))
+  const previousDist = process.env.TMUXGO_FRONTEND_DIST
+  process.env.TMUXGO_FRONTEND_DIST = dist
+  t.after(async () => {
+    if (previousDist === undefined) delete process.env.TMUXGO_FRONTEND_DIST
+    else process.env.TMUXGO_FRONTEND_DIST = previousDist
+    await rm(dist, { recursive: true, force: true })
+  })
+  await mkdir(path.join(dist, 'assets'), { recursive: true })
+  await writeFile(path.join(dist, 'assets', 'rfb-deadbeef.js'), 'export const rfb = 2\n')
+  const { app } = await buildApp(t)
+  const response = await app.inject({ method: 'GET', url: '/api/vnc/client-module' })
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.body, 'export const rfb = 2\n')
+})
+
+test('vnc client-module answers 404 when the frontend build has no rfb chunk', async (t) => {
+  const dist = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-vnc-dist-'))
+  const previousDist = process.env.TMUXGO_FRONTEND_DIST
+  process.env.TMUXGO_FRONTEND_DIST = dist
+  t.after(async () => {
+    if (previousDist === undefined) delete process.env.TMUXGO_FRONTEND_DIST
+    else process.env.TMUXGO_FRONTEND_DIST = previousDist
+    await rm(dist, { recursive: true, force: true })
+  })
+  await mkdir(path.join(dist, 'assets'), { recursive: true })
+  const { app } = await buildApp(t)
+  const response = await app.inject({ method: 'GET', url: '/api/vnc/client-module' })
+  assert.equal(response.statusCode, 404)
+  assert.deepEqual(response.json(), { message: 'vnc client module not built' })
 })
