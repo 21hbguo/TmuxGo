@@ -126,6 +126,19 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     (item.keywords || []).some((keyword) => keyword.toLowerCase().includes(q))
   const actionItems: PaletteItem[] = [
     {
+      key: 'pane-search',
+      type: 'action',
+      title: t('paneSearch.open'),
+      meta: `${mod}+Shift+F`,
+      keywords: ['搜索', '跨 pane', 'search', 'search all panes', 'find in panes'],
+      action: async () => {
+        // 打开跨 pane 搜索面板：先收起调色板（同一时刻只留一个覆盖层），
+        // 面板自己负责防抖搜索与命中跳转
+        setCommandPalette(false)
+        useConsoleStore.getState().setPaneSearch(true)
+      },
+    },
+    {
       key: 'split-horizontal',
       type: 'action',
       title: t('palette.splitHorizontal'),

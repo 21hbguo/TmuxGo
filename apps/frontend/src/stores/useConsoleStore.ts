@@ -413,6 +413,7 @@ interface ConsoleState {
   connection: ConnectionState
   terminalPerf: TerminalPerfState
   showCommandPalette: boolean
+  showPaneSearch: boolean
   sessionPanelExpanded: boolean
   filePanelOpen: boolean
   gitPanelOpen: boolean
@@ -461,6 +462,7 @@ interface ConsoleState {
   setActiveSession: (id: string) => void
   setActivePane: (id: string | null) => void
   setCommandPalette: (open: boolean) => void
+  setPaneSearch: (open: boolean) => void
   setSessionPanelExpanded: (expanded: boolean) => void
   toggleSessionPanel: () => void
   setFilePanelOpen: (open: boolean) => void
@@ -634,6 +636,7 @@ export const useConsoleStore = create<ConsoleState>()(
         lastOutputAt: '',
       },
       showCommandPalette: false,
+      showPaneSearch: false,
       sessionPanelExpanded: true,
       filePanelOpen: false,
       gitPanelOpen: false,
@@ -670,6 +673,7 @@ export const useConsoleStore = create<ConsoleState>()(
         }),
       setActivePane: (id) => set({ activePaneId: id }),
       setCommandPalette: (open) => set({ showCommandPalette: open }),
+      setPaneSearch: (open) => set({ showPaneSearch: open }),
       // 会话面板不参与侧栏互斥：其他面板打开不再折叠它（可与 git/ssh/插件等共存），
       // 只由显式手势切换——sessions 图标、rail 展开按钮、边框拖拽过阈值
       setSessionPanelExpanded: (expanded) =>
@@ -1370,6 +1374,7 @@ export const useConsoleStore = create<ConsoleState>()(
           connection: current.connection,
           terminalPerf: current.terminalPerf,
           showCommandPalette: false,
+          showPaneSearch: false,
           activePluginView: null,
           activeDesktop: null,
           activeBrowser: null,

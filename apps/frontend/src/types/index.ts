@@ -849,3 +849,40 @@ export interface GitHostState {
   lockedRepoPath: string | null
   recentRepos: GitRepoEntry[]
 }
+
+// 跨 pane 搜索：只读聚合结果（网关 capture-pane 现取，前端不做全量缓存）
+export interface PaneSearchHit {
+  paneId: string
+  windowIndex: number
+  paneIndex: number
+  paneTitle: string
+  windowName: string
+  /** 抓取缓冲区内的 1 起行号（含末尾空行，与 capture-pane 输出行序一致） */
+  line: number
+  /** 距缓冲区末尾的行数：换算 xterm buffer 行更稳（buffer.length - lineFromEnd） */
+  lineFromEnd: number
+  preview: string
+  historySize: number
+}
+export interface PaneSearchPaneResult {
+  paneId: string
+  windowIndex: number
+  paneIndex: number
+  paneTitle: string
+  windowName: string
+  historySize: number
+  capturedLines: number
+  hits: number
+  cached: boolean
+}
+export interface PaneSearchResponse {
+  ok: boolean
+  error?: string
+  query: string
+  mode: 'literal' | 'regex'
+  maxLines: number
+  hits: PaneSearchHit[]
+  panes: PaneSearchPaneResult[]
+  truncated: boolean
+  elapsedMs: number
+}

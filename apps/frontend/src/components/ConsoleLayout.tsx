@@ -62,6 +62,9 @@ const TaskCenter = dynamic(() => import('./TaskCenter').then((m) => ({ default: 
 const CommandPalette = dynamic(() => import('./CommandPalette').then((m) => ({ default: m.CommandPalette })), {
   fallback: <LazyOverlayLoading zClass="z-50" />,
 })
+const PaneSearchPanel = dynamic(() => import('./PaneSearchPanel').then((m) => ({ default: m.PaneSearchPanel })), {
+  fallback: <LazyOverlayLoading zClass="z-50" />,
+})
 const FilePanel = dynamic(() => import('./FilePanel').then((m) => ({ default: m.FilePanel })))
 const GitPanel = dynamic(() => import('./GitPanel').then((m) => ({ default: m.GitPanel })))
 const EndpointsPanel = dynamic(() => import('./EndpointsPanel').then((m) => ({ default: m.EndpointsPanel })))
@@ -122,6 +125,8 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
   const setActivePane = useConsoleStore((s) => s.setActivePane)
   const showCommandPalette = useConsoleStore((s) => s.showCommandPalette)
+  const showPaneSearch = useConsoleStore((s) => s.showPaneSearch)
+  const setPaneSearch = useConsoleStore((s) => s.setPaneSearch)
   const setCommandPalette = useConsoleStore((s) => s.setCommandPalette)
   const setActiveHost = useConsoleStore((s) => s.setActiveHost)
   const setActiveSession = useConsoleStore((s) => s.setActiveSession)
@@ -265,6 +270,11 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
     }
     stack.splice(index, 1)
   }, [])
+  const openPaneSearch = useCallback(() => {
+    if (showPaneSearch) return
+    setPaneSearch(true)
+    pushOverlay('pane-search')
+  }, [showPaneSearch, setPaneSearch, pushOverlay])
   const openPalette = useCallback(() => {
     if (showCommandPalette) return
     setCommandPalette(true)
@@ -622,6 +632,14 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         return
       }
       if (target?.closest('[data-terminal],.xterm,.xterm-screen')) return
+      // Cmd/Ctrl+Shift+F：跨 pane 搜索（对齐全站「Find in Files」肌肉记忆；
+      // 与 Cmd+K 调色板、Cmd+B/E 面板、Cmd+Shift+I 选择器均不冲突）
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        if (showPaneSearch) closeOverlay('pane-search')
+        else openPaneSearch()
+        return
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
         if (showCommandPalette) {
@@ -642,7 +660,17 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [showCommandPalette, openPalette, closeOverlay, toggleSessionPanel, toggleFilePanel, isMobile, openMobileFiles])
+  }, [
+    showCommandPalette,
+    openPalette,
+    showPaneSearch,
+    openPaneSearch,
+    closeOverlay,
+    toggleSessionPanel,
+    toggleFilePanel,
+    isMobile,
+    openMobileFiles,
+  ])
 
   useEffect(() => {
     const handleMobileFilesPushLevel = () => pushOverlay('mobile-files-level')
@@ -928,6 +956,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         </div>
       )}
       {showCommandPalette && <CommandPalette onClose={() => closeOverlay('palette')} />}
+      {showPaneSearch && <PaneSearchPanel onClose={() => closeOverlay('pane-search')} />}
       {showSettings && <Settings onClose={dismissSettings} />}
       {showTasks && <TaskCenter onClose={dismissTasks} />}
       {inboxPanelOpen && !isMobile && (

@@ -15,6 +15,7 @@ import { vncRoutes } from './routes/vnc.js'
 import { browserRoutes } from './routes/browser.js'
 import { systemRoutes } from './routes/system.js'
 import { paneRoutes } from './routes/panes.js'
+import { paneSearchRoutes } from './routes/pane-search.js'
 import { fileRoutes } from './routes/files.js'
 import { preferencesRoutes } from './routes/preferences.js'
 import { clientEventRoutes } from './routes/client-events.js'
@@ -118,6 +119,7 @@ await fastify.register(vncRoutes, { prefix: '/api' })
 await fastify.register(browserRoutes, { prefix: '/api' })
 await fastify.register(systemRoutes, { prefix: '/api' })
 await fastify.register(paneRoutes, { prefix: '/api' })
+await fastify.register(paneSearchRoutes, { prefix: '/api' })
 await fastify.register(fileRoutes, { prefix: '/api' })
 await fastify.register(preferencesRoutes, { prefix: '/api' })
 await fastify.register(clientEventRoutes, { prefix: '/api' })

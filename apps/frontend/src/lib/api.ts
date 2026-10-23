@@ -48,6 +48,7 @@ import type {
   SessionMutationResult,
   SessionOrderPreference,
   SessionSnapshot,
+  PaneSearchResponse,
   SessionTemplate,
   SessionWorkspaceEntry,
   Snippet,
@@ -507,6 +508,19 @@ export const api = {
           method: 'DELETE',
         }),
     },
+  },
+  paneSearch: {
+    // 只读聚合搜索：POST 走 body，GET 变体给 readOnly scope 的 token 用（同一处理函数）
+    run: (
+      hostId: string,
+      sessionId: string,
+      params: { query: string; mode?: 'literal' | 'regex'; lines?: number },
+      signal?: AbortSignal,
+    ) =>
+      fetchApi<PaneSearchResponse>(
+        `/api/hosts/${encodeURIComponent(hostId)}/sessions/${encodeURIComponent(sessionId)}/pane-search`,
+        { method: 'POST', body: JSON.stringify(params), signal },
+      ),
   },
   sessionArchives: {
     list: (hostId: string, sessionId?: string) =>
