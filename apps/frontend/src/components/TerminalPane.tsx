@@ -446,12 +446,25 @@ export function TerminalPane({
       cancelled = true
     }
   }, [preferences.fontSize, preferences.fontFamily])
+  // runtime 只在创建时快照这几个调用方回调：它们每次 render 都可能重建（dropState 还随拖拽态变化），
+  // 直接进 deps 会导致 xterm 实例每 render 重建、丢输出订阅。用 latest-ref 持有最新值，
+  // 让 effect 只按 mount-once/稳定值触发，同时运行时仍能读到本帧的最新实现
+  const pasteBridgeRef = useRef(pasteBridge)
+  const dropStateRef = useRef(dropState)
+  const focusKeyboardRef = useRef(focusKeyboard)
+  const isMobileRef = useRef(isMobileDevice)
+  useEffect(() => {
+    pasteBridgeRef.current = pasteBridge
+    dropStateRef.current = dropState
+    focusKeyboardRef.current = focusKeyboard
+    isMobileRef.current = isMobileDevice
+  }, [dropState, focusKeyboard, isMobileDevice, pasteBridge])
   useEffect(() => {
     if (!preferencesReady) return
     if (!terminalRef.current) return
     const runtime = createTerminalRuntime({
       container: terminalRef.current,
-      isMobile: isMobileDevice,
+      isMobile: isMobileRef.current,
       terminalInstance,
       onInputRef,
       onResizeRef,
@@ -483,8 +496,8 @@ export function TerminalPane({
       getTerminalPerf: () => useConsoleStore.getState().terminalPerf || DEFAULT_TERMINAL_PERF,
       selectionSync,
       onTerminalDragSelection: setDragSelection,
-      pasteBridge,
-      dropState,
+      pasteBridge: pasteBridgeRef.current,
+      dropState: dropStateRef.current,
       touchScroll,
       pinch: {
         handleTouchStart: handlePinchTouchStart,
@@ -496,7 +509,7 @@ export function TerminalPane({
       syncPaneCwd,
       ensureFileRoots,
       ensureAppFontLoaded,
-      focusKeyboard,
+      focusKeyboard: focusKeyboardRef.current,
       updateGithubDeviceLogin,
       pushTerminalOutput,
       disposeTerminalOutput,
@@ -509,10 +522,8 @@ export function TerminalPane({
       setHistoryState({ away: false, fresh: false })
       runtime.dispose()
     }
-    // 终端实例是 mount-once：pasteBridge/dropState/focusKeyboard/isMobileDevice 每次 render 都由
-    // 调用方回调重新构建（含内联箭头函数），进 deps 会让 xterm 实例每 render 重建并丢输出订阅。
-    // 这四个值只在创建 runtime 时一次性捕获，语义定格在挂载时刻，故保留原触发面。
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上：加入不稳定值会破坏 mount-once 语义
+    // pasteBridge/dropState/focusKeyboard/isMobile 经 latest-ref 取本帧最新值，
+    // 不进入 deps：它们随 render/拖拽态重建，进 deps 会让 xterm 实例每 render 重建并丢输出订阅
   }, [
     afterTerminalOutputWrites,
     disposeTerminalOutput,
