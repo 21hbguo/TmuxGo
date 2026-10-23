@@ -736,6 +736,8 @@ export const en = {
   'pane.closed': 'Pane closed',
   'pane.closeFailed': 'Close failed',
   'pane.zoomFailed': 'Zoom failed',
+  'displayPanes.hint': 'Press a number to jump panes · Esc to cancel',
+  'displayPanes.hintWindows': 'Press a number to jump windows · Esc to cancel',
   'switchHud.windowPosition': 'Window {index}/{total}',
   'switchHud.panePosition': 'Pane {index}/{total}',
   'switchHud.prev': '← {label}',

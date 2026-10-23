@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { TerminalPane } from './TerminalPane'
 import { SwitchHud, type SwitchHudPayload } from './SwitchHud'
+import { PaneNumberOverlay } from './PaneNumberOverlay'
+import { useDisplayPanes } from '@/hooks/useDisplayPanes'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useTranslation } from '@/i18n'
 import { usePreferences } from '@/hooks/usePreferences'
@@ -221,16 +223,9 @@ export function PaneGrid({
     },
     [orderedSessions, sessionId, setActiveSession],
   )
-  const switchWindow = useCallback(
-    async (direction: -1 | 1) => {
-      if (!activeHostId || !sessionId || sessionWindows.length === 0) return
-      const nextIndex = activeWindowIndex + direction
-      if (nextIndex < 0 || nextIndex >= sessionWindows.length) {
-        switchSession(direction)
-        return
-      }
-      const targetWindow = sessionWindows[nextIndex]
-      if (!targetWindow) return
+  const selectWindowById = useCallback(
+    async (targetWindow: Window) => {
+      if (!activeHostId || !sessionId) return
       const previousWindows = getWindows()
       setWindows(
         previousWindows.map((w: Window) =>
@@ -246,18 +241,20 @@ export function PaneGrid({
         pushToast({ type: 'error', message: t('window.switchFailed') })
       }
     },
-    [
-      activeHostId,
-      sessionId,
-      sessionWindows,
-      activeWindowIndex,
-      switchSession,
-      getWindows,
-      setWindows,
-      pushToast,
-      syncAfterWindowChange,
-      t,
-    ],
+    [activeHostId, sessionId, getWindows, setWindows, pushToast, syncAfterWindowChange, t],
+  )
+  const switchWindow = useCallback(
+    async (direction: -1 | 1) => {
+      if (!activeHostId || !sessionId || sessionWindows.length === 0) return
+      const nextIndex = activeWindowIndex + direction
+      if (nextIndex < 0 || nextIndex >= sessionWindows.length) {
+        switchSession(direction)
+        return
+      }
+      const targetWindow = sessionWindows[nextIndex]
+      if (targetWindow) await selectWindowById(targetWindow)
+    },
+    [activeHostId, sessionId, sessionWindows, activeWindowIndex, switchSession, selectWindowById],
   )
   const activeWindow = sessionWindows.find((item: Window) => item.active) || sessionWindows[0] || null
   const activeWindowZoomed = useMemo(() => {
@@ -273,6 +270,23 @@ export function PaneGrid({
     const panes = Array.isArray(snapshotData?.panes) ? snapshotData.panes : []
     return panes.filter((pane: Pane) => pane.windowId === activeWindow.id).length
   }, [activeWindowZoomed, activeWindow, snapshotData])
+  const selectPaneById = useCallback(
+    async (paneId: string) => {
+      setActivePane(paneId)
+      try {
+        // keepZoom → select-pane -Z：zoom 全屏翻页语义，循环到的 pane 保持 zoom，
+        // 不掉回平铺；未 zoom 时网关侧为 no-op
+        const result = await api.panes.select(paneId, { keepZoom: activeWindowZoomed })
+        if (result?.ok === false) throw new Error(result.error || 'select pane failed')
+        void queryClient?.invalidateQueries({
+          queryKey: ['session-snapshot', activeHostId || 'local', sessionId || ''],
+        })
+      } catch {
+        pushToast({ type: 'error', message: t('pane.switchFailed') })
+      }
+    },
+    [activeWindowZoomed, setActivePane, queryClient, activeHostId, sessionId, pushToast, t],
+  )
   const switchPane = useCallback(
     async (direction: -1 | 1) => {
       const panes = Array.isArray(snapshotData?.panes) ? snapshotData.panes : []
@@ -288,21 +302,27 @@ export function PaneGrid({
       )
       const next = windowPanes[(currentIndex + direction + windowPanes.length) % windowPanes.length]
       if (!next || next.id === currentPaneId) return
-      setActivePane(next.id)
-      try {
-        // keepZoom → select-pane -Z：zoom 全屏翻页语义，循环到的 pane 保持 zoom，
-        // 不掉回平铺；未 zoom 时网关侧为 no-op
-        const result = await api.panes.select(next.id, { keepZoom: activeWindowZoomed })
-        if (result?.ok === false) throw new Error(result.error || 'select pane failed')
-        void queryClient?.invalidateQueries({
-          queryKey: ['session-snapshot', activeHostId || 'local', sessionId || ''],
-        })
-      } catch {
-        pushToast({ type: 'error', message: t('pane.switchFailed') })
-      }
+      await selectPaneById(next.id)
     },
-    [snapshotData, activeWindow, activeWindowZoomed, setActivePane, queryClient, activeHostId, sessionId, pushToast, t],
+    [snapshotData, activeWindow, selectPaneById],
   )
+  // display-panes 编号层（仅桌面端）：Alt+p 唤起，数字键直接跳到对应 pane/window
+  const activeWindowPanes = useMemo(() => {
+    const panes = Array.isArray(snapshotData?.panes) ? snapshotData.panes : []
+    const windowId = activeWindow?.id || ''
+    return panes.filter((pane: Pane) => pane.windowId === windowId)
+  }, [snapshotData, activeWindow])
+  const displayPanes = useDisplayPanes({
+    enabled: !isMobile,
+    panes: activeWindowPanes,
+    windows: sessionWindows,
+    zoomed: activeWindowZoomed,
+    onPickPane: (paneId: string) => void selectPaneById(paneId),
+    onPickWindow: (windowId: string) => {
+      const target = sessionWindows.find((window: Window) => window.id === windowId)
+      if (target) void selectWindowById(target)
+    },
+  })
   // 滑动切换后的方位提示（仅移动端）：数据全部从现有 windows/panes 算，不新增 store 字段
   const [switchHud, setSwitchHud] = useState<SwitchHudPayload | null>(null)
   const buildWindowHud = useCallback(
@@ -1392,6 +1412,7 @@ export function PaneGrid({
           </>
         )}
       </div>
+      {displayPanes.active && <PaneNumberOverlay mode={displayPanes.mode} targets={displayPanes.targets} />}
       {isMobile && <SwitchHud payload={switchHud} />}
       <TerminalPane
         sessionName={renderedSessionName}

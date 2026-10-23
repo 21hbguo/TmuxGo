@@ -729,6 +729,8 @@ export const zh = {
   'pane.closed': '面板已关闭',
   'pane.closeFailed': '关闭失败',
   'pane.zoomFailed': '聚焦失败',
+  'displayPanes.hint': '按数字跳到 pane · Esc 取消',
+  'displayPanes.hintWindows': '按数字跳到 window · Esc 取消',
   'switchHud.windowPosition': '窗口 {index}/{total}',
   'switchHud.panePosition': '面板 {index}/{total}',
   'switchHud.prev': '← {label}',
