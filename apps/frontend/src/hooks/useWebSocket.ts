@@ -40,7 +40,7 @@ type WSState = {
   closeTimer: ReturnType<typeof setTimeout> | null
   subscribers: number
   lastPongAt: number
-  onMessage: ((data: any) => void) | null
+  onMessage: ((data: ServerMessage) => void) | null
   onOpen: (() => void) | null
   onClose: (() => void) | null
   onError: (() => void) | null
@@ -82,6 +82,17 @@ type OutputMessage = {
   cell?:
     | { kind: 'snapshot'; snapshot: import('@/lib/terminal-grid/decode-cell').CellSnapshot }
     | { kind: 'diff'; diff: import('@/lib/terminal-grid/decode-cell').CellDiff }
+}
+// 服务端 JSON 帧：type 为分派键，其余字段按帧类型取用；开放式协议，索引签名兜底未列字段
+type ServerMessage = {
+  type?: string
+  timestamp?: number
+  data?: string
+  sessionName?: string | null
+  hostId?: string | null
+  compactHeader?: boolean
+  routeIdx?: unknown
+  [key: string]: unknown
 }
 const outputListeners = new Map<string, Set<(message: OutputMessage) => void>>()
 let cellLastSeq = 0
@@ -138,7 +149,7 @@ export function useWebSocket() {
       ?.forEach((listener) => listener(message))
   }, [])
   const handleMessage = useCallback(
-    (data: any) => {
+    (data: ServerMessage) => {
       switch (data.type) {
         case 'pong':
           wsState.lastPongAt = Date.now()
@@ -149,7 +160,8 @@ export function useWebSocket() {
         case 'output':
         case 'output_resync': {
           emitOutput({
-            data: data.data,
+            // output 帧契约上 data 必有；协议容错起见原样透传，不做补默认值
+            data: data.data as string,
             sessionName: data.sessionName ?? null,
             hostId: data.hostId ?? null,
             resync: data.type === 'output_resync',
@@ -547,7 +559,7 @@ export function useWebSocket() {
     },
     [connect, resetAndReconnect, sendPing],
   )
-  const send = useCallback((data: any) => {
+  const send = useCallback((data: Record<string, unknown> | null | undefined) => {
     const ws = wsState.ws
     if (ws?.readyState === WebSocket.OPEN) {
       // Oversized paste: binary paste-data frame to avoid JSON escape bloat.

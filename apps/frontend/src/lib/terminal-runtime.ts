@@ -20,7 +20,27 @@ import { recordMobileDebug, recordImeDebug } from './terminal-debug'
 import { openFileInEditor } from './editor-open'
 import { subscribeStreamEvent, STREAM_EVENT } from './stream-events'
 import type { useTranslation } from '@/i18n'
-import type { FileDocumentHandle, FileRoot } from '@/types'
+import type { FileDocumentHandle, FileRoot, TerminalPerfState } from '@/types'
+import type { Terminal, IDisposable } from '@xterm/xterm'
+import type { QueryClient } from '@tanstack/react-query'
+import type { Preferences } from '@/hooks/usePreferences'
+
+// stream 事件 detail：各事件共用 hostId/sessionName 路由字段，尺寸/版本字段按事件取用
+interface StreamEventDetail {
+  hostId?: string
+  sessionName?: string
+  cols?: unknown
+  rows?: unknown
+  exclusive?: boolean
+  windowVersion?: unknown
+  ownerEpoch?: unknown
+  localOnly?: boolean
+}
+// 各协作者为 hooks 返回的 useMemo 对象：用 import() 类型查询锁形，运行时零依赖
+type SelectionSync = ReturnType<typeof import('@/hooks/useTerminalSelectionSync').useTerminalSelectionSync>
+type PasteBridge = ReturnType<typeof import('@/hooks/useTerminalPasteBridge').useTerminalPasteBridge>
+type DropState = ReturnType<typeof import('@/hooks/useTerminalDrop').useTerminalDrop>
+type TouchScroll = ReturnType<typeof import('@/hooks/useTerminalTouchScroll').useTerminalTouchScroll>
 const SCROLLBACK_LIMIT = 600
 // 切换攒流的静默窗口：attached 后每条输出重置该计时，静默 40ms 视为本批齐了——
 // 能把 gateway attach 后 48ms 的 refresh-client 重绘（ATTACH_REDRAW_DELAYS）并进同一笔 write。
@@ -33,7 +53,7 @@ const SWITCH_CLEAR_SEQ = '\x1b[3J\x1b[2J\x1b[H'
 interface TerminalRuntimeOptions {
   container: HTMLElement
   isMobile: boolean
-  terminalInstance: { current: any }
+  terminalInstance: { current: Terminal | null }
   onInputRef: { current: ((data: string) => void) | undefined }
   onResizeRef: { current: ((cols: number, rows: number) => void) | undefined }
   onResizeActivityRef?: { current: (() => void) | undefined }
@@ -44,7 +64,7 @@ interface TerminalRuntimeOptions {
   attachExclusiveRef: { current: boolean }
   onReadyRef: { current: (() => void) | undefined }
   sessionNameRef: { current: string | undefined }
-  preferencesRef: { current: any }
+  preferencesRef: { current: Preferences }
   resubscribeOutputRef: { current: () => void }
   // 尺寸协商 controller：由 PaneGrid 注入时与发送面共享同一实例；
   // 未注入（如独立挂载）则按本端 onResize 消费情况自建
@@ -66,22 +86,22 @@ interface TerminalRuntimeOptions {
       }) => void,
     ) => () => void
   }
-  sendRef: { current: (data: any) => boolean }
+  sendRef: { current: (data: Record<string, unknown>) => boolean }
   resolvePaneAtPointRef: { current: (x: number, y: number) => string | null }
   paneResizeGuide: HTMLElement | null
   resizeMaskElement: HTMLElement | null
   switchVeilElement: HTMLElement | null
   resizeMaskApiRef: { current: ReturnType<typeof createTerminalResizeMask> | null }
-  queryClient: any
+  queryClient: QueryClient | null
   pushToast: (toast: { type: 'success' | 'error' | 'info'; message: string; durationMs?: number }) => void
   setActivePane: (paneId: string) => void
   updateTerminalPerf: (patch: Record<string, unknown>) => void
-  getTerminalPerf: () => any
-  selectionSync: any
+  getTerminalPerf: () => TerminalPerfState
+  selectionSync: SelectionSync
   onTerminalDragSelection: (info: { chars: number; x: number; y: number; source: 'xterm' | 'tmux' } | null) => void
-  pasteBridge: any
-  dropState: any
-  touchScroll: any
+  pasteBridge: PasteBridge
+  dropState: DropState
+  touchScroll: TouchScroll
   pinch: {
     handleTouchStart: (event: TouchEvent) => void
     handleTouchMove: (event: TouchEvent) => void
@@ -133,9 +153,9 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
   const queryClient = options.queryClient
   const syncPaneCwd = options.syncPaneCwd
   const ensureFileRoots = options.ensureFileRoots
-  let terminal: any = null
+  let terminal: Terminal | null = null
   let resizeObserver: ResizeObserver | null = null
-  const disposables: any[] = []
+  const disposables: IDisposable[] = []
   let disposed = false
   let readyNotified = false
   let attachEventCount = 0
@@ -428,7 +448,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     const fontReady = core.fontReady
     disposables.push(...core.disposables)
     terminalInstance.current = terminal
-    ;(window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal = terminal
+    ;(window as typeof window & { __tmuxgoTerminal?: Terminal }).__tmuxgoTerminal = terminal
     void snapshotLoader.load()
     const da2Handler = terminal.parser?.registerCsiHandler?.({ prefix: '>', final: 'c' }, () => true)
     if (da2Handler) {
@@ -465,7 +485,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       layout.applyTerminalOptions()
       layout.clearTerminalRendererCache()
       try {
-        terminal.refresh(0, Math.max(0, terminal.rows - 1))
+        terminal!.refresh(0, Math.max(0, terminal!.rows - 1))
       } catch {}
       layout.scheduleLayoutSync(0, true, true)
       layout.scheduleFontLayout()
@@ -568,7 +588,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       lastKeyboardOpen = nextOpen
       if (isMobileDevice) cancelTmuxCopyMode()
     }
-    const handleAttached = (detail: any = {}) => {
+    const handleAttached = (detail: StreamEventDetail = {}) => {
       if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
       if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
       const cols = Number(detail.cols)
@@ -638,7 +658,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
         else if (sizeChanged) layout.softRecoverTerminalScreen('attached', true)
       }
     }
-    const handleResized = (detail: any = {}) => {
+    const handleResized = (detail: StreamEventDetail = {}) => {
       if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
       if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
       const cols = Number(detail.cols)
@@ -658,7 +678,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       // 屏障期间尺寸可能又变了（如快速 A->B->A 后到达的旧 ACK）：回调里复核
       revealMaskAfterWrites(generation, () => cols === terminal?.cols && rows === terminal?.rows)
     }
-    const handleResizeAbort = (detail: any = {}) => {
+    const handleResizeAbort = (detail: StreamEventDetail = {}) => {
       if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
       if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
       // error/detached 后不会再有 resized ACK：清在途标记让遮罩走兜底揭开
@@ -668,7 +688,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     }
     // 服务端 window 尺寸仲裁推送：本端 client pty 已被同步到该尺寸，
     // 前端须把渲染网格对齐过去，否则旧列宽帧在新 pty 坐标系下错位残缺
-    const handleWindowSize = (detail: any = {}) => {
+    const handleWindowSize = (detail: StreamEventDetail = {}) => {
       if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
       if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
       const cols = Number(detail.cols)

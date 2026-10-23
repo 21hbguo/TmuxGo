@@ -1,7 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { api } from './api'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import type { InboxMessageRoute } from '@/types'
+import type { InboxMessageRoute, Session, Window } from '@/types'
 
 // 跨 window 选 pane 的唯一正确顺序（与 MobileDrawer.handleSelectPane 同链）：
 // 先 select-window 再 select-pane，顺序不能颠倒；最后回填 snapshot cache + activePane
@@ -23,8 +23,8 @@ export async function selectPaneInSession(options: {
 export type InboxNavigateResult = 'pane' | 'session' | 'not-found' | 'no-target' | 'error'
 
 async function findSessionByName(hostId: string, name: string) {
-  const sessions = await api.sessions.list(hostId).catch(() => [] as any[])
-  return (sessions as any[]).find((item) => item?.name === name) || null
+  const sessions = await api.sessions.list(hostId).catch(() => [] as Session[])
+  return sessions.find((item) => item?.name === name) || null
 }
 
 // inbox 消息 route → 真实导航：先 setActiveHost/setActiveSession，再走 selectPaneInSession。
@@ -60,20 +60,21 @@ export async function navigateInboxRoute(
     if (!session?.id) return 'not-found'
     sessionIds = [session.id]
   } else {
-    const sessions = await api.sessions.list(hostId).catch(() => [] as any[])
+    const sessions = await api.sessions.list(hostId).catch(() => [] as Session[])
     const state = useConsoleStore.getState()
-    sessionIds = (sessions as any[]).map((item) => item.id).filter(Boolean)
+    sessionIds = sessions.map((item) => item.id).filter(Boolean)
     // 优先在当前 session 内命中，找不到再查同 host 其它 session
     if (state.activeHostId === hostId && state.activeSessionId && sessionIds.includes(state.activeSessionId))
       sessionIds = [state.activeSessionId, ...sessionIds.filter((id) => id !== state.activeSessionId)]
   }
   for (const sessionId of sessionIds) {
     const snapshot = await api.snapshot.get(hostId, sessionId).catch(() => null)
-    const panes = (snapshot?.panes || []) as any[]
+    const panes = snapshot?.panes || []
     const pane = panes.find((item) => item.id === paneKey || (route.tmuxPaneId && item.tmuxPaneId === route.tmuxPaneId))
     if (!pane) continue
     activate(sessionId)
-    const activeWindowId = snapshot?.activeWindowId || snapshot?.windows?.find?.((item: any) => item.active)?.id || null
+    const activeWindowId =
+      snapshot?.activeWindowId || snapshot?.windows?.find?.((item: Window) => item.active)?.id || null
     try {
       await selectPaneInSession({ hostId, sessionId, pane, activeWindowId, queryClient })
     } catch {

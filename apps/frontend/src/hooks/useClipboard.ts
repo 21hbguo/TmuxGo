@@ -30,7 +30,12 @@ export function useClipboard() {
   return { copy, paste, copied }
 }
 
-export function copyTerminalSelection(terminal: any): string | null {
+// xterm Terminal 或测试 mock：仅依赖 getSelection 公共 API
+interface SelectionReadableTerminal {
+  getSelection: () => string | undefined
+}
+
+export function copyTerminalSelection(terminal: SelectionReadableTerminal | null | undefined): string | null {
   if (!terminal) return null
   const selection = terminal.getSelection()
   if (selection) {

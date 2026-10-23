@@ -1,6 +1,12 @@
 import { applyCellToXterm } from './terminal-grid/apply-cell'
+import type { CellDiff, CellSnapshot } from './terminal-grid/decode-cell'
+// xterm 写入侧最小切面：write 直下 + getSelection 探活，测试 mock 同形
+interface WritableTerminal {
+  write?: (data: string) => void
+  getSelection?: () => string
+}
 interface TerminalOutputInputOptions {
-  getTerminal: () => any
+  getTerminal: () => WritableTerminal | null | undefined
   pushOutput: (data: string) => void
   disposeOutput: () => void
   isDesktopImeComposing: () => boolean
@@ -18,7 +24,7 @@ type OutputPayload = {
   sessionName?: string | null
   hostId?: string | null
   resync?: boolean
-  cell?: { kind: 'snapshot'; snapshot: any } | { kind: 'diff'; diff: any }
+  cell?: { kind: 'snapshot'; snapshot: CellSnapshot } | { kind: 'diff'; diff: CellDiff }
 }
 const SELECTION_HOLD_MAX_BUFFER = 1024 * 1024
 const SELECTION_HOLD_CHECK_MS = 800
@@ -70,7 +76,7 @@ export function createTerminalOutputInput(options: TerminalOutputInputOptions) {
     // cell 帧优先直写 xterm buffer（失败才退回 ANSI write 管道）
     if (payload.cell) {
       if (!terminal) return
-      if (applyCellToXterm(terminal, payload.cell as any)) {
+      if (applyCellToXterm(terminal, payload.cell)) {
         options.onRawOutput?.(raw || '')
         outputSinceLastAttach = true
         options.controlCarryRef.current = ''
