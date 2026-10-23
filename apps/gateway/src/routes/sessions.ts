@@ -2,7 +2,13 @@ import type { FastifyInstance } from 'fastify'
 import path from 'path'
 import { stat } from 'fs/promises'
 import { getTemplateWindowTargets, type SessionTemplateLayout } from '../lib/template-utils.js'
-import { assertSessionAllowed, isValidSessionName, prepareSessionAttach } from '../lib/tmux-policy.js'
+import {
+  applyCreatedSessionDefaults,
+  assertSessionAllowed,
+  isValidSessionName,
+  prepareSessionAttach,
+  raiseServerHistoryLimit,
+} from '../lib/tmux-policy.js'
 import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
 import { execTmux, execHostShell } from '../lib/tmux-executor.js'
 import { getHostAgentPanes, summarizeAgentPanes } from '../lib/agent-state.js'
@@ -496,7 +502,10 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       if (normalizedCwd) await assertCwdExists(hostId, normalizedCwd)
       const newSessionArgs = ['-d', '-s', name, '-e', 'TMUXGO_ENV=1']
       if (normalizedCwd) newSessionArgs.push('-c', normalizedCwd)
+      // 先抬全局下限再建 session：首个 pane 在创建时固化 history-limit，事后改不回来
+      await raiseServerHistoryLimit(hostId)
       await execTmux(hostId, ['new-session', ...newSessionArgs])
+      await applyCreatedSessionDefaults(hostId, name)
       if (layout?.windows?.length) {
         try {
           const layoutWithCwd: SessionTemplateLayout = normalizedCwd
@@ -695,7 +704,9 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       throw new Error(`Session already exists: ${sessionName} (set replace=true to overwrite)`)
     if (existing) await execTmux(hostId, ['kill-session', '-t', exactSessionTarget(sessionName)])
     try {
+      await raiseServerHistoryLimit(hostId)
       await execTmux(hostId, ['new-session', '-d', '-s', sessionName, '-e', 'TMUXGO_ENV=1'])
+      await applyCreatedSessionDefaults(hostId, sessionName)
       await applyTemplateLayout(hostId, sessionName, layout)
     } catch (err) {
       await cleanupSession(hostId, sessionName)

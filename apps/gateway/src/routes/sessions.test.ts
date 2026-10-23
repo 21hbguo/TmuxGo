@@ -43,6 +43,38 @@ test('creating a session with a missing cwd fails with a clear error', async () 
     await killTestTmuxSession()
   }
 })
+test('creating a session pins history-limit so pane history depth is deterministic', async () => {
+  const sessionName = TEST_TMUX_SESSION
+  const fastify = Fastify()
+  await fastify.register(sessionRoutes)
+  try {
+    // 同文件其它用例可能留下同名 session（命中已存在分支就跳过默认值），先清干净
+    await killTestTmuxSession()
+    const response = await fastify.inject({
+      method: 'POST',
+      url: '/hosts/local/sessions',
+      payload: { name: sessionName },
+    })
+    assert.equal(response.statusCode, 200)
+    // 首 pane 的额度在创建瞬间固化，策略是「升到 20000，但宿主更高时不降级」
+    const { stdout } = await execTmuxFile('tmux', ['display-message', '-p', '-t', sessionName, '#{history_limit}'])
+    assert.ok(Number(stdout.trim()) >= 20000, `history_limit=${stdout.trim()}`)
+    // 新建 pane 走 session 级策略值，与全局值无关
+    await execTmuxFile('tmux', ['split-window', '-t', sessionName])
+    const { stdout: panes } = await execTmuxFile('tmux', [
+      'list-panes',
+      '-s',
+      '-t',
+      sessionName,
+      '-F',
+      '#{history_limit}',
+    ])
+    for (const value of panes.trim().split('\n')) assert.ok(Number(value) >= 20000, `pane history_limit=${value}`)
+  } finally {
+    await fastify.close()
+    await killTestTmuxSession()
+  }
+})
 test('creating a session with a valid cwd starts in that directory', async () => {
   const sessionName = TEST_TMUX_SESSION
   const cwd = process.cwd()
