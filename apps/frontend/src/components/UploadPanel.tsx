@@ -16,6 +16,7 @@ import {
 } from '@/lib/file-meta'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useFileRoots, useHosts } from '@/hooks/useApi'
+import type { Host } from '@/types'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
@@ -68,10 +69,10 @@ export function UploadPanel({ mode = 'desktop', onClose }: { mode?: 'mobile' | '
   }, [roots, targetRootId])
 
   const hostOptions = useMemo(() => {
-    const online = hosts.filter((host: any) => host.status === 'online' || host.id === 'local')
+    const online = hosts.filter((host: Host) => host.status === 'online' || host.id === 'local')
     const list = online.length ? online : hosts
     return list.length
-      ? list.map((host: any) => ({ value: host.id, label: host.name || host.id }))
+      ? list.map((host: Host) => ({ value: host.id, label: host.name || host.id }))
       : [{ value: 'local', label: 'local' }]
   }, [hosts])
   const rootOptions = roots.map((item) => ({ value: item.id, label: `${item.label} · ${item.path}` }))

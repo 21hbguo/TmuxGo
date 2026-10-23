@@ -15,7 +15,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useFileRoots, useSessionSnapshot } from '@/hooks/useApi'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
-import type { FileUploadTarget } from '@/types'
+import type { FileUploadTarget, Pane } from '@/types'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
 import { Select } from './Select'
@@ -46,7 +46,7 @@ export function UploadConfirmDialog() {
   // 终端输入通道只到达当前附着会话的活动 pane——插入目标限定该会话内 pane，
   // 否则会出现"选了 A 窗格却写进 B"的静默错投
   const { data: insertSnapshot } = useSessionSnapshot(activeHostId || '', activeSessionId || '')
-  const insertPaneOptions = (insertSnapshot?.panes || []).map((pane: any) => ({
+  const insertPaneOptions = (insertSnapshot?.panes || []).map((pane: Pane) => ({
     value: pane.id as string,
     label: `${pane.windowName ? `${pane.windowName} · ` : ''}${pane.title || pane.id} · ${pane.tmuxPaneId || pane.id.split(':').pop()}`,
   }))
@@ -184,7 +184,7 @@ export function UploadConfirmDialog() {
     }
     try {
       if (opts.paneId !== activePaneId) {
-        const pane = (insertSnapshot?.panes || []).find((item: any) => item.id === opts.paneId)
+        const pane = (insertSnapshot?.panes || []).find((item: Pane) => item.id === opts.paneId)
         if (!pane) throw new Error(t('upload.insertNoPane'))
         if (pane.windowId && pane.windowId !== insertSnapshot?.activeWindowId && activeHostId && activeSessionId)
           await api.windows.select(activeHostId, activeSessionId, pane.windowId)

@@ -56,7 +56,7 @@ interface TerminalPaneProps {
       resync?: boolean
     }) => void,
   ) => () => void
-  send?: (data: any) => boolean
+  send?: (data: Record<string, unknown>) => boolean
   onSwipeLeft?: () => void
   onSwipeRight?: () => void
 }

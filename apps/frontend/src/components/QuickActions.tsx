@@ -30,7 +30,7 @@ import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
 import { WatchButton } from './PaneNotifications'
 import { KeyCap } from './KeyCap'
 import { FiCheckSquare, FiCommand, FiEdit2, FiTrash2 } from 'react-icons/fi'
-import type { CustomShortcut } from '@/types'
+import type { CustomShortcut, Window } from '@/types'
 
 const repeatDelay = 300
 const repeatInterval = 33
@@ -65,7 +65,7 @@ function useQuickActionController() {
   const { data: windowsData = [] } = useWindows(activeHostId || '', activeSessionId || '')
   const { setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const [pendingDirection, setPendingDirection] = useState<'horizontal' | 'vertical' | null>(null)
-  const activeWindow = useMemo(() => windowsData.find((w: any) => w.active) || windowsData[0] || null, [windowsData])
+  const activeWindow = useMemo(() => windowsData.find((w: Window) => w.active) || windowsData[0] || null, [windowsData])
   const canSplit = !!activeSessionId && !!activeWindow && !pendingDirection
   const { send } = useWebSocket()
   const { refreshSnapshot, resolveFreshActivePaneId, optimisticallyToggleWindowZoom, discardOptimisticWindowZoom } =
@@ -401,7 +401,7 @@ function useQuickActionController() {
       pushToast({ type: 'error', message: t('window.createMissingSession') })
       return
     }
-    const baseCount = windowsData.filter((item: any) => item.sessionId === activeSessionId).length
+    const baseCount = windowsData.filter((item: Window) => item.sessionId === activeSessionId).length
     setNewWindowName(`win-${baseCount + 1}`)
     setNewWindowPromptOpen(true)
   }, [activeHostId, activeSessionId, pushToast, t, windowsData])

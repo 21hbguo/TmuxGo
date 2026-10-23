@@ -1,6 +1,7 @@
 'use client'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useHosts } from '@/hooks/useApi'
+import type { Host } from '@/types'
 import { useTranslation } from '@/i18n'
 import { Select } from './Select'
 
@@ -9,7 +10,7 @@ export function HostSwitcher({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile'
   const setActiveHost = useConsoleStore((state) => state.setActiveHost)
   const { data: hosts = [] } = useHosts()
   const { t } = useTranslation()
-  const activeHost = hosts.find((host: any) => host.id === activeHostId) || hosts[0]
+  const activeHost = hosts.find((host: Host) => host.id === activeHostId) || hosts[0]
   if (!activeHost) return null
   const statusClass =
     activeHost.status === 'online' ? 'bg-accent' : activeHost.status === 'offline' ? 'bg-danger' : 'bg-warn'
@@ -40,7 +41,7 @@ export function HostSwitcher({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile'
           variant="inline"
           value={activeHostId || activeHost.id}
           onChange={setActiveHost}
-          options={hosts.map((host: any) => ({ value: host.id, label: host.name }))}
+          options={hosts.map((host: Host) => ({ value: host.id, label: host.name }))}
           className="min-w-0 flex-1 text-xs"
           aria-label={t('hostSwitcher.label')}
         />

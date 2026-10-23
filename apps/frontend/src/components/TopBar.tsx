@@ -5,6 +5,7 @@ import { useElementPickerStore } from '@/stores/useElementPickerStore'
 import { ConnectionBadge } from './ConnectionBadge'
 import { useTranslation } from '@/i18n'
 import { useHosts, useSessions } from '@/hooks/useApi'
+import type { Host, Session } from '@/types'
 import { FiCrosshair, FiSettings } from 'react-icons/fi'
 
 export function TopBar() {
@@ -16,8 +17,8 @@ export function TopBar() {
   const { data: sessions = [] } = useSessions(activeHostId || '')
   const { t } = useTranslation()
 
-  const activeHost = hosts.find((h: any) => h.id === activeHostId)
-  const activeSession = sessions.find((s: any) => s.id === activeSessionId)
+  const activeHost = hosts.find((h: Host) => h.id === activeHostId)
+  const activeSession = sessions.find((s: Session) => s.id === activeSessionId)
 
   return (
     <header className="tmuxgo-glass tmuxgo-glass-chrome relative z-30 flex h-14 shrink-0 items-center border-b px-3">

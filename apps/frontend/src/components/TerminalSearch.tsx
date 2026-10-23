@@ -5,8 +5,18 @@ import { Button } from './Button'
 import { useTranslation } from '@/i18n'
 import { isImeKeyEvent } from '@/lib/terminal-platform'
 
+// SearchAddon 无法从 xterm 实例公开拿到，只能穿 _addonManager 私有结构找；
+// 这里只声明用到的最小形状，xterm Terminal 本体可直接传入（全可选）
+interface SearchAddonInstance {
+  findNext?: (query: string, options?: object) => boolean
+  findPrevious?: (query: string, options?: object) => boolean
+}
+interface TerminalSearchHost {
+  _addonManager?: { _addons?: { instance?: SearchAddonInstance }[] }
+}
+
 interface TerminalSearchProps {
-  terminal: any
+  terminal: TerminalSearchHost | null
   onClose: () => void
 }
 
@@ -27,9 +37,9 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
       setResults([])
       return
     }
-    const searchAddon = terminal._addonManager?._addons?.find((a: any) => a.instance?.findNext)?.instance
+    const searchAddon = terminal._addonManager?._addons?.find((a) => a.instance?.findNext)?.instance
     if (searchAddon) {
-      searchAddon.findNext(term, {})
+      searchAddon.findNext?.(term, {})
       setResults([0])
       setCurrentResult(0)
     }
@@ -37,12 +47,12 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
 
   const navigateResult = (direction: number) => {
     if (!terminal) return
-    const searchAddon = terminal._addonManager?._addons?.find((a: any) => a.instance?.findNext)?.instance
+    const searchAddon = terminal._addonManager?._addons?.find((a) => a.instance?.findNext)?.instance
     if (searchAddon) {
       if (direction > 0) {
-        searchAddon.findNext(query, {})
+        searchAddon.findNext?.(query, {})
       } else {
-        searchAddon.findPrevious(query, {})
+        searchAddon.findPrevious?.(query, {})
       }
     }
   }

@@ -5,6 +5,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
 import { useWindows } from '@/hooks/useApi'
+import type { Window } from '@/types'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { useTranslation } from '@/i18n'
 
@@ -24,7 +25,7 @@ export function WindowList() {
   const [dragOverItem, setDragOverItem] = useState<WindowItem | null>(null)
   const { t } = useTranslation()
 
-  const sessionWindows = windows.filter((w: any) => w.sessionId === activeSessionId)
+  const sessionWindows = windows.filter((w: Window) => w.sessionId === activeSessionId)
 
   const handleDragStart = (e: React.DragEvent, window: WindowItem) => {
     setDraggedItem(window)
@@ -68,7 +69,7 @@ export function WindowList() {
       ref={bindHorizontalWheelScroll}
       className="tmuxgo-scrollbar-subtle flex items-center gap-1 overflow-x-auto border-b border-[var(--line)] bg-bg-1 p-1"
     >
-      {sessionWindows.map((window: any) => (
+      {sessionWindows.map((window: Window) => (
         <div
           key={window.id}
           draggable

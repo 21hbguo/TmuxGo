@@ -129,11 +129,11 @@ export function ZoomSurface({
       pinchRef.current = null
       touchDragRef.current = null
     }
-    const handleGestureStart = (event: any) => {
+    const handleGestureStart = (event: Event & { scale?: number }) => {
       gestureRef.current = scaleRef.current / (event.scale || 1)
       event.preventDefault?.()
     }
-    const handleGestureChange = (event: any) => {
+    const handleGestureChange = (event: Event & { scale?: number }) => {
       if (gestureRef.current === null) return
       event.preventDefault?.()
       updateScale(gestureRef.current * (event.scale || 1))

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useCreateSession, useDeleteSession, useRenameSession, useSessions } from '@/hooks/useApi'
+import type { Session } from '@/types'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { getDefaultSessionName } from '@/lib/session-template'
 import { parseSessionName } from '@/lib/session-id'
@@ -108,7 +109,7 @@ export function Sidebar() {
   const handleRenameSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation()
     if (!activeHostId) return
-    const session = sessions.find((item: any) => item.id === sessionId)
+    const session = sessions.find((item: Session) => item.id === sessionId)
     const name = await prompt(t('drawer.renamePrompt'), session?.name || '')
     if (!name || name === session?.name) return
     try {
@@ -122,12 +123,12 @@ export function Sidebar() {
 
   const confirmDeleteSession = async () => {
     if (!activeHostId || !pendingDeleteSessionId) return
-    const session = sessions.find((s: any) => s.id === pendingDeleteSessionId)
+    const session = sessions.find((s: Session) => s.id === pendingDeleteSessionId)
     const name = session?.name || pendingDeleteSessionId
     try {
       await deleteSession.mutateAsync({ hostId: activeHostId, sessionId: pendingDeleteSessionId })
       if (activeSessionId === pendingDeleteSessionId) {
-        const remaining = sessions.filter((s: any) => s.id !== pendingDeleteSessionId)
+        const remaining = sessions.filter((s: Session) => s.id !== pendingDeleteSessionId)
         setActiveSession(remaining[0]?.id || '')
       }
       pushToast({ type: 'success', message: t('session.deleted', { name }) })
@@ -150,7 +151,7 @@ export function Sidebar() {
           </Button>
         </div>
         <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
-          {sessions.map((session: any) => (
+          {sessions.map((session: Session) => (
             <div key={session.id} className="relative flex items-center gap-1 pr-2">
               <button
                 onClick={() => setActiveSession(session.id)}
@@ -213,7 +214,7 @@ export function Sidebar() {
         open={!!pendingDeleteSessionId}
         title={t('sidebar.deleteTitle')}
         message={t('sidebar.deleteConfirm', {
-          name: sessions.find((s: any) => s.id === pendingDeleteSessionId)?.name || '',
+          name: sessions.find((s: Session) => s.id === pendingDeleteSessionId)?.name || '',
         })}
         confirmLabel={t('sidebar.confirmDelete')}
         cancelLabel={t('common.cancel')}

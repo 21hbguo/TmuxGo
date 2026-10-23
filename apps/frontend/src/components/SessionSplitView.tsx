@@ -5,6 +5,7 @@ import { useSplitGroups, type SessionSplitGroup } from '@/hooks/useSplitGroups'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { useSessionSocket } from '@/hooks/useSessionSocket'
 import { useSessions } from '@/hooks/useApi'
+import type { Session } from '@/types'
 import { PaneGrid } from './PaneGrid'
 import { ShortcutBar } from './ShortcutBar'
 import { useTranslation } from '@/i18n'
@@ -26,9 +27,10 @@ export function SessionSplitView({ group }: { group: SessionSplitGroup }) {
   const [previewRatio, setPreviewRatio] = useState<number | null>(null)
   const ratio = previewRatio ?? group.primaryRatio
   const horizontal = group.direction === 'horizontal'
-  const primaryName = sessions.find((item: any) => item.id === group.primarySessionId)?.name || group.primarySessionId
+  const primaryName =
+    sessions.find((item: Session) => item.id === group.primarySessionId)?.name || group.primarySessionId
   const secondaryName =
-    sessions.find((item: any) => item.id === group.secondarySessionId)?.name || group.secondarySessionId
+    sessions.find((item: Session) => item.id === group.secondarySessionId)?.name || group.secondarySessionId
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
       e.preventDefault()

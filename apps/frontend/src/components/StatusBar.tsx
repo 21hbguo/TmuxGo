@@ -5,6 +5,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 import { useSystemInfo } from '@/hooks/useSystemInfo'
 import { useHosts, useSessions, useSessionSnapshot } from '@/hooks/useApi'
+import type { Host, Pane } from '@/types'
 import { Chip } from './Chip'
 import { AgentStatusBadge } from './AgentStatusBadge'
 import { subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
@@ -159,8 +160,8 @@ export function StatusBar() {
       })
   }
 
-  const activePane = panes.find((p: any) => p.id === activePaneId)
-  const activeHost = hosts.find((h: any) => h.id === activeHostId)
+  const activePane = panes.find((p: Pane) => p.id === activePaneId)
+  const activeHost = hosts.find((h: Host) => h.id === activeHostId)
   const missingDependencies = sys
     ? Object.entries(sys.dependencies)
         .filter(([, available]) => !available)

@@ -749,7 +749,7 @@ export function FilePanel({
   )
   const visibleItems = useMemo(() => {
     const filtered = items.filter(
-      (item: any) =>
+      (item: FileItem) =>
         (!hideDotFiles || !isDotPath(item.path || item.name)) && matchesFileTypeFilter(item, fileTypeFilter),
     )
     if (showSearchResults) return filtered
@@ -2528,7 +2528,7 @@ export function FilePanel({
         ]
       })
   const renderMobileList = (entries: FileEntry[]): React.ReactNode[] =>
-    entries.map((item: any) =>
+    entries.map((item: FileEntry) =>
       item.type === 'directory' ? (
         <button
           key={`${item.type}-${item.path}`}
