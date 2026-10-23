@@ -5,21 +5,41 @@ import { EditorWorkbench } from '@/components/EditorWorkbench'
 import { OPEN_EDITOR_LOCATION_EVENT } from '@/lib/editor-open'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { EditorGroupState, EditorLayoutNode } from '@/stores/useConsoleStore'
+import type { FileDocumentHandle, FileEditorDocument } from '@/types'
+
+// Monaco stub 实例形状：断言只读 mock.calls，故各方法统一按 vi.fn() 收口
+interface MonacoStubInstance {
+  setPosition: ReturnType<typeof vi.fn>
+  revealPositionInCenter: ReturnType<typeof vi.fn>
+  focus: ReturnType<typeof vi.fn>
+  getPosition: ReturnType<typeof vi.fn>
+  getModel: ReturnType<typeof vi.fn>
+  getAction: ReturnType<typeof vi.fn>
+  onDidChangeCursorPosition: ReturnType<typeof vi.fn>
+  onMouseDown: ReturnType<typeof vi.fn>
+  onDidDispose: ReturnType<typeof vi.fn>
+}
+interface MonacoStubProps {
+  value: string
+  path: string
+  onChange: (value: string) => void
+  onMount?: (instance: MonacoStubInstance) => void
+}
 
 const resolveDefinitionMock = vi.hoisted(() => vi.fn())
 const contentMock = vi.hoisted(() => vi.fn())
 // 每个 editor.id 一个实例记录：捕获 onMount 时机的 setPosition/reveal 调用
-const instances = vi.hoisted(() => ({ byEditor: {} as Record<string, any[]> }))
+const instances = vi.hoisted(() => ({ byEditor: {} as Record<string, MonacoStubInstance[]> }))
 const mountedEditorIdRef = vi.hoisted(() => ({ current: null as string | null }))
 
 vi.mock('@/lib/code-navigation', () => ({
-  resolveEditorDefinition: (...args: any[]) => resolveDefinitionMock(...args),
+  resolveEditorDefinition: (...args: unknown[]) => resolveDefinitionMock(...args),
   warmupCodeNavigation: () => {},
 }))
 vi.mock('@/lib/api', () => ({
   api: {
     files: {
-      content: (...args: any[]) => contentMock(...args),
+      content: (...args: unknown[]) => contentMock(...args),
       searchContent: vi.fn(async () => []),
       preview: vi.fn(async () => ({ modifiedAt: '' })),
       imageUrl: vi.fn(() => ''),
@@ -28,17 +48,17 @@ vi.mock('@/lib/api', () => ({
   fetchApiBlob: vi.fn(async () => new Blob()),
 }))
 vi.mock('@/lib/dynamic', () => ({
-  default: (loader: any) =>
+  default: (loader: () => Promise<unknown>) =>
     loader.toString().includes('mod.DiffEditor')
       ? () => React.createElement('div', { 'data-testid': 'diff-editor' })
-      : ({ value, path, onChange: _onChange, onMount }: any) => {
+      : ({ value, path, onChange: _onChange, onMount }: MonacoStubProps) => {
           const mountedRef = React.useRef(false)
           React.useEffect(() => {
             if (mountedRef.current) return
             mountedRef.current = true
             const pos = { lineNumber: 1, column: 1 }
             const instance = {
-              setPosition: vi.fn((p: any) => {
+              setPosition: vi.fn((p: { lineNumber: number; column: number }) => {
                 pos.lineNumber = p.lineNumber
                 pos.column = p.column
               }),
@@ -63,10 +83,15 @@ vi.mock('@/hooks/usePreferences', () => ({
 }))
 vi.mock('@/hooks/useApi', () => ({ useGitDetect: () => ({ data: { isGitRepo: false } }) }))
 vi.mock('@/i18n', () => ({
-  useTranslation: () => ({ t: (key: string, opts?: any) => (opts?.name ? `${key}:${opts.name}` : key) }),
+  useTranslation: () => ({ t: (key: string, opts?: { name?: string }) => (opts?.name ? `${key}:${opts.name}` : key) }),
 }))
 
-function createEditor(id: string, path: string, content: string, overrides: Record<string, any> = {}) {
+function createEditor(
+  id: string,
+  path: string,
+  content: string,
+  overrides: Partial<FileEditorDocument> = {},
+): FileEditorDocument {
   return {
     id,
     hostId: 'local',
@@ -86,8 +111,8 @@ function createEditor(id: string, path: string, content: string, overrides: Reco
     saving: false,
     binary: false,
     truncated: false,
-    kind: 'file',
-    type: 'file',
+    kind: 'file' as const,
+    type: 'file' as const,
     ...overrides,
   }
 }
@@ -97,7 +122,7 @@ function createGroup(id: string, editorIds: string[], activeEditorId: string | n
 const leaf = (groupId: string): EditorLayoutNode => ({ id: `layout-${groupId}`, type: 'group', groupId })
 
 function setState(
-  openEditors: any[],
+  openEditors: FileEditorDocument[],
   groups: EditorGroupState[],
   activeEditorId: string | null,
   activeGroupId: string,
@@ -116,7 +141,7 @@ function setState(
     editorSplitDirection: null,
     editorSplitRatio: 0.5,
     activeEditorSlot: 'primary',
-  } as any)
+  })
 }
 
 // 包装 EditorWorkbench：渲染时记录当前挂的是哪个 editor.id
@@ -126,14 +151,14 @@ function Probe() {
   const layout = useConsoleStore((s) => s.editorLayout)
   const activeId = useConsoleStore((s) => s.activeEditorId)
   // 找当前渲染中的 group active editor 写入 mountedEditorIdRef
-  const gid = (layout as any)?.groupId || groups[0]?.id
+  const gid = (layout?.type === 'group' ? layout.groupId : undefined) || groups[0]?.id
   const g = groups.find((x) => x.id === gid)
   const cur = openEditors.find((e) => e.id === (g?.activeEditorId || activeId))
   mountedEditorIdRef.current = cur?.id || null
-  return React.createElement(EditorWorkbench as any, {
+  return React.createElement(EditorWorkbench, {
     onSaveEditor: async () => {},
-    onOpenFile: async (f: any) => f.id,
-    onOpenFileAtPosition: async (f: any) => f.id,
+    onOpenFile: async (f: FileDocumentHandle) => f.id,
+    onOpenFileAtPosition: async (f: FileDocumentHandle) => f.id,
     onCreateCompare: async () => {},
   })
 }
@@ -153,7 +178,7 @@ describe('definition jump location handoff', () => {
       editorGroups: [],
       editorLayout: null,
       activeEditorGroupId: null,
-    } as any)
+    })
   })
 
   it('target NOT open: pending location applied on fresh mount', async () => {
@@ -188,7 +213,7 @@ describe('definition jump location handoff', () => {
         inst.revealPositionInCenter.mock.calls,
       )
     expect(targetInstances.length).toBeGreaterThan(0)
-    expect(targetInstances.at(-1).setPosition).toHaveBeenCalledWith({ lineNumber: 84, column: 5 })
+    expect(targetInstances.at(-1)?.setPosition).toHaveBeenCalledWith({ lineNumber: 84, column: 5 })
   })
 
   it('target open as background tab in same group', async () => {
@@ -208,7 +233,7 @@ describe('definition jump location handoff', () => {
     console.log('B target instances:', targetInstances.length)
     for (const inst of targetInstances) console.log('B setPosition calls:', inst.setPosition.mock.calls)
     expect(targetInstances.length).toBeGreaterThan(0)
-    expect(targetInstances.at(-1).setPosition).toHaveBeenCalledWith({ lineNumber: 84, column: 5 })
+    expect(targetInstances.at(-1)?.setPosition).toHaveBeenCalledWith({ lineNumber: 84, column: 5 })
   })
 
   it('target open as ACTIVE editor in another group (already mounted)', async () => {
@@ -233,7 +258,7 @@ describe('definition jump location handoff', () => {
       editorSecondaryGroupIds: [target.id],
       editorSecondaryId: target.id,
       editorSplitDirection: 'horizontal',
-    } as any)
+    })
     render(React.createElement(Probe))
     await act(async () => {
       await new Promise((r) => setTimeout(r, 20))
@@ -251,7 +276,7 @@ describe('definition jump location handoff', () => {
     console.log('C target instances:', targetInstances.length)
     for (const inst of targetInstances) console.log('C setPosition calls:', inst.setPosition.mock.calls)
     expect(targetInstances.length).toBeGreaterThan(0)
-    expect(targetInstances.at(-1).setPosition).toHaveBeenCalledWith({ lineNumber: 84, column: 5 })
+    expect(targetInstances.at(-1)?.setPosition).toHaveBeenCalledWith({ lineNumber: 84, column: 5 })
   })
 
   // 回归：pending 落位成功后目标被 loading 门重挂（openFileInEditor reload 竞态），
@@ -274,7 +299,7 @@ describe('definition jump location handoff', () => {
       await new Promise((r) => setTimeout(r, 30))
     })
     const first = instances.byEditor[target.absolutePath].at(-1)
-    expect(first.setPosition).toHaveBeenCalledWith({ lineNumber: 84, column: 5 })
+    expect(first?.setPosition).toHaveBeenCalledWith({ lineNumber: 84, column: 5 })
 
     // 模拟 reload：loading 门卸载 Monaco 再重挂（新实例）；分 act 确保中间态真实提交
     await act(async () => {
@@ -286,6 +311,6 @@ describe('definition jump location handoff', () => {
     })
     const remounted = instances.byEditor[target.absolutePath]
     expect(remounted.length).toBe(2)
-    expect(remounted.at(-1).setPosition).toHaveBeenCalledWith({ lineNumber: 84, column: 5 })
+    expect(remounted.at(-1)?.setPosition).toHaveBeenCalledWith({ lineNumber: 84, column: 5 })
   })
 })

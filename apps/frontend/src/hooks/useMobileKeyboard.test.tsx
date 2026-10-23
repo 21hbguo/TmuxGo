@@ -3,6 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { useEffect, useRef } from 'react'
 import { useMobileKeyboard } from './useMobileKeyboard'
 
+// jsdom 替身：visualViewport.height 在 DOM lib 里只读，测试要按键盘开合改它
+interface TestViewport {
+  width: number
+  height: number
+  addEventListener: (type: string, listener: EventListener) => void
+  removeEventListener: (type: string, listener: EventListener) => void
+  dispatchEvent: (event: Event) => boolean
+}
+const viewport = () => window.visualViewport as unknown as TestViewport
+
 let api: { focusKeyboard?: () => void; textarea?: HTMLTextAreaElement | null; isMobile?: boolean } = {}
 let viewportTarget: EventTarget
 let sendInputMock: Mock<(data: string) => void>
@@ -50,7 +60,7 @@ describe('useMobileKeyboard', () => {
     vi.useRealTimers()
     document.body.classList.remove('keyboard-open')
     document.documentElement.style.removeProperty('--mobile-keyboard-inset')
-    delete (window.navigator as any).virtualKeyboard
+    delete (window.navigator as Navigator & { virtualKeyboard?: unknown }).virtualKeyboard
     vi.unstubAllGlobals()
   })
   it('does not reopen after a normal mobile keyboard blur', async () => {
@@ -58,7 +68,7 @@ describe('useMobileKeyboard', () => {
     await waitFor(() => expect(api.focusKeyboard).toBeTruthy())
     api.focusKeyboard?.()
     expect(document.body.classList.contains('keyboard-open')).toBe(false)
-    ;(window.visualViewport as any).height = 520
+    viewport().height = 520
     window.visualViewport?.dispatchEvent(new Event('resize'))
     expect(document.body.classList.contains('keyboard-open')).toBe(true)
     api.textarea?.blur()
@@ -72,7 +82,7 @@ describe('useMobileKeyboard', () => {
     button.setAttribute('data-keep-mobile-keyboard', 'true')
     document.body.appendChild(button)
     api.focusKeyboard?.()
-    ;(window.visualViewport as any).height = 520
+    viewport().height = 520
     window.visualViewport?.dispatchEvent(new Event('resize'))
     fireEvent.pointerDown(button)
     api.textarea?.blur()
@@ -99,11 +109,11 @@ describe('useMobileKeyboard', () => {
     button.setAttribute('data-keep-mobile-keyboard', 'true')
     document.body.appendChild(button)
     api.focusKeyboard?.()
-    ;(window.visualViewport as any).height = 520
+    viewport().height = 520
     window.visualViewport?.dispatchEvent(new Event('resize'))
     expect(document.body.classList.contains('keyboard-open')).toBe(true)
     fireEvent.pointerDown(button)
-    ;(window.visualViewport as any).height = 800
+    viewport().height = 800
     window.visualViewport?.dispatchEvent(new Event('resize'))
     expect(document.body.classList.contains('keyboard-open')).toBe(true)
     button.remove()
@@ -112,10 +122,10 @@ describe('useMobileKeyboard', () => {
     render(<Harness />)
     await waitFor(() => expect(api.focusKeyboard).toBeTruthy())
     api.focusKeyboard?.()
-    ;(window.visualViewport as any).height = 520
+    viewport().height = 520
     window.visualViewport?.dispatchEvent(new Event('resize'))
     expect(document.body.classList.contains('keyboard-open')).toBe(true)
-    ;(window.visualViewport as any).height = 760
+    viewport().height = 760
     await waitFor(() => expect(document.body.classList.contains('keyboard-open')).toBe(false), { timeout: 1200 })
     expect(document.activeElement).not.toBe(api.textarea)
   })
@@ -137,7 +147,7 @@ describe('useMobileKeyboard', () => {
     render(<Harness />)
     await waitFor(() => expect(api.focusKeyboard).toBeTruthy())
     api.focusKeyboard?.()
-    ;(window.visualViewport as any).height = 520
+    viewport().height = 520
     window.visualViewport?.dispatchEvent(new Event('resize'))
     expect(document.body.classList.contains('keyboard-open')).toBe(true)
     expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-inset')).toBe('280px')
@@ -170,7 +180,7 @@ describe('useMobileKeyboard', () => {
     render(<Harness />)
     await waitFor(() => expect(api.focusKeyboard).toBeTruthy())
     api.focusKeyboard?.()
-    ;(window.visualViewport as any).height = 520
+    viewport().height = 520
     window.visualViewport?.dispatchEvent(new Event('resize'))
     expect(document.body.classList.contains('keyboard-open')).toBe(true)
     const locked = document.documentElement.style.getPropertyValue('--mobile-keyboard-inset')
@@ -181,7 +191,7 @@ describe('useMobileKeyboard', () => {
       textarea.value = 'ni'
       textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: 'ni' }))
     })
-    ;(window.visualViewport as any).height = 460
+    viewport().height = 460
     window.visualViewport?.dispatchEvent(new Event('resize'))
     expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-inset')).toBe(locked)
     act(() => {
@@ -428,7 +438,7 @@ describe('useMobileKeyboard', () => {
     expect(document.body.classList.contains('keyboard-open')).toBe(true)
     expect(events).toEqual([{ open: true, inset: 280 }])
     // 地址栏收起导致 vv 变化，但 virtualKeyboard 高度不变 → 不应再次 emit
-    ;(window.visualViewport as any).height = 744
+    viewport().height = 744
     window.visualViewport?.dispatchEvent(new Event('resize'))
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(events).toHaveLength(1)
@@ -446,7 +456,7 @@ describe('useMobileKeyboard', () => {
     render(<Harness />)
     await waitFor(() => expect(api.focusKeyboard).toBeTruthy())
     api.focusKeyboard?.()
-    ;(window.visualViewport as any).height = 520
+    viewport().height = 520
     window.visualViewport?.dispatchEvent(new Event('resize'))
     expect(document.body.classList.contains('keyboard-open')).toBe(true)
     expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-inset')).toBe('280px')

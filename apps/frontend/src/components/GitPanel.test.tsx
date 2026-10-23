@@ -21,33 +21,33 @@ const gitCreateWorktreeMutateMock = vi.fn()
 const gitRemoveWorktreeMutateMock = vi.fn()
 
 vi.mock('@/lib/api', () => ({
-  api: { git: { detect: (...args: any[]) => gitDetectMock(...args) } },
+  api: { git: { detect: (...args: unknown[]) => gitDetectMock(...args) } },
 }))
 
 vi.mock('@/hooks/useApi', () => ({
-  useGitStatus: (...args: any[]) => useGitStatusMock(...args),
-  useGitDiff: (...args: any[]) => useGitDiffMock(...args),
+  useGitStatus: (...args: unknown[]) => useGitStatusMock(...args),
+  useGitDiff: (...args: unknown[]) => useGitDiffMock(...args),
   useGitStage: () => ({ mutate: vi.fn() }),
   useGitUnstage: () => ({ mutate: vi.fn() }),
-  useGitCommit: () => ({ mutate: (...args: any[]) => gitCommitMutateMock(...args) }),
+  useGitCommit: () => ({ mutate: (...args: unknown[]) => gitCommitMutateMock(...args) }),
   useGitDiscard: () => ({ mutate: vi.fn() }),
   useGitResolve: () => ({ mutate: vi.fn() }),
   useGitOperation: () => ({ mutate: vi.fn() }),
   useGitRemotes: () => ({ data: { remotes: [] } }),
-  useGitLog: (...args: any[]) => useGitLogMock(...args),
-  useGitPaneDetect: (...args: any[]) => useGitPaneDetectMock(...args),
-  useGitRepositories: (...args: any[]) => useGitRepositoriesMock(...args),
-  useGitBranches: (...args: any[]) => useGitBranchesMock(...args),
+  useGitLog: (...args: unknown[]) => useGitLogMock(...args),
+  useGitPaneDetect: (...args: unknown[]) => useGitPaneDetectMock(...args),
+  useGitRepositories: (...args: unknown[]) => useGitRepositoriesMock(...args),
+  useGitBranches: (...args: unknown[]) => useGitBranchesMock(...args),
   useGitCheckout: () => ({ mutate: vi.fn() }),
   useGitCreateBranch: () => ({ mutate: vi.fn() }),
   useGitDeleteBranch: () => ({ mutate: vi.fn() }),
-  useGitMerge: () => ({ mutate: (...args: any[]) => gitMergeMutateMock(...args) }),
+  useGitMerge: () => ({ mutate: (...args: unknown[]) => gitMergeMutateMock(...args) }),
   useGitFetch: () => ({ mutate: vi.fn() }),
   useGitPull: () => ({ mutate: vi.fn() }),
   useGitPush: () => ({ mutate: vi.fn() }),
-  useGitWorktrees: (...args: any[]) => useGitWorktreesMock(...args),
-  useGitCreateWorktree: () => ({ mutate: (...args: any[]) => gitCreateWorktreeMutateMock(...args) }),
-  useGitRemoveWorktree: () => ({ mutate: (...args: any[]) => gitRemoveWorktreeMutateMock(...args) }),
+  useGitWorktrees: (...args: unknown[]) => useGitWorktreesMock(...args),
+  useGitCreateWorktree: () => ({ mutate: (...args: unknown[]) => gitCreateWorktreeMutateMock(...args) }),
+  useGitRemoveWorktree: () => ({ mutate: (...args: unknown[]) => gitRemoveWorktreeMutateMock(...args) }),
 }))
 
 describe('GitPanel', () => {
@@ -56,7 +56,7 @@ describe('GitPanel', () => {
       observe = vi.fn()
       disconnect = vi.fn()
     }
-    vi.stubGlobal('IntersectionObserver', MockIntersectionObserver as any)
+    vi.stubGlobal('IntersectionObserver', MockIntersectionObserver)
     useGitLogMock.mockReturnValue({
       data: {
         commits: [
@@ -158,7 +158,7 @@ describe('GitPanel', () => {
       },
       toasts: [],
       connection: { status: 'disconnected', latency: 0, lastPing: new Date().toISOString() },
-    } as any)
+    })
   })
 
   afterEach(() => {
@@ -401,7 +401,7 @@ describe('GitPanel', () => {
           ],
         },
       },
-    } as any)
+    })
     const user = userEvent.setup()
     const queryClient = new QueryClient()
     render(
@@ -466,7 +466,7 @@ describe('GitPanel', () => {
           recentRepos: [{ repoPath: '/workspace/missing', label: 'missing', lastUsedAt: 1, pinned: false }],
         },
       },
-    } as any)
+    })
     gitDetectMock.mockResolvedValue({ isGitRepo: false, rootPath: null })
     const user = userEvent.setup()
     const queryClient = new QueryClient()
@@ -528,7 +528,7 @@ describe('GitPanel', () => {
           recentRepos: [{ repoPath: '/workspace/repo-b', label: 'repo-b', lastUsedAt: 1, pinned: false }],
         },
       },
-    } as any)
+    })
     const user = userEvent.setup()
     const queryClient = new QueryClient()
     render(
@@ -566,7 +566,7 @@ describe('GitPanel', () => {
           recentRepos: [],
         },
       },
-    } as any)
+    })
     const queryClient = new QueryClient()
     render(
       React.createElement(
@@ -623,7 +623,7 @@ describe('GitPanel', () => {
             date: '2024-01-02T00:00:00Z',
             parents: ['a1'],
           },
-        ] as any,
+        ],
         hasMore: false,
       },
       isLoading: false,

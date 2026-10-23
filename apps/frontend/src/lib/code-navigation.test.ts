@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { FileEditorDocument } from '@/types'
 import { resolveEditorDefinition } from './code-navigation'
+
+// 夹具统一按实现入参收口：多数用例省略 type 字段，这里补默认值，断言与 mock 行为不变
+const asEditor = (value: Omit<FileEditorDocument, 'type'> & { type?: 'file' | 'directory' }): FileEditorDocument => ({
+  ...value,
+  type: value.type ?? 'file',
+})
 
 const contentMock = vi.fn()
 const searchContentMock = vi.fn()
@@ -7,8 +14,8 @@ const searchContentMock = vi.fn()
 vi.mock('./api', () => ({
   api: {
     files: {
-      content: (...args: any[]) => contentMock(...args),
-      searchContent: (...args: any[]) => searchContentMock(...args),
+      content: (...args: unknown[]) => contentMock(...args),
+      searchContent: (...args: unknown[]) => searchContentMock(...args),
     },
   },
 }))
@@ -42,7 +49,7 @@ describe('resolveEditorDefinition', () => {
     }
     contentMock.mockImplementation(async (_hostId: string, _rootId: string, path: string) => ({
       path,
-      type: 'file',
+      type: 'file' as const,
       size: 26,
       modifiedAt: '',
       binary: false,
@@ -50,7 +57,7 @@ describe('resolveEditorDefinition', () => {
       encoding: 'utf8',
       content: path === 'src/other.ts' ? 'export const value=1\n' : '',
     }))
-    const result = await resolveEditorDefinition(entry as any, { line: 2, column: 13 }, [entry as any])
+    const result = await resolveEditorDefinition(asEditor(entry), { line: 2, column: 13 }, [asEditor(entry)])
     expect(result).toMatchObject({
       status: 'success',
       target: {
@@ -69,7 +76,7 @@ describe('resolveEditorDefinition', () => {
       path: 'src/index.ts',
       name: 'index.ts',
       absolutePath: '/workspace/src/index.ts',
-      type: 'file',
+      type: 'file' as const,
       language: 'typescript',
       content: 'const localValue = 1\nconsole.log(localValue)\n',
       savedContent: 'const localValue = 1\nconsole.log(localValue)\n',
@@ -81,7 +88,7 @@ describe('resolveEditorDefinition', () => {
       binary: false,
       truncated: false,
     }
-    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 13 }, [asEditor(editor)])
     expect(result).toMatchObject({
       status: 'success',
       target: { id: 'editor-local', path: 'src/index.ts', line: 1, column: 7 },
@@ -98,7 +105,7 @@ describe('resolveEditorDefinition', () => {
       path: 'src/index.ts',
       name: 'index.ts',
       absolutePath: '/workspace/src/index.ts',
-      type: 'file',
+      type: 'file' as const,
       language: 'typescript',
       content: "import { value } from '@/other'\nconsole.log(value)\n",
       savedContent: '',
@@ -119,7 +126,10 @@ describe('resolveEditorDefinition', () => {
       content: 'export const value = 1\n',
       savedContent: 'export const value = 1\n',
     }
-    const result = await resolveEditorDefinition(entry as any, { line: 2, column: 13 }, [entry as any, target as any])
+    const result = await resolveEditorDefinition(asEditor(entry), { line: 2, column: 13 }, [
+      asEditor(entry),
+      asEditor(target),
+    ])
     expect(result).toMatchObject({
       status: 'success',
       target: { id: 'editor-alias-target', path: 'src/other.ts', line: 1 },
@@ -147,7 +157,7 @@ describe('resolveEditorDefinition', () => {
       saving: false,
       binary: false,
       truncated: false,
-      type: 'file',
+      type: 'file' as const,
     }
     const target = {
       ...entry,
@@ -160,7 +170,10 @@ describe('resolveEditorDefinition', () => {
       dirty: true,
     }
     contentMock.mockRejectedValue(new Error('remote read should not be needed'))
-    const result = await resolveEditorDefinition(entry as any, { line: 2, column: 13 }, [entry as any, target as any])
+    const result = await resolveEditorDefinition(asEditor(entry), { line: 2, column: 13 }, [
+      asEditor(entry),
+      asEditor(target),
+    ])
     expect(result).toMatchObject({ status: 'success', target: { id: 'editor-other', path: 'src/other.ts', line: 3 } })
     expect(contentMock).not.toHaveBeenCalled()
   })
@@ -174,7 +187,7 @@ describe('resolveEditorDefinition', () => {
       path: 'main.py',
       name: 'main.py',
       absolutePath: '/workspace/main.py',
-      type: 'file',
+      type: 'file' as const,
       language: 'python',
       content: '',
       savedContent: '',
@@ -186,7 +199,7 @@ describe('resolveEditorDefinition', () => {
       binary: false,
       truncated: false,
     }
-    const result = await resolveEditorDefinition(editor as any, { line: 1, column: 1 }, [])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 1, column: 1 }, [])
     expect(result).toEqual({ status: 'not-found' })
     expect(contentMock).not.toHaveBeenCalled()
   })
@@ -200,7 +213,7 @@ describe('resolveEditorDefinition', () => {
       path: 'main.py',
       name: 'main.py',
       absolutePath: '/workspace/main.py',
-      type: 'file',
+      type: 'file' as const,
       language: 'python',
       content: 'def helper():\n    return 1\n\nprint(helper())\n',
       savedContent: '',
@@ -212,7 +225,7 @@ describe('resolveEditorDefinition', () => {
       binary: false,
       truncated: false,
     }
-    const result = await resolveEditorDefinition(editor as any, { line: 4, column: 8 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 4, column: 8 }, [asEditor(editor)])
     expect(result).toMatchObject({
       status: 'success',
       target: { path: 'main.py', line: 1, column: 5 },
@@ -230,7 +243,7 @@ describe('resolveEditorDefinition', () => {
       path: 'main.py',
       name: 'main.py',
       absolutePath: '/workspace/main.py',
-      type: 'file',
+      type: 'file' as const,
       language: 'python',
       content: 'from lib import worker\nworker.run()\n',
       savedContent: '',
@@ -246,7 +259,7 @@ describe('resolveEditorDefinition', () => {
       {
         path: 'lib/worker.py',
         name: 'worker.py',
-        type: 'file',
+        type: 'file' as const,
         size: 10,
         modifiedAt: '',
         matches: [
@@ -255,7 +268,7 @@ describe('resolveEditorDefinition', () => {
         ],
       },
     ])
-    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 2 }, [asEditor(editor)])
     expect(result).toMatchObject({
       status: 'success',
       target: { path: 'lib/worker.py', absolutePath: '/workspace/lib/worker.py', line: 9, column: 5 },
@@ -272,7 +285,7 @@ describe('resolveEditorDefinition', () => {
       path: 'project/repo-a/train.py',
       name: 'train.py',
       absolutePath: '/home/user/project/repo-a/train.py',
-      type: 'file',
+      type: 'file' as const,
       language: 'python',
       content: 'from val import run\nresult = run()\n',
       savedContent: '',
@@ -289,7 +302,7 @@ describe('resolveEditorDefinition', () => {
       {
         path: 'project/repo-b/val.py',
         name: 'val.py',
-        type: 'file',
+        type: 'file' as const,
         size: 10,
         modifiedAt: '',
         matches: [{ number: 5, content: 'def run(x):' }],
@@ -297,13 +310,13 @@ describe('resolveEditorDefinition', () => {
       {
         path: 'project/repo-a/val.py',
         name: 'val.py',
-        type: 'file',
+        type: 'file' as const,
         size: 10,
         modifiedAt: '',
         matches: [{ number: 12, content: 'def run(x):' }],
       },
     ])
-    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 11 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 11 }, [asEditor(editor)])
     expect(searchContentMock).toHaveBeenNthCalledWith(
       1,
       'local',
@@ -330,7 +343,7 @@ describe('resolveEditorDefinition', () => {
       path: 'project/repo-a/train.py',
       name: 'train.py',
       absolutePath: '/home/user/project/repo-a/train.py',
-      type: 'file',
+      type: 'file' as const,
       language: 'python',
       content: 'from val import run\nresult = run()\n',
       savedContent: '',
@@ -346,7 +359,7 @@ describe('resolveEditorDefinition', () => {
       {
         path: 'project/repo-a/test_val.py',
         name: 'test_val.py',
-        type: 'file',
+        type: 'file' as const,
         size: 10,
         modifiedAt: '',
         matches: [{ number: 8, content: 'def run(case):' }],
@@ -354,13 +367,13 @@ describe('resolveEditorDefinition', () => {
       {
         path: 'project/repo-a/val.py',
         name: 'val.py',
-        type: 'file',
+        type: 'file' as const,
         size: 10,
         modifiedAt: '',
         matches: [{ number: 12, content: 'def run(x):' }],
       },
     ])
-    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 11 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 11 }, [asEditor(editor)])
     expect(result).toMatchObject({
       status: 'success',
       target: { path: 'project/repo-a/val.py', line: 12 },
@@ -376,7 +389,7 @@ describe('resolveEditorDefinition', () => {
       path: 'project/repo-a/train.py',
       name: 'train.py',
       absolutePath: '/home/user/project/repo-a/train.py',
-      type: 'file',
+      type: 'file' as const,
       language: 'python',
       content: 'result = helper()\n',
       savedContent: '',
@@ -396,13 +409,13 @@ describe('resolveEditorDefinition', () => {
         {
           path: 'shared/lib.py',
           name: 'lib.py',
-          type: 'file',
+          type: 'file' as const,
           size: 10,
           modifiedAt: '',
           matches: [{ number: 3, content: 'def helper():' }],
         },
       ])
-    const result = await resolveEditorDefinition(editor as any, { line: 1, column: 11 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 1, column: 11 }, [asEditor(editor)])
     expect(searchContentMock).toHaveBeenCalledTimes(3)
     expect(searchContentMock).toHaveBeenLastCalledWith(
       'local',
@@ -425,7 +438,7 @@ describe('resolveEditorDefinition', () => {
       path: 'project/repo-a/train.py',
       name: 'train.py',
       absolutePath: '/home/user/project/repo-a/train.py',
-      type: 'file',
+      type: 'file' as const,
       language: 'python',
       content: 'result = helper()\n',
       savedContent: '',
@@ -438,7 +451,7 @@ describe('resolveEditorDefinition', () => {
       truncated: false,
     }
     searchContentMock.mockRejectedValue(new DOMException('timed out', 'TimeoutError'))
-    const result = await resolveEditorDefinition(editor as any, { line: 1, column: 11 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 1, column: 11 }, [asEditor(editor)])
     expect(result).toEqual({ status: 'not-found' })
   })
   it('prefers definitions from open editors over remote search', async () => {
@@ -451,7 +464,7 @@ describe('resolveEditorDefinition', () => {
       path: 'run.sh',
       name: 'run.sh',
       absolutePath: '/workspace/run.sh',
-      type: 'file',
+      type: 'file' as const,
       language: 'shell',
       content: 'deploy\n',
       savedContent: '',
@@ -471,7 +484,10 @@ describe('resolveEditorDefinition', () => {
       absolutePath: '/workspace/lib.sh',
       content: 'deploy() {\n  echo ok\n}\n',
     }
-    const result = await resolveEditorDefinition(entry as any, { line: 1, column: 2 }, [entry as any, target as any])
+    const result = await resolveEditorDefinition(asEditor(entry), { line: 1, column: 2 }, [
+      asEditor(entry),
+      asEditor(target),
+    ])
     expect(result).toMatchObject({ status: 'success', target: { id: 'editor-sh-lib', path: 'lib.sh', line: 1 } })
     expect(searchContentMock).not.toHaveBeenCalled()
   })
@@ -485,7 +501,7 @@ describe('resolveEditorDefinition', () => {
       path: 'src/index.ts',
       name: 'index.ts',
       absolutePath: '/workspace/src/index.ts',
-      type: 'file',
+      type: 'file' as const,
       language: 'plaintext',
       content: 'const localValue = 1\nconsole.log(localValue)\n',
       savedContent: '',
@@ -497,7 +513,7 @@ describe('resolveEditorDefinition', () => {
       binary: false,
       truncated: false,
     }
-    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 13 }, [asEditor(editor)])
     expect(result).toMatchObject({ status: 'success', target: { path: 'src/index.ts', line: 1 } })
   })
   it('resolves definitions in .mts files reported as plaintext', async () => {
@@ -510,7 +526,7 @@ describe('resolveEditorDefinition', () => {
       path: 'src/index.mts',
       name: 'index.mts',
       absolutePath: '/workspace/src/index.mts',
-      type: 'file',
+      type: 'file' as const,
       language: 'plaintext',
       content: 'const localValue = 1\nconsole.log(localValue)\n',
       savedContent: '',
@@ -522,7 +538,7 @@ describe('resolveEditorDefinition', () => {
       binary: false,
       truncated: false,
     }
-    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 13 }, [asEditor(editor)])
     expect(result).toMatchObject({ status: 'success', target: { path: 'src/index.mts', line: 1 } })
   })
   const mockFiles = (files: Record<string, string>) => {
@@ -530,7 +546,7 @@ describe('resolveEditorDefinition', () => {
       if (!(path in files)) throw new Error('ENOENT')
       return {
         path,
-        type: 'file',
+        type: 'file' as const,
         size: files[path].length,
         modifiedAt: '',
         binary: false,
@@ -540,7 +556,7 @@ describe('resolveEditorDefinition', () => {
       }
     })
   }
-  const pyEditor = (overrides: Record<string, unknown>) => ({
+  const pyEditor = (overrides: Partial<FileEditorDocument>): FileEditorDocument => ({
     id: 'editor-py-import',
     hostId: 'local',
     rootId: 'root-workspace',
@@ -549,7 +565,7 @@ describe('resolveEditorDefinition', () => {
     path: 'main.py',
     name: 'main.py',
     absolutePath: '/workspace/main.py',
-    type: 'file',
+    type: 'file' as const,
     language: 'python',
     content: '',
     savedContent: '',
@@ -565,7 +581,7 @@ describe('resolveEditorDefinition', () => {
   it('resolves a from-import symbol by direct module read without content search', async () => {
     const editor = pyEditor({ content: 'from lib.worker import run\nresult = run\n' })
     mockFiles({ 'lib/worker.py': 'def run():\n    return 1\n' })
-    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 10 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 10 }, [asEditor(editor)])
     expect(result).toMatchObject({
       status: 'success',
       target: { path: 'lib/worker.py', absolutePath: '/workspace/lib/worker.py', line: 1, column: 5 },
@@ -576,7 +592,7 @@ describe('resolveEditorDefinition', () => {
     // from lib import worker：worker 是子模块 lib/worker.py 而非符号，跳文件顶部
     const editor = pyEditor({ content: 'from lib import worker\nworker.run()\n' })
     mockFiles({ 'lib/worker.py': 'def run():\n    pass\n' })
-    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 1 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 1 }, [asEditor(editor)])
     expect(result).toMatchObject({
       status: 'success',
       target: { path: 'lib/worker.py', line: 1, column: 1 },
@@ -592,7 +608,7 @@ describe('resolveEditorDefinition', () => {
       content: 'from ..shared import util\nresult = util\n',
     })
     mockFiles({ 'pkg/shared.py': 'def util():\n    return 0\n' })
-    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 10 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 10 }, [asEditor(editor)])
     expect(result).toMatchObject({
       status: 'success',
       target: { path: 'pkg/shared.py', absolutePath: '/workspace/pkg/shared.py', line: 1, column: 5 },
@@ -607,7 +623,7 @@ describe('resolveEditorDefinition', () => {
       content: 'from . import helper\nhelper.do()\n',
     })
     mockFiles({ 'pkg/helper.py': 'def do():\n    pass\n' })
-    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 1 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 1 }, [asEditor(editor)])
     expect(result).toMatchObject({
       status: 'success',
       target: { path: 'pkg/helper.py', line: 1, column: 1 },
@@ -626,7 +642,7 @@ describe('resolveEditorDefinition', () => {
       content: 'result = helper()\n',
     })
     searchContentMock.mockResolvedValue([])
-    const result = await resolveEditorDefinition(editor as any, { line: 1, column: 11 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 1, column: 11 }, [asEditor(editor)])
     expect(result).toEqual({ status: 'not-found' })
     expect(searchContentMock.mock.calls.map((call) => call[3])).toEqual(['a/b/c/d/e', 'a/b/c/d', 'a/b/c', 'a/b', ''])
     // ext 透传：.py 入口只扫 *.py
@@ -648,7 +664,7 @@ describe('resolveEditorDefinition', () => {
             {
               path: 'a/b/lib.py',
               name: 'lib.py',
-              type: 'file',
+              type: 'file' as const,
               size: 10,
               modifiedAt: '',
               matches: [{ number: 7, content: 'def helper():' }],
@@ -656,7 +672,7 @@ describe('resolveEditorDefinition', () => {
           ]
         : [],
     )
-    const result = await resolveEditorDefinition(editor as any, { line: 1, column: 11 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 1, column: 11 }, [asEditor(editor)])
     expect(result).toMatchObject({ status: 'success', target: { path: 'a/b/lib.py', line: 7 } })
     expect(searchContentMock.mock.calls.map((call) => call[3])).toEqual(['a/b/c', 'a/b'])
   })
@@ -669,11 +685,11 @@ describe('resolveEditorDefinition', () => {
       content: 'all: deploy\n',
     })
     searchContentMock.mockResolvedValue([])
-    const result = await resolveEditorDefinition(editor as any, { line: 1, column: 7 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 1, column: 7 }, [asEditor(editor)])
     expect(result).toEqual({ status: 'not-found' })
     expect(searchContentMock.mock.calls[0][6]).toBeUndefined()
   })
-  const tsEditor = (overrides: Record<string, unknown>) => ({
+  const tsEditor = (overrides: Partial<FileEditorDocument>): FileEditorDocument => ({
     id: 'editor-ts-entry',
     hostId: 'local',
     rootId: 'root-workspace',
@@ -682,7 +698,7 @@ describe('resolveEditorDefinition', () => {
     path: 'entry.ts',
     name: 'entry.ts',
     absolutePath: '/workspace/entry.ts',
-    type: 'file',
+    type: 'file' as const,
     language: 'typescript',
     content: '',
     savedContent: '',
@@ -700,7 +716,7 @@ describe('resolveEditorDefinition', () => {
   it('follows a named re-export to the real declaration', async () => {
     const editor = tsEditor({ content: "import { foo } from './barrel'\nfoo()\n" })
     mockFiles({ 'impl.ts': IMPL_TS, 'barrel.ts': "// barrel\nexport { foo } from './impl'\n" })
-    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 2 }, [asEditor(editor)])
     expect(result).toMatchObject({
       status: 'success',
       target: { path: 'impl.ts', absolutePath: '/workspace/impl.ts', line: 3, column: 17 },
@@ -709,7 +725,7 @@ describe('resolveEditorDefinition', () => {
   it('follows a star re-export to the real declaration', async () => {
     const editor = tsEditor({ content: "import { foo } from './barrel'\nfoo()\n" })
     mockFiles({ 'impl.ts': IMPL_TS, 'barrel.ts': "// barrel\nexport * from './impl'\n" })
-    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 2 }, [asEditor(editor)])
     expect(result).toMatchObject({
       status: 'success',
       target: { path: 'impl.ts', absolutePath: '/workspace/impl.ts', line: 3, column: 17 },
@@ -721,7 +737,7 @@ describe('resolveEditorDefinition', () => {
       'impl.ts': IMPL_TS,
       'barrel.ts': "import { foo } from './impl'\nexport { foo }\n",
     })
-    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 2 }, [asEditor(editor)])
     expect(result).toMatchObject({
       status: 'success',
       target: { path: 'impl.ts', absolutePath: '/workspace/impl.ts', line: 3, column: 17 },
@@ -733,7 +749,7 @@ describe('resolveEditorDefinition', () => {
       'impl.ts': '// header\nexport function real() { return 1 }\n',
       'barrel.ts': "// barrel\nexport { real as foo } from './impl'\n",
     })
-    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 2 }, [asEditor(editor)])
     expect(result).toMatchObject({
       status: 'success',
       target: { path: 'impl.ts', absolutePath: '/workspace/impl.ts', line: 2, column: 17 },
@@ -742,7 +758,7 @@ describe('resolveEditorDefinition', () => {
   it('resolves a default import to the function declaration, not the export reference', async () => {
     const editor = tsEditor({ content: "import foo from './default'\nfoo()\n" })
     mockFiles({ 'default.ts': '// header\nfunction foo() { return 1 }\nexport default foo\n' })
-    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 2 }, [asEditor(editor)])
     expect(result).toMatchObject({
       status: 'success',
       target: { path: 'default.ts', absolutePath: '/workspace/default.ts', line: 2, column: 10 },
@@ -751,13 +767,13 @@ describe('resolveEditorDefinition', () => {
   it('terminates on circular re-exports with a clear failure', async () => {
     const editor = tsEditor({ content: "import { foo } from './a'\nfoo()\n" })
     mockFiles({ 'a.ts': "export * from './b'\n", 'b.ts': "export * from './a'\n" })
-    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 2 }, [asEditor(editor)])
     expect(result).toEqual({ status: 'not-found' })
   })
   it('fails clearly when the re-exported symbol does not exist', async () => {
     const editor = tsEditor({ content: "import { missing } from './barrel'\nmissing()\n" })
     mockFiles({ 'impl.ts': IMPL_TS, 'barrel.ts': "// barrel\nexport * from './impl'\n" })
-    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+    const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 2 }, [asEditor(editor)])
     expect(result).toEqual({ status: 'not-found' })
   })
   describe('tsconfig paths / ESM mapping', () => {
@@ -768,7 +784,7 @@ describe('resolveEditorDefinition', () => {
         'tsconfig.json': '{\n  // alias\n  "compilerOptions": { "paths": { "#/*": ["./src/*"], } },\n}\n',
         'src/lib.ts': 'export const value = 1\n',
       })
-      const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+      const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 13 }, [asEditor(editor)])
       expect(result).toMatchObject({
         status: 'success',
         target: { path: 'src/lib.ts', absolutePath: '/workspace/src/lib.ts', line: 1, column: 14 },
@@ -780,7 +796,7 @@ describe('resolveEditorDefinition', () => {
         'tsconfig.json': '{"compilerOptions":{"baseUrl":"src"}}\n',
         'src/util.ts': 'export const value = 1\n',
       })
-      const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+      const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 13 }, [asEditor(editor)])
       expect(result).toMatchObject({
         status: 'success',
         target: { path: 'src/util.ts', absolutePath: '/workspace/src/util.ts', line: 1 },
@@ -792,13 +808,13 @@ describe('resolveEditorDefinition', () => {
         'tsconfig.json': '{"compilerOptions":{"paths":{"#/*":["./missing/*","./src/*"]}}}\n',
         'src/lib.ts': 'export const value = 1\n',
       })
-      const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+      const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 13 }, [asEditor(editor)])
       expect(result).toMatchObject({ status: 'success', target: { path: 'src/lib.ts', line: 1 } })
     })
     it('maps a ./impl.js import to the impl.ts source file (NodeNext style)', async () => {
       const editor = tsEditor({ content: "import { foo } from './impl.js'\nfoo()\n" })
       mockFiles({ 'impl.ts': IMPL_TS })
-      const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+      const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 2 }, [asEditor(editor)])
       expect(result).toMatchObject({
         status: 'success',
         target: { path: 'impl.ts', absolutePath: '/workspace/impl.ts', line: 3, column: 17 },
@@ -810,7 +826,7 @@ describe('resolveEditorDefinition', () => {
         'node_modules/pkg/package.json': '{"exports":{"./*":"./dist/*.js"}}\n',
         'node_modules/pkg/dist/sub.js': 'export const value = 1\n',
       })
-      const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+      const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 13 }, [asEditor(editor)])
       expect(result).toMatchObject({
         status: 'success',
         target: { path: 'node_modules/pkg/dist/sub.js', line: 1 },
@@ -823,7 +839,7 @@ describe('resolveEditorDefinition', () => {
         'tsconfig.base.json': '{"compilerOptions":{"paths":{"#/*":["./src/*"]}}}\n',
         'src/lib.ts': 'export const value = 1\n',
       })
-      const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+      const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 13 }, [asEditor(editor)])
       expect(result).toMatchObject({ status: 'success', target: { path: 'src/lib.ts', line: 1 } })
     })
     it('prefers tsconfig paths over the hardcoded @/ fallback', async () => {
@@ -839,7 +855,7 @@ describe('resolveEditorDefinition', () => {
         'lib.ts': 'export const value = 1\n',
         'src/lib.ts': 'export const value = 2\n',
       })
-      const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+      const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 13 }, [asEditor(editor)])
       expect(result).toMatchObject({
         status: 'success',
         target: { path: 'lib.ts', absolutePath: '/workspace/lib.ts', line: 1 },
@@ -848,13 +864,13 @@ describe('resolveEditorDefinition', () => {
     it('reports not-found when a paths alias resolves nowhere', async () => {
       const editor = tsEditor({ content: "import { missing } from '#/nope'\nmissing()\n" })
       mockFiles({ 'tsconfig.json': '{"compilerOptions":{"paths":{"#/*":["./src/*"]}}}\n' })
-      const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+      const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 2 }, [asEditor(editor)])
       expect(result).toEqual({ status: 'not-found' })
     })
     it('keeps not-found for an unknown bare specifier without tsconfig', async () => {
       const editor = tsEditor({ content: "import { value } from 'ghost-pkg'\nconsole.log(value)\n" })
       mockFiles({})
-      const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+      const result = await resolveEditorDefinition(asEditor(editor), { line: 2, column: 13 }, [asEditor(editor)])
       expect(result).toEqual({ status: 'not-found' })
     })
   })

@@ -3,6 +3,11 @@ import React, { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionPanel } from './SessionPanel'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import type { AgentSummary, Session, SessionWorkspaceEntry, WorkspaceEntry } from '@/types'
+import type { CreateSessionDialogResult } from './CreateSessionDialog'
+
+// 面板只消费这几个字段：夹具不造完整 Session（hostId/createdAt 等与断言无关）
+type PanelSession = Pick<Session, 'id' | 'name' | 'windowCount'> & { agentSummary?: AgentSummary }
 
 const mutateCreateSession = vi.fn()
 const mutateRenameSession = vi.fn()
@@ -15,7 +20,7 @@ const mutateUpdateWorkspace = vi.fn()
 const mutateRemoveWorkspace = vi.fn()
 const mutateCreateWorkspace = vi.fn()
 const promptMock = vi.fn()
-const orderedSessions = [
+const orderedSessions: PanelSession[] = [
   {
     id: 'session-dev',
     name: 'dev',
@@ -26,15 +31,21 @@ const orderedSessions = [
 ]
 const moveSessionMock = vi.fn()
 const refetchSessionsMock = vi.fn()
-const orderedSessionQueryState: any = {
+const orderedSessionQueryState: {
+  data: PanelSession[]
+  moveSession: ReturnType<typeof vi.fn>
+  isError: boolean
+  error: unknown
+  refetch: ReturnType<typeof vi.fn>
+} = {
   data: orderedSessions,
   moveSession: moveSessionMock,
   isError: false,
   error: null,
   refetch: refetchSessionsMock,
 }
-const workspacesState: any = { data: [] }
-const sessionWorkspacesState: any = { data: [] }
+const workspacesState: { data: WorkspaceEntry[] } = { data: [] }
+const sessionWorkspacesState: { data: SessionWorkspaceEntry[] } = { data: [] }
 
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
@@ -116,8 +127,8 @@ vi.mock('./CreateSessionDialog', () => ({
   }: {
     open: boolean
     defaultName: string
-    initialWorkspace?: any
-    onCreate: (result: { name: string; cwd?: string; workspace?: any }) => void
+    initialWorkspace?: WorkspaceEntry
+    onCreate: (result: CreateSessionDialogResult) => void
   }) =>
     open
       ? React.createElement(
@@ -168,8 +179,8 @@ vi.mock('./SessionSortableList', () => ({
     sessions,
     renderItem,
   }: {
-    sessions: any[]
-    renderItem: (args: { session: any; isDragging: boolean; isOverlay: boolean }) => React.ReactNode
+    sessions: Session[]
+    renderItem: (args: { session: Session; isDragging: boolean; isOverlay: boolean }) => React.ReactNode
   }) =>
     React.createElement(
       'div',
@@ -182,8 +193,8 @@ vi.mock('./SessionSortableList', () => ({
     groups,
     renderItem,
   }: {
-    groups: { key: string; header: React.ReactNode; sessions: any[] }[]
-    renderItem: (args: { session: any; isDragging: boolean; isOverlay: boolean }) => React.ReactNode
+    groups: { key: string; header: React.ReactNode; sessions: Session[] }[]
+    renderItem: (args: { session: Session; isDragging: boolean; isOverlay: boolean }) => React.ReactNode
   }) =>
     React.createElement(
       'div',
@@ -196,7 +207,7 @@ vi.mock('./SessionSortableList', () => ({
       ]),
     ),
   SessionGroupDropZone: ({ children }: { children: React.ReactNode }) => React.createElement('div', null, children),
-  orderByIds: (sessions: any[], ids: string[]) => {
+  orderByIds: (sessions: Session[], ids: string[]) => {
     const map = new Map(sessions.map((session) => [session.id, session]))
     return ids.map((id) => map.get(id)).filter(Boolean)
   },
@@ -227,7 +238,7 @@ describe('SessionPanel session actions', () => {
       activeHostId: 'local',
       activeSessionId: 'session-dev',
       toasts: [],
-    } as any)
+    })
   })
   it('renders base panel', () => {
     render(<SessionPanel />)
@@ -719,7 +730,7 @@ describe('SessionPanel session actions', () => {
     const summary = { idle: 0, working: 0, blocked: 0, done: 0, unknown: 0, ...counts }
     return { ...summary, total: summary.idle + summary.working + summary.blocked + summary.done + summary.unknown }
   }
-  const mkWorkspace = (id: string, name: string) => ({
+  const mkWorkspace = (id: string, name: string): WorkspaceEntry => ({
     id,
     name,
     hostId: 'local',
@@ -732,7 +743,7 @@ describe('SessionPanel session actions', () => {
     createdAt: '',
     updatedAt: '',
   })
-  const bindSession = (sessionId: string, ws: { id: string; path: string }) => ({
+  const bindSession = (sessionId: string, ws: { id: string; path: string }): SessionWorkspaceEntry => ({
     sessionId,
     hostId: 'local',
     workspaceId: ws.id,
@@ -743,7 +754,12 @@ describe('SessionPanel session actions', () => {
     relativePath: ws.id,
     updatedAt: '',
   })
-  const mkSession = (id: string, name: string, agentSummary?: unknown) => ({ id, name, windowCount: 1, agentSummary })
+  const mkSession = (id: string, name: string, agentSummary?: AgentSummary): PanelSession => ({
+    id,
+    name,
+    windowCount: 1,
+    agentSummary,
+  })
   const domBefore = (a: HTMLElement, b: HTMLElement) =>
     (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
 
@@ -757,7 +773,7 @@ describe('SessionPanel session actions', () => {
       mkSession('s-working', 'd-working', mkSummary({ working: 1 })),
       mkSession('s-unknown', 'e-unknown', mkSummary({ unknown: 1 })),
     ]
-    sessionWorkspacesState.data = orderedSessionQueryState.data.map((s: any) => bindSession(s.id, ws))
+    sessionWorkspacesState.data = orderedSessionQueryState.data.map((s) => bindSession(s.id, ws))
     render(<SessionPanel />)
     // blocked > done > working > idle > unknown（agentAttentionPriority 同一模型）
     const ordered = ['b-blocked', 'c-done', 'd-working', 'a-idle', 'e-unknown'].map((name) => screen.getByText(name))
@@ -771,7 +787,7 @@ describe('SessionPanel session actions', () => {
     const second = mkSession('s-b', 'idle-b', mkSummary({ idle: 1 }))
     const hot = mkSession('s-c', 'blk-c', mkSummary({ blocked: 1 }))
     orderedSessionQueryState.data = [first, second, hot]
-    sessionWorkspacesState.data = [first, second, hot].map((s: any) => bindSession(s.id, ws))
+    sessionWorkspacesState.data = [first, second, hot].map((s) => bindSession(s.id, ws))
     const { rerender } = render(<SessionPanel />)
     expect(domBefore(screen.getByText('blk-c'), screen.getByText('idle-a'))).toBeTruthy()
     expect(domBefore(screen.getByText('idle-a'), screen.getByText('idle-b'))).toBeTruthy()
@@ -841,10 +857,10 @@ describe('SessionPanel session actions', () => {
         updatedAt: '',
       },
     ]
-    let resolveRemove: (value: any) => void = () => {}
+    let resolveRemove: (value: { success: boolean }) => void = () => {}
     mutateRemoveWorkspace.mockImplementation(
       () =>
-        new Promise((resolve) => {
+        new Promise<{ success: boolean }>((resolve) => {
           resolveRemove = resolve
         }),
     )

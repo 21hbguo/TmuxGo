@@ -4,17 +4,95 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EditorWorkbench } from './EditorWorkbench'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { EditorGroupState, EditorLayoutNode, EditorLayoutSplit } from '@/stores/useConsoleStore'
+import type { CodeNavigationResult } from '@/lib/code-navigation'
+import type { EditorLocationRestore } from '@/lib/editor-open'
+import type { FileDocumentHandle, FileEditorDocument } from '@/types'
 
-const liveEditors = vi.hoisted(() => new Map<string, any>())
+// —— 有状态 Monaco 替身的形状声明（替代 any）——
+interface StubPosition {
+  lineNumber: number
+  column: number
+}
+interface StubSelection {
+  startLineNumber: number
+  startColumn: number
+  endLineNumber: number
+  endColumn: number
+}
+interface StubFindState {
+  isRevealed: boolean
+  searchString: string
+  isRegex: boolean
+  wholeWord: boolean
+  matchCase: boolean
+  preserveCase: boolean
+  isReplaceRevealed: boolean
+  onFindReplaceStateChange: (handler: (event: Partial<StubFindState>) => void) => { dispose: () => void }
+  change: (patch: Partial<StubFindState>, moveCursor?: boolean) => void
+}
+interface StubFindController {
+  getState: () => StubFindState
+  start: ReturnType<typeof vi.fn>
+}
+interface MonacoMouseDownEvent {
+  event: {
+    browserEvent: {
+      button: number
+      ctrlKey: boolean
+      metaKey: boolean
+      preventDefault: () => void
+      stopPropagation: () => void
+    }
+  }
+  target: { position: StubPosition }
+}
+interface StubEditor {
+  getPosition: () => StubPosition | null
+  setPosition: (next: StubPosition) => void
+  getSelection: () => StubSelection | null
+  setSelection: (next: StubSelection) => void
+  getScrollTop: () => number
+  setScrollTop: (next: number) => void
+  getScrollLeft: () => number
+  setScrollLeft: (next: number) => void
+  getModel: () => { getLineCount: () => number; getLineMaxColumn: (line: number) => number }
+  revealPositionInCenter: ReturnType<typeof vi.fn>
+  revealLineInCenter: (line: number) => void
+  focus: () => void
+  onDidChangeCursorPosition: (handler: (event: { position: StubPosition }) => void) => { dispose: () => void }
+  onDidScrollChange: (handler: (event: { scrollTop: number; scrollLeft: number }) => void) => { dispose: () => void }
+  onDidDispose: (handler: () => void) => { dispose: () => void }
+  onMouseDown: (handler: (event: MonacoMouseDownEvent) => void) => { dispose: () => void }
+  getAction: ReturnType<typeof vi.fn>
+  getContribution: (id: string) => StubFindController | null
+  findController: StubFindController
+  findState: StubFindState
+}
+// 拖拽事件替身：只实现 EditorWorkbench 读取的 DataTransfer 成员
+interface FakeDataTransfer {
+  effectAllowed: string
+  dropEffect: string
+  types: string[]
+  setData: ReturnType<typeof vi.fn>
+  getData: (type: string) => string
+}
+
+const liveEditors = vi.hoisted(() => new Map<string, StubEditor>())
 const resolveDefinitionMock = vi.hoisted(() => vi.fn())
 const openFileInEditorMock = vi.hoisted(() => vi.fn())
 const setScrollTop = vi.fn()
 const getScrollTop = vi.fn(() => 0)
 const setScrollLeft = vi.fn()
 const getScrollLeft = vi.fn(() => 0)
-const diffPropsRef: { current: any[] } = { current: [] }
-const monacoMouseDownRef: { current: ((event: any) => void) | null } = { current: null }
-const monacoCursorHandlerRef: { current: ((event: any) => void) | null } = { current: null }
+const diffPropsRef: { current: Record<string, unknown>[] } = { current: [] }
+const monacoMouseDownRef: { current: ((event: MonacoMouseDownEvent) => void) | null } = { current: null }
+const monacoCursorHandlerRef: { current: ((event: { position: StubPosition }) => void) | null } = { current: null }
+// 取存活实例：缺失说明测试自身写错，直接抛错，避免到处非空断言
+const liveEditor = (path: string): StubEditor => {
+  const instance = liveEditors.get(path)
+  if (!instance) throw new Error(`no live editor instance for ${path}`)
+  return instance
+}
 const editorInstanceMocks = vi.hoisted(() => ({
   setPosition: vi.fn(),
   setSelection: vi.fn(),
@@ -22,33 +100,43 @@ const editorInstanceMocks = vi.hoisted(() => ({
   focus: vi.fn(),
 }))
 vi.mock('@/lib/code-navigation', () => ({
-  resolveEditorDefinition: (...args: any[]) => resolveDefinitionMock(...args),
+  resolveEditorDefinition: (...args: unknown[]) => resolveDefinitionMock(...args),
   warmupCodeNavigation: () => {},
 }))
 vi.mock('@/lib/editor-open', () => ({
   OPEN_EDITOR_LOCATION_EVENT: 'tmuxgo-open-editor-location',
-  openFileInEditor: (...args: any[]) => openFileInEditorMock(...args),
+  openFileInEditor: (...args: unknown[]) => openFileInEditorMock(...args),
 }))
 vi.mock('@/lib/dynamic', async () => {
   // CsvTable 也走 dynamic()：返回真实组件，其余 monaco loader 维持原有替身
   const { CsvTable } = await import('./CsvTable')
   // 有状态 Monaco 替身：每个 path 一个存活实例，保留光标/选区/滚动与行内容，支持 dispose→remount
-  const MonacoStub = ({ value, onChange, onMount, path }: any) => {
+  const MonacoStub = ({
+    value,
+    onChange,
+    onMount,
+    path,
+  }: {
+    value: string
+    onChange?: (value: string) => void
+    onMount?: (instance: StubEditor) => void
+    path: string
+  }) => {
     const valueRef = React.useRef(value)
     valueRef.current = value
     React.useEffect(() => {
       let position = { lineNumber: 1, column: 1 }
-      let selection: any = null
+      let selection: StubSelection | null = null
       let scrollTop = 0
       let scrollLeft = 0
       // 对齐真实卸载顺序：@monaco-editor/react 先 dispose model 再 dispose editor，
       // 之后 onDidDispose 回调里读到的是无 model 死值（getPosition null、getScrollTop -1）
       let disposed = false
-      let cursorHandler: ((event: any) => void) | undefined
-      let scrollHandler: ((event: any) => void) | undefined
+      let cursorHandler: ((event: { position: StubPosition }) => void) | undefined
+      let scrollHandler: ((event: { scrollTop: number; scrollLeft: number }) => void) | undefined
       const disposalHandlers: (() => void)[] = []
       // 伪 FindController：find widget 状态绑在实例上，随 dispose 消亡
-      const findStateListeners = new Set<(event: any) => void>()
+      const findStateListeners = new Set<(event: Partial<StubFindState>) => void>()
       const findState = {
         isRevealed: false,
         searchString: '',
@@ -57,13 +145,13 @@ vi.mock('@/lib/dynamic', async () => {
         matchCase: false,
         preserveCase: false,
         isReplaceRevealed: false,
-        onFindReplaceStateChange: (handler: (event: any) => void) => {
+        onFindReplaceStateChange: (handler: (event: Partial<StubFindState>) => void) => {
           findStateListeners.add(handler)
           return { dispose: () => findStateListeners.delete(handler) }
         },
-        change(patch: Record<string, any>, _moveCursor?: boolean) {
+        change(patch: Partial<StubFindState>, _moveCursor?: boolean) {
           for (const [key, value] of Object.entries(patch)) {
-            if (value !== undefined) (this as Record<string, any>)[key] = value
+            if (value !== undefined) (this as unknown as Record<string, unknown>)[key] = value
           }
           findStateListeners.forEach((handler) => handler({ ...patch }))
         },
@@ -71,19 +159,19 @@ vi.mock('@/lib/dynamic', async () => {
       const findController = {
         getState: () => findState,
         // 对齐真实 _start：newState 合并入 state 且强制 isRevealed
-        start: vi.fn(async (_options: any, newState?: Record<string, any>) => {
+        start: vi.fn(async (_options: unknown, newState?: Partial<StubFindState>) => {
           findState.change({ ...newState, isRevealed: true }, false)
         }),
       }
       const instance = {
         getPosition: () => (disposed ? null : { ...position }),
-        setPosition: (next: any) => {
+        setPosition: (next: StubPosition) => {
           position = { lineNumber: next.lineNumber, column: next.column }
           editorInstanceMocks.setPosition(next)
           cursorHandler?.({ position })
         },
         getSelection: () => (disposed ? null : selection ? { ...selection } : null),
-        setSelection: (next: any) => {
+        setSelection: (next: StubSelection) => {
           selection = { ...next }
           position = { lineNumber: next.endLineNumber, column: next.endColumn }
           editorInstanceMocks.setSelection(next)
@@ -108,15 +196,15 @@ vi.mock('@/lib/dynamic', async () => {
         revealPositionInCenter: vi.fn(),
         revealLineInCenter: (line: number) => editorInstanceMocks.revealLineInCenter(line),
         focus: () => editorInstanceMocks.focus(),
-        onDidChangeCursorPosition: (handler: (event: any) => void) => {
-          cursorHandler = (event: any) => {
+        onDidChangeCursorPosition: (handler: (event: { position: StubPosition }) => void) => {
+          cursorHandler = (event: { position: StubPosition }) => {
             position = { ...event.position }
             handler(event)
           }
           monacoCursorHandlerRef.current = cursorHandler
           return { dispose: vi.fn() }
         },
-        onDidScrollChange: (handler: (event: any) => void) => {
+        onDidScrollChange: (handler: (event: { scrollTop: number; scrollLeft: number }) => void) => {
           scrollHandler = handler
           return { dispose: vi.fn() }
         },
@@ -124,7 +212,7 @@ vi.mock('@/lib/dynamic', async () => {
           disposalHandlers.push(handler)
           return { dispose: vi.fn() }
         },
-        onMouseDown: (handler: (event: any) => void) => {
+        onMouseDown: (handler: (event: MonacoMouseDownEvent) => void) => {
           monacoMouseDownRef.current = handler
           return { dispose: vi.fn() }
         },
@@ -154,14 +242,15 @@ vi.mock('@/lib/dynamic', async () => {
     })
   }
   return {
-    default: (loader: any) => {
+    default: (loader: () => Promise<unknown>) => {
       const src = loader.toString()
       if (src.includes('mod.DiffEditor'))
-        return (props: any) => {
+        return (props: Record<string, unknown>) => {
           diffPropsRef.current.push(props)
           return React.createElement('div', { 'data-testid': 'diff-editor' })
         }
-      if (src.includes('CsvTable')) return (props: any) => React.createElement(CsvTable, props)
+      if (src.includes('CsvTable'))
+        return (props: React.ComponentProps<typeof CsvTable>) => React.createElement(CsvTable, props)
       return MonacoStub
     },
   }
@@ -201,7 +290,12 @@ vi.mock('@/i18n', () => ({
   }),
 }))
 
-function createEditor(id: string, path: string, content: string, overrides: Record<string, any> = {}) {
+function createEditor(
+  id: string,
+  path: string,
+  content: string,
+  overrides: Partial<FileEditorDocument> = {},
+): FileEditorDocument {
   const name = path.split('/').pop() || path
   return {
     id,
@@ -222,11 +316,12 @@ function createEditor(id: string, path: string, content: string, overrides: Reco
     saving: false,
     binary: false,
     truncated: false,
-    kind: 'file',
+    kind: 'file' as const,
+    type: 'file' as const,
     ...overrides,
   }
 }
-function createCompareEditor(id: string, leftId: string, rightId: string) {
+function createCompareEditor(id: string, leftId: string, rightId: string): FileEditorDocument {
   return {
     id,
     hostId: 'local',
@@ -246,7 +341,8 @@ function createCompareEditor(id: string, leftId: string, rightId: string) {
     saving: false,
     binary: false,
     truncated: false,
-    kind: 'compare',
+    kind: 'compare' as const,
+    type: 'file' as const,
     compareLeftId: leftId,
     compareRightId: rightId,
   }
@@ -282,7 +378,7 @@ function setWorkbenchState({
   editorLayout,
   activeEditorGroupId,
 }: {
-  openEditors: any[]
+  openEditors: FileEditorDocument[]
   activeEditorId: string | null
   editorGroups: EditorGroupState[]
   editorLayout: EditorLayoutNode | null
@@ -305,9 +401,9 @@ function setWorkbenchState({
     editorSplitDirection: secondaryGroup ? rootSplit?.direction || 'horizontal' : null,
     editorSplitRatio: secondaryGroup ? rootSplit?.ratio || 0.5 : 0.5,
     activeEditorSlot: secondaryGroup && activeEditorGroupId === secondaryGroup.id ? 'secondary' : 'primary',
-  } as any)
+  })
 }
-function createDataTransfer(payload: Record<string, string>) {
+function createDataTransfer(payload: Record<string, string>): FakeDataTransfer {
   return {
     effectAllowed: 'all',
     dropEffect: 'copy',
@@ -342,7 +438,7 @@ function createRect(width = 1000, height = 600) {
 async function dispatchDragEvent(
   target: Element,
   type: 'dragover' | 'drop',
-  dataTransfer: any,
+  dataTransfer: FakeDataTransfer,
   coords?: { clientX: number; clientY: number },
 ) {
   const event = new Event(type, { bubbles: true, cancelable: true })
@@ -366,7 +462,7 @@ describe('EditorWorkbench', () => {
     vi.useFakeTimers()
     resolveDefinitionMock.mockReset()
     openFileInEditorMock.mockReset()
-    openFileInEditorMock.mockImplementation(async (file: any) => {
+    openFileInEditorMock.mockImplementation(async (file: FileDocumentHandle) => {
       useConsoleStore.getState().setActiveEditor(file.id)
       return file.id
     })
@@ -439,15 +535,24 @@ describe('EditorWorkbench', () => {
       editorLayout: createLeaf('layout-1', 'group-1'),
       activeEditorGroupId: 'group-1',
     })
-    openFileInEditorMock.mockImplementation(async (file: any, options: any) => {
-      useConsoleStore.getState().setActiveEditor(file.id)
-      window.dispatchEvent(
-        new CustomEvent('tmuxgo-open-editor-location', {
-          detail: { editorId: file.id, ...options?.position, restore: options?.restore },
-        }),
-      )
-      return file.id
-    })
+    openFileInEditorMock.mockImplementation(
+      async (
+        file: FileDocumentHandle,
+        options?: {
+          position?: { line?: number | null; column?: number | null } | null
+          restore?: EditorLocationRestore | null
+          onError?: (message: string) => void
+        },
+      ) => {
+        useConsoleStore.getState().setActiveEditor(file.id)
+        window.dispatchEvent(
+          new CustomEvent('tmuxgo-open-editor-location', {
+            detail: { editorId: file.id, ...options?.position, restore: options?.restore },
+          }),
+        )
+        return file.id
+      },
+    )
     resolveDefinitionMock.mockResolvedValue({
       status: 'success',
       target: { ...target, type: 'file', line: 60, column: 10 },
@@ -465,7 +570,7 @@ describe('EditorWorkbench', () => {
     const onSaveEditor = vi.fn(async () => {})
     useConsoleStore.setState({
       openEditors: [{ ...editor1, content: 'const value=2', dirty: true, saveError: 'network down' }],
-    } as any)
+    })
     renderWorkbench({ onSaveEditor })
     expect(screen.getByText(/Save failed; changes are kept/)).toBeTruthy()
     expect(screen.getByText(/network down/)).toBeTruthy()
@@ -485,7 +590,7 @@ describe('EditorWorkbench', () => {
   it('keeps a dirty editor open when closing is cancelled in the confirm dialog', () => {
     useConsoleStore.setState({
       openEditors: [{ ...editor1, content: 'const value=2', dirty: true }],
-    } as any)
+    })
     renderWorkbench()
     fireEvent.click(screen.getByRole('button', { name: 'Close index.ts' }))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
@@ -499,7 +604,7 @@ describe('EditorWorkbench', () => {
     const onSaveEditor = vi.fn(async () => {})
     useConsoleStore.setState({
       openEditors: [{ ...editor1, content: 'const value=2', dirty: true }],
-    } as any)
+    })
     renderWorkbench({ onSaveEditor })
     fireEvent.click(screen.getByRole('button', { name: 'Close index.ts' }))
     fireEvent.click(screen.getByRole('button', { name: "Don't Save" }))
@@ -508,12 +613,12 @@ describe('EditorWorkbench', () => {
     expect(useConsoleStore.getState().openEditors).toHaveLength(0)
   })
   it('saves a dirty editor and closes it via the close dialog', async () => {
-    const onSaveEditor = vi.fn(async (editor: any) => {
+    const onSaveEditor = vi.fn(async (editor: FileEditorDocument) => {
       useConsoleStore.getState().markEditorSaved(editor.id, editor.content, 'now', editor.content.length)
     })
     useConsoleStore.setState({
       openEditors: [{ ...editor1, content: 'const value=2', dirty: true }],
-    } as any)
+    })
     renderWorkbench({ onSaveEditor })
     fireEvent.click(screen.getByRole('button', { name: 'Close index.ts' }))
     await act(async () => {
@@ -524,12 +629,12 @@ describe('EditorWorkbench', () => {
     expect(useConsoleStore.getState().openEditors).toHaveLength(0)
   })
   it('keeps a dirty editor open when save-and-close fails', async () => {
-    const onSaveEditor = vi.fn(async (editor: any) => {
+    const onSaveEditor = vi.fn(async (editor: FileEditorDocument) => {
       useConsoleStore.getState().setEditorSaveError(editor.id, 'network down')
     })
     useConsoleStore.setState({
       openEditors: [{ ...editor1, content: 'const value=2', dirty: true }],
-    } as any)
+    })
     renderWorkbench({ onSaveEditor })
     fireEvent.click(screen.getByRole('button', { name: 'Close index.ts' }))
     await act(async () => {
@@ -544,7 +649,7 @@ describe('EditorWorkbench', () => {
   it('dismisses the dirty-close dialog with Escape and keeps the editor', () => {
     useConsoleStore.setState({
       openEditors: [{ ...editor1, content: 'const value=2', dirty: true }],
-    } as any)
+    })
     renderWorkbench()
     fireEvent.click(screen.getByRole('button', { name: 'Close index.ts' }))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
@@ -1619,14 +1724,14 @@ describe('EditorWorkbench', () => {
     },
   ])('a stale definition result does not navigate or pollute history after $name', async ({ trigger }) => {
     const { source, target } = setupNavigationReview()
-    act(() => liveEditors.get(source.absolutePath).setPosition({ lineNumber: 22, column: 4 }))
+    act(() => liveEditor(source.absolutePath).setPosition({ lineNumber: 22, column: 4 }))
     fireEvent.keyDown(window, { key: 'F12' })
     await advanceNavigation()
-    expect(liveEditors.get(target.absolutePath).getPosition()).toEqual({ lineNumber: 60, column: 10 })
-    let finish: any
+    expect(liveEditor(target.absolutePath).getPosition()).toEqual({ lineNumber: 60, column: 10 })
+    let finish!: (result: CodeNavigationResult) => void
     resolveDefinitionMock.mockImplementationOnce(
       () =>
-        new Promise((resolve) => {
+        new Promise<CodeNavigationResult>((resolve) => {
           finish = resolve
         }),
     )
@@ -1634,25 +1739,25 @@ describe('EditorWorkbench', () => {
     trigger()
     await advanceNavigation()
     expect(useConsoleStore.getState().activeEditorId).toBe(source.id)
-    expect(liveEditors.get(source.absolutePath).getPosition()).toEqual({ lineNumber: 22, column: 4 })
+    expect(liveEditor(source.absolutePath).getPosition()).toEqual({ lineNumber: 22, column: 4 })
     await act(async () => {
       finish({ status: 'success', target: { ...target, type: 'file', line: 90, column: 10 } })
       await vi.advanceTimersByTimeAsync(20)
     })
     expect(useConsoleStore.getState().activeEditorId).toBe(source.id)
-    expect(liveEditors.get(source.absolutePath).getPosition()).toEqual({ lineNumber: 22, column: 4 })
+    expect(liveEditor(source.absolutePath).getPosition()).toEqual({ lineNumber: 22, column: 4 })
     // 历史栈未被旧结果污染：Forward 仍回到离开 B 时的 60:10
     fireEvent.keyDown(window, { key: 'ArrowRight', altKey: true })
     await advanceNavigation()
     expect(useConsoleStore.getState().activeEditorId).toBe(target.id)
-    expect(liveEditors.get(target.absolutePath).getPosition()).toEqual({ lineNumber: 60, column: 10 })
+    expect(liveEditor(target.absolutePath).getPosition()).toEqual({ lineNumber: 60, column: 10 })
   })
   it('a stale definition result does not steal focus after a manual tab switch', async () => {
     const { target } = setupNavigationReview()
-    let finish: any
+    let finish!: (result: CodeNavigationResult) => void
     resolveDefinitionMock.mockImplementationOnce(
       () =>
-        new Promise((resolve) => {
+        new Promise<CodeNavigationResult>((resolve) => {
           finish = resolve
         }),
     )
@@ -1672,10 +1777,10 @@ describe('EditorWorkbench', () => {
   })
   it('a stale definition result does not reopen a closed source file', async () => {
     const { target } = setupNavigationReview()
-    let finish: any
+    let finish!: (result: CodeNavigationResult) => void
     resolveDefinitionMock.mockImplementationOnce(
       () =>
-        new Promise((resolve) => {
+        new Promise<CodeNavigationResult>((resolve) => {
           finish = resolve
         }),
     )
@@ -1687,14 +1792,14 @@ describe('EditorWorkbench', () => {
     })
     // 旧结果不得发起导航：target 被 store 正常激活而非旧结果跳转，落位也不会到 90:10
     expect(openFileInEditorMock).not.toHaveBeenCalledWith(expect.objectContaining({ id: target.id }), expect.anything())
-    expect(liveEditors.get(target.absolutePath).getPosition()).toEqual({ lineNumber: 1, column: 1 })
+    expect(liveEditor(target.absolutePath).getPosition()).toEqual({ lineNumber: 1, column: 1 })
   })
   it('a stale definition result does not navigate after the workbench unmounts', async () => {
     const { target, view } = setupNavigationReview()
-    let finish: any
+    let finish!: (result: CodeNavigationResult) => void
     resolveDefinitionMock.mockImplementationOnce(
       () =>
-        new Promise((resolve) => {
+        new Promise<CodeNavigationResult>((resolve) => {
           finish = resolve
         }),
     )
@@ -1708,15 +1813,17 @@ describe('EditorWorkbench', () => {
   })
   it('keeps the back entry when the target file fails to open', async () => {
     const { source, target } = setupNavigationReview()
-    act(() => liveEditors.get(source.absolutePath).setPosition({ lineNumber: 22, column: 4 }))
+    act(() => liveEditor(source.absolutePath).setPosition({ lineNumber: 22, column: 4 }))
     fireEvent.keyDown(window, { key: 'F12' })
     await advanceNavigation()
     expect(useConsoleStore.getState().activeEditorId).toBe(target.id)
-    openFileInEditorMock.mockImplementationOnce(async (file: any, options: any) => {
-      useConsoleStore.getState().setActiveEditor(file.id)
-      options?.onError?.('read failed')
-      return file.id
-    })
+    openFileInEditorMock.mockImplementationOnce(
+      async (file: FileDocumentHandle, options?: { onError?: (message: string) => void }) => {
+        useConsoleStore.getState().setActiveEditor(file.id)
+        options?.onError?.('read failed')
+        return file.id
+      },
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     await advanceNavigation()
     // 打开失败：back 栈回滚可重试，forward 不残留
@@ -1725,7 +1832,7 @@ describe('EditorWorkbench', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     await advanceNavigation()
     expect(useConsoleStore.getState().activeEditorId).toBe(source.id)
-    expect(liveEditors.get(source.absolutePath).getPosition()).toEqual({ lineNumber: 22, column: 4 })
+    expect(liveEditor(source.absolutePath).getPosition()).toEqual({ lineNumber: 22, column: 4 })
   })
   it('a stale pending location does not override the user cursor after a quick remount', async () => {
     const { source, target } = setupNavigationReview()
@@ -1735,11 +1842,11 @@ describe('EditorWorkbench', () => {
       ),
     )
     await advanceNavigation()
-    expect(liveEditors.get(source.absolutePath).getPosition()).toEqual({ lineNumber: 33, column: 3 })
-    act(() => liveEditors.get(source.absolutePath).setPosition({ lineNumber: 44, column: 5 }))
+    expect(liveEditor(source.absolutePath).getPosition()).toEqual({ lineNumber: 33, column: 3 })
+    act(() => liveEditor(source.absolutePath).setPosition({ lineNumber: 44, column: 5 }))
     act(() => useConsoleStore.getState().setActiveEditor(target.id))
     act(() => useConsoleStore.getState().setActiveEditor(source.id))
-    expect(liveEditors.get(source.absolutePath).getPosition()).toEqual({ lineNumber: 44, column: 5 })
+    expect(liveEditor(source.absolutePath).getPosition()).toEqual({ lineNumber: 44, column: 5 })
   })
   it('re-applies the landed position when a remount belongs to the same navigation', async () => {
     const { source, target } = setupNavigationReview()
@@ -1749,10 +1856,10 @@ describe('EditorWorkbench', () => {
       ),
     )
     await advanceNavigation()
-    expect(liveEditors.get(source.absolutePath).getPosition()).toEqual({ lineNumber: 33, column: 3 })
+    expect(liveEditor(source.absolutePath).getPosition()).toEqual({ lineNumber: 33, column: 3 })
     act(() => useConsoleStore.getState().setActiveEditor(target.id))
     act(() => useConsoleStore.getState().setActiveEditor(source.id))
-    expect(liveEditors.get(source.absolutePath).getPosition()).toEqual({ lineNumber: 33, column: 3 })
+    expect(liveEditor(source.absolutePath).getPosition()).toEqual({ lineNumber: 33, column: 3 })
   })
   it('applies a pending location once the target finishes loading', async () => {
     const content = Array.from({ length: 100 }, (_, index) => `// line ${index + 1}`).join('\n')
@@ -1775,7 +1882,7 @@ describe('EditorWorkbench', () => {
     expect(liveEditors.has(loadingEditor.absolutePath)).toBe(false)
     act(() => useConsoleStore.getState().setEditorLoaded(loadingEditor.id, { loading: false, content }))
     await advanceNavigation()
-    expect(liveEditors.get(loadingEditor.absolutePath).getPosition()).toEqual({ lineNumber: 77, column: 2 })
+    expect(liveEditor(loadingEditor.absolutePath).getPosition()).toEqual({ lineNumber: 77, column: 2 })
   })
   it('clamps a pending location column to the model line range', async () => {
     renderWorkbench()
@@ -1786,11 +1893,11 @@ describe('EditorWorkbench', () => {
     )
     await advanceNavigation()
     // 'const value=1' 行宽 13，列钳到 maxColumn 14
-    expect(liveEditors.get(editor1.absolutePath).getPosition()).toEqual({ lineNumber: 1, column: 14 })
+    expect(liveEditor(editor1.absolutePath).getPosition()).toEqual({ lineNumber: 1, column: 14 })
   })
   it('restores selection and scroll on Back without forcing the line to center', async () => {
     const { source, target } = setupNavigationReview()
-    const sourceInstance = liveEditors.get(source.absolutePath)
+    const sourceInstance = liveEditor(source.absolutePath)
     act(() => {
       sourceInstance.setPosition({ lineNumber: 22, column: 4 })
       sourceInstance.setSelection({
@@ -1804,13 +1911,13 @@ describe('EditorWorkbench', () => {
     })
     fireEvent.keyDown(window, { key: 'F12' })
     await advanceNavigation()
-    const targetInstance = liveEditors.get(target.absolutePath)
+    const targetInstance = liveEditor(target.absolutePath)
     expect(targetInstance.getPosition()).toEqual({ lineNumber: 60, column: 10 })
     expect(targetInstance.revealPositionInCenter).toHaveBeenCalled()
     fireEvent.keyDown(window, { key: 'ArrowLeft', altKey: true })
     await advanceNavigation()
     expect(useConsoleStore.getState().activeEditorId).toBe(source.id)
-    const remounted = liveEditors.get(source.absolutePath)
+    const remounted = liveEditor(source.absolutePath)
     expect(remounted).not.toBe(sourceInstance)
     expect(remounted.getPosition()).toEqual({ lineNumber: 25, column: 2 })
     expect(remounted.getSelection()).toEqual({
@@ -1836,7 +1943,7 @@ describe('EditorWorkbench', () => {
     })
     renderWorkbench()
     act(() => {
-      const instance = liveEditors.get(a.absolutePath)
+      const instance = liveEditor(a.absolutePath)
       instance.setScrollTop(1600)
       instance.setScrollLeft(80)
       instance.setPosition({ lineNumber: 50, column: 3 })
@@ -1844,7 +1951,7 @@ describe('EditorWorkbench', () => {
     act(() => useConsoleStore.getState().setActiveEditor(b.id))
     act(() => useConsoleStore.getState().setActiveEditor(a.id))
     await advanceNavigation()
-    const remounted = liveEditors.get(a.absolutePath)
+    const remounted = liveEditor(a.absolutePath)
     expect(remounted.getScrollTop()).toBe(1600)
     expect(remounted.getScrollLeft()).toBe(80)
     expect(remounted.getPosition()).toEqual({ lineNumber: 50, column: 3 })
@@ -1885,7 +1992,7 @@ describe('EditorWorkbench', () => {
       const position = { lineNumber: 1 + rand(300), column: 1 + rand(10) }
       act(() => useConsoleStore.getState().setActiveEditor(from.id))
       act(() => {
-        const instance = liveEditors.get(from.absolutePath)
+        const instance = liveEditor(from.absolutePath)
         instance.setScrollTop(scrollTop)
         instance.setScrollLeft(scrollLeft)
         instance.setPosition(position)
@@ -1893,7 +2000,7 @@ describe('EditorWorkbench', () => {
       act(() => useConsoleStore.getState().setActiveEditor(to.id))
       act(() => useConsoleStore.getState().setActiveEditor(from.id))
       await advanceNavigation()
-      const remounted = liveEditors.get(from.absolutePath)
+      const remounted = liveEditor(from.absolutePath)
       expect(remounted.getScrollTop(), `round ${round} scrollTop`).toBe(scrollTop)
       expect(remounted.getScrollLeft(), `round ${round} scrollLeft`).toBe(scrollLeft)
       expect(remounted.getPosition(), `round ${round} position`).toEqual(position)
@@ -1912,8 +2019,8 @@ describe('EditorWorkbench', () => {
     })
     renderWorkbench()
     act(() => {
-      liveEditors.get(a.absolutePath).setScrollTop(900)
-      liveEditors.get(a.absolutePath).setPosition({ lineNumber: 50, column: 3 })
+      liveEditor(a.absolutePath).setScrollTop(900)
+      liveEditor(a.absolutePath).setPosition({ lineNumber: 50, column: 3 })
     })
     act(() => useConsoleStore.getState().closeEditor(a.id))
     await advanceNavigation()
@@ -1930,7 +2037,7 @@ describe('EditorWorkbench', () => {
         absolutePath: a.absolutePath,
         type: 'file',
         language: 'typescript',
-      } as any)
+      })
       useConsoleStore.getState().setEditorLoaded(a.id, {
         loading: false,
         content,
@@ -1944,7 +2051,7 @@ describe('EditorWorkbench', () => {
       })
     })
     await advanceNavigation()
-    const reopened = liveEditors.get(a.absolutePath)
+    const reopened = liveEditor(a.absolutePath)
     expect(reopened.getScrollTop()).toBe(0)
     expect(reopened.getScrollLeft()).toBe(0)
     expect(reopened.getPosition()).toEqual({ lineNumber: 1, column: 1 })
@@ -1960,15 +2067,16 @@ describe('EditorWorkbench', () => {
     renderWorkbench()
     // 用户在 editor1 里打开 find 并输入查询词/开关
     act(() => {
-      liveEditors
-        .get(editor1.absolutePath)
-        .findState.change({ isRevealed: true, searchString: 'value', matchCase: true, isRegex: true }, false)
+      liveEditor(editor1.absolutePath).findState.change(
+        { isRevealed: true, searchString: 'value', matchCase: true, isRegex: true },
+        false,
+      )
     })
     act(() => useConsoleStore.getState().setActiveEditor(editor2.id))
     await act(async () => {
       await Promise.resolve()
     })
-    const next = liveEditors.get(editor2.absolutePath)
+    const next = liveEditor(editor2.absolutePath)
     // 新实例上自动重开 widget：查询词与开关原样带过去，且不抢编辑器焦点
     expect(next.findController.start).toHaveBeenCalledWith(
       expect.objectContaining({ shouldFocus: 0, updateSearchScope: false }),
@@ -1987,7 +2095,7 @@ describe('EditorWorkbench', () => {
     })
     renderWorkbench()
     act(() => {
-      const first = liveEditors.get(editor1.absolutePath)
+      const first = liveEditor(editor1.absolutePath)
       first.findState.change({ isRevealed: true, searchString: 'value' }, false)
       first.findState.change({ isRevealed: false }, false)
     })
@@ -1995,7 +2103,7 @@ describe('EditorWorkbench', () => {
     await act(async () => {
       await Promise.resolve()
     })
-    const next = liveEditors.get(editor2.absolutePath)
+    const next = liveEditor(editor2.absolutePath)
     expect(next.findController.start).not.toHaveBeenCalled()
     expect(next.findState.isRevealed).toBe(false)
   })
