@@ -13,6 +13,7 @@ import {
 } from '@/hooks/useInbox'
 import { useModalLayer } from '@/hooks/useModalLayer'
 import { api } from '@/lib/api'
+import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
 import { useTranslation } from '@/i18n'
 import type {
   AgentInboxMessage,
@@ -788,7 +789,10 @@ export function InboxPanel({ mode, onClose, onPreview, onJump }: InboxPanelProps
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* 右侧 tab 标题栏常驻：无 tab 时也要露出「关闭全部」（禁用态） */}
           <div className="flex h-9 shrink-0 items-end gap-1 border-b border-[var(--line)] px-2">
-            <div className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto scrollbar-none">
+            <div
+              ref={bindHorizontalWheelScroll}
+              className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto scrollbar-none"
+            >
               {tabs.map((tab) => (
                 <div
                   key={tab.id}

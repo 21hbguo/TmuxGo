@@ -16,6 +16,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { PromptDialog } from './PromptDialog'
 import { summarizeAgentByWindow } from '@/lib/agent-status'
 import { setTerminalDockDragActive, TERMINAL_DOCK_DRAG_MIME, WINDOW_TAB_DRAG_MIME } from '@/lib/terminal-dock-drag'
+import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
 
 export function WindowTabs() {
   const activeHostId = useConsoleStore((s) => s.activeHostId)
@@ -38,6 +39,7 @@ export function WindowTabs() {
   const [newWindowName, setNewWindowName] = useState('')
   const [dockMenuPos, setDockMenuPos] = useState<{ x: number; y: number } | null>(null)
   const [renameTarget, setRenameTarget] = useState<{ id: string; name: string } | null>(null)
+  const [closeTarget, setCloseTarget] = useState<{ id: string; name: string } | null>(null)
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; id: string } | null>(null)
   const [dragWindowId, setDragWindowId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<{ id: string; side: 'before' | 'after' } | null>(null)
@@ -282,7 +284,11 @@ export function WindowTabs() {
           </Chip>
         </div>
       )}
-      <div role="tablist" className="tmuxgo-scrollbar-subtle flex min-w-0 flex-1 items-end overflow-x-auto">
+      <div
+        ref={bindHorizontalWheelScroll}
+        role="tablist"
+        className="tmuxgo-scrollbar-subtle flex min-w-0 flex-1 items-end overflow-x-auto"
+      >
         {sessionWindows.map((window: any) => {
           if (batchMode) {
             const selected = selectedWindowIds.includes(window.id)
@@ -389,7 +395,7 @@ export function WindowTabs() {
                 className="tmuxgo-window-tab-close"
                 onClick={(event) => {
                   event.stopPropagation()
-                  void handleCloseWindow(window)
+                  setCloseTarget({ id: window.id, name: window.name })
                 }}
                 onDoubleClick={(event) => event.stopPropagation()}
               >
@@ -517,6 +523,20 @@ export function WindowTabs() {
         cancelLabel={t('common.cancel')}
         onCancel={() => setRenameTarget(null)}
         onConfirm={confirmRename}
+      />
+      <ConfirmDialog
+        open={!!closeTarget}
+        title={t('window.closeTitle')}
+        message={t('window.closeConfirm', { name: closeTarget?.name ?? '' })}
+        confirmLabel={t('window.close')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onCancel={() => setCloseTarget(null)}
+        onConfirm={async () => {
+          const target = closeTarget
+          setCloseTarget(null)
+          if (target) await handleCloseWindow(target)
+        }}
       />
       <ConfirmDialog
         open={pendingBatchDelete}

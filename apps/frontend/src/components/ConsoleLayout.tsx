@@ -50,6 +50,7 @@ import { AgentStatusBadge } from './AgentStatusBadge'
 import { OverlayShell } from './DesktopWindow'
 import { shouldResumeFromContinuity } from '@/lib/session-continuity-policy'
 import { MOBILE_QUERY } from '@/lib/console-device-state'
+import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
 // 默认关闭、无全局副作用的面板走动态加载，避免拖大主入口；overlay 型面板 fallback 用同形 scrim 防闪帧
 const Settings = dynamic(() => import('./Settings').then((m) => ({ default: m.Settings })), {
   fallback: <LazyOverlayLoading zClass="z-50" />,
@@ -848,7 +849,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         >
           {mobileQuickSessions.length > 0 && (
             <div className="tmuxgo-mobile-session-strip border-b px-2 pb-1 pt-1.5">
-              <div className="flex gap-1 overflow-x-auto scrollbar-none">
+              <div ref={bindHorizontalWheelScroll} className="flex gap-1 overflow-x-auto scrollbar-none">
                 {mobileQuickSessions.map((session: any) => {
                   const active = session.id === activeSessionId
                   return (

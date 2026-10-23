@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
+import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
 import { useWindows } from '@/hooks/useApi'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { useTranslation } from '@/i18n'
@@ -44,7 +45,11 @@ export function WindowList() {
     const [removed] = reordered.splice(dragIndex, 1)
     reordered.splice(dropIndex, 0, removed)
     try {
-      const result = await api.windows.move(activeHostId, activeSessionId, reordered.map((window) => window.id))
+      const result = await api.windows.move(
+        activeHostId,
+        activeSessionId,
+        reordered.map((window) => window.id),
+      )
       if (result.windows) setWindows(result.windows)
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('window.reorderFailed') })
@@ -59,7 +64,10 @@ export function WindowList() {
   }
 
   return (
-    <div className="tmuxgo-scrollbar-subtle flex items-center gap-1 overflow-x-auto border-b border-[var(--line)] bg-bg-1 p-1">
+    <div
+      ref={bindHorizontalWheelScroll}
+      className="tmuxgo-scrollbar-subtle flex items-center gap-1 overflow-x-auto border-b border-[var(--line)] bg-bg-1 p-1"
+    >
       {sessionWindows.map((window: any) => (
         <div
           key={window.id}
@@ -72,8 +80,8 @@ export function WindowList() {
             draggedItem?.id === window.id
               ? 'opacity-50'
               : dragOverItem?.id === window.id
-              ? 'bg-accent/10 border border-accent'
-              : 'bg-bg-2 hover:bg-bg-1 text-text-2'
+                ? 'bg-accent/10 border border-accent'
+                : 'bg-bg-2 hover:bg-bg-1 text-text-2'
           }`}
         >
           {window.name}

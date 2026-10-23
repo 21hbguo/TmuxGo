@@ -47,6 +47,7 @@ import { getVncWebSocketBase } from '@/lib/runtime-endpoints'
 import { attachVncClipboardSync } from '@/lib/vnc-clipboard'
 import { attachVncTouchAdapter, type VncTouchMode } from '@/lib/vnc-touch-gestures'
 import { isImeKeyEvent } from '@/lib/terminal-platform'
+import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
 import { useConsoleStore, type DesktopViewMode } from '@/stores/useConsoleStore'
 import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useTranslation } from '@/i18n'
@@ -1333,7 +1334,7 @@ export function DesktopView({
           >
             {/* 特殊键行：横向滚动不挤压输入行；pointerdown 抢在 input blur 前防收条 */}
             {mobileKeyboardOpen && (
-              <div className="flex items-center gap-1 overflow-x-auto">
+              <div ref={bindHorizontalWheelScroll} className="flex items-center gap-1 overflow-x-auto">
                 {(
                   [
                     { label: 'Esc', keysym: MOBILE_KEYSYM.Escape, code: 'Escape' },

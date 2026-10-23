@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { FiChevronLeft, FiChevronRight, FiFolder, FiFolderPlus, FiX } from 'react-icons/fi'
 import { api } from '@/lib/api'
+import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
 import { useFileList, useFileRoots } from '@/hooks/useApi'
 import { usePrompt } from '@/hooks/usePrompt'
 import { useTranslation } from '@/i18n'
@@ -173,7 +174,10 @@ export function WorkspaceDirectoryPicker({
             >
               <FiChevronLeft aria-hidden="true" size={16} />
             </Button>
-            <div className="flex min-w-0 flex-1 items-center overflow-x-auto text-xs text-text-3">
+            <div
+              ref={bindHorizontalWheelScroll}
+              className="flex min-w-0 flex-1 items-center overflow-x-auto text-xs text-text-3"
+            >
               {(currentDirectory?.breadcrumbs || [{ name: activeRoot?.path || '/', path: '' }]).map((item, index) => (
                 <button
                   key={item.path || 'root'}

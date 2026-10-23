@@ -1110,6 +1110,8 @@ export const zh = {
   'window.renameTitle': '重命名窗口',
   'window.renameFailed': '重命名失败',
   'window.close': '关闭',
+  'window.closeTitle': '关闭窗口',
+  'window.closeConfirm': '确认关闭窗口「{name}」？',
   'window.closeOthers': '关闭其他窗口',
   'window.closeFailed': '关闭窗口失败',
   'window.lastWindow': '最后一个窗口不可关闭',

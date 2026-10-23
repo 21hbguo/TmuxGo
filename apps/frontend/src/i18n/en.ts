@@ -1118,6 +1118,8 @@ export const en = {
   'window.renameTitle': 'Rename window',
   'window.renameFailed': 'Rename failed',
   'window.close': 'Close',
+  'window.closeTitle': 'Close window',
+  'window.closeConfirm': 'Close window "{name}"?',
   'window.closeOthers': 'Close other windows',
   'window.closeFailed': 'Failed to close window',
   'window.lastWindow': 'Cannot close the last window',

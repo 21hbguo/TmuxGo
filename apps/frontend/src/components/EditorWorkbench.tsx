@@ -17,6 +17,7 @@ import { OPEN_EDITOR_LOCATION_EVENT, openFileInEditor } from '@/lib/editor-open'
 import type { EditorLocationRestore } from '@/lib/editor-open'
 import { ensureTmuxgoTheme, tmuxgoThemeName } from '@/lib/monaco-theme'
 import { attachWheelScrollLines } from '@/lib/editor-wheel-scroll'
+import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
 import type { Monaco } from '@monaco-editor/react'
 import { resolveEditorDefinition, warmupCodeNavigation } from '@/lib/code-navigation'
 import { useTranslation } from '@/i18n'
@@ -1146,6 +1147,7 @@ export function EditorWorkbench({
   }
   const renderTabStrip = (editors: FileEditorDocument[], groupId: string) => (
     <div
+      ref={bindHorizontalWheelScroll}
       data-testid={`editor-group-${getLegacyGroupName(groupId)}`}
       data-editor-group-id={groupId}
       className={`tmuxgo-scrollbar-subtle relative flex min-h-6 items-stretch overflow-x-auto border-b border-[var(--line)] bg-bg-1 ${tabDropTarget?.groupId === groupId ? 'ring-1 ring-accent/40 ring-inset' : ''}`}

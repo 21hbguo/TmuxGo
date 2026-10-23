@@ -23,6 +23,7 @@ import { useConsoleStore, type DesktopViewMode } from '@/stores/useConsoleStore'
 import { useStreamPause } from '@/hooks/useStreamPause'
 import { useTranslation } from '@/i18n'
 import { MOBILE_QUERY } from '@/lib/console-device-state'
+import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
 
 type WsState = 'connecting' | 'open' | 'closed'
 interface BrowserTarget {
@@ -732,7 +733,10 @@ export function BrowserView({
         </Button>
       </header>
       {targets.length > 0 && (
-        <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--line)] px-2 scrollbar-none">
+        <div
+          ref={bindHorizontalWheelScroll}
+          className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--line)] px-2 scrollbar-none"
+        >
           {targets.map((target) => {
             const active = target.id === activeTargetId
             return (

@@ -25,6 +25,7 @@ import {
 } from '@/lib/auth'
 import { parseSessionName } from '@/lib/session-id'
 import { NAV_BAR_ITEM_KEYS, readNavBarItems, writeNavBarItems, type NavBarItemKey } from '@/lib/mobile-nav-items'
+import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
 import type { SessionArchive, SessionArchiveSummary } from '@/types'
 import {
   useHosts,
@@ -498,7 +499,10 @@ export function Settings({ onClose }: SettingsProps) {
           </Button>
         </div>
 
-        <div className="tmuxgo-scrollbar shrink-0 flex overflow-x-auto border-b border-[var(--line)]">
+        <div
+          ref={bindHorizontalWheelScroll}
+          className="tmuxgo-scrollbar shrink-0 flex overflow-x-auto border-b border-[var(--line)]"
+        >
           {tabs.map((tab) => (
             <button
               key={tab.id}

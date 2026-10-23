@@ -687,6 +687,28 @@ describe('EditorWorkbench', () => {
       expect(tab.className).toContain('h-6')
     }
   })
+  it('scrolls the tab strip horizontally with the mouse wheel', () => {
+    renderWorkbench()
+    const strip = screen.getByTestId('editor-group-primary') as HTMLDivElement
+    Object.defineProperty(strip, 'scrollWidth', { value: 2000, configurable: true })
+    Object.defineProperty(strip, 'clientWidth', { value: 400, configurable: true })
+    strip.scrollLeft = 0
+    expect(fireEvent.wheel(strip, { deltaY: 120 })).toBe(false)
+    expect(strip.scrollLeft).toBe(120)
+    fireEvent.wheel(strip, { deltaX: 40 })
+    expect(strip.scrollLeft).toBe(160)
+    // 越过边界时钳到 max 仍消费；已在边界才放行给滚动链
+    expect(fireEvent.wheel(strip, { deltaY: 10000 })).toBe(false)
+    expect(strip.scrollLeft).toBe(1600)
+    expect(fireEvent.wheel(strip, { deltaY: 10000 })).toBe(true)
+    expect(fireEvent.wheel(strip, { deltaY: -10000 })).toBe(false)
+    expect(strip.scrollLeft).toBe(0)
+    expect(fireEvent.wheel(strip, { deltaY: -10000 })).toBe(true)
+    // 无横向溢出时不消费滚轮
+    Object.defineProperty(strip, 'scrollWidth', { value: 400, configurable: true })
+    expect(fireEvent.wheel(strip, { deltaY: 120 })).toBe(true)
+    expect(strip.scrollLeft).toBe(0)
+  })
   it('moves a dragged tab into the primary group and collapses the source split', async () => {
     setWorkbenchState({
       openEditors: [editor1, editor2],

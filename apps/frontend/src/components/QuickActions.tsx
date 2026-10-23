@@ -26,6 +26,7 @@ import { requestTerminalFocus } from '@/lib/terminal-focus-request'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
 import { DELETE_PREV_LINE_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
+import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
 import { WatchButton } from './PaneNotifications'
 import { KeyCap } from './KeyCap'
 import { FiCheckSquare, FiCommand, FiEdit2, FiTrash2 } from 'react-icons/fi'
@@ -774,6 +775,7 @@ export function QuickActions({
             </button>
           )}
           <div
+            ref={bindHorizontalWheelScroll}
             data-shortcut-bar
             data-keep-mobile-keyboard
             data-density={compact ? 'compact' : undefined}
@@ -784,12 +786,6 @@ export function QuickActions({
             onPointerUpCapture={(e) => controller.finishDockGesture(e.pointerId)}
             onPointerCancelCapture={(e) => controller.finishDockGesture(e.pointerId)}
             onScroll={controller.trackDockScroll}
-            onWheel={(e) => {
-              e.preventDefault()
-              const el = e.currentTarget
-              const delta = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX
-              el.scrollLeft += delta
-            }}
             onContextMenu={(e) => e.preventDefault()}
           >
             <div
