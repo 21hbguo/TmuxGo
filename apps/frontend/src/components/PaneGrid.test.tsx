@@ -227,8 +227,15 @@ function createHarness() {
   }
 }
 
+// 隔离真实网络：本文件用的是真 useSessionSnapshotSync，切窗口会触发 api.snapshot.get。
+// 未 stub 时它会走到 undici fetch（jsdom 无 fetch 实现），一旦后续用例进 waitFor 的 act 冲刷，
+// 单次轮询内会失控分配（实测 RSS 4.5GB→heap OOM，56 例第 16 例崩）；stub 后同场景 72-88MB 通过。
+// 以后在这个文件里加「真的切窗口/切 pane」的用例，别再让真实请求漏出去。
+const emptySnapshot = { windows: [], panes: [], activeWindowId: null, activePaneId: null }
+
 describe('PaneGrid', () => {
   beforeEach(() => {
+    vi.spyOn(api.snapshot, 'get').mockResolvedValue(emptySnapshot as never)
     sendMock.mockClear()
     subscribeOutputMock.mockClear()
     // jsdom 无焦点概念（hasFocus 恒 false），补 stub 让页面处于激活态
@@ -264,6 +271,7 @@ describe('PaneGrid', () => {
   })
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
   })
   it('waits for the new terminal instance before attaching after session switch', async () => {
     render(<PaneGrid />)
