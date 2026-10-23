@@ -3,7 +3,20 @@ import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FilePanel } from './FilePanel'
 import { api } from '@/lib/api'
-import type { FileEditorDocument, FileItem, FileListResponse } from '@/types'
+import type { FavoriteDirectory, FileEditorDocument, FileItem, FileListResponse } from '@/types'
+
+// preferences 更新载荷的最小形状（mock 只读取这四个字段）
+interface PreferencesUpdatePayload {
+  favoriteDirectories?: FavoriteDirectory[]
+  favoriteDirectoriesUpdatedAt?: string
+  uploadRateLimitKBps?: number
+  downloadRateLimitKBps?: number
+}
+// 主机 mock 只暴露 id/status 两个字段给面板消费
+interface StubHost {
+  id: string
+  status: 'online' | 'offline'
+}
 
 const clipboardMocks = vi.hoisted(() => ({
   writeClipboardText: vi.fn(async () => ({ copied: true, source: 'system', unavailable: false })),
@@ -26,7 +39,7 @@ const preferencesGet = vi.fn(async () => ({
   uploadRateLimitKBps: 5120,
   downloadRateLimitKBps: 5120,
 }))
-const preferencesUpdate = vi.fn(async (payload: any) => ({
+const preferencesUpdate = vi.fn(async (payload: PreferencesUpdatePayload = {}) => ({
   version: 1,
   updatedAt: '',
   customShortcuts: [],
@@ -39,7 +52,7 @@ const preferencesUpdate = vi.fn(async (payload: any) => ({
   downloadRateLimitKBps: payload.downloadRateLimitKBps || 5120,
 }))
 const paneCwdMocks = vi.hoisted(() => ({ calls: [] as Array<string | null>, cwd: '' }))
-const hostsMock = vi.hoisted(() => ({ value: [{ id: 'local', status: 'online' }] as any[] }))
+const hostsMock = vi.hoisted(() => ({ value: [{ id: 'local', status: 'online' }] as StubHost[] }))
 const consoleStoreState: {
   activeHostId: string
   activeSessionId: string
@@ -183,9 +196,8 @@ const getListData = (rootId: string, currentPath: string): FileListResponse => {
 }
 
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: ((selector?: any) => {
-    return typeof selector === 'function' ? selector(consoleStoreState) : consoleStoreState
-  }) as any,
+  useConsoleStore: (selector?: (state: typeof consoleStoreState) => unknown) =>
+    typeof selector === 'function' ? selector(consoleStoreState) : consoleStoreState,
 }))
 vi.mock('@tanstack/react-query', () => ({
   useQuery: () => ({ data: [], isFetching: false }),
@@ -338,7 +350,7 @@ vi.mock('@/lib/api', () => ({
     },
     preferences: {
       get: () => preferencesGet(),
-      update: (payload?: any) => preferencesUpdate(payload),
+      update: (payload?: PreferencesUpdatePayload) => preferencesUpdate(payload),
     },
   },
 }))
@@ -477,7 +489,7 @@ describe('FilePanel', () => {
     render(React.createElement(FilePanel))
     fireEvent.click(screen.getByRole('button', { name: 'Favorite src' }))
     let favorites = JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]')
-    expect(favorites.map((item: any) => `${item.rootId}:${item.path}`)).toEqual(['root-workspace:src'])
+    expect(favorites.map((item: FavoriteDirectory) => `${item.rootId}:${item.path}`)).toEqual(['root-workspace:src'])
     const tree = document.querySelector('.tmuxgo-file-tree') as HTMLElement
     fireEvent.click(within(tree).getByRole('button', { name: 'Unfavorite src' }))
     favorites = JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]')
@@ -498,7 +510,7 @@ describe('FilePanel', () => {
     fireEvent.click(readd)
     expect(
       JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]').map(
-        (item: any) => `${item.rootId}:${item.path}`,
+        (item: FavoriteDirectory) => `${item.rootId}:${item.path}`,
       ),
     ).toEqual(['root-home:project'])
     expect(within(favoritesSection).getByRole('button', { name: 'Unfavorite project' })).toBeInTheDocument()
@@ -1238,7 +1250,9 @@ describe('FilePanel', () => {
     expect(screen.queryByText('.env')).not.toBeInTheDocument()
   })
   it('deletes the whole selection with a count in the confirm dialog', async () => {
-    const trash = vi.spyOn(api.files, 'trash').mockResolvedValue({ entry: { id: 't1' } } as any)
+    const trash = vi
+      .spyOn(api.files, 'trash')
+      .mockResolvedValue({ entry: { id: 't1' } } as unknown as Awaited<ReturnType<typeof api.files.trash>>)
     render(React.createElement(FilePanel))
     const docsRow = (await screen.findByText('docs')).closest('[role="button"]') as HTMLElement
     fireEvent.click(docsRow, { ctrlKey: true })
@@ -1519,7 +1533,7 @@ describe('FilePanel', () => {
     expect(screen.queryByText('Empty directory')).not.toBeInTheDocument()
   })
   it('mobile upload button dispatches the global pick event with the current root/path', async () => {
-    const events: any[] = []
+    const events: unknown[] = []
     const onPick = (e: Event) => events.push((e as CustomEvent).detail)
     window.addEventListener('tmuxgo-pick-upload-files', onPick)
     try {
@@ -1533,7 +1547,7 @@ describe('FilePanel', () => {
     }
   })
   it('desktop upload button still dispatches the same pick event (regression)', async () => {
-    const events: any[] = []
+    const events: unknown[] = []
     const onPick = (e: Event) => events.push((e as CustomEvent).detail)
     window.addEventListener('tmuxgo-pick-upload-files', onPick)
     try {

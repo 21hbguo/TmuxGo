@@ -5,6 +5,13 @@ import { vi } from 'vitest'
 import { ShortcutBar } from './ShortcutBar'
 import { I18nProvider } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import type { CustomShortcut, ShortcutStep } from '@/types'
+
+// 查询缓存里 payload 的最小形状（只断言 zoomed/activePaneId）
+interface SnapshotCache {
+  windows?: Array<{ zoomed?: boolean }>
+  activePaneId?: string
+}
 
 const send = vi.fn()
 const defaultPushToast = useConsoleStore.getState().pushToast
@@ -14,7 +21,10 @@ const zoomByPane = vi.fn()
 const killPane = vi.fn()
 const removeShortcut = vi.fn()
 const removeShortcuts = vi.fn()
-let windowsDataMock: any[] = [{ id: 'win-1', sessionId: 'session-dev', active: true }]
+// 窗口 mock 只需 id/sessionId/active，面板仅做会话匹配
+let windowsDataMock: Array<{ id: string; sessionId: string; active?: boolean }> = [
+  { id: 'win-1', sessionId: 'session-dev', active: true },
+]
 const shortcutsMock = [
   { id: 'shortcut-a', label: 'A', keys: 'Ctrl+A', action: 'input' },
   { id: 'shortcut-b', label: 'B', keys: 'Ctrl+B', action: 'input' },
@@ -44,12 +54,12 @@ vi.mock('@/hooks/useCustomShortcuts', () => ({
     removeShortcut,
     removeShortcuts,
   }),
-  shortcutToSteps: (value: any) =>
+  shortcutToSteps: (value: CustomShortcut) =>
     value.steps ||
     (value.mode === 'text'
       ? [{ type: 'text', text: value.text, appendEnter: value.appendEnter }]
       : [{ type: 'keys', keys: value.keys }]),
-  stepToInput: (step: any) =>
+  stepToInput: (step: ShortcutStep) =>
     step.type === 'text'
       ? step.text + (step.appendEnter ? '\r' : '')
       : step.keys === 'Ctrl+A'
@@ -61,8 +71,11 @@ vi.mock('@/hooks/useCustomShortcuts', () => ({
 }))
 vi.mock('@/lib/api', () => ({
   api: {
-    snapshot: { get: (...args: any[]) => snapshotGet(...args) },
-    panes: { zoomByPane: (...args: any[]) => zoomByPane(...args), kill: (...args: any[]) => killPane(...args) },
+    snapshot: { get: (...args: unknown[]) => snapshotGet(...args) },
+    panes: {
+      zoomByPane: (...args: unknown[]) => zoomByPane(...args),
+      kill: (...args: unknown[]) => killPane(...args),
+    },
   },
 }))
 
@@ -274,7 +287,7 @@ describe('ShortcutBar', () => {
       fireEvent.pointerUp(button, { pointerId: 1, clientX: 10, clientY: 10 })
       await Promise.resolve()
     })
-    const cached: any = queryClient.getQueryData(['session-snapshot', 'local', 'session-dev'])
+    const cached: SnapshotCache | undefined = queryClient.getQueryData(['session-snapshot', 'local', 'session-dev'])
     expect(cached?.windows?.[0]?.zoomed).toBe(true)
     expect(cached?.activePaneId).toBe('local:%2')
     resolveZoom({ ok: true })
@@ -372,7 +385,11 @@ describe('ShortcutBar', () => {
       fireEvent.pointerUp(button, { pointerId: 1, clientX: 10, clientY: 10 })
       await Promise.resolve()
     })
-    const cachedAfterFirst: any = queryClient.getQueryData(['session-snapshot', 'local', 'session-dev'])
+    const cachedAfterFirst: SnapshotCache | undefined = queryClient.getQueryData([
+      'session-snapshot',
+      'local',
+      'session-dev',
+    ])
     expect(cachedAfterFirst?.windows?.[0]?.zoomed).toBe(true)
     await act(async () => {
       const button = screen.getByRole('button', { name: '聚焦' })
@@ -380,7 +397,11 @@ describe('ShortcutBar', () => {
       fireEvent.pointerUp(button, { pointerId: 1, clientX: 10, clientY: 10 })
       await Promise.resolve()
     })
-    const cachedAfterSecond: any = queryClient.getQueryData(['session-snapshot', 'local', 'session-dev'])
+    const cachedAfterSecond: SnapshotCache | undefined = queryClient.getQueryData([
+      'session-snapshot',
+      'local',
+      'session-dev',
+    ])
     expect(cachedAfterSecond?.windows?.[0]?.zoomed).toBe(false)
   })
   it('keeps split and zoom available while active pane is being resynced after session switch', () => {

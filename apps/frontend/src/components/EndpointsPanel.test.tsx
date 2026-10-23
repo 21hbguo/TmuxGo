@@ -3,12 +3,13 @@ import React from 'react'
 import { vi } from 'vitest'
 import { I18nProvider } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import type { EndpointItem, EndpointSource } from '@/lib/api'
 import { EndpointsPanel, endpointUrl, buildOwnersByPort, resolveChain, chainLabel } from './EndpointsPanel'
 
 const useEndpointsMock = vi.fn()
 
 vi.mock('@/hooks/useApi', () => ({
-  useEndpoints: (...args: any[]) => useEndpointsMock(...args),
+  useEndpoints: (...args: unknown[]) => useEndpointsMock(...args),
   useHosts: () => ({ data: [] }),
 }))
 
@@ -52,7 +53,7 @@ function renderPanel(mode: 'panel' | 'mobile' = 'panel') {
 describe('EndpointsPanel', () => {
   beforeEach(() => {
     localStorage.setItem('tmuxgo-preferences', JSON.stringify({ language: 'en' }))
-    useConsoleStore.setState({ activeHostId: 'local' } as any)
+    useConsoleStore.setState({ activeHostId: 'local' })
     useEndpointsMock.mockReturnValue({
       data: sampleData,
       isLoading: false,
@@ -115,7 +116,7 @@ describe('endpoint chains', () => {
     },
     { id: 'd', source: 'docker', listen: '0.0.0.0:26785', name: 'sub2api', target: ':26786', detail: '' },
     { id: 's', source: 'socket', listen: '*:26785', name: 'docker-proxy', target: '', detail: 'pid 9' },
-  ] as any[]
+  ] satisfies EndpointItem[]
   const owners = buildOwnersByPort(eps)
   it('resolves tailscale relay → docker container → internal port', () => {
     const chain = resolveChain(owners, new Set(['ts']), 'http://127.0.0.1:26785')
@@ -137,7 +138,13 @@ describe('endpoint chains', () => {
 })
 
 describe('endpointUrl', () => {
-  const item = (source: string, listen: string, name = '') => ({ id: 'x', source, listen, name, target: '' }) as any
+  const item = (source: EndpointSource, listen: string, name = ''): EndpointItem => ({
+    id: 'x',
+    source,
+    listen,
+    name,
+    target: '',
+  })
   it('derives https URL from nginx server_name + ssl listen', () => {
     expect(endpointUrl(item('nginx', '443 ssl', 'app.example.com'))).toBe('https://app.example.com')
     expect(endpointUrl(item('nginx', '443 ssl', 'app.example.com'))).toBe('https://app.example.com')
@@ -157,9 +164,7 @@ describe('endpointUrl', () => {
   })
   it('keeps real bound IPs and tailnet hosts verbatim', () => {
     expect(endpointUrl(item('tailscale', 'node.tailnet.ts.net:443'))).toBe('https://node.tailnet.ts.net')
-    expect(endpointUrl(item('tailscale', 'node.tailnet.ts.net:8443'))).toBe(
-      'https://node.tailnet.ts.net:8443',
-    )
+    expect(endpointUrl(item('tailscale', 'node.tailnet.ts.net:8443'))).toBe('https://node.tailnet.ts.net:8443')
     expect(endpointUrl(item('socket', '192.168.1.5:8080'), '127.0.0.1')).toBe('http://192.168.1.5:8080')
   })
   it('rejects unusable listen values', () => {

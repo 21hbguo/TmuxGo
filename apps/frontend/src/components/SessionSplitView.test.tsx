@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionSplitView } from './SessionSplitView'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { STREAM_EVENT, subscribeStreamEvent } from '@/lib/stream-events'
+import type { SessionSplitGroup } from '@/hooks/useSplitGroups'
 
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -30,16 +31,16 @@ const group = {
   primarySessionId: 'dev1',
   secondarySessionId: 'dev2',
   primaryRatio: 0.6,
-} as any
+} as unknown as SessionSplitGroup
 
 describe('SessionSplitView divider gesture lifecycle', () => {
   beforeEach(() => {
-    useConsoleStore.setState({ activeHostId: 'local' } as any)
+    useConsoleStore.setState({ activeHostId: 'local' })
   })
 
   it('emits start on pointerdown and end on pointerup (listeners registered without re-render)', () => {
     const gestures: string[] = []
-    const unsub = subscribeStreamEvent(STREAM_EVENT.resizeGesture, (d: any) => gestures.push(d?.phase))
+    const unsub = subscribeStreamEvent<{ phase: string }>(STREAM_EVENT.resizeGesture, (d) => gestures.push(d?.phase))
     const { container } = render(<SessionSplitView group={group} />)
     const divider = container.querySelector('.cursor-col-resize') as HTMLElement
     expect(divider).toBeTruthy()
@@ -52,7 +53,7 @@ describe('SessionSplitView divider gesture lifecycle', () => {
 
   it('settles exactly once on unmount mid-drag', () => {
     const gestures: string[] = []
-    const unsub = subscribeStreamEvent(STREAM_EVENT.resizeGesture, (d: any) => gestures.push(d?.phase))
+    const unsub = subscribeStreamEvent<{ phase: string }>(STREAM_EVENT.resizeGesture, (d) => gestures.push(d?.phase))
     const { container, unmount } = render(<SessionSplitView group={group} />)
     const divider = container.querySelector('.cursor-col-resize') as HTMLElement
     fireEvent.pointerDown(divider, { clientX: 500, clientY: 300 })
@@ -63,7 +64,7 @@ describe('SessionSplitView divider gesture lifecycle', () => {
 
   it('does not emit end for a pointerup when no drag is active', () => {
     const gestures: string[] = []
-    const unsub = subscribeStreamEvent(STREAM_EVENT.resizeGesture, (d: any) => gestures.push(d?.phase))
+    const unsub = subscribeStreamEvent<{ phase: string }>(STREAM_EVENT.resizeGesture, (d) => gestures.push(d?.phase))
     render(<SessionSplitView group={group} />)
     fireEvent.pointerUp(window)
     expect(gestures).toEqual([])

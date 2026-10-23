@@ -16,7 +16,24 @@ const mutateResolveHost = vi.fn()
 const useSessionsMock = vi.fn()
 const useSshConfigMock = vi.fn()
 const refetchHostsMock = vi.fn()
-const hostRows: any[] = [
+// 主机面板只消费列出的展示字段（agent/configFile 等可选）
+interface StubHostRow {
+  id: string
+  name: string
+  address: string
+  user?: string
+  port?: number
+  status: string
+  source?: string
+  configFile?: string
+  identityFile?: string
+  groups?: string[]
+  favorite?: boolean
+  usesAgent?: boolean
+  connectionMode?: string
+  agent?: { online: boolean; version: string }
+}
+const hostRows: StubHostRow[] = [
   { id: 'local', name: 'Local Host', address: '127.0.0.1', user: 'root', port: 22, status: 'online', source: 'local' },
   {
     id: 'devbox',
@@ -67,11 +84,11 @@ vi.mock('@/hooks/useApi', () => ({
   useRemoveAgent: () => ({ mutateAsync: mutateRemoveAgent }),
   useHostsConfig: () => ({ data: hostsConfigData }),
   useSaveHostsConfig: () => ({ mutateAsync: mutateSaveHostsConfig }),
-  useSshConfig: (...args: any[]) => useSshConfigMock(...args),
+  useSshConfig: (...args: unknown[]) => useSshConfigMock(...args),
   useSaveSshConfig: () => ({ mutateAsync: mutateSaveSshConfig }),
   useAddSshConfigHost: () => ({ mutateAsync: mutateAddSshConfigHost }),
   useResolveSshHost: () => ({ mutateAsync: mutateResolveHost }),
-  useSessions: (...args: any[]) => useSessionsMock(...args),
+  useSessions: (...args: unknown[]) => useSessionsMock(...args),
 }))
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({
@@ -220,7 +237,7 @@ describe('SshPanel', () => {
       activeHostId: '',
       activeSessionId: '',
       toasts: [],
-    } as any)
+    })
   })
 
   it('renders host tree grouped by section', () => {
@@ -331,7 +348,7 @@ describe('SshPanel', () => {
         { id: 'sess-2', name: 'logs' },
       ],
     })
-    useConsoleStore.setState({ sshPanelOpen: true, activeHostId: '', activeSessionId: '' } as any)
+    useConsoleStore.setState({ sshPanelOpen: true, activeHostId: '', activeSessionId: '' })
     render(<SshPanel />)
     fireEvent.click(screen.getAllByText('Attach')[0])
     expect(screen.getByText('main')).toBeInTheDocument()

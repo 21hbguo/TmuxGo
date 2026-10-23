@@ -3,6 +3,8 @@ import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { UploadConfirmDialog } from './UploadConfirmDialog'
 import { api } from '@/lib/api'
+// 仅取 props 类型；vi.mock 已把它替换成桩，运行时不会加载真实组件
+import type { WorkspaceDirectoryPicker } from './WorkspaceDirectoryPicker'
 
 const closeUploadDialog = vi.fn()
 const pushToast = vi.fn()
@@ -15,7 +17,30 @@ const roots = [
   { id: 'root-workspace', label: 'Workspace', path: '/workspace' },
   { id: 'root-home', label: 'Home', path: '/home/user' },
 ]
-let panesData: any = {
+// 快照只用到 panes/activeWindowId 两层结构
+interface StubSnapshotPane {
+  id: string
+  title: string
+  windowName: string
+  tmuxPaneId: string
+  windowId: string
+  active?: boolean
+}
+interface StubSnapshot {
+  panes: StubSnapshotPane[]
+  activeWindowId?: string
+}
+// 上传请求形状与 store.uploadRequest 对齐；setRequest(null) 用于清空
+interface StubUploadRequest {
+  files: File[]
+  hostId?: string
+  preferredRootId?: string
+  preferredPath?: string
+  insertPaths?: boolean
+  temporary?: boolean
+  replacesJobId?: string
+}
+let panesData: StubSnapshot = {
   panes: [
     { id: 'local:pane-a', title: 'shell-a', windowName: 'main', tmuxPaneId: '%1', windowId: 'local:@1', active: true },
     { id: 'local:pane-b', title: 'shell-b', windowName: 'main', tmuxPaneId: '%2', windowId: 'local:@1' },
@@ -23,7 +48,12 @@ let panesData: any = {
   activeWindowId: 'local:@1',
 }
 
-const storeState: any = {
+const storeState: {
+  uploadRequest: StubUploadRequest | null
+  activeHostId: string
+  activeSessionId: string
+  activePaneId: string | null
+} = {
   uploadRequest: null,
   activeHostId: 'local',
   activeSessionId: 'session-a',
@@ -39,9 +69,12 @@ const storeForSelector = () => ({
 })
 
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: Object.assign((selector: any) => selector(storeForSelector()), {
-    getState: () => ({ ...storeForSelector(), setActivePane }),
-  }),
+  useConsoleStore: Object.assign(
+    (selector: (state: ReturnType<typeof storeForSelector>) => unknown) => selector(storeForSelector()),
+    {
+      getState: () => ({ ...storeForSelector(), setActivePane }),
+    },
+  ),
 }))
 vi.mock('@/hooks/useApi', () => ({
   useFileRoots: () => ({ data: roots }),
@@ -81,7 +114,7 @@ vi.mock('@/i18n', () => ({
 }))
 // 目录浏览弹窗本身有独立测试覆盖；这里换成桩验证接线
 vi.mock('./WorkspaceDirectoryPicker', () => ({
-  WorkspaceDirectoryPicker: (props: any) =>
+  WorkspaceDirectoryPicker: (props: React.ComponentProps<typeof WorkspaceDirectoryPicker>) =>
     React.createElement('button', {
       'data-testid': 'dir-picker',
       'data-root': props.initialRootId,
@@ -98,7 +131,7 @@ vi.mock('./WorkspaceDirectoryPicker', () => ({
 }))
 
 const file = (name: string, size = 4) => new File(['x'.repeat(size)], name, { type: 'text/plain' })
-const setRequest = (request: any) => {
+const setRequest = (request: StubUploadRequest | null) => {
   storeState.uploadRequest = request
 }
 const insertCheckbox = () => {
@@ -142,7 +175,7 @@ describe('UploadConfirmDialog', () => {
     // 默认关闭：上传成功也不向终端派发任何内容
     expect(pasteEvents).toEqual([])
     window.removeEventListener('tmuxgo-request-terminal-paste', onPaste)
-    const [hostId, body] = vi.mocked(api.files.upload).mock.calls[0] as any[]
+    const [hostId, body] = vi.mocked(api.files.upload).mock.calls[0]
     expect(hostId).toBe('local')
     expect(body.get('targetRootId')).toBe('root-workspace')
     expect(body.get('targetPath')).toBe('src')
@@ -166,7 +199,7 @@ describe('UploadConfirmDialog', () => {
     fireEvent.click(picker)
     fireEvent.click(screen.getByRole('button', { name: 'upload.upload' }))
     await waitFor(() => expect(api.files.upload).toHaveBeenCalledTimes(1))
-    const [, body] = vi.mocked(api.files.upload).mock.calls[0] as any[]
+    const [, body] = vi.mocked(api.files.upload).mock.calls[0]
     expect(body.get('targetRootId')).toBe('root-home')
     expect(body.get('targetPath')).toBe('picked/dir')
   })
@@ -261,7 +294,7 @@ describe('UploadConfirmDialog', () => {
   it('inserts only server-returned paths, shell-quoted against spaces/$/quotes', async () => {
     vi.mocked(api.files.upload).mockResolvedValueOnce({
       files: [{ absolutePath: `/workspace/my dir/we'ird $name\`x\`.txt` }],
-    } as any)
+    } as unknown as Awaited<ReturnType<typeof api.files.upload>>)
     const pasteEvents: string[] = []
     const onPaste = (e: Event) => pasteEvents.push((e as CustomEvent).detail?.text || '')
     window.addEventListener('tmuxgo-request-terminal-paste', onPaste)
@@ -302,7 +335,10 @@ describe('UploadConfirmDialog', () => {
   })
 
   it('surfaces pane-select failure instead of silently writing to the wrong pane', async () => {
-    vi.mocked(api.panes.select).mockResolvedValueOnce({ ok: false, error: 'pane gone' } as any)
+    vi.mocked(api.panes.select).mockResolvedValueOnce({
+      ok: false,
+      error: 'pane gone',
+    } as unknown as Awaited<ReturnType<typeof api.panes.select>>)
     const pasteEvents: string[] = []
     const onPaste = (e: Event) => pasteEvents.push((e as CustomEvent).detail?.text || '')
     window.addEventListener('tmuxgo-request-terminal-paste', onPaste)

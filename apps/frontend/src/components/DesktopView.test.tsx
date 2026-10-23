@@ -26,7 +26,7 @@ const {
   const cursorMove = vi.fn()
   class RFB {
     static instances: RFB[] = []
-    handlers = new Map<string, ((event: { detail: any }) => void)[]>()
+    handlers = new Map<string, ((event: { detail: unknown }) => void)[]>()
     sendCredentials = sendCredentials
     sendKey = sendKey
     disconnect = vi.fn()
@@ -51,13 +51,13 @@ const {
       target.appendChild(canvas)
       RFB.instances.push(this)
     }
-    addEventListener(type: string, fn: (event: { detail: any }) => void) {
+    addEventListener(type: string, fn: (event: { detail: unknown }) => void) {
       const list = this.handlers.get(type) || []
       list.push(fn)
       this.handlers.set(type, list)
     }
     removeEventListener() {}
-    emit(type: string, detail: any) {
+    emit(type: string, detail: unknown) {
       for (const fn of this.handlers.get(type) || []) fn({ detail })
     }
   }
@@ -420,8 +420,9 @@ describe('DesktopView VNC password memory', () => {
       // 语义是浏览器全屏,不再是 app 内铺满切换
       expect(onViewChange).not.toHaveBeenCalled()
     } finally {
-      delete (window.HTMLElement.prototype as any).requestFullscreen
-      delete (document as any).exitFullscreen
+      // 全屏 API 由 Object.defineProperty 注入，Partial 让删除合法且不引入 any
+      delete (window.HTMLElement.prototype as Partial<HTMLElement>).requestFullscreen
+      delete (document as Partial<Document>).exitFullscreen
     }
   })
 
@@ -601,7 +602,7 @@ describe('DesktopView VNC password memory', () => {
       expect(fullscreenEl.contains(screen.getByPlaceholderText('Type to send keys'))).toBe(true)
       expect(fullscreenEl.contains(screen.getByRole('button', { name: 'Keyboard input' }))).toBe(true)
     } finally {
-      delete (window.HTMLElement.prototype as any).requestFullscreen
+      delete (window.HTMLElement.prototype as Partial<HTMLElement>).requestFullscreen
     }
   })
 

@@ -2,13 +2,14 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentType } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import type { FileEditorDocument } from '@/types'
 import dynamic from './dynamic'
 
 function LoadedPanel() {
   return <div>panel-content</div>
 }
 
-type LoadResult = { default: ComponentType<any> }
+type LoadResult = { default: ComponentType }
 function setupLoader() {
   const pending: { resolve: (m: LoadResult) => void; reject: (e: unknown) => void }[] = []
   // 每次 lazy() 新实例都会重新调用 loader：pending 记录每次 import 请求，重试后可区分
@@ -28,12 +29,12 @@ const setOnline = (value: boolean) =>
 describe('dynamic lazy panel boundary', () => {
   beforeEach(() => {
     window.sessionStorage.clear()
-    useConsoleStore.setState({ openEditors: [] } as any)
+    useConsoleStore.setState({ openEditors: [] })
   })
   afterEach(() => {
     // 恢复 navigator.onLine 原型 getter（setOnline 用的是 own property 覆盖）
-    delete (window.navigator as any).onLine
-    useConsoleStore.setState({ openEditors: [] } as any)
+    delete (window.navigator as Omit<Navigator, 'onLine'> & { onLine?: boolean }).onLine
+    useConsoleStore.setState({ openEditors: [] })
   })
 
   it('shows a loading placeholder on first mount while the terminal stays mounted', async () => {
@@ -111,7 +112,10 @@ describe('dynamic lazy panel boundary', () => {
   })
 
   it('does not auto-reload a stale chunk while edits are unsaved', async () => {
-    useConsoleStore.setState({ openEditors: [{ id: 'e1', dirty: true }] } as any)
+    // 判定只读 id/dirty，其余文档字段由 stub 形状声明兜底
+    useConsoleStore.setState({
+      openEditors: [{ id: 'e1', dirty: true }] as unknown as FileEditorDocument[],
+    })
     const { loader, pending } = setupLoader()
     const Panel = dynamic(loader)
     render(<Panel />)
