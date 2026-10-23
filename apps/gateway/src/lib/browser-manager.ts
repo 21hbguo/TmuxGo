@@ -1050,6 +1050,9 @@ export class BrowserInstance extends EventEmitter {
   }
 
   async stop() {
+    // 先广播 idle 再摘 client：removeClient 会把连接移出集合，之后 setState 的广播到不了它，
+    // 已开 stream 的前端只能靠 WS 关闭事件猜状态（B3b 契约修复）
+    this.setState('idle')
     for (const client of [...this.clients]) await this.removeClient(client)
     if (this.proc) {
       const proc = this.proc
@@ -1065,7 +1068,6 @@ export class BrowserInstance extends EventEmitter {
       }, 5000).unref()
     }
     this.teardownSocket()
-    this.setState('idle')
   }
 }
 

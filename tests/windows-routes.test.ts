@@ -100,26 +100,24 @@ test('select switches the active window by id and rejects targets outside the se
   // 对照 tmux 真实状态：active 判定来自 select-window，不是返回体自证
   assert.equal((await tmux(['display-message', '-p', '-t', sessionName, '#{window_id}'])).trim(), beta.tmuxWindowId)
 
-  // 不属于本 host 的 window id：parseWindowRef 在 try 外抛出，走 Fastify 通用 500
-  // （当前实现未把它降级成 400/ok:false，属实现侧契约缺口，见回报）
+  // 不属于本 host 的 window id：跨 host 引用属调用方错误 → 400（契约归位后不再是 500）
   const foreign = await fastify.inject({
     method: 'POST',
     url: `/hosts/local/sessions/${sessionId}/windows/select`,
     payload: { windowId: `other-host:${beta.tmuxWindowId}` },
   })
-  assert.equal(foreign.statusCode, 500)
-  assert.equal(foreign.statusCode, 500)
-  assert.equal(foreign.json().message, 'Window does not belong to host')
+  assert.equal(foreign.statusCode, 400)
+  assert.deepEqual(foreign.json(), { message: 'Window does not belong to host', code: 'INVALID_REQUEST' })
 
-  // 不存在的 window：tmux 报错经返回体透出，路由不抛 500
+  // 不存在的 window：tmux 解析不到目标 → 404，原文留在 message 里
   const missing = await fastify.inject({
     method: 'POST',
     url: `/hosts/local/sessions/${sessionId}/windows/select`,
     payload: { windowId: 'local:@9999' },
   })
-  assert.equal(missing.statusCode, 200)
-  assert.equal(missing.json().ok, false)
-  assert.ok(missing.json().error)
+  assert.equal(missing.statusCode, 404)
+  assert.equal(missing.json().code, 'WINDOW_NOT_FOUND')
+  assert.ok(missing.json().message)
 })
 
 test('select works for a window at a non-contiguous index (base-index independent)', async (t) => {
@@ -165,24 +163,23 @@ test('rename applies the new name and reports invalid targets without throwing',
     2,
   )
 
-  // 非法 id 形态：parseWindowRef 在 try 外抛出 → 通用 500（实现缺口，见回报）
+  // 非法 id 形态：解析失败 → 400（契约归位后不再是 500）
   const malformed = await fastify.inject({
     method: 'POST',
     url: `/hosts/local/sessions/${sessionId}/windows/rename`,
     payload: { windowId: 'local:not-a-window', name: 'x' },
   })
-  assert.equal(malformed.statusCode, 500)
-  assert.match(String(malformed.json().message), /Invalid window id/)
+  assert.equal(malformed.statusCode, 400)
+  assert.deepEqual(malformed.json(), { message: 'Invalid window id', code: 'INVALID_REQUEST' })
 
-  // 不存在但形态合法的 window：透出 tmux 错误
+  // 不存在但形态合法的 window：目标缺失 → 404
   const missing = await fastify.inject({
     method: 'POST',
     url: `/hosts/local/sessions/${sessionId}/windows/rename`,
     payload: { windowId: 'local:@9999', name: 'x' },
   })
-  assert.equal(missing.statusCode, 200)
-  assert.equal(missing.json().ok, false)
-  assert.ok(missing.json().error)
+  assert.equal(missing.statusCode, 404)
+  assert.equal(missing.json().code, 'WINDOW_NOT_FOUND')
 })
 
 test('move renumbers windows into the requested order', async (t) => {
@@ -211,20 +208,22 @@ test('move renumbers windows into the requested order', async (t) => {
     'beta,main,alpha',
   )
 
-  // 跨 host 的 id 混入：整体拒绝，不做部分重排
+  // 跨 host 的 id 混入：整体拒绝，不做部分重排（调用方错误 → 400）
   const foreign = await fastify.inject({
     method: 'POST',
     url: `/hosts/local/sessions/${sessionId}/windows/move`,
     payload: { orderedWindowIds: [`other-host:${requested[0].tmuxWindowId}`] },
   })
-  assert.deepEqual(foreign.json(), { ok: false, error: 'Window does not belong to host' })
+  assert.equal(foreign.statusCode, 400)
+  assert.deepEqual(foreign.json(), { message: 'Window does not belong to host', code: 'INVALID_REQUEST' })
 
   const empty = await fastify.inject({
     method: 'POST',
     url: `/hosts/local/sessions/${sessionId}/windows/move`,
     payload: {},
   })
-  assert.deepEqual(empty.json(), { ok: false, error: 'orderedWindowIds is required' })
+  assert.equal(empty.statusCode, 400)
+  assert.deepEqual(empty.json(), { message: 'orderedWindowIds is required', code: 'INVALID_REQUEST' })
 })
 
 test('kill removes one window and reports the last-window session teardown as a failure', async (t) => {
@@ -257,8 +256,12 @@ test('kill removes one window and reports the last-window session teardown as a 
     url: `/hosts/local/sessions/${sessionId}/windows/kill`,
     payload: { windowId: last.id },
   })
-  assert.equal(lastResponse.statusCode, 200)
-  assert.equal(lastResponse.json().ok, false)
+  // kill 本身成功，但随后的 list-windows 撞上「session 已被销毁」→ 契约归位为 404（含 tmux 原文）
+  assert.equal(lastResponse.statusCode, 404)
+  // tmux 可能报 can't find window 或 can't find session（kill 成功后 store 里已无该 session），
+  // 只要 404 + *_NOT_FOUND 形态成立即可，具体资源名随 tmux 文案
+  assert.match(String(lastResponse.json().code), /_NOT_FOUND$/)
+  assert.match(String(lastResponse.json().message), /can't find session|no server running|no current target/i)
   await assert.rejects(tmux(['has-session', '-t', sessionName]))
 })
 
@@ -279,10 +282,10 @@ test('lists panes per window and per session with their window metadata', async 
   assert.deepEqual(allPanes.map((pane) => pane.windowName).sort(), ['alpha', 'beta', 'main'])
   assert.equal(new Set(allPanes.map((pane) => pane.windowId)).size, 3)
 
-  // 非法 window 形态：解析阶段拒绝，Fastify 以 500 透出错误文案（无自定义 errorHandler）
+  // 非法 window 形态：解析阶段拒绝 → 400
   const malformed = await fastify.inject({ method: 'GET', url: '/windows/local:not-a-window/panes' })
-  assert.equal(malformed.statusCode, 500)
-  assert.match(malformed.json().message, /Invalid window id/)
+  assert.equal(malformed.statusCode, 400)
+  assert.deepEqual(malformed.json(), { message: 'Invalid window id', code: 'INVALID_REQUEST' })
 })
 
 test('returns pane output and rejects pane ids from another host', async (t) => {
@@ -305,30 +308,33 @@ test('returns pane output and rejects pane ids from another host', async (t) => 
 
   // hostId 由 paneId 前缀派生，跨 host 的 pane 会先撞上 host 查找；断言拒绝而不挂起
   const foreign = await fastify.inject({ method: 'GET', url: `/panes/${encodeURIComponent('other-host:%1')}/output` })
-  assert.equal(foreign.statusCode, 500)
+  assert.equal(foreign.statusCode, 404)
+  assert.equal(foreign.json().code, 'HOST_NOT_FOUND')
   assert.match(String(foreign.json().message), /Host "other-host" not found/)
 
-  // id 形态非法（缺 % 前缀）在解析阶段拒绝
+  // id 形态非法（缺 % 前缀）在解析阶段拒绝 → 400
   const malformed = await fastify.inject({ method: 'GET', url: '/panes/local:not-a-pane/output' })
-  assert.equal(malformed.statusCode, 500)
-  assert.match(String(malformed.json().message), /Invalid pane id/)
+  assert.equal(malformed.statusCode, 400)
+  assert.deepEqual(malformed.json(), { message: 'Invalid pane id', code: 'INVALID_REQUEST' })
 })
 
 test('reports a missing session as a JSON error instead of hanging', async (t) => {
   const fastify = await resetWindows(t)
-  // 现存实现未把这几个分支映射成 404：先钉住"有结构的错误 + 不透出内部栈"，
-  // 404 契约需要实现侧改动，属本工单禁区（已在回报中列出）
+  // 契约归位后缺 session → 404 SESSION_NOT_FOUND，message 仍是 tmux 原文
   const response = await fastify.inject({
     method: 'GET',
     url: '/hosts/local/sessions/session-local-absent/windows',
   })
-  assert.equal(response.statusCode, 500)
+  assert.equal(response.statusCode, 404)
+  assert.equal(response.json().code, 'SESSION_NOT_FOUND')
   assert.match(String(response.json().message), /can't find (session|window)|no server running|error connecting/)
   const created = await fastify.inject({
     method: 'POST',
     url: '/hosts/local/sessions/session-local-absent/windows',
     payload: { name: 'nope' },
   })
-  assert.equal(created.statusCode, 500)
+  assert.equal(created.statusCode, 404)
+  // tmux 侧文案随 server 状态变化（can't find session / no current target），只钉 404 与 code 形态
+  assert.match(String(created.json().code), /_NOT_FOUND$/)
   assert.match(String(created.json().message), /can't find (session|window)|no server running|error connecting/)
 })

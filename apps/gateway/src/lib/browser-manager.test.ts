@@ -691,10 +691,9 @@ test('stop tears down clients, socket and process, and is idempotent', async (t)
   assert.deepEqual(signals, ['SIGTERM'])
   // 已开 stream 的客户端：解绑 session 并收到 status=idle，随后不再持有 client
   assert.equal(fake.callsOf('Target.detachFromTarget').at(-1)?.params?.sessionId, 'sid-stop')
-  // 现状：stop 先把 client 移出集合再 setState 广播，所以这条连接收不到 status=idle，
-  // 只会在自身 WS 关闭时感知（见回报里的「已开 stream 客户端收什么」）。
+  // 已开 stream 的客户端必须在断开前收到 status=idle，否则前端只能靠 WS 关闭事件猜状态
   const statusMsg = messages.filter((msg) => msg.type === 'status').at(-1) as { state: string }
-  assert.equal(statusMsg.state, 'ready')
+  assert.equal(statusMsg.state, 'idle')
   assert.equal(inst.status().pages.length, 0)
   assert.equal(inst.activeTargetId, null)
 
