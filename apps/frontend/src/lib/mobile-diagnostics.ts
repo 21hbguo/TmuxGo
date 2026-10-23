@@ -60,7 +60,12 @@ function getMetrics() {
   const terminal = document.querySelector('[data-terminal]') as HTMLElement | null
   const xterm = terminal?.querySelector('.xterm') as HTMLElement | null
   const xtermViewport = xterm?.querySelector('.xterm-viewport') as HTMLElement | null
-  const xtermTerminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+  // window.__tmuxgoTerminal 是诊断注入的 xterm 实例，只取 buffer/rows/cols 最小面
+  const xtermTerminal = (
+    window as typeof window & {
+      __tmuxgoTerminal?: { buffer?: { active?: { baseY?: number; viewportY?: number } }; rows?: number; cols?: number }
+    }
+  ).__tmuxgoTerminal
   const activeBuffer = xtermTerminal?.buffer?.active
   const termRect = terminal?.getBoundingClientRect()
   const xtermRect = xterm?.getBoundingClientRect()

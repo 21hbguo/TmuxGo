@@ -538,9 +538,10 @@ export function TerminalPane({
       data-terminal
       tabIndex={0}
       className="h-full w-full min-h-0 overflow-hidden relative bg-bg-1"
+      // CSS 自定义属性不在 CSSProperties 键名内，断言键名类型即可
       style={{
-        ['--terminal-padding' as any]: `${preferences.terminalPadding}px`,
-        ['--terminal-padding-bottom' as any]: `${preferences.terminalPadding}px`,
+        ['--terminal-padding' as string]: `${preferences.terminalPadding}px`,
+        ['--terminal-padding-bottom' as string]: `${preferences.terminalPadding}px`,
         touchAction: isMobileDevice ? 'none' : 'auto',
       }}
       onContextMenu={(e) => {
