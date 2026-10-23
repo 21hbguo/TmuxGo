@@ -814,7 +814,9 @@ describe('TerminalPane', () => {
     fireEvent.mouseDown(container.firstChild as Element, { button: 0, clientX: 120, clientY: 20 })
     fireEvent.mouseUp(window, { button: 0, clientX: 120, clientY: 20 })
     await waitFor(() => expect(storeMocks.setActivePane).toHaveBeenCalledWith('local:%2'))
-    expect(apiMocks.paneSelect).toHaveBeenCalledWith('local:%2')
+    // paneSelect 在 setActivePane 之后的异步链路里发出（先乐观切，再 await REST）：
+    // 同步断言会跟微任务赛跑，改成等待式，语义不变（仍要求"立即选中后紧跟着调 REST"）
+    await waitFor(() => expect(apiMocks.paneSelect).toHaveBeenCalledWith('local:%2'))
   })
   it('does not select a hidden pane from stale bounds when active window is zoomed', async () => {
     queryClientMocks.getQueryData.mockReturnValue({

@@ -164,7 +164,10 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
   let switchBeganAt = 0
   let switchAttachedAt = 0
   let switchFlushTimer: ReturnType<typeof setTimeout> | null = null
-  let sgrMousePressSentAt = 0
+  // -Infinity 表示"从未发过 SGR 按下"：用 0 当哨兵会和 performance.now() 的启动零点撞车，
+  // 页面加载后 1.5s 内的点击会被误判成"tmux 已按实时坐标处理"而跳过 REST select，
+  // 表现为刚打开终端时点 pane 不落库
+  let sgrMousePressSentAt = Number.NEGATIVE_INFINITY
   const getTerminal = () => terminal
   const isDisposed = () => disposed
   const notifyReady = () => {
