@@ -75,6 +75,8 @@ vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: hostsMockData.value }),
   useWindows: () => ({ data: windowsData }),
   useSessionSnapshot: () => ({ data: snapshotMockData.value }),
+  useSyncPanes: () => ({ data: undefined }),
+  useSetSyncPanes: () => ({ mutate: vi.fn() }),
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
   useOrderedSessions: () => ({ data: orderedSessionsData.value }),
