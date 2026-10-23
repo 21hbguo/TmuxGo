@@ -31,7 +31,13 @@ function classifiedErrorReply(
   const message = errorMessage(error, 'Request failed')
   const missing = MISSING_TARGET.exec(message)?.[1]?.toLowerCase()
   if (missing) return reply.code(404).send({ message, code: `${missing.toUpperCase()}_NOT_FOUND` })
-  if (/^Unable to resolve/.test(message))
+  // 'Unable to resolve …'（tmux-policy 解析目标失败）、'no current target'（-t 目标已不存在）、
+  // 'no server running…'（server 整体没起，session 自然不存在）都归 404，具体资源名用端点给的 hint
+  if (
+    /^Unable to resolve|^no current (?:target|session|window|pane)|^no server running|error connecting to .*server/i.test(
+      message,
+    )
+  )
     return reply.code(404).send({ message, code: `${targetKind.toUpperCase()}_NOT_FOUND` })
   if (/^Host ".+" not found$/.test(message)) return reply.code(404).send({ message, code: 'HOST_NOT_FOUND' })
   if (INVALID_REQUEST_MESSAGE.test(message)) return reply.code(400).send({ message, code: 'INVALID_REQUEST' })
