@@ -8,7 +8,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { promisify } from 'util'
-import Fastify, { type FastifyInstance } from 'fastify'
+import Fastify, { type LightMyRequestResponse } from 'fastify'
 import test, { type TestContext } from 'node:test'
 import { TaskManager } from '../lib/task-manager.js'
 import { gitRoutes } from './git.js'
@@ -35,7 +35,8 @@ async function waitForTask(manager: TaskManager, id: string) {
 interface Fixture {
   base: string
   repository: string
-  fastify: FastifyInstance
+  // 用 Fastify() 的实际返回类型：裸 FastifyInstance 的 inject 会退化成 Chain 联合，拿不到类型化的 Response
+  fastify: ReturnType<typeof Fastify>
   manager: TaskManager
 }
 // 基线仓库固定两个已提交文件（base.txt / a.txt），用例在此之上制造 staged/unstaged/rename/untracked
@@ -66,12 +67,14 @@ async function createFixture(t: TestContext): Promise<Fixture> {
 function file(repository: string, name: string) {
   return path.join(repository, name)
 }
-function inject(fixture: Fixture, method: 'GET' | 'POST', url: string, payload?: unknown) {
-  return fixture.fastify.inject({
-    method,
-    url: `/hosts/local/git/${url}`,
-    ...(payload === undefined ? {} : { payload }),
-  })
+function inject(
+  fixture: Fixture,
+  method: 'GET' | 'POST',
+  url: string,
+  payload?: unknown,
+): Promise<LightMyRequestResponse> {
+  const request = { method, url: `/hosts/local/git/${url}`, payload: payload as Record<string, unknown> }
+  return fixture.fastify.inject(request)
 }
 function body<T>(response: { json: () => unknown }) {
   return response.json() as T
