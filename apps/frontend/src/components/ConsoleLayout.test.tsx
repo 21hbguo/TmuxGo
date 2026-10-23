@@ -5,8 +5,18 @@ import { ConsoleLayout } from './ConsoleLayout'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useInboxStore } from '@/stores/useInboxStore'
 
-let snapshotDataMock: any = { windows: [], panes: [], activePaneId: null }
-let sessionsDataMock: any[] = []
+// 布局只消费快照的面板 id/active 与会话 id/name
+interface StubSnapshotData {
+  windows: Array<{ id: string }>
+  panes: Array<{ id: string; active: boolean }>
+  activePaneId: string | null
+}
+interface StubSessionRow {
+  id: string
+  name: string
+}
+let snapshotDataMock: StubSnapshotData = { windows: [], panes: [], activePaneId: null }
+let sessionsDataMock: StubSessionRow[] = []
 const renameSessionMock = vi.fn()
 const deleteSessionMock = vi.fn()
 
@@ -142,7 +152,7 @@ describe('ConsoleLayout mobile files overlay stack', () => {
       mobileFileSheetOpen: false,
       toasts: [],
       connection: { status: 'disconnected', latency: 0, lastPing: new Date().toISOString() },
-    } as any)
+    })
     useInboxStore.setState({
       deviceId: 'dev-test',
       messages: [],
@@ -172,7 +182,7 @@ describe('ConsoleLayout mobile files overlay stack', () => {
       { id: 'session-b', name: 'B' },
     ]
     snapshotDataMock = { windows: [], panes: [{ id: 'pane-a', active: true }], activePaneId: 'pane-a' }
-    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a', activePaneId: 'pane-a' } as any)
+    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a', activePaneId: 'pane-a' })
     const view = render(React.createElement(ConsoleLayout, { initialIsMobile: false }))
     await waitFor(() => expect(useConsoleStore.getState().activePaneId).toBe('pane-a'))
     snapshotDataMock = { windows: [], panes: [{ id: 'pane-b', active: true }], activePaneId: 'pane-b' }
@@ -347,7 +357,7 @@ describe('ConsoleLayout mobile files overlay stack', () => {
       { id: 'session-a', name: 'alpha' },
       { id: 'session-b', name: 'beta' },
     ]
-    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' } as any)
+    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' })
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'alpha' })).toBeTruthy())
     const betaButton = screen.getByRole('button', { name: 'beta' })
@@ -369,7 +379,7 @@ describe('ConsoleLayout mobile files overlay stack', () => {
       { id: 'session-e', name: 'epsilon' },
       { id: 'session-f', name: 'zeta' },
     ]
-    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' } as any)
+    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' })
     const view = render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'alpha' })).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'epsilon' }))
@@ -394,7 +404,7 @@ describe('ConsoleLayout mobile files overlay stack', () => {
   })
   it('opens quick session menu from context menu and can jump to sessions drawer', async () => {
     sessionsDataMock = [{ id: 'session-a', name: 'alpha' }]
-    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' } as any)
+    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' })
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     const sessionButton = await screen.findByRole('button', { name: 'alpha' })
     fireEvent.contextMenu(sessionButton)
@@ -410,7 +420,7 @@ describe('ConsoleLayout mobile files overlay stack', () => {
       { id: 'session-e', name: 'epsilon' },
       { id: 'session-f', name: 'zeta' },
     ]
-    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' } as any)
+    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' })
     const view = render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     const betaButton = await screen.findByRole('button', { name: 'beta' })
     fireEvent.contextMenu(betaButton)

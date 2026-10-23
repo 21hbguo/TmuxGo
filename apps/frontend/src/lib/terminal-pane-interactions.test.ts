@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { createTerminalPaneInteractions, isSgrMouseButtonPress } from './terminal-pane-interactions'
+import type { SessionSnapshot } from '@/types'
+// 交互层只读窗口 id/active 与面板几何（id/windowId/left/top/size），
+// 完整 SessionSnapshot 的 index/title 等展示字段不参与，故用最小形状
+interface StubSnapshotPane {
+  id: string
+  windowId: string
+  left: number
+  top: number
+  size: { cols: number; rows: number }
+}
+interface StubSnapshot {
+  activeWindowId: string
+  activePaneId: string
+  windows: Array<{ id: string; active: boolean }>
+  panes: StubSnapshotPane[]
+}
 
 describe('isSgrMouseButtonPress', () => {
   it('detects left-button press reports', () => {
@@ -29,11 +45,11 @@ describe('isSgrMouseButtonPress', () => {
 })
 
 describe('createTerminalPaneInteractions', () => {
-  const makeInteractions = (snapshot: any) =>
+  const makeInteractions = (snapshot: StubSnapshot) =>
     createTerminalPaneInteractions(
       () => null,
       document.createElement('div'),
-      () => snapshot,
+      () => snapshot as unknown as SessionSnapshot,
     )
 
   it('resolves a cell to the pane containing it', () => {

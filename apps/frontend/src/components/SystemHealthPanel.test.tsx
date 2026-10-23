@@ -8,7 +8,7 @@ import { I18nProvider } from '@/i18n'
 const systemInfo = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/api', () => ({ api: { system: { info: systemInfo } } }))
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: (selector: any) => selector({ activeHostId: 'local' }),
+  useConsoleStore: (selector: (state: { activeHostId: string }) => unknown) => selector({ activeHostId: 'local' }),
 }))
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'edge', name: 'Edge' }] }),

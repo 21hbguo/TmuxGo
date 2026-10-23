@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { UploadPanel } from './UploadPanel'
 import { api } from '@/lib/api'
 import { MAX_UPLOAD_FILE_BYTES } from '@/lib/file-meta'
+import type { UploadJobResult } from '@/types'
+// 仅取 props 类型；vi.mock 已把它替换成桩，运行时不会加载真实组件
+import type { WorkspaceDirectoryPicker } from './WorkspaceDirectoryPicker'
 
 const removeUploadJob = vi.fn()
 const clearFinishedUploadJobs = vi.fn()
@@ -11,15 +14,48 @@ const openUploadDialog = vi.fn()
 const setStagedUploadFiles = vi.fn()
 const pushToast = vi.fn()
 
-let hostsData: any[] = [
+// 面板只消费主机的 id/name/status 与根目录的 id/label/path
+interface StubHostRow {
+  id: string
+  name: string
+  status: string
+}
+interface StubUploadRoot {
+  id: string
+  label: string
+  path: string
+}
+// 队列条目：历史遗留 job 可能没有 hostId，故该字段可选
+interface StubUploadJob {
+  id: string
+  hostId?: string
+  files: { name: string; size: number }[]
+  sourceFiles?: File[]
+  targetRootId: string
+  targetPath: string
+  insertPaths: boolean
+  loadedBytes: number
+  totalBytes: number
+  status: 'queued' | 'uploading' | 'success' | 'error'
+  createdAt: string
+  finishedAt?: string
+  errorMessage?: string
+  result?: UploadJobResult
+}
+let hostsData: StubHostRow[] = [
   { id: 'local', name: 'Local', status: 'online' },
   { id: 'remote-a', name: 'Remote A', status: 'online' },
 ]
-const rootsByHost: Record<string, any[]> = {
+const rootsByHost: Record<string, StubUploadRoot[]> = {
   local: [{ id: 'root-workspace', label: 'Workspace', path: '/workspace' }],
   'remote-a': [{ id: 'root-data', label: 'Data', path: '/data' }],
 }
-const storeState: any = {
+const storeState: {
+  activeHostId: string
+  activePaneId: string
+  uploadJobs: StubUploadJob[]
+  stagedUploadFiles: File[]
+} = {
   activeHostId: 'local',
   activePaneId: 'local:pane-a',
   uploadJobs: [],
@@ -35,9 +71,12 @@ const storeForSelector = () => ({
 })
 
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: Object.assign((selector: any) => selector(storeForSelector()), {
-    getState: () => storeForSelector(),
-  }),
+  useConsoleStore: Object.assign(
+    (selector: (state: ReturnType<typeof storeForSelector>) => unknown) => selector(storeForSelector()),
+    {
+      getState: () => storeForSelector(),
+    },
+  ),
 }))
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: hostsData }),
@@ -61,7 +100,7 @@ vi.mock('@/i18n', () => ({
 }))
 // 目录浏览弹窗本身有独立测试覆盖；这里换成桩验证接线
 vi.mock('./WorkspaceDirectoryPicker', () => ({
-  WorkspaceDirectoryPicker: (props: any) =>
+  WorkspaceDirectoryPicker: (props: React.ComponentProps<typeof WorkspaceDirectoryPicker>) =>
     React.createElement('button', {
       'data-testid': 'dir-picker',
       'data-root': props.initialRootId,
@@ -92,7 +131,7 @@ describe('UploadPanel', () => {
   })
 
   it('mobile mode exposes a visible choose-files entry that stages via the global picker', async () => {
-    const events: any[] = []
+    const events: unknown[] = []
     const onPick = (e: Event) => events.push((e as CustomEvent).detail)
     window.addEventListener('tmuxgo-pick-upload-files', onPick)
     try {

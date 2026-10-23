@@ -5,7 +5,7 @@ import { DesktopWindow } from './DesktopWindow'
 
 // jsdom 未实现 pointer capture API，补 no-op 桩
 beforeAll(() => {
-  const proto = Element.prototype as any
+  const proto = Element.prototype
   if (!proto.setPointerCapture) proto.setPointerCapture = () => {}
   if (!proto.releasePointerCapture) proto.releasePointerCapture = () => {}
   if (!proto.hasPointerCapture) proto.hasPointerCapture = () => false

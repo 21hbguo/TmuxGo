@@ -3,14 +3,43 @@ import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TaskNotifications } from './TaskNotifications'
 
-const mocks = vi.hoisted(() => ({ tasks: [] as any[], pushToast: vi.fn(), invalidateQueries: vi.fn(), useSystemTasks: vi.fn() }))
+// task() 会按用例 patch 额外字段，故任务 stub 用宽松记录而非完整 SystemTask
+interface NotificationStub {
+  (title: string, options?: NotificationOptions): { close: () => void }
+  permission: NotificationPermission
+}
+const mocks = vi.hoisted(() => ({
+  tasks: [] as Array<Record<string, unknown>>,
+  pushToast: vi.fn(),
+  invalidateQueries: vi.fn(),
+  useSystemTasks: vi.fn(),
+}))
 const originalNotification = window.Notification
 const originalMatchMedia = window.matchMedia
 
-vi.mock('@/hooks/useApi', () => ({ useSystemTasks: (...args: unknown[]) => { mocks.useSystemTasks(...args); return { data: { tasks: mocks.tasks } } } }))
-vi.mock('@/stores/useConsoleStore', () => ({ useConsoleStore: (selector: any) => selector({ pushToast: mocks.pushToast }) }))
-vi.mock('@/hooks/useOptionalQueryClient', () => ({ useOptionalQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }) }))
-vi.mock('@/i18n', () => ({ useTranslation: () => ({ t: (key: string, params?: Record<string, string>) => key === 'tasks.notificationSuccess' ? `${params?.title} completed` : key === 'tasks.notificationFailed' ? `${params?.title} failed: ${params?.message}` : key }) }))
+vi.mock('@/hooks/useApi', () => ({
+  useSystemTasks: (...args: unknown[]) => {
+    mocks.useSystemTasks(...args)
+    return { data: { tasks: mocks.tasks } }
+  },
+}))
+vi.mock('@/stores/useConsoleStore', () => ({
+  useConsoleStore: (selector: (state: { pushToast: typeof mocks.pushToast }) => unknown) =>
+    selector({ pushToast: mocks.pushToast }),
+}))
+vi.mock('@/hooks/useOptionalQueryClient', () => ({
+  useOptionalQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
+}))
+vi.mock('@/i18n', () => ({
+  useTranslation: () => ({
+    t: (key: string, params?: Record<string, string>) =>
+      key === 'tasks.notificationSuccess'
+        ? `${params?.title} completed`
+        : key === 'tasks.notificationFailed'
+          ? `${params?.title} failed: ${params?.message}`
+          : key,
+  }),
+}))
 vi.mock('@/lib/api', () => ({ fetchApiBlob: vi.fn(async () => new Blob(['download'])) }))
 
 function task(status: 'running' | 'success' | 'error', patch: Record<string, unknown> = {}) {
@@ -63,11 +92,21 @@ describe('TaskNotifications', () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
     mocks.tasks = [task('running', { type: 'file-download' })]
     const view = render(<TaskNotifications />)
-    mocks.tasks = [task('success', { type: 'file-download', title: 'Download demo.txt', result: { downloadUrl: '/api/hosts/local/files/download-tasks/00000000-0000-4000-8000-000000000000', fileName: 'demo.txt' } })]
+    mocks.tasks = [
+      task('success', {
+        type: 'file-download',
+        title: 'Download demo.txt',
+        result: {
+          downloadUrl: '/api/hosts/local/files/download-tasks/00000000-0000-4000-8000-000000000000',
+          fileName: 'demo.txt',
+        },
+      }),
+    ]
     view.rerender(<TaskNotifications />)
     let anchor: HTMLAnchorElement | undefined
     await waitFor(() => {
-      anchor = appendChild.mock.calls.find(([element]) => element instanceof HTMLAnchorElement)?.[0] as HTMLAnchorElement | undefined
+      anchor = appendChild.mock.calls.find(([element]) => element instanceof HTMLAnchorElement)?.[0] as
+        HTMLAnchorElement | undefined
       expect(anchor).toBeDefined()
     })
     expect(anchor?.href).toMatch(/^blob:/)
@@ -76,7 +115,10 @@ describe('TaskNotifications', () => {
   })
   it('uses a browser notification while the page is hidden', () => {
     const close = vi.fn()
-    const browserNotification = vi.fn(function (this: any) { this.close = close }) as any
+    // 浏览器通知桩：可调用构造 + permission 静态字段
+    const browserNotification = vi.fn(function (this: { close: () => void }) {
+      this.close = close
+    }) as unknown as NotificationStub
     browserNotification.permission = 'granted'
     Object.defineProperty(window, 'Notification', { configurable: true, value: browserNotification })
     Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn(() => ({ matches: true })) })
@@ -85,6 +127,9 @@ describe('TaskNotifications', () => {
     const view = render(<TaskNotifications />)
     mocks.tasks = [task('success')]
     view.rerender(<TaskNotifications />)
-    expect(browserNotification).toHaveBeenCalledWith('tasks.title', { body: 'Git Push completed', tag: 'task:git-push-1:1' })
+    expect(browserNotification).toHaveBeenCalledWith('tasks.title', {
+      body: 'Git Push completed',
+      tag: 'task:git-push-1:1',
+    })
   })
 })

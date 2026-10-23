@@ -5,10 +5,10 @@ const formatDroppedPathsMock = vi.fn()
 const readDraggedFileMock = vi.fn()
 vi.mock('@/lib/path-drop', async () => {
   const actual = await vi.importActual<typeof import('@/lib/path-drop')>('@/lib/path-drop')
-  return { ...actual, formatDroppedPaths: (...args: any[]) => formatDroppedPathsMock(...args) }
+  return { ...actual, formatDroppedPaths: (...args: unknown[]) => formatDroppedPathsMock(...args) }
 })
 vi.mock('@/lib/editor-drag', () => ({
-  readDraggedFile: (...args: any[]) => readDraggedFileMock(...args),
+  readDraggedFile: (...args: unknown[]) => readDraggedFileMock(...args),
 }))
 function createDragEvent(overrides: Partial<DragEvent & { dataTransfer: DataTransfer }> = {}) {
   return {

@@ -2,9 +2,10 @@ import { act, createEvent, fireEvent, render, screen, waitFor } from '@testing-l
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { QuickActions } from './QuickActions'
 import { api } from '@/lib/api'
+import type { CustomShortcut, ShortcutStep } from '@/types'
 
 const send = vi.fn()
-const pushToast = vi.fn()
+const pushToast = vi.fn<(toast: { type: 'success' | 'error' | 'info'; message: string }) => void>()
 const updatePreferences = vi.fn()
 
 vi.mock('@/hooks/usePreferences', () => ({
@@ -21,8 +22,14 @@ vi.mock('@/i18n', () => ({
 }))
 vi.mock('@/stores/useConsoleStore', () => ({
   useConsoleStore: Object.assign(
-    ((selector: any) =>
-      selector({ activeHostId: 'local', activeSessionId: 'dev', activePaneId: '%1', pushToast })) as any,
+    (
+      selector: (state: {
+        activeHostId: string
+        activeSessionId: string
+        activePaneId: string | null
+        pushToast: typeof pushToast
+      }) => unknown,
+    ) => selector({ activeHostId: 'local', activeSessionId: 'dev', activePaneId: '%1', pushToast }),
     { setState: vi.fn() },
   ),
 }))
@@ -32,7 +39,7 @@ vi.mock('@/hooks/useApi', () => ({
 vi.mock('@/hooks/useWebSocket', () => ({
   useWebSocket: () => ({ send }),
 }))
-const customShortcutsState = vi.hoisted(() => ({ shortcuts: [] as any[] }))
+const customShortcutsState = vi.hoisted(() => ({ shortcuts: [] as CustomShortcut[] }))
 vi.mock('@/hooks/useCustomShortcuts', () => ({
   useCustomShortcuts: () => ({
     shortcuts: customShortcutsState.shortcuts,
@@ -41,8 +48,8 @@ vi.mock('@/hooks/useCustomShortcuts', () => ({
     removeShortcut: vi.fn(),
     removeShortcuts: vi.fn(),
   }),
-  shortcutToSteps: (s: any) => s.steps || [],
-  stepToInput: (s: any) => (s.type === 'keys' ? '\x1b[5~' : (s.text || '') + (s.appendEnter ? '\r' : '')),
+  shortcutToSteps: (s: CustomShortcut) => s.steps || [],
+  stepToInput: (s: ShortcutStep) => (s.type === 'keys' ? '\x1b[5~' : (s.text || '') + (s.appendEnter ? '\r' : '')),
   describeShortcut: vi.fn(() => ''),
   keysToEscape: vi.fn(() => ''),
 }))
@@ -92,11 +99,11 @@ describe('QuickActions', () => {
     window.removeEventListener('tmuxgo-request-terminal-paste', paste)
   })
   it('submits the kill-pane confirm only once on rapid double click', async () => {
-    let resolveKill: (value: any) => void = () => {}
+    let resolveKill: (value: Awaited<ReturnType<typeof api.panes.kill>>) => void = () => {}
     const panesKill = vi.mocked(api.panes.kill)
     panesKill.mockImplementation(
       () =>
-        new Promise<any>((resolve) => {
+        new Promise<Awaited<ReturnType<typeof api.panes.kill>>>((resolve) => {
           resolveKill = resolve
         }),
     )
@@ -121,7 +128,7 @@ describe('QuickActions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'quick.killPane' }))
     fireEvent.click(await screen.findByRole('button', { name: 'common.confirm' }))
     await waitFor(() => expect(panesKill).toHaveBeenCalledTimes(2))
-    expect(pushToast.mock.calls.filter(([arg]: any) => arg?.type === 'error')).toHaveLength(1)
+    expect(pushToast.mock.calls.filter(([arg]) => arg?.type === 'error')).toHaveLength(1)
   })
   it('dock mode keeps the add-shortcut modal hidden until opened and closable', () => {
     render(<QuickActions mode="dock" />)

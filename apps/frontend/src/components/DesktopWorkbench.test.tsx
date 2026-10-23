@@ -3,6 +3,7 @@ import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DesktopWorkbench } from './DesktopWorkbench'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import type { FileEditorDocument } from '@/types'
 
 const contentMock = vi.fn()
 const previewMock = vi.fn()
@@ -11,8 +12,8 @@ vi.mock('@/lib/api', () => ({
   fetchApiBlob: vi.fn(async () => new Blob(['image'])),
   api: {
     files: {
-      content: (...args: any[]) => contentMock(...args),
-      preview: (...args: any[]) => previewMock(...args),
+      content: (...args: unknown[]) => contentMock(...args),
+      preview: (...args: unknown[]) => previewMock(...args),
       imageUrl: vi.fn(() => '/api/files/image'),
       saveContent: vi.fn(),
     },
@@ -84,10 +85,10 @@ describe('DesktopWorkbench', () => {
           binary: false,
           truncated: false,
         },
-      ],
+      ] as unknown as FileEditorDocument[],
       activeEditorId: 'local:root-workspace:src/index.ts',
       editorsHydrated: true,
-    } as any)
+    })
   })
 
   it('reloads content when reopening an existing empty editor', async () => {
@@ -138,8 +139,8 @@ describe('DesktopWorkbench', () => {
           binary: false,
           truncated: false,
         },
-      ],
-    } as any)
+      ] as unknown as FileEditorDocument[],
+    })
     render(React.createElement(DesktopWorkbench))
     await waitFor(() => expect(contentMock).toHaveBeenCalledWith('local', 'root-workspace', 'src/index.ts'))
     expect(contentMock).toHaveBeenCalledTimes(1)
@@ -166,7 +167,7 @@ describe('DesktopWorkbench', () => {
     expect(useConsoleStore.getState().sessionPanelWidth).toBe(244)
   })
   it('expands the session rail when the rail edge is dragged past the expand threshold', () => {
-    useConsoleStore.setState({ sessionPanelExpanded: false } as any)
+    useConsoleStore.setState({ sessionPanelExpanded: false })
     const { container } = render(React.createElement(DesktopWorkbench))
     const handle = container.querySelector('.cursor-col-resize') as HTMLElement
     fireEvent.mouseDown(handle)
@@ -176,7 +177,7 @@ describe('DesktopWorkbench', () => {
     expect(useConsoleStore.getState().sessionPanelWidth).toBe(316)
   })
   it('keeps the session rail collapsed when the rail edge drag stays below the threshold', () => {
-    useConsoleStore.setState({ sessionPanelExpanded: false } as any)
+    useConsoleStore.setState({ sessionPanelExpanded: false })
     const { container } = render(React.createElement(DesktopWorkbench))
     const handle = container.querySelector('.cursor-col-resize') as HTMLElement
     fireEvent.mouseDown(handle)
@@ -186,7 +187,7 @@ describe('DesktopWorkbench', () => {
   })
 
   it('opens a dragged file dropped onto the empty editor area with a side-docked terminal', async () => {
-    useConsoleStore.setState({ openEditors: [], activeEditorId: null, terminalDock: 'right' } as any)
+    useConsoleStore.setState({ openEditors: [], activeEditorId: null, terminalDock: 'right' })
     contentMock.mockResolvedValue({
       path: 'src/dropped.ts',
       type: 'file',

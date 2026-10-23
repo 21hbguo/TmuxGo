@@ -18,7 +18,7 @@ describe('TerminalDock', () => {
   beforeEach(() => {
     useConsoleStore.setState({
       terminalPanelHeight: 300,
-    } as any)
+    })
   })
   it('resizes against panel bottom instead of viewport bottom', () => {
     const { container } = render(<TerminalDock minHeight={180} maxHeight={540} dragViewportHeight={900} />)

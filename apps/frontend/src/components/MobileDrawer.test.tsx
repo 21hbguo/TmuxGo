@@ -16,8 +16,29 @@ const mutateRemoveSessionWorkspaces = vi.fn()
 const mutateMigrateSessionWorkspace = vi.fn()
 const promptMock = vi.fn()
 
-let windowsMock: any[] = []
-let panesMock: any[] = []
+// 抽屉只消费窗口/面板的展示字段；size 等布局字段不参与
+interface StubWindow {
+  id: string
+  sessionId: string
+  name: string
+  index: number
+  active: boolean
+}
+interface StubPane {
+  id: string
+  windowId: string
+  index: number
+  title: string
+  active: boolean
+}
+interface StubSessionRow {
+  id: string
+  name?: string
+  windowCount?: number
+}
+
+let windowsMock: StubWindow[] = []
+let panesMock: StubPane[] = []
 
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
@@ -112,8 +133,8 @@ vi.mock('./SessionSortableList', () => ({
     sessions,
     renderItem,
   }: {
-    sessions: any[]
-    renderItem: (args: { session: any; isDragging: boolean; isOverlay: boolean }) => React.ReactNode
+    sessions: StubSessionRow[]
+    renderItem: (args: { session: StubSessionRow; isDragging: boolean; isOverlay: boolean }) => React.ReactNode
   }) =>
     React.createElement(
       'div',
@@ -126,8 +147,8 @@ vi.mock('./SessionSortableList', () => ({
     sessions,
     renderItem,
   }: {
-    sessions: any[]
-    renderItem: (args: { session: any; isDragging: boolean; isOverlay: boolean }) => React.ReactNode
+    sessions: StubSessionRow[]
+    renderItem: (args: { session: StubSessionRow; isDragging: boolean; isOverlay: boolean }) => React.ReactNode
   }) =>
     React.createElement(
       'div',
@@ -156,7 +177,7 @@ describe('MobileDrawer session actions', () => {
       activeHostId: 'local',
       activeSessionId: 'session-dev',
       toasts: [],
-    } as any)
+    })
   })
 
   it('renders visible rename and delete buttons for each mobile session row', () => {
@@ -211,7 +232,7 @@ describe('MobileDrawer windows pane list', () => {
       activeSessionId: 'session-dev',
       activePaneId: 'local:%1',
       toasts: [],
-    } as any)
+    })
     vi.spyOn(api.windows, 'select').mockResolvedValue({})
     vi.spyOn(api.panes, 'select').mockResolvedValue({})
     vi.spyOn(api.snapshot, 'get').mockResolvedValue({
@@ -221,7 +242,7 @@ describe('MobileDrawer windows pane list', () => {
       panes: panesMock,
       activeWindowId: 'local:@1',
       activePaneId: 'local:%1',
-    })
+    } as unknown as Awaited<ReturnType<typeof api.snapshot.get>>)
     return () => vi.restoreAllMocks()
   })
 

@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+// apply-cell 内部的 XtermLike 未导出，按调用签名取参数类型
+type XtermStub = Parameters<typeof applyCellToXterm>[0]
+
 import { applyCellToXterm, diffToAnsi, snapshotToAnsi } from './apply-cell'
 import { WIDE_CONT, type Cell, type CellDiff, type CellSnapshot } from './decode-cell'
 
@@ -94,7 +97,7 @@ describe('cell apply without clear-flicker', () => {
       flags: 0,
       changes: [{ x: 0, y: 0, cell: cell('Z') }],
     }
-    const ok = applyCellToXterm(terminal as any, { kind: 'diff', diff })
+    const ok = applyCellToXterm(terminal as unknown as XtermStub, { kind: 'diff', diff })
     expect(ok).toBe(true)
     expect(writes.join('')).toContain('Z')
     expect(writes.join('')).not.toContain('\x1b[2J')
@@ -135,7 +138,7 @@ describe('cell apply without clear-flicker', () => {
       seq: 1,
       cells: [cell('O'), cell('K')],
     }
-    const ok = applyCellToXterm(terminal as any, { kind: 'snapshot', snapshot: snap })
+    const ok = applyCellToXterm(terminal as unknown as XtermStub, { kind: 'snapshot', snapshot: snap })
     expect(ok).toBe(true)
     expect(rows[0][0]).toBe('O')
     expect(rows[0][1]).toBe('K')

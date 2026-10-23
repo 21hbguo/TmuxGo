@@ -44,7 +44,7 @@ const setup = (overrides: Record<string, any> = {}) => {
   const controller = createTerminalPaneResizeController(options)
   controller.attach()
   const gestures: string[] = []
-  const unsub = subscribeStreamEvent(STREAM_EVENT.resizeGesture, (d: any) => gestures.push(d?.phase))
+  const unsub = subscribeStreamEvent<{ phase: string }>(STREAM_EVENT.resizeGesture, (d) => gestures.push(d?.phase))
   return { container, options, controller, gestures, unsub }
 }
 

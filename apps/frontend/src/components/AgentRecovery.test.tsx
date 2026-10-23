@@ -12,7 +12,7 @@ vi.mock('@/lib/api', () => ({
   api: {
     agentRecovery: {
       list: vi.fn(async () => ({ version: 1, candidates: [] })),
-      resume: (...args: any[]) => resumeMock(...args),
+      resume: (...args: unknown[]) => resumeMock(...args),
     },
   },
 }))

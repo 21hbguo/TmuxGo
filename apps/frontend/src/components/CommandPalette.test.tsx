@@ -10,7 +10,19 @@ const selectWindow = vi.fn()
 const killWindow = vi.fn()
 const snapshotGet = vi.fn()
 const invokePluginAction = vi.fn()
-let plugins: any[] = []
+// 面板只读插件条目的 id/启用态与 manifest 里 contributes.actions 这一层
+interface StubPluginAction {
+  id: string
+  title: string
+  command: string[]
+}
+interface StubPluginEntry {
+  pluginId: string
+  enabled: boolean
+  state: 'active' | 'disabled' | 'error'
+  manifest: { name: string; contributes: { actions: StubPluginAction[] } }
+}
+let plugins: StubPluginEntry[] = []
 
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
@@ -40,10 +52,10 @@ vi.mock('@/hooks/useWindowQueryState', () => ({
 vi.mock('@/lib/api', () => ({
   api: {
     windows: {
-      select: (...args: any[]) => selectWindow(...args),
-      kill: (...args: any[]) => killWindow(...args),
+      select: (...args: unknown[]) => selectWindow(...args),
+      kill: (...args: unknown[]) => killWindow(...args),
     },
-    snapshot: { get: (...args: any[]) => snapshotGet(...args) },
+    snapshot: { get: (...args: unknown[]) => snapshotGet(...args) },
   },
 }))
 
@@ -64,7 +76,7 @@ describe('CommandPalette', () => {
       showCommandPalette: true,
       toasts: [],
       connection: { status: 'disconnected', latency: 0, lastPing: new Date().toISOString() },
-    } as any)
+    })
   })
 
   it('supports keyboard selection for session items', async () => {
@@ -125,10 +137,10 @@ describe('CommandPalette', () => {
     expect(document.body.querySelector('[data-selected="true"]')?.textContent).toContain('Switch window: Main')
   })
   it('submits the kill-window confirm only once on rapid double click', async () => {
-    let resolveKill: (value: any) => void = () => {}
+    let resolveKill: (value: unknown) => void = () => {}
     killWindow.mockImplementation(
       () =>
-        new Promise((resolve) => {
+        new Promise<unknown>((resolve) => {
           resolveKill = resolve
         }),
     )

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import type { Terminal } from '@xterm/xterm'
 import { createTerminalResizeMask } from './terminal-resize-mask'
 
 const rect = (left: number, top: number, width: number, height: number) =>
@@ -26,16 +27,18 @@ const makeScreen = () => {
 describe('terminal-resize-mask snapshot geometry', () => {
   let maskEl: HTMLElement
   let screen: HTMLElement
-  let terminal: any
+  let terminal: Terminal
+  let terminalEl: HTMLDivElement
   beforeEach(() => {
     document.body.innerHTML = ''
     maskEl = document.createElement('div')
     maskEl.style.display = 'none'
     document.body.appendChild(maskEl)
     screen = makeScreen()
-    terminal = { element: document.createElement('div') }
-    terminal.element.appendChild(screen)
-    document.body.appendChild(terminal.element)
+    terminalEl = document.createElement('div')
+    terminal = { element: terminalEl } as unknown as Terminal
+    terminalEl.appendChild(screen)
+    document.body.appendChild(terminalEl)
   })
 
   it('pins the clone to the real screen top when the screen does not fill the mask bottom', () => {
