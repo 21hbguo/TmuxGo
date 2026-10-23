@@ -1,12 +1,13 @@
 import { test, expect } from '@playwright/test'
 import { ensureTestWindow, openSession } from './session'
+import type { TerminalProbe } from './probe-types'
 
 test('terminal content fills container height', async ({ page, request }) => {
   const { session } = await ensureTestWindow(request, 'gutter')
   await openSession(page, session, { expectHeader: false })
   await page.waitForFunction(
     () => {
-      const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+      const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
       return !!t?.cols && !!t?.rows && document.querySelector('[data-terminal] canvas')
     },
     undefined,
@@ -14,8 +15,8 @@ test('terminal content fills container height', async ({ page, request }) => {
   )
   await page.waitForTimeout(1200)
   await page.evaluate(() => {
-    const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
-    terminal?.refresh(0, Math.max(0, terminal.rows - 1))
+    const terminal = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
+    if (terminal) terminal.refresh(0, Math.max(0, Number(terminal.rows) - 1))
   })
   const metrics = await page.evaluate(() => {
     const terminal = document.querySelector('[data-terminal]') as HTMLElement | null
@@ -25,8 +26,9 @@ test('terminal content fills container height', async ({ page, request }) => {
     const rows = terminal?.querySelector('.xterm-rows') as HTMLElement | null
     const lastRow = rows?.lastElementChild
     const canvas = screen?.querySelector('canvas') as HTMLCanvasElement | null
-    const rect = (node: Element | null) => (node ? (node as HTMLElement).getBoundingClientRect().toJSON() : null)
-    const style = (node: Element | null) => (node ? getComputedStyle(node as Element) : null)
+    const rect = (node: Element | null | undefined) =>
+      node ? (node as HTMLElement).getBoundingClientRect().toJSON() : null
+    const style = (node: Element | null | undefined) => (node ? getComputedStyle(node) : null)
     return {
       terminalRect: rect(terminal),
       xtermRect: rect(xterm),
@@ -69,7 +71,7 @@ test('terminal content fills container height', async ({ page, request }) => {
           }
         : null,
       term: (() => {
-        const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+        const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
         return {
           cols: t?.cols || 0,
           rows: t?.rows || 0,
@@ -79,7 +81,7 @@ test('terminal content fills container height', async ({ page, request }) => {
             try {
               return (
                 t?._addonManager?._addons
-                  ?.find((item: any) => item?.instance?.proposeDimensions)
+                  ?.find((item) => item?.instance?.proposeDimensions)
                   ?.instance?.proposeDimensions?.() || null
               )
             } catch {
@@ -93,7 +95,7 @@ test('terminal content fills container height', async ({ page, request }) => {
         }
       })(),
       state: (() => {
-        const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+        const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
         return {
           hasSessionOverlay: !!document.querySelector('[data-terminal] + div'),
           title: document.title,

@@ -9,9 +9,31 @@ import { fileURLToPath } from 'node:url'
 import { CONTROL_CAPABILITIES, CONTROL_ERROR_CODES } from '../apps/gateway/src/lib/control-protocol.js'
 import { buildControlProtocolSchema } from '../apps/gateway/src/lib/control-schema.js'
 
+interface JsonSchemaNode {
+  type?: string
+  minimum?: number
+  maximum?: number
+  enum?: string[]
+  properties: Record<string, JsonSchemaNode>
+  required?: string[]
+  [key: string]: unknown
+}
+interface ControlMethodDoc {
+  http: string
+  path: string
+  params?: JsonSchemaNode
+}
+interface McpTool {
+  name: string
+  inputSchema: { properties: Record<string, JsonSchemaNode>; required?: string[] }
+}
+interface McpListResponse {
+  result: { tools: McpTool[] }
+}
+
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const doc = buildControlProtocolSchema()
-const methods = doc.methods as Record<string, { http: string; path: string; params?: any }>
+const methods = doc.methods as Record<string, ControlMethodDoc>
 
 // 三方共享同一份协议定义：gateway 运行时生成 = 静态导出文件 = CLI/MCP 引用的约束。
 // 不触真实 :3001、不用真实凭据、不碰用户 tmux。
@@ -62,7 +84,7 @@ test('cli thin client validates against the same bounds as the protocol doc', ()
   for (const bound of [...linesMax, timeout.minimum, timeout.maximum]) {
     assert.ok(cliSrc.includes(String(bound)), `cli source missing protocol bound ${bound}`)
   }
-  for (const direction of methods['panes.split'].params!.properties.direction.enum) {
+  for (const direction of methods['panes.split'].params!.properties.direction.enum!) {
     assert.ok(cliSrc.includes(direction), `cli source missing direction ${direction}`)
   }
   // 版本协商：CLI 上报的协议版本与文档一致
@@ -82,7 +104,7 @@ test('mcp pane tools mirror the protocol params constraints', async (t) => {
     rmSync(configDir, { recursive: true, force: true })
   })
   let buffer = ''
-  const list = await new Promise<any>((resolve, reject) => {
+  const list = await new Promise<McpListResponse>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('tools/list timeout')), 5000)
     child.stdout.setEncoding('utf8')
     child.stdout.on('data', (chunk) => {
@@ -90,12 +112,12 @@ test('mcp pane tools mirror the protocol params constraints', async (t) => {
       const index = buffer.indexOf('\n')
       if (index < 0) return
       clearTimeout(timer)
-      resolve(JSON.parse(buffer.slice(0, index)))
+      resolve(JSON.parse(buffer.slice(0, index)) as McpListResponse)
     })
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) + '\n')
   })
 
-  const toolByName = new Map(list.result.tools.map((tool: any) => [tool.name, tool]))
+  const toolByName = new Map(list.result.tools.map((tool) => [tool.name, tool]))
   const mirror: Record<string, string> = {
     tmuxgo_pane_snapshot: 'panes.snapshot',
     tmuxgo_pane_wait_output: 'panes.wait-output',
@@ -109,7 +131,7 @@ test('mcp pane tools mirror the protocol params constraints', async (t) => {
     const params = methods[methodName].params
     if (!params) continue // schema 方法无 params
     const toolProps = tool.inputSchema.properties
-    for (const [prop, propSchema] of Object.entries<any>(params.properties)) {
+    for (const [prop, propSchema] of Object.entries(params.properties)) {
       const toolProp = toolProps[prop]
       assert.ok(toolProp, `${toolName} missing param ${prop}`)
       for (const key of constraintKeys) {

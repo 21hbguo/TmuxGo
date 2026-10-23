@@ -1,13 +1,17 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { ensureTestWindow, openSession } from './session'
-async function writeMarker(page: any, marker: string) {
+import type { TerminalProbe } from './probe-types'
+
+// mobile debug 探针事件：只读取 event/reason
+type MobileDebugEvent = { event: string; reason: string }
+async function writeMarker(page: Page, marker: string) {
   await page.evaluate((value) => {
     window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: `printf "${value}\\n"\r` } }))
   }, marker)
   // 扫全 buffer（含 scrollback）：限前 240 行会在长跑后误失败
   await page.waitForFunction(
     (value) => {
-      const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+      const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
       const buffer = t?.buffer?.active
       if (!buffer) return false
       for (let i = 0; i < buffer.length; i += 1) {
@@ -20,18 +24,19 @@ async function writeMarker(page: any, marker: string) {
     { timeout: 15000 },
   )
 }
-async function getRenderMetrics(page: any) {
+async function getRenderMetrics(page: Page) {
   return page.evaluate(() => {
     const terminal = document.querySelector('[data-terminal]') as HTMLElement | null
     const xterm = terminal?.querySelector('.xterm') as HTMLElement | null
     const rows = terminal?.querySelector('.xterm-rows') as HTMLElement | null
-    const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+    const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
     const termRect = terminal?.getBoundingClientRect()
     const xtermRect = xterm?.getBoundingClientRect()
     const rowsRect = rows?.getBoundingClientRect()
     const rowsStyle = rows ? getComputedStyle(rows) : null
     const events = (
-      (window as typeof window & { __tmuxgoMobileDebug?: { events?: any[] } }).__tmuxgoMobileDebug?.events || []
+      (window as typeof window & { __tmuxgoMobileDebug?: { events?: MobileDebugEvent[] } }).__tmuxgoMobileDebug
+        ?.events || []
     ).filter((item) => item.event === 'terminal-recover' || item.event === 'terminal-soft-recover')
     const visibleText = rows?.textContent || ''
     return {
@@ -77,7 +82,7 @@ test('mobile terminal remains visibly rendered after viewport and dpr switch', a
   await openSession(page, session, { debugMobile: true, expectHeader: false })
   await page.waitForFunction(
     () => {
-      const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+      const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
       return !!t?.cols && !!t?.rows
     },
     undefined,
@@ -88,7 +93,8 @@ test('mobile terminal remains visibly rendered after viewport and dpr switch', a
   const recoverCount = await page.evaluate(
     () =>
       (
-        (window as typeof window & { __tmuxgoMobileDebug?: { events?: any[] } }).__tmuxgoMobileDebug?.events || []
+        (window as typeof window & { __tmuxgoMobileDebug?: { events?: MobileDebugEvent[] } }).__tmuxgoMobileDebug
+          ?.events || []
       ).filter((item) => item.event === 'terminal-recover' || item.event === 'terminal-soft-recover').length,
   )
   const client = await context.newCDPSession(page)
@@ -107,7 +113,8 @@ test('mobile terminal remains visibly rendered after viewport and dpr switch', a
   await page.waitForFunction(
     (count) => {
       const events =
-        (window as typeof window & { __tmuxgoMobileDebug?: { events?: any[] } }).__tmuxgoMobileDebug?.events || []
+        (window as typeof window & { __tmuxgoMobileDebug?: { events?: MobileDebugEvent[] } }).__tmuxgoMobileDebug
+          ?.events || []
       return (
         events.filter((item) => item.event === 'terminal-recover' || item.event === 'terminal-soft-recover').length >
         count
@@ -142,7 +149,7 @@ test('mobile terminal remains visibly rendered after viewport and dpr switch', a
   expect(Number(metrics.rowsOpacity || '1')).toBeGreaterThan(0)
   expect(metrics.visibleText).toContain(after)
   expect(
-    metrics.recoverReasons.some((reason: string) =>
+    metrics.recoverReasons.some((reason) =>
       ['window-resize', 'orientationchange', 'orientationchange-stable'].includes(reason),
     ),
   ).toBeTruthy()
@@ -157,7 +164,7 @@ test('desktop terminal resize settles without repeated resize calls', async ({ b
   await openSession(page, session, { expectHeader: false })
   await page.waitForFunction(
     () => {
-      const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+      const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
       return !!t?.cols && !!t?.rows
     },
     undefined,
@@ -165,10 +172,10 @@ test('desktop terminal resize settles without repeated resize calls', async ({ b
   )
   await page.evaluate(() => {
     const target = window as typeof window & {
-      __tmuxgoTerminal?: any
+      __tmuxgoTerminal?: TerminalProbe
       __tmuxgoResizeCalls?: Array<{ cols: number; rows: number }>
     }
-    const terminal = target.__tmuxgoTerminal
+    const terminal = target.__tmuxgoTerminal!
     const resize = terminal.resize.bind(terminal)
     target.__tmuxgoResizeCalls = []
     terminal.resize = (cols: number, rows: number) => {

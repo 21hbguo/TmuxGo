@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { ensureSession, ensureTestWindow, openSession } from './session'
+import type { TerminalProbe } from './probe-types'
 
 test('home page smoke flow', async ({ page }) => {
   await page.goto('/')
@@ -153,7 +154,7 @@ test('mobile terminal stays within viewport and renders active session output', 
   const marker = `__TMUXGO_MOBILE_${Date.now()}__`
   await page.waitForFunction(
     () => {
-      const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+      const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
       return !!t?.cols && !!t?.rows
     },
     undefined,
@@ -164,7 +165,7 @@ test('mobile terminal stays within viewport and renders active session output', 
   }, marker)
   await page.waitForFunction(
     (value) => {
-      const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+      const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
       const buffer = t?.buffer?.active
       if (!buffer || !t?.rows) return false
       const start = Math.max(0, Number(buffer.baseY) || 0)
@@ -180,12 +181,12 @@ test('mobile terminal stays within viewport and renders active session output', 
   const metrics = await page.evaluate(() => {
     const term = document.querySelector('[data-terminal]') as HTMLElement | null
     const xterm = term?.querySelector('.xterm') as HTMLElement | null
-    const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+    const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
     const lines: string[] = []
     const start = Math.max(0, Number(t?.buffer?.active?.baseY) || 0)
     const end = Math.min(t?.buffer?.active?.length || 0, start + (t?.rows || 0))
     for (let i = start; i < end; i += 1) {
-      const line = t.buffer.active.getLine(i)
+      const line = t?.buffer?.active?.getLine(i)
       if (!line) continue
       const text = line.translateToString(true)
       if (text.trim()) lines.push(text)

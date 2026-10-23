@@ -1,17 +1,18 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
 import { ensureSession, openSession } from './session'
+import type { TerminalProbe } from './probe-types'
 
-async function sendKeys(request: any, sessionId: string, data: string) {
+async function sendKeys(request: APIRequestContext, sessionId: string, data: string) {
   const res = await request.post(`/api/hosts/local/sessions/${sessionId}/input`, { data: { data } })
   if (!res.ok()) throw new Error(await res.text())
 }
 
-async function terminalState(page: any) {
+async function terminalState(page: Page) {
   return page.evaluate(() => {
     const terminal = document.querySelector('[data-terminal]') as HTMLElement | null
     const xterm = terminal?.querySelector('.xterm') as HTMLElement | null
     const rows = terminal?.querySelector('.xterm-rows') as HTMLElement | null
-    const t = (window as any).__tmuxgoTerminal
+    const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
     const rect = terminal?.getBoundingClientRect()
     const overlay = document.querySelector('[data-pane-grid] [class*="inset-0"]') as HTMLElement | null
     return {
@@ -31,7 +32,11 @@ test('switch session keeps terminal visible', async ({ page, request }) => {
   await sendKeys(request, a.id, 'printf "MARKER-A\\n"\r')
   await sendKeys(request, b.id, 'printf "MARKER-B\\n"\r')
   await openSession(page, { id: a.id, name: 'repro-switch-a' })
-  await page.waitForFunction(() => (window as any).__tmuxgoTerminal, null, { timeout: 15000 })
+  await page.waitForFunction(
+    () => !!(window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal,
+    null,
+    { timeout: 15000 },
+  )
   await page.waitForTimeout(1500)
   const before = await terminalState(page)
   console.log('BEFORE switch:', JSON.stringify(before))

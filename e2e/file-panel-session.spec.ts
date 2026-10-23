@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type APIRequestContext } from '@playwright/test'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { apiUrl } from './endpoints'
@@ -6,7 +6,7 @@ import { openSession } from './session'
 
 type FileRoot = { id: string; label: string; path: string }
 
-async function createSession(request: any, name: string) {
+async function createSession(request: APIRequestContext, name: string) {
   const response = await request.post(`${apiUrl}/api/hosts/local/sessions`, { data: { name } })
   expect(response.ok()).toBeTruthy()
   return response.json()
@@ -17,7 +17,7 @@ test.setTimeout(60000)
 test('file explorer stays interactive across session switches and file opens', async ({ page, request }) => {
   const rootsResponse = await request.get(`${apiUrl}/api/hosts/local/files/roots`)
   expect(rootsResponse.ok()).toBeTruthy()
-  const roots = await rootsResponse.json() as FileRoot[]
+  const roots = (await rootsResponse.json()) as FileRoot[]
   const homeRoot = roots.find((item) => item.label.toLowerCase() === 'home') || roots[0]
   const tempDir = await mkdtemp(path.join(homeRoot.path, 'tmuxgo-file-session-'))
   const dirName = path.basename(tempDir)
@@ -41,19 +41,49 @@ test('file explorer stays interactive across session switches and file opens', a
     await directory.click()
     await expect(page.getByRole('button', { name: /alpha\.txt/ }).last()).toBeVisible()
     await expect(page.getByRole('button', { name: /nested/ }).last()).toBeVisible()
-    await page.getByRole('button', { name: /alpha\.txt/ }).last().click()
-    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('tmuxgo-console-state:desktop') || '{}').state?.activeEditorId)).toContain('alpha.txt')
-    await page.getByRole('button', { name: new RegExp(secondSession) }).last().click()
-    await expect.poll(() => page.evaluate(() => localStorage.getItem('tmuxgo-active-session:local') || localStorage.getItem('tmuxgo-active-session'))).toBe(second.id)
+    await page
+      .getByRole('button', { name: /alpha\.txt/ })
+      .last()
+      .click()
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => JSON.parse(localStorage.getItem('tmuxgo-console-state:desktop') || '{}').state?.activeEditorId,
+        ),
+      )
+      .toContain('alpha.txt')
+    await page
+      .getByRole('button', { name: new RegExp(secondSession) })
+      .last()
+      .click()
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => localStorage.getItem('tmuxgo-active-session:local') || localStorage.getItem('tmuxgo-active-session'),
+        ),
+      )
+      .toBe(second.id)
     await expect(rootSelect).toHaveValue(homeRoot.id)
     await fileSearch.fill(dirName)
-    await page.getByRole('button', { name: new RegExp(dirName) }).last().click()
+    await page
+      .getByRole('button', { name: new RegExp(dirName) })
+      .last()
+      .click()
     const nested = page.getByRole('button', { name: /nested/ }).last()
     await expect(nested).toBeVisible()
     await nested.click()
     await expect(page.getByRole('button', { name: /gamma\.txt/ }).last()).toBeVisible()
-    await page.getByRole('button', { name: new RegExp(firstSession) }).last().click()
-    await expect.poll(() => page.evaluate(() => localStorage.getItem('tmuxgo-active-session:local') || localStorage.getItem('tmuxgo-active-session'))).toBe(first.id)
+    await page
+      .getByRole('button', { name: new RegExp(firstSession) })
+      .last()
+      .click()
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => localStorage.getItem('tmuxgo-active-session:local') || localStorage.getItem('tmuxgo-active-session'),
+        ),
+      )
+      .toBe(first.id)
     await expect(rootSelect).toHaveValue(homeRoot.id)
     await expect(page.locator('body')).not.toContainText('客户端异常')
   } finally {

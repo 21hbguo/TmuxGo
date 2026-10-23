@@ -241,6 +241,9 @@ test('encodeStreamCellBinaryCompact roundtrips cell payload', () => {
   assert.deepEqual([...decoded.payload], [1, 2, 3, 4, 5])
 })
 
+// paste 帧只需要 StreamSession.input/attached* 这组字段，其余字段不参与断言
+type PasteSession = Parameters<typeof applyPasteDataFrame>[0]
+
 function makePasteSession(overrides: Record<string, unknown> = {}) {
   const written: string[] = []
   const session = {
@@ -257,7 +260,7 @@ function makePasteSession(overrides: Record<string, unknown> = {}) {
       if (!session.attachedPassive && session.ptyProcess) session.ptyProcess.write(d)
     },
     ...overrides,
-  } as any
+  } as unknown as PasteSession
   return { session, written }
 }
 

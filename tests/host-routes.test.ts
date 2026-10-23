@@ -12,11 +12,20 @@ import { hostRoutes } from '../apps/gateway/src/routes/hosts.ts'
 test('configured SSH host keeps SSH status when an Agent with the same id is online', async (t) => {
   const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-host-routes-'))
   process.env.TMUXGO_CONFIG_DIR = configDir
-  const socket = {} as any
+  // register 只保存 socket 引用，测试不发送消息；事件回调返回 undefined 即可
+  const socket: Parameters<typeof agentManager.register>[4] = { readyState: 1, send() {}, on: () => undefined }
   agentManager.register('remote', 'remote-agent', '10.0.0.2', '1.0.0', socket)
   const app = Fastify()
   await app.register(hostRoutes, { prefix: '/api' })
-  await upsertRemoteHost({ id: 'remote', name: 'remote-ssh', address: '10.0.0.2', user: 'guo', password: 'route-secret', privateKeyPath: '/home/user/.ssh/id_ed25519', tags: ['production'] })
+  await upsertRemoteHost({
+    id: 'remote',
+    name: 'remote-ssh',
+    address: '10.0.0.2',
+    user: 'guo',
+    password: 'route-secret',
+    privateKeyPath: '/home/user/.ssh/id_ed25519',
+    tags: ['production'],
+  })
   recordHostConnectionFailure('remote', 'SSH authentication failed')
   t.after(async () => {
     agentManager.unregister('remote', socket)

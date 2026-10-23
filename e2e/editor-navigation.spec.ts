@@ -1,8 +1,9 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { apiUrl } from './endpoints'
 import { ensureSession, openSession, TEST_SESSION_NAME } from './session'
+import type { MonacoApi } from './probe-types'
 
 // 编辑器定义跳转/返回前进真实交互回归（评审文档 §六验收矩阵）：
 // 真实 Monaco（CDN loader 加载，非替身），fixture 为调用行与定义行分离的长文件，
@@ -124,15 +125,15 @@ const marks: Record<string, Record<string, Pos>> = {}
 const fileAbs = (name: string) => path.join(fixtureDir, name)
 
 // ---- Monaco 观察：window.monaco 是 loader 注入的生产实例，直接读模型 URI/光标/可见区
-async function editorState(page: any) {
+async function editorState(page: Page) {
   return page.evaluate(() => {
-    const monaco = (window as any).monaco
+    const monaco = (window as typeof window & { monaco?: MonacoApi }).monaco
     const editors = monaco?.editor?.getEditors?.() || []
-    const editor = editors.find((item: any) => item?.hasTextFocus?.()) || editors[0]
+    const editor = editors.find((item) => item?.hasTextFocus?.()) || editors[0]
     if (!editor) return null
     const model = editor.getModel?.()
     const position = editor.getPosition?.()
-    const visible = (editor.getVisibleRanges?.() || []).map((range: any) => [
+    const visible = (editor.getVisibleRanges?.() || []).map((range): [number, number] => [
       range.startLineNumber,
       range.endLineNumber,
     ])
@@ -146,7 +147,7 @@ async function editorState(page: any) {
 }
 // 落位验证点：模型+精确行列+目标行进入视口（reveal 丢失不得算过）。
 // 用于定义跳转落点——视口跟随是跳转正确性的一部分
-async function expectEditorAt(page: any, absPath: string, pos: Pos, timeout = 15000) {
+async function expectEditorAt(page: Page, absPath: string, pos: Pos, timeout = 15000) {
   await expect
     .poll(
       async () => {
@@ -160,7 +161,7 @@ async function expectEditorAt(page: any, absPath: string, pos: Pos, timeout = 15
 }
 // 仅模型+精确行列的落位等待：历史链/中转导出/stale 用例验证的是位置语义，
 // 中间落点不做视口断言，避免共享 reveal 缺陷掩盖真正的语义失败点
-async function waitEditorPosition(page: any, absPath: string, pos: Pos, timeout = 15000) {
+async function waitEditorPosition(page: Page, absPath: string, pos: Pos, timeout = 15000) {
   await expect
     .poll(
       async () => {
@@ -173,12 +174,12 @@ async function waitEditorPosition(page: any, absPath: string, pos: Pos, timeout 
 }
 // 头部 Ln/Col 文案由 cursorById 渲染：等到它说明 React 状态已提交，
 // F12/Alt 快捷键读取的 getNavigationPosition 才不会拿到旧光标
-async function waitCursorCommitted(page: any, pos: Pos) {
+async function waitCursorCommitted(page: Page, pos: Pos) {
   await expect(page.getByText(new RegExp(`Ln ${pos.line}, Col ${pos.column}`)).first()).toBeVisible()
 }
-async function setCursor(page: any, pos: Pos) {
+async function setCursor(page: Page, pos: Pos) {
   await page.evaluate((p) => {
-    const editor = (window as any).monaco?.editor?.getEditors?.()?.[0]
+    const editor = (window as typeof window & { monaco?: MonacoApi }).monaco?.editor?.getEditors?.()?.[0]
     editor?.setPosition?.({ lineNumber: p.line, column: p.column })
     editor?.revealPositionInCenter?.({ lineNumber: p.line, column: p.column })
     editor?.focus?.()
@@ -187,16 +188,16 @@ async function setCursor(page: any, pos: Pos) {
 }
 // 词中点真实点击：getScrolledVisiblePosition 相对 editor domNode，加 bounding rect
 // 得视口坐标；先 setScrollTop 瞬时定位规避 smoothScrolling 动画期坐标漂移
-async function clickWord(page: any, pos: Pos & { len: number }, modifiers: 'ctrl' | null = null) {
+async function clickWord(page: Page, pos: Pos & { len: number }, modifiers: 'ctrl' | null = null) {
   const handle = await page.waitForFunction(
     (p) => {
-      const editor = (window as any).monaco?.editor?.getEditors?.()?.[0]
+      const editor = (window as typeof window & { monaco?: MonacoApi }).monaco?.editor?.getEditors?.()?.[0]
       if (!editor) return false
       const layout = editor.getLayoutInfo?.()
-      if (layout) editor.setScrollTop?.(editor.getTopForLineNumber(p.line) - layout.height / 3)
-      const start = editor.getScrolledVisiblePosition({ lineNumber: p.line, column: p.column })
-      const end = editor.getScrolledVisiblePosition({ lineNumber: p.line, column: p.column + p.len })
-      const rect = editor.getDomNode()?.getBoundingClientRect()
+      if (layout) editor.setScrollTop?.(editor.getTopForLineNumber!(p.line) - layout.height / 3)
+      const start = editor.getScrolledVisiblePosition!({ lineNumber: p.line, column: p.column })
+      const end = editor.getScrolledVisiblePosition!({ lineNumber: p.line, column: p.column + p.len })
+      const rect = editor.getDomNode?.()?.getBoundingClientRect()
       if (!start || !end || !rect) return false
       return { x: rect.left + (start.left + end.left) / 2, y: rect.top + start.top + start.height / 2 }
     },
@@ -209,13 +210,13 @@ async function clickWord(page: any, pos: Pos & { len: number }, modifiers: 'ctrl
   if (modifiers === 'ctrl') await page.keyboard.up('Control')
 }
 
-function filePanelBox(page: any) {
+function filePanelBox(page: Page) {
   // 根选择是自定义 combobox；文件面板是唯一含文件名搜索框的 content-surface
   return page
     .locator('.tmuxgo-content-surface')
     .filter({ has: page.getByRole('textbox', { name: /^(搜索文件名|Search file names)$/ }) })
 }
-async function openFixtureFile(page: any, name: string) {
+async function openFixtureFile(page: Page, name: string) {
   await page
     .getByRole('button', { name: /^(资源管理|Explorer|Files)$/ })
     .first()
@@ -232,7 +233,7 @@ async function openFixtureFile(page: any, name: string) {
   await fileRow.click()
   await expect.poll(async () => (await editorState(page))?.path, { timeout: 30000 }).toBe(fileAbs(name))
 }
-function navButton(page: any, kind: 'back' | 'forward' | 'definition') {
+function navButton(page: Page, kind: 'back' | 'forward' | 'definition') {
   const names = { back: /^(返回|Back)$/, forward: /^(前进|Forward)$/, definition: /^(跳转到定义|Go to definition)$/ }
   return page.locator('[data-editor-drop]').getByRole('button', { name: names[kind] })
 }

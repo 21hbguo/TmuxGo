@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { apiUrl } from './endpoints'
 import { ensureSession, openSession } from './session'
 
@@ -7,18 +7,23 @@ import { ensureSession, openSession } from './session'
 // 负向覆盖两层：前端解析失败（非法版本）在弹窗内报错；gateway 拒绝（非法 preset /
 // 危险 cwd / replace 保护）经 toast 或 apply API 断言清晰错误。
 
+// 导出的布局文档与 session 摘要：断言只读取这些字段
+type LayoutWindow = { name: string; panes: Array<Record<string, unknown>> }
+type LayoutDoc = { kind: string; version: number; name: string; windows: LayoutWindow[] }
+type SessionSummary = { id: string; name: string }
+
 const LAYOUT_KIND = 'tmuxgo.session-layout'
 let seq = 0
 const uniqueName = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${seq++}`
 
 // 命令面板「New Session」最终也是派发到该事件（ConsoleLayout 转发）；
 // e2e 直接派发，聚焦测弹窗内部链路而非打开入口
-async function openTemplatePicker(page: any) {
+async function openTemplatePicker(page: Page) {
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('tmuxgo-open-session-templates')))
   await expect(page.getByRole('heading', { name: /New Session Template|新建会话模板/ })).toBeVisible()
 }
 
-async function importLayoutFile(page: any, doc: unknown) {
+async function importLayoutFile(page: Page, doc: unknown) {
   await page.locator('input[type="file"][accept*="json"]').setInputFiles({
     name: 'layout.json',
     mimeType: 'application/json',
@@ -38,12 +43,12 @@ test('exports session layout JSON from the session list', async ({ page, request
   await row.getByRole('button', { name: /Export layout JSON|导出布局 JSON/ }).click()
   const download = await downloadPromise
   expect(download.suggestedFilename()).toBe(`${session.name}.layout.json`)
-  const doc = JSON.parse(readFileSync((await download.path()) as string, 'utf8'))
+  const doc = JSON.parse(readFileSync((await download.path()) as string, 'utf8')) as LayoutDoc
   expect(doc.kind).toBe(LAYOUT_KIND)
   expect(doc.version).toBe(1)
   expect(doc.name).toBe(session.name)
   expect(doc.windows.length).toBeGreaterThanOrEqual(2)
-  expect(doc.windows.every((window: any) => Array.isArray(window.panes) && window.panes.length)).toBeTruthy()
+  expect(doc.windows.every((window) => Array.isArray(window.panes) && window.panes.length)).toBeTruthy()
   await expect(page.getByRole('status').filter({ hasText: /exported|已导出/ })).toBeVisible()
 })
 
@@ -72,14 +77,14 @@ test('imports a layout JSON and creates the session through the dialog', async (
   await expect(page.getByRole('status').filter({ hasText: /created|已创建/ })).toBeVisible()
   await expect(page.locator('.tmuxgo-list-row', { hasText: name }).first()).toBeVisible()
   // gateway 侧落盘核对：窗口/分栏真实建立
-  const sessions = await (await request.get(`${apiUrl}/api/hosts/local/sessions`)).json()
-  const created = sessions.find((item: any) => item.name === name)
+  const sessions = (await (await request.get(`${apiUrl}/api/hosts/local/sessions`)).json()) as SessionSummary[]
+  const created = sessions.find((item) => item.name === name)
   expect(created).toBeTruthy()
-  const layout = await (
-    await request.get(`${apiUrl}/api/hosts/local/sessions/${encodeURIComponent(created.id)}/layout`)
-  ).json()
-  expect(layout.windows.map((window: any) => window.name)).toEqual(['main', 'ops'])
-  expect(layout.windows.find((window: any) => window.name === 'ops').panes).toHaveLength(2)
+  const layout = (await (
+    await request.get(`${apiUrl}/api/hosts/local/sessions/${encodeURIComponent(created!.id)}/layout`)
+  ).json()) as { windows: LayoutWindow[] }
+  expect(layout.windows.map((window) => window.name)).toEqual(['main', 'ops'])
+  expect(layout.windows.find((window) => window.name === 'ops')!.panes).toHaveLength(2)
 })
 
 test('shows an inline error for an unsupported layout version', async ({ page, request }) => {
@@ -111,8 +116,8 @@ test('surfaces a clear error toast when the gateway rejects the layout', async (
   })
   await page.getByRole('button', { name: /^(Create|创建)$/ }).click()
   await expect(page.getByRole('alert')).toContainText(/fail|layout|unknown|invalid/i)
-  const sessions = await (await request.get(`${apiUrl}/api/hosts/local/sessions`)).json()
-  expect(sessions.some((item: any) => item.name === name)).toBeFalsy()
+  const sessions = (await (await request.get(`${apiUrl}/api/hosts/local/sessions`)).json()) as SessionSummary[]
+  expect(sessions.some((item) => item.name === name)).toBeFalsy()
 })
 
 // 危险 cwd / replace 保护只在 session-layouts/apply 校验（POST /sessions 不拦截，
