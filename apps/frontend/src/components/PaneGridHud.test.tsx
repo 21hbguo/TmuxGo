@@ -142,6 +142,8 @@ describe('PaneGrid switch HUD', () => {
     expect(position).toContain('ops')
     expect(screen.getByTestId('switch-hud-prev').textContent).toBe('← dev')
     expect(screen.getByTestId('switch-hud-next').textContent).toBe('logs →')
+    // 段条随窗口总数变化：3 个窗口 = 3 段
+    expect(screen.getByTestId('switch-hud-window-bar').children).toHaveLength(3)
     // 非 zoom 态不带 pane 行
     expect(screen.queryByTestId('switch-hud-pane')).toBeNull()
     // 非交互覆盖层：不吃终端手势
