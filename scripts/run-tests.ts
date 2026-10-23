@@ -59,11 +59,22 @@ for (const file of files) {
 }
 // 快层不跑真 tmux 串行组：这批就是"真起会话"的集成文件，也是串行段的主要墙钟来源
 const skippedSerialFiles = fastMode ? serialFiles.splice(0, serialFiles.length) : []
+// 快层再整组跳过 CLI 契约面（打包/help/control 信封）：它们验证的是发布产物与
+// CLI 二进制边界，跑的是真子进程，跟 gateway 日常迭代零耦合，跳了不伤回归面。
+// 显式传了文件过滤时不套这条——想单跑 CLI 契约就是明确意图
+const fastSkippedCliFiles: string[] = []
+if (fastMode && patterns.length === 0) {
+  // 实际执行列表是 parallelFiles，过滤要落在这里（files 只是收集结果）
+  for (let index = parallelFiles.length - 1; index >= 0; index--) {
+    if (/\/cli-[^/]*contract\.test\.ts$/.test(parallelFiles[index]))
+      fastSkippedCliFiles.push(...parallelFiles.splice(index, 1))
+  }
+}
 if (fastMode) process.env.TMUXGO_TEST_FAST = '1'
 console.log(`collected ${files.length} test files (${serialFiles.length} serial tmux)`)
 if (fastMode)
   console.log(
-    `FAST mode: skip ${skippedSerialFiles.length} real-tmux files and @slow cases (slowSkip) — full run: pnpm test`,
+    `FAST mode: skip ${skippedSerialFiles.length} real-tmux files, ${fastSkippedCliFiles.length} cli-contract files and @slow cases (slowSkip) — full run: pnpm test`,
   )
 
 // Isolate unit-test side effects away from the real ~/.tmuxgo config dir.
