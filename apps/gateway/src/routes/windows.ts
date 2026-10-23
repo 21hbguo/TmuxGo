@@ -289,7 +289,7 @@ export async function windowRoutes(fastify: FastifyInstance) {
         windows.find((window) => window.tmuxWindowId === createdWindowId) || windows.find((window) => window.active)
       )
     } catch (err) {
-      throw new Error(errorMessage(err))
+      throw new Error(errorMessage(err), { cause: err })
     }
   })
   fastify.post('/hosts/:hostId/sessions/:sessionId/windows/select', async (request) => {
@@ -382,7 +382,7 @@ export async function windowRoutes(fastify: FastifyInstance) {
       const panes = await getTmuxPanes(hostId, sessionName, windowIndex)
       return panes[panes.length - 1]
     } catch (err) {
-      throw new Error(errorMessage(err))
+      throw new Error(errorMessage(err), { cause: err })
     }
   })
 }

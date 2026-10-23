@@ -31,7 +31,7 @@ function hookCommand(event: TmuxAgentHookName, queuePath: string) {
   return `run-shell -b ${shellQuote(command)}`
 }
 function hookIndex(line: string, event: TmuxAgentHookName) {
-  const match = line.match(new RegExp(`^${event.replace('-', '\-')}\\[(\\d+)\\]`))
+  const match = line.match(new RegExp(`^${event}\\[(\\d+)\\]`))
   return match ? Number(match[1]) : null
 }
 async function removeOwnHooks(hostId: string, event: TmuxAgentHookName, output: string) {

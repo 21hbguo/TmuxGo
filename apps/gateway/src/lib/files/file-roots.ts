@@ -304,7 +304,7 @@ async function resolveTemporaryInside(relativePath = '') {
   const normalizedPath = normalizeRelativePath(relativePath)
   const requested = path.resolve(root.path, normalizedPath || '.')
   if (!isPathInside(root.path, requested)) throw new Error('Path escapes root')
-  let actual = requested
+  let actual: string
   try {
     actual = await realpath(requested)
   } catch {
@@ -338,7 +338,7 @@ export function startTemporaryUploadCleanup() {
   tempUploadCleanupTimer.unref?.()
 }
 function resolveGitInside(rootId: string, relativePath = '') {
-  let repoPath = ''
+  let repoPath: string
   try {
     repoPath = decodeURIComponent(rootId.slice(4))
   } catch {
@@ -361,7 +361,7 @@ export async function resolveInside(rootId: string, relativePath = '') {
   const normalizedPath = normalizeRelativePath(relativePath)
   const requested = path.resolve(root.path, normalizedPath || '.')
   if (!isPathInside(root.path, requested)) throw new Error('Path escapes root')
-  let actual = requested
+  let actual: string
   try {
     actual = await realpath(requested)
   } catch {

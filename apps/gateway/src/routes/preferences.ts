@@ -624,7 +624,7 @@ async function writeStore(profile: string, store: PreferencesStore) {
     if (info.size > MAX_FILE_BYTES) throw new Error('Preferences too large')
   } catch (err) {
     if (err instanceof Error) throw err
-    throw new Error('Failed to verify preferences file')
+    throw new Error('Failed to verify preferences file', { cause: err })
   }
 }
 async function queueProfileWrite<T>(profile: string, write: () => Promise<T>) {
