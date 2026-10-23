@@ -309,3 +309,154 @@ test('vnc setup maps a failed install to 502 with the normalized reason', async 
   assert.equal(response.statusCode, 502)
   assert.equal((response.json() as { error: string }).error, 'SSH network is unreachable')
 })
+
+const DISPLAYS_STDOUT = [
+  'LISTEN 0      5          127.0.0.1:5903      0.0.0.0:*    users:(("Xtigervnc",pid=4242,fd=5))',
+  'LISTEN 0      5          127.0.0.1:5905      0.0.0.0:*',
+  '__procs__',
+  '  4242       1 Xtigervnc Xtigervnc :3 121000',
+  '  4300    4242 Xtigervnc Xtigervnc helper 9000',
+].join('\n')
+
+test('vnc displays lists listening ports with process ownership and aggregated rss', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  shimStdout(DISPLAYS_STDOUT)
+  const { app } = await buildApp(t)
+  const response = await app.inject({ method: 'GET', url: '/api/vnc/displays?hostId=devbox' })
+  assert.equal(response.statusCode, 200)
+  const body = response.json() as { displays: Record<string, unknown>[] }
+  assert.deepEqual(body.displays, [
+    // server 进程 + 子进程树合计（121000 + 9000），前端用它显示单屏内存占用
+    { display: 3, port: 5903, process: 'Xtigervnc', pid: 4242, rssKB: 130000 },
+    // ss 没给出 users:(...) 时（无权限）仍列出端口，进程信息留空
+    { display: 5, port: 5905, process: null, pid: null },
+  ])
+  assert.match(sshCalls(shims)[0].join(' '), /sport >= :5900 and sport <= :5999/)
+})
+
+test('vnc displays maps a scan failure to 502', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  process.env.SHIM_SSH_STDOUT = ''
+  process.env.SHIM_SSH_STDERR = 'ssh: Could not resolve hostname devbox: Name or service not known'
+  process.env.SHIM_SSH_EXIT = '255'
+  const { app } = await buildApp(t)
+  const response = await app.inject({ method: 'GET', url: '/api/vnc/displays?hostId=devbox' })
+  assert.equal(response.statusCode, 502)
+  assert.equal((response.json() as { error: string }).error, 'SSH network is unreachable')
+})
+
+test('vnc displays rejects display numbers outside 0-99 before running anything', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  const { app } = await buildApp(t)
+  for (const display of [100, -1, 1.5]) {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/vnc/displays',
+      payload: { hostId: 'devbox', display, action: 'start' },
+    })
+    assert.equal(response.statusCode, 400, `display=${display}`)
+    // 5900-5999 是唯一允许的 RFB 端口带，越界即拒，避免被当作任意 TCP 目标
+    assert.deepEqual(response.json(), { error: 'Invalid display number' })
+  }
+  assert.equal(sshCalls(shims).length, 0)
+})
+
+test('vnc displays rejects an unknown action', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  const { app } = await buildApp(t)
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/vnc/displays',
+    payload: { hostId: 'devbox', display: 3, action: 'restart' },
+  })
+  assert.equal(response.statusCode, 400)
+  assert.deepEqual(response.json(), { error: 'Invalid display action' })
+  assert.equal(sshCalls(shims).length, 0)
+})
+
+test('vnc displays start reports an already-listening display instead of starting a second server', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  // 重复创建：脚本发现端口已在监听就只回 __running__，不会起第二个进程
+  shimStdout(`__running__\n${DISPLAYS_STDOUT}`)
+  const { app } = await buildApp(t)
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/vnc/displays',
+    payload: { hostId: 'devbox', display: 3, action: 'start' },
+  })
+  assert.equal(response.statusCode, 200)
+  const body = response.json() as { ok: boolean; needPassword: boolean; noServer: boolean; displays: unknown[] }
+  assert.equal(body.ok, true)
+  assert.equal(body.needPassword, false)
+  assert.equal(body.noServer, false)
+  assert.equal(body.displays.length, 2)
+  const startScript = sshCalls(shims)[0].join(' ')
+  // display 号注入成 n，端口一律由 5900+n 推导，不接受调用方直接给端口
+  assert.match(startScript, /n=3/)
+  assert.match(startScript, /port=\$\(\(5900\+n\)\)/)
+  assert.match(startScript, /__running__/)
+})
+
+test('vnc displays start reports the missing password file the server would silently reject', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  shimStdout('__need_password__\n')
+  const { app } = await buildApp(t)
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/vnc/displays',
+    payload: { hostId: 'devbox', display: 4, action: 'start' },
+  })
+  const body = response.json() as { ok: boolean; needPassword: boolean; noServer: boolean }
+  assert.equal(body.ok, false)
+  assert.equal(body.needPassword, true)
+  assert.equal(body.noServer, false)
+})
+
+test('vnc displays start reports a host without any Xvnc binary', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  shimStdout('__no_server__\n')
+  const { app } = await buildApp(t)
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/vnc/displays',
+    payload: { hostId: 'devbox', display: 4, action: 'start' },
+  })
+  const body = response.json() as { ok: boolean; noServer: boolean }
+  assert.equal(body.ok, false)
+  assert.equal(body.noServer, true)
+})
+
+test('vnc displays stop kills by listening port and reports the freed display', async (t) => {
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  await withVncHost(t)
+  shimStdout('__stopped__\n__procs__\n')
+  const { app } = await buildApp(t)
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/vnc/displays',
+    payload: { hostId: 'devbox', display: 3, action: 'stop' },
+  })
+  assert.equal(response.statusCode, 200)
+  const body = response.json() as { ok: boolean; displays: unknown[] }
+  assert.equal(body.ok, true)
+  assert.deepEqual(body.displays, [])
+  const stopScript = sshCalls(shims)[0].join(' ')
+  // 按端口找 pid，拿不到再退 fuser：两条路径都得在脚本里
+  assert.match(stopScript, /port=5903/)
+  assert.match(stopScript, /fuser -k/)
+})
