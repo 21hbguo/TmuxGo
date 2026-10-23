@@ -168,7 +168,13 @@ export const streamAttachMessageSchema = z.object({
   cols: z.number().finite().optional(),
   rows: z.number().finite().optional(),
 })
-export const streamInputMessageSchema = z.object({ type: z.literal('input'), data: z.string().max(1024 * 1024) })
+export const streamInputMessageSchema = z.object({
+  type: z.literal('input'),
+  data: z.string().max(1024 * 1024),
+  // 发起输入的 pane（host:%N）：同步输入广播靠它认出"这一帧来自哪个成员 pane"。
+  // 可选——老客户端不发，此时不广播（会话级 attach 认不出具体 pane，猜错会重复投递）
+  paneId: z.string().min(3).max(256).optional(),
+})
 export const streamResizeMessageSchema = z.object({
   type: z.literal('resize'),
   cols: z.number().finite(),

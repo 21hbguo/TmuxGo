@@ -100,6 +100,8 @@ vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: hostsMockData.value }),
   useWindows: () => ({ data: windowsData }),
   useSessionSnapshot: () => ({ data: snapshotMockData.value }),
+  useSyncPanes: () => ({ data: syncPanesMockData.value }),
+  useSetSyncPanes: () => ({ mutate: (...args: unknown[]) => setSyncPanesMutateMock(...args), isPending: false }),
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
   useOrderedSessions: () => ({ data: orderedSessionsData.value }),
@@ -108,6 +110,9 @@ vi.mock('@/hooks/useWindowQueryState', () => ({
   useWindowQueryState: () => ({ getWindows: () => [], setWindows: vi.fn() }),
 }))
 
+// 同步输入广播组：默认空组（既有用例全在"无广播"路径上），新增用例单独设值
+const syncPanesMockData = { value: { panes: [] as { paneId: string; sessionName: string }[], max: 16 } }
+const setSyncPanesMutateMock = vi.fn()
 const frames = new Map<number, FrameRequestCallback>()
 let nextFrameId = 1
 const tick = (count = 1) => {
@@ -571,6 +576,62 @@ describe('PaneGrid', () => {
     expect(listener.mock.calls[0]?.[0]).toMatchObject({ sessionName: 'dev1', cols: 124, rows: 38, localOnly: true })
     unsubscribe()
   })
+  it('broadcasts the current pane id with input frames and toggles group membership', async () => {
+    socketState.isConnected = true
+    snapshotMockData.value = {
+      activePaneId: 'local:%7',
+      activeWindowId: 'local:@1',
+      windows: [{ id: 'local:@1', sessionId: 'session-dev1', active: true, zoomed: false }],
+      panes: [{ id: 'local:%7', windowId: 'local:@1', index: 0, active: true }],
+    }
+    syncPanesMockData.value = { panes: [], max: 16 }
+    setSyncPanesMutateMock.mockReset()
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() =>
+      expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach', sessionName: 'dev1' })),
+    )
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' })
+    })
+    sendMock.mockClear()
+    // 输入帧必须带 paneId：网关靠它判断这次击键要不要广播（会话级 attach 认不出 pane）
+    act(() => terminalProps.current?.onInput?.('echo hi'))
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'input', paneId: 'local:%7' }))
+    // 加入广播组：整组替换，成员就是当前显示的 pane
+    fireEvent.click(screen.getByTestId('sync-pane-toggle'))
+    await waitFor(() =>
+      expect(setSyncPanesMutateMock).toHaveBeenCalledWith(
+        [{ paneId: 'local:%7', sessionName: 'dev1' }],
+        expect.anything(),
+      ),
+    )
+  })
+
+  it('highlights the pane when it already belongs to the broadcast group', async () => {
+    snapshotMockData.value = {
+      activePaneId: 'local:%7',
+      activeWindowId: 'local:@1',
+      windows: [{ id: 'local:@1', sessionId: 'session-dev1', active: true, zoomed: false }],
+      panes: [
+        { id: 'local:%7', windowId: 'local:@1', index: 0, active: true },
+        { id: 'local:%8', windowId: 'local:@1', index: 1, active: false },
+      ],
+    }
+    syncPanesMockData.value = {
+      panes: [
+        { paneId: 'local:%7', sessionName: 'dev1' },
+        { paneId: 'local:%8', sessionName: 'dev1' },
+      ],
+      max: 16,
+    }
+    const { container } = render(<PaneGrid />)
+    await waitFor(() => expect(container.querySelector('[data-sync-member="true"]')).toBeTruthy())
+    expect(screen.getByTestId('sync-pane-count')).toBeTruthy()
+    // 已在组内时按钮变成退出
+    expect(screen.getByText('sync.leave')).toBeTruthy()
+  })
+
   it('re-attaches and flushes queued input after detach', async () => {
     socketState.isConnected = true
     render(<PaneGrid />)

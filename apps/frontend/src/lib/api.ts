@@ -28,6 +28,7 @@ import type {
   GitMergeResponse,
   GitRepositoryInfo,
   GitStatusResponse,
+  SyncPaneMember,
   GitWorktreeMutationResponse,
   GitWorktreesResponse,
   Host,
@@ -1123,6 +1124,16 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(payload),
       }),
+  },
+  // 同步输入广播组：全局单组，服务端持久（重连/多客户端一致）
+  syncPanes: {
+    get: () => fetchApi<{ panes: SyncPaneMember[]; max: number }>('/api/sync-panes'),
+    replace: (panes: SyncPaneMember[]) =>
+      fetchApi<{ panes: SyncPaneMember[]; max: number }>('/api/sync-panes', {
+        method: 'PUT',
+        body: JSON.stringify({ panes }),
+      }),
+    clear: () => fetchApi<{ panes: SyncPaneMember[]; max: number }>('/api/sync-panes', { method: 'DELETE' }),
   },
   git: {
     repositories: (hostId: string) => fetchApi<GitRepositoryInfo[]>(`/api/hosts/${hostId}/git/repositories`),

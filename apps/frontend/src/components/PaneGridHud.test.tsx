@@ -75,6 +75,9 @@ vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: hostsMockData.value }),
   useWindows: () => ({ data: windowsData }),
   useSessionSnapshot: () => ({ data: snapshotMockData.value }),
+  // HUD 用例不关心同步输入：给空组，保持既有渲染路径不变
+  useSyncPanes: () => ({ data: { panes: [], max: 16 } }),
+  useSetSyncPanes: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
   useOrderedSessions: () => ({ data: orderedSessionsData.value }),

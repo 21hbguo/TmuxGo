@@ -642,6 +642,11 @@ export interface GitFileChange {
   oldPath?: string
   staged: boolean
 }
+// 同步输入广播组：paneId = hostId:tmuxPaneId，与 Pane.id 同格式
+export interface SyncPaneMember {
+  paneId: string
+  sessionName: string
+}
 export interface GitStatusResponse {
   branch: string
   ahead: number
