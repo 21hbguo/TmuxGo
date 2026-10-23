@@ -577,3 +577,93 @@ test('closing the last tab clears the active pointer instead of keeping a dangli
   assert.equal(inst.activeTargetId, null)
   assert.deepEqual(inst.status().pages, [])
 })
+
+test('CDP disconnect rebuilds state: pending commands reject, tabs clear, view clients see the error', async (t) => {
+  const { fake, inst } = await launchFake(t)
+  await inst.launch()
+  const messages: Record<string, unknown>[] = []
+  const client = await inst.addClient((msg) => messages.push(msg))
+  fake.handlers.set('Target.attachToTarget', () => ({ sessionId: 'sid-1' }))
+  fake.push({
+    method: 'Target.targetCreated',
+    params: { targetInfo: { targetId: 'p1', type: 'page', url: 'a', title: 'A' } },
+  })
+  await tick(20)
+  assert.equal(inst.activeTargetId, 'p1')
+
+  // 挂起一条命令：断连后它必须被 reject，不能永久占着 pending
+  fake.handlers.set('Runtime.evaluate', () => new Promise(() => {}))
+  const pending = inst.cmd('Runtime.evaluate', { expression: '1' })
+  fake.cut()
+  await assert.rejects(pending, /browser disconnected/)
+  await tick(30)
+  // 断连后状态重建：state=error + tab 清单与活动指针一起清空
+  assert.equal(inst.state, 'error')
+  assert.equal(inst.error, 'CDP socket closed')
+  assert.deepEqual(inst.status().pages, [])
+  assert.equal(inst.activeTargetId, null)
+  const statusMsg = messages.filter((msg) => msg.type === 'status').at(-1) as { state: string; error: string }
+  assert.equal(statusMsg.state, 'error')
+  assert.equal(statusMsg.error, 'CDP socket closed')
+  // 已断连时新命令直接失败，不会静默 hang
+  await assert.rejects(inst.cmd('Page.enable'), /browser not connected/)
+  void client
+})
+
+test('relaunch after a CDP disconnect rebuilds the tab list from a fresh session', async (t) => {
+  const { fake, inst } = await launchFake(t)
+  await inst.launch()
+  fake.cut()
+  await tick(30)
+  assert.equal(inst.state, 'error')
+  // 复用同一个假 CDP 重新握手：state 回 ready，事件驱动的 tab 清单重新建立
+  await inst.launch()
+  assert.equal(inst.state, 'ready')
+  fake.push({
+    method: 'Target.targetCreated',
+    params: { targetInfo: { targetId: 'p2', type: 'page', url: 'b', title: 'B' } },
+  })
+  await tick(20)
+  assert.deepEqual(
+    inst.status().pages.map((page) => page.id),
+    ['p2'],
+  )
+  assert.equal(inst.activeTargetId, 'p2')
+})
+
+test('concurrent screenshots on different tabs stay isolated and balance attach/detach', async (t) => {
+  const { fake, inst } = await launchFake(t)
+  await inst.launch()
+  fake.handlers.set('Target.attachToTarget', (call) => ({ sessionId: `sid-${String(call.params?.targetId)}` }))
+  // 每个 session 各自回不同的图；并发下不能串号
+  fake.handlers.set(
+    'Page.captureScreenshot',
+    () => new Promise((resolve) => setTimeout(() => resolve({ data: 'img' }), 20)),
+  )
+  const [a, b] = await Promise.all([inst.screenshot('t1'), inst.screenshot('t2')])
+  assert.equal(a, 'img')
+  assert.equal(b, 'img')
+  const attaches = fake.callsOf('Target.attachToTarget').map((call) => call.params?.targetId)
+  assert.deepEqual(attaches.sort(), ['t1', 't2'])
+  // 每次调用独立 attach/detach，数量必须配对（无泄漏、无跨请求复用）
+  assert.equal(fake.callsOf('Target.detachFromTarget').length, 2)
+  assert.deepEqual(
+    fake
+      .callsOf('Target.detachFromTarget')
+      .map((call) => call.params?.sessionId)
+      .sort(),
+    ['sid-t1', 'sid-t2'],
+  )
+})
+
+test('screenshot failure still detaches the temporary session', async (t) => {
+  const { fake, inst } = await launchFake(t)
+  await inst.launch()
+  inst.activeTargetId = 'p1'
+  fake.handlers.set('Target.attachToTarget', () => ({ sessionId: 'sid-shot' }))
+  fake.handlers.set('Page.captureScreenshot', () => {
+    throw new Error('Could not capture screenshot')
+  })
+  await assert.rejects(inst.screenshot(), /Could not capture/)
+  assert.equal(fake.callsOf('Target.detachFromTarget')[0]?.params?.sessionId, 'sid-shot')
+})
