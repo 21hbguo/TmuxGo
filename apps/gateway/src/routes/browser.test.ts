@@ -166,7 +166,7 @@ function stubManager(t: { after: (fn: () => void) => void }) {
   inst.status = () => ({
     state: inst.state,
     engine: inst.engine,
-    pid: inst.proc?.pid ?? null,
+    pid: (inst as unknown as { proc?: { pid?: number } }).proc?.pid ?? null,
     cdpPort: inst.cdpPort,
     pages: [],
     activeTargetId: null,
