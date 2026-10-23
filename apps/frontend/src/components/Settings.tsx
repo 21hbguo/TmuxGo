@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { AuditLog } from './AuditLog'
 import { ConfirmDialog } from './ConfirmDialog'
 import { setImmersiveFullscreenMode, usePreferences } from '@/hooks/usePreferences'
@@ -127,6 +127,8 @@ export function Settings({ onClose }: SettingsProps) {
   const restartRebuild = useRestartRebuild()
   const { data: appVersionData, error: appVersionError } = useAppVersion(activeTab === 'about')
   const appUpdateQuery = useAppUpdateStatus(activeTab === 'about')
+  // refetch 在 react-query 内是稳定引用；单独取出供 effect 依赖，避免整个 query 对象进 deps
+  const refetchAppUpdateStatus = appUpdateQuery.refetch
   const updateTaskQuery = useAppUpdateTask(activeTab === 'about')
   const checkAppUpdate = useCheckAppUpdate()
   const startAppUpdate = useStartAppUpdate()
@@ -191,7 +193,7 @@ export function Settings({ onClose }: SettingsProps) {
     if (current !== 'success') return
     void (async () => {
       try {
-        const result = await appUpdateQuery.refetch()
+        const result = await refetchAppUpdateStatus()
         const commit = result.data?.current?.commit || result.data?.latest?.commit || ''
         if (commit && !APP_BUILD_ID.endsWith(commit)) {
           pushToast({ type: 'success', message: t('settings.updateReloading'), durationMs: 4000 })
@@ -201,7 +203,7 @@ export function Settings({ onClose }: SettingsProps) {
       } catch {}
       pushToast({ type: 'success', message: t('settings.updateSuccess') })
     })()
-  }, [updateTask?.status, updateTask?.errorMessage])
+  }, [updateTask?.status, updateTask?.errorMessage, pushToast, refetchAppUpdateStatus, t])
 
   const tabs = [
     { id: 'general' as const, label: t('settings.general') },
@@ -238,7 +240,8 @@ export function Settings({ onClose }: SettingsProps) {
     }
     pushToast({ type: 'success', message: t('settings.aboutCopied') })
   }
-  const loadAuthSessions = async () => {
+  // 稳定化：切到 security tab 时一次性拉全量；若身份每次 render 变化，effect 会反复重拉
+  const loadAuthSessions = useCallback(async () => {
     setAuthSessionsLoading(true)
     try {
       const result = await listAuthSessions()
@@ -249,8 +252,8 @@ export function Settings({ onClose }: SettingsProps) {
     } finally {
       setAuthSessionsLoading(false)
     }
-  }
-  const loadShareLinks = async () => {
+  }, [t])
+  const loadShareLinks = useCallback(async () => {
     setShareLoading(true)
     try {
       const result = await api.shares.list()
@@ -260,8 +263,8 @@ export function Settings({ onClose }: SettingsProps) {
     } finally {
       setShareLoading(false)
     }
-  }
-  const loadApiTokens = async () => {
+  }, [t])
+  const loadApiTokens = useCallback(async () => {
     setApiTokensLoading(true)
     try {
       setApiTokens(await listApiTokens())
@@ -270,13 +273,13 @@ export function Settings({ onClose }: SettingsProps) {
     } finally {
       setApiTokensLoading(false)
     }
-  }
+  }, [t])
   useEffect(() => {
     if (activeTab !== 'security') return
     void loadAuthSessions()
     void loadShareLinks()
     void loadApiTokens()
-  }, [activeTab])
+  }, [activeTab, loadApiTokens, loadAuthSessions, loadShareLinks])
   const revokeSession = async (sessionId: string) => {
     setAuthActionMessage('')
     try {

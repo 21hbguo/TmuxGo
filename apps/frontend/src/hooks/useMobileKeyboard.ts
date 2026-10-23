@@ -621,6 +621,7 @@ export function useMobileKeyboard(
   }, [
     sendInput,
     clearValue,
+    clearKeyboardProbe,
     setImeComposing,
     focusKeyboard,
     closeKeyboard,

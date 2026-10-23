@@ -509,6 +509,10 @@ export function TerminalPane({
       setHistoryState({ away: false, fresh: false })
       runtime.dispose()
     }
+    // 终端实例是 mount-once：pasteBridge/dropState/focusKeyboard/isMobileDevice 每次 render 都由
+    // 调用方回调重新构建（含内联箭头函数），进 deps 会让 xterm 实例每 render 重建并丢输出订阅。
+    // 这四个值只在创建 runtime 时一次性捕获，语义定格在挂载时刻，故保留原触发面。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上：加入不稳定值会破坏 mount-once 语义
   }, [
     afterTerminalOutputWrites,
     disposeTerminalOutput,
@@ -518,7 +522,9 @@ export function TerminalPane({
     handlePinchTouchEnd,
     handlePinchTouchMove,
     handlePinchTouchStart,
+    layoutSyncPendingRef,
     openUploadDialog,
+    peekFitSizeRef,
     preferencesReady,
     pushToast,
     pushTerminalOutput,

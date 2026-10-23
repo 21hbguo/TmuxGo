@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useTranslation } from '@/i18n'
 import { Chip } from './Chip'
 import { usePreferences } from '@/hooks/usePreferences'
@@ -160,19 +160,24 @@ export function PaneNotifications() {
   const setActiveHost = useConsoleStore((state) => state.setActiveHost)
   const setActiveSession = useConsoleStore((state) => state.setActiveSession)
   const setActivePane = useConsoleStore((state) => state.setActivePane)
-  const updateNotifications = (update: (current: NotificationItem[]) => NotificationItem[]) => {
+  // 稳定化：这三个动作被事件订阅 effect 与 openNotification 依赖，身份必须跨 render 稳定，
+  // 否则每次 render 都会重挂 service worker / stream 监听
+  const updateNotifications = useCallback((update: (current: NotificationItem[]) => NotificationItem[]) => {
     setNotifications((current) => {
       const next = update(current).slice(0, 100)
       notificationsRef.current = next
       localStorage.setItem(notificationsStorageKey, JSON.stringify(next))
       return next
     })
-  }
-  const dismissNotification = (id: string) => {
-    setVisibleIds((current) => current.filter((item) => item !== id))
-    updateNotifications((current) => current.filter((item) => item.id !== id))
-    void markAgentNotificationsRead([id])
-  }
+  }, [])
+  const dismissNotification = useCallback(
+    (id: string) => {
+      setVisibleIds((current) => current.filter((item) => item !== id))
+      updateNotifications((current) => current.filter((item) => item.id !== id))
+      void markAgentNotificationsRead([id])
+    },
+    [updateNotifications],
+  )
   const clearAll = () => {
     const ids = notificationsRef.current.map((notification) => notification.id)
     setVisibleIds([])
@@ -196,7 +201,7 @@ export function PaneNotifications() {
     return () => {
       active = false
     }
-  }, [preferences.agentNotificationsEnabled, t])
+  }, [preferences.agentNotificationsEnabled, t, updateNotifications])
   useEffect(() => {
     const saved = readNotificationBubblePosition()
     setNotificationBubblePosition(
@@ -263,27 +268,30 @@ export function PaneNotifications() {
     }
     setCenterOpen((current) => !current)
   }
-  const openNotification = async (notification: NotificationItem) => {
-    try {
-      const key = ['session-snapshot', notification.hostId, notification.sessionId]
-      const cached = queryClient?.getQueryData?.(key) as SessionSnapshot | undefined
-      const snapshot = cached?.panes?.some?.((pane: Pane) => pane.id === notification.paneId)
-        ? cached
-        : await api.snapshot.get(notification.hostId, notification.sessionId)
-      const targetPane = snapshot?.panes?.find?.((pane: Pane) => pane.id === notification.paneId)
-      if (!targetPane) return
-      if (targetPane.windowId && targetPane.windowId !== snapshot.activeWindowId)
-        await api.windows.select(notification.hostId, notification.sessionId, targetPane.windowId)
-      await api.panes.select(notification.paneId)
-      const nextSnapshot = await api.snapshot.get(notification.hostId, notification.sessionId)
-      queryClient?.setQueryData(key, nextSnapshot)
-      if (useConsoleStore.getState().activeHostId !== notification.hostId) setActiveHost(notification.hostId)
-      setActiveSession(notification.sessionId)
-      setActivePane(notification.paneId)
-      dismissNotification(notification.id)
-      setCenterOpen(false)
-    } catch {}
-  }
+  const openNotification = useCallback(
+    async (notification: NotificationItem) => {
+      try {
+        const key = ['session-snapshot', notification.hostId, notification.sessionId]
+        const cached = queryClient?.getQueryData?.(key) as SessionSnapshot | undefined
+        const snapshot = cached?.panes?.some?.((pane: Pane) => pane.id === notification.paneId)
+          ? cached
+          : await api.snapshot.get(notification.hostId, notification.sessionId)
+        const targetPane = snapshot?.panes?.find?.((pane: Pane) => pane.id === notification.paneId)
+        if (!targetPane) return
+        if (targetPane.windowId && targetPane.windowId !== snapshot.activeWindowId)
+          await api.windows.select(notification.hostId, notification.sessionId, targetPane.windowId)
+        await api.panes.select(notification.paneId)
+        const nextSnapshot = await api.snapshot.get(notification.hostId, notification.sessionId)
+        queryClient?.setQueryData(key, nextSnapshot)
+        if (useConsoleStore.getState().activeHostId !== notification.hostId) setActiveHost(notification.hostId)
+        setActiveSession(notification.sessionId)
+        setActivePane(notification.paneId)
+        dismissNotification(notification.id)
+        setCenterOpen(false)
+      } catch {}
+    },
+    [dismissNotification, queryClient, setActiveHost, setActivePane, setActiveSession],
+  )
   useEffect(() => {
     if (!preferences.agentNotificationsEnabled) {
       setVisibleIds([])
@@ -337,7 +345,7 @@ export function PaneNotifications() {
     }
     navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage)
     return () => navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage)
-  }, [t])
+  }, [openNotification, t])
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const hostId = params.get('hostId')
@@ -362,7 +370,7 @@ export function PaneNotifications() {
     url.searchParams.delete('paneId')
     url.searchParams.delete('notificationId')
     window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
-  }, [t])
+  }, [openNotification, t])
   useEffect(() => {
     if (!preferences.agentNotificationsEnabled || !visibleIds.length) return
     const timer = window.setTimeout(() => setVisibleIds([]), preferences.agentNotificationDurationMs)
@@ -527,7 +535,7 @@ export function PaneNotifications() {
     return () => {
       for (const unsub of unsubs) unsub()
     }
-  }, [preferences.agentNotificationsEnabled, queryClient, t])
+  }, [openNotification, preferences.agentNotificationsEnabled, queryClient, t, updateNotifications])
   const displayed = centerOpen
     ? notifications
     : notifications.filter((notification) => visibleIds.includes(notification.id))
