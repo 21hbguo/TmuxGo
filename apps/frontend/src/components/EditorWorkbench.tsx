@@ -19,6 +19,7 @@ import { ensureTmuxgoTheme, tmuxgoThemeName } from '@/lib/monaco-theme'
 import { attachWheelScrollLines } from '@/lib/editor-wheel-scroll'
 import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
 import type { Monaco } from '@monaco-editor/react'
+import type { editor as monacoEditor } from 'monaco-editor'
 import { resolveEditorDefinition, warmupCodeNavigation } from '@/lib/code-navigation'
 import { useTranslation } from '@/i18n'
 import { MARKDOWN_PROSE_CLASS, locatePreviewBlock, renderMarkdown } from '@/lib/markdown'
@@ -44,9 +45,34 @@ let monacoDefinitionProviderDisabled = false
 const disableMonacoDefinitionProvider = (monaco: Monaco) => {
   if (monacoDefinitionProviderDisabled) return
   monacoDefinitionProviderDisabled = true
-  const ts = (monaco.languages as { typescript?: any }).typescript
+  const ts = (
+    monaco.languages as {
+      typescript?: {
+        typescriptDefaults?: TypeScriptDefaultsLike
+        javascriptDefaults?: TypeScriptDefaultsLike
+      }
+    }
+  ).typescript
   for (const defaults of [ts?.typescriptDefaults, ts?.javascriptDefaults])
     defaults?.setModeConfiguration?.({ ...defaults.modeConfiguration, definitions: false })
+}
+interface TypeScriptDefaultsLike {
+  modeConfiguration?: Record<string, unknown>
+  setModeConfiguration?: (config: Record<string, unknown>) => void
+}
+// findController 走 getContribution 拿的是内部实现，只取用到的最小面
+interface FindControllerLike {
+  getState?(): {
+    isRevealed?: boolean
+    searchString?: string
+    isRegex?: boolean
+    wholeWord?: boolean
+    matchCase?: boolean
+    preserveCase?: boolean
+    isReplaceRevealed?: boolean
+    onFindReplaceStateChange?(listener: () => void): { dispose(): void } | null | undefined
+  }
+  start?(options: Record<string, unknown>, searchStateSeed?: Record<string, unknown>): void
 }
 type DropPlacement = 'center' | 'left' | 'right' | 'top' | 'bottom'
 type TabInsertSide = 'before' | 'after'
@@ -162,7 +188,7 @@ export function EditorWorkbench({
   const pushToast = useConsoleStore((state) => state.pushToast)
   const { preferences } = usePreferences()
   const { t } = useTranslation()
-  const editorRefs = useRef<Record<string, any>>({})
+  const editorRefs = useRef<Record<string, monacoEditor.IStandaloneCodeEditor>>({})
   const monacoRef = useRef<Monaco | null>(null)
   const wheelScrollLinesRef = useRef(preferences.editorWheelScrollLines)
   wheelScrollLinesRef.current = preferences.editorWheelScrollLines
@@ -332,7 +358,7 @@ export function EditorWorkbench({
     instance.setPosition?.({ lineNumber: line, column: 1 })
     instance.focus?.()
   }
-  const getEditorLineHeight = (instance: any) => {
+  const getEditorLineHeight = (instance: monacoEditor.IStandaloneCodeEditor | null | undefined) => {
     const option = monacoRef.current?.editor?.EditorOption?.lineHeight
     const value = option !== undefined ? Number(instance?.getOption?.(option)) : 0
     return value > 0 ? value : 20
@@ -453,7 +479,11 @@ export function EditorWorkbench({
     wheelScrollDisposersRef.current.get(editorId)?.()
     wheelScrollDisposersRef.current.delete(editorId)
   }
-  const attachEditorWheelScroll = (editorId: string, dom: HTMLElement | null | undefined, instance: any) => {
+  const attachEditorWheelScroll = (
+    editorId: string,
+    dom: HTMLElement | null | undefined,
+    instance: monacoEditor.IStandaloneCodeEditor | null,
+  ) => {
     releaseEditorWheelScroll(editorId)
     if (!dom || !instance) return
     const dispose = attachWheelScrollLines(dom, () => wheelScrollLinesRef.current, {
@@ -880,7 +910,7 @@ export function EditorWorkbench({
   // 按帧校验视口真实生效、未生效重试；实例被替换或新落位覆盖时作废旧重试
   const retryViewApply = (
     editorId: string,
-    instance: any,
+    instance: monacoEditor.IStandaloneCodeEditor,
     settled: () => boolean,
     apply: () => void,
     attempts = 60,
@@ -898,7 +928,7 @@ export function EditorWorkbench({
   // 落位应用+校验：行列按当前模型范围钳制，setPosition 后 getPosition 未达目标视为实例将销毁/未就绪，
   // 保留 pending 交给 remount 兜底；落位成功即一次性消费——同一导航的 loading/StrictMode 重挂改由
   // viewStateRef 快照恢复，不再用固定时间窗判定所有权，避免覆盖用户之后手动改的位置
-  const applyPendingLocation = (editorId: string, instance: any) => {
+  const applyPendingLocation = (editorId: string, instance: monacoEditor.IStandaloneCodeEditor | undefined) => {
     const pending = pendingLocationRef.current[editorId]
     if (!pending || !instance) return false
     const model = instance.getModel?.()
@@ -926,7 +956,7 @@ export function EditorWorkbench({
       instance.revealPositionInCenter?.({ lineNumber: line, column })
       const targetInView = () =>
         (instance.getVisibleRanges?.() || []).some(
-          (range: any) => range.startLineNumber <= line && line <= range.endLineNumber,
+          (range) => range.startLineNumber <= line && line <= range.endLineNumber,
         )
       retryViewApply(editorId, instance, targetInView, () =>
         instance.revealPositionInCenter?.({ lineNumber: line, column }),
@@ -947,7 +977,7 @@ export function EditorWorkbench({
     return true
   }
   // remount 兜底：无新落位请求时把用户最后的光标/选区/视口恢复到新实例上
-  const restoreViewSnapshot = (editorId: string, instance: any) => {
+  const restoreViewSnapshot = (editorId: string, instance: monacoEditor.IStandaloneCodeEditor | undefined) => {
     const snapshot = viewStateRef.current[editorId]
     if (!snapshot || !instance) return
     const model = instance.getModel?.()
@@ -1428,7 +1458,7 @@ export function EditorWorkbench({
                   ...current,
                   [editor.id]: { line: position.lineNumber, column: position.column },
                 }))
-              instance.onDidChangeCursorPosition?.((event: any) => {
+              instance.onDidChangeCursorPosition?.((event) => {
                 snapshot.position = { line: event.position.lineNumber, column: event.position.column }
                 snapshot.selection = instance.getSelection?.() || null
                 setCursorById((current) => ({
@@ -1437,7 +1467,7 @@ export function EditorWorkbench({
                 }))
                 // 预览跟随由下方 effect 统一驱动（cursorById 变化即触发）
               })
-              instance.onDidScrollChange?.((event: any) => {
+              instance.onDidScrollChange?.((event) => {
                 snapshot.scrollTop = Number(event?.scrollTop ?? instance.getScrollTop?.() ?? 0)
                 snapshot.scrollLeft = Number(event?.scrollLeft ?? instance.getScrollLeft?.() ?? 0)
                 handleEditorScrollSync(editor.id)
@@ -1455,7 +1485,7 @@ export function EditorWorkbench({
               else {
                 restoreViewSnapshot(editor.id, instance)
               }
-              instance.onMouseDown?.((event: any) => {
+              instance.onMouseDown?.((event) => {
                 const browserEvent = event?.event?.browserEvent
                 if (!browserEvent || browserEvent.button !== 0 || (!browserEvent.ctrlKey && !browserEvent.metaKey))
                   return
@@ -1470,7 +1500,8 @@ export function EditorWorkbench({
               // find 状态跟随组留存：每次变更（显隐/查询词/开关）都快照，供组内
               // 下一个实例恢复；dispose 时只摘监听，不回写——dispose 途中的状态
               // 若被置灰会覆盖掉刚才的 revealed 快照
-              const findController: any = instance.getContribution?.('editor.contrib.findController')
+              const findController = instance.getContribution?.('editor.contrib.findController') as
+                FindControllerLike | null | undefined
               const findReplaceState = findController?.getState?.()
               const findStateListener = findReplaceState?.onFindReplaceStateChange?.(() => {
                 findStateByGroupRef.current[groupId] = {

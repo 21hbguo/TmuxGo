@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { AuditLog } from './AuditLog'
 import { ConfirmDialog } from './ConfirmDialog'
 import { setImmersiveFullscreenMode, usePreferences } from '@/hooks/usePreferences'
-import { useTranslation } from '@/i18n'
+import { useTranslation, type TranslationKey } from '@/i18n'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useClipboard } from '@/hooks/useClipboard'
@@ -252,8 +252,8 @@ export function Settings({ onClose }: SettingsProps) {
       const result = await listAuthSessions()
       setAuthSessions(result.sessions)
       setCurrentAuthSessionId(result.currentSessionId)
-    } catch (err: any) {
-      setAuthActionMessage(err?.message || t('settings.securityLoadFailed'))
+    } catch (err) {
+      setAuthActionMessage(err instanceof Error ? err.message : t('settings.securityLoadFailed'))
     } finally {
       setAuthSessionsLoading(false)
     }
@@ -263,8 +263,8 @@ export function Settings({ onClose }: SettingsProps) {
     try {
       const result = await api.shares.list()
       setShareLinks(result.links)
-    } catch (err: any) {
-      setShareActionMessage(err?.message || t('settings.shareLoadFailed'))
+    } catch (err) {
+      setShareActionMessage(err instanceof Error ? err.message : t('settings.shareLoadFailed'))
     } finally {
       setShareLoading(false)
     }
@@ -273,8 +273,8 @@ export function Settings({ onClose }: SettingsProps) {
     setApiTokensLoading(true)
     try {
       setApiTokens(await listApiTokens())
-    } catch (err: any) {
-      setTokenActionMessage(err?.message || t('settings.tokensLoadFailed'))
+    } catch (err) {
+      setTokenActionMessage(err instanceof Error ? err.message : t('settings.tokensLoadFailed'))
     } finally {
       setApiTokensLoading(false)
     }
@@ -291,8 +291,8 @@ export function Settings({ onClose }: SettingsProps) {
       await revokeAuthSession(sessionId)
       setAuthActionMessage(t('settings.securityDeviceRevoked'))
       await loadAuthSessions()
-    } catch (err: any) {
-      setAuthActionMessage(err?.message || t('settings.securityActionFailed'))
+    } catch (err) {
+      setAuthActionMessage(err instanceof Error ? err.message : t('settings.securityActionFailed'))
     }
   }
   const revokeOtherSessions = async () => {
@@ -301,8 +301,8 @@ export function Settings({ onClose }: SettingsProps) {
       const result = await revokeOtherAuthSessions()
       setAuthActionMessage(t('settings.securityOtherRevoked', { count: result.deleted }))
       await loadAuthSessions()
-    } catch (err: any) {
-      setAuthActionMessage(err?.message || t('settings.securityActionFailed'))
+    } catch (err) {
+      setAuthActionMessage(err instanceof Error ? err.message : t('settings.securityActionFailed'))
     }
   }
   const updateAccountPassword = async () => {
@@ -311,8 +311,8 @@ export function Settings({ onClose }: SettingsProps) {
     setAuthActionMessage('')
     try {
       await changePassword(currentPasswordDraft, newPasswordDraft)
-    } catch (err: any) {
-      setAuthActionMessage(err?.message || t('settings.securityPasswordFailed'))
+    } catch (err) {
+      setAuthActionMessage(err instanceof Error ? err.message : t('settings.securityPasswordFailed'))
       setPasswordChanging(false)
     }
   }
@@ -329,8 +329,8 @@ export function Settings({ onClose }: SettingsProps) {
       const copied = await copy(`${window.location.origin}/share#token=${result.token}`)
       setShareActionMessage(copied ? t('settings.shareCopied') : t('settings.shareCreated'))
       await loadShareLinks()
-    } catch (err: any) {
-      setShareActionMessage(err?.message || t('settings.shareActionFailed'))
+    } catch (err) {
+      setShareActionMessage(err instanceof Error ? err.message : t('settings.shareActionFailed'))
     } finally {
       setShareCreating(false)
     }
@@ -341,8 +341,8 @@ export function Settings({ onClose }: SettingsProps) {
       await api.shares.revoke(shareId)
       setShareActionMessage(t('settings.shareRevoked'))
       await loadShareLinks()
-    } catch (err: any) {
-      setShareActionMessage(err?.message || t('settings.shareActionFailed'))
+    } catch (err) {
+      setShareActionMessage(err instanceof Error ? err.message : t('settings.shareActionFailed'))
     }
   }
   const createToken = async () => {
@@ -369,8 +369,8 @@ export function Settings({ onClose }: SettingsProps) {
       setTokenNameDraft('')
       setTokenSessionsDraft('')
       await loadApiTokens()
-    } catch (err: any) {
-      setTokenActionMessage(err?.message || t('settings.tokensActionFailed'))
+    } catch (err) {
+      setTokenActionMessage(err instanceof Error ? err.message : t('settings.tokensActionFailed'))
     } finally {
       setTokenCreating(false)
     }
@@ -381,8 +381,8 @@ export function Settings({ onClose }: SettingsProps) {
       await revokeApiToken(id)
       setTokenActionMessage(t('settings.tokensRevoked'))
       await loadApiTokens()
-    } catch (err: any) {
-      setTokenActionMessage(err?.message || t('settings.tokensActionFailed'))
+    } catch (err) {
+      setTokenActionMessage(err instanceof Error ? err.message : t('settings.tokensActionFailed'))
     }
   }
   const describeTokenScope = (token: ApiToken) => {
@@ -432,8 +432,8 @@ export function Settings({ onClose }: SettingsProps) {
       if (next.status === 'error')
         pushToast({ type: 'error', message: next.errorMessage || t('settings.restartFailed') })
       void restartStatusQuery.refetch()
-    } catch (err: any) {
-      pushToast({ type: 'error', message: err?.message || t('settings.restartFailed') })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('settings.restartFailed') })
     }
   }
   const restartStatusLabel =
@@ -460,8 +460,8 @@ export function Settings({ onClose }: SettingsProps) {
   const triggerCheckUpdate = async () => {
     try {
       await checkAppUpdate.mutateAsync()
-    } catch (err: any) {
-      pushToast({ type: 'error', message: err?.message || t('settings.updateCheckFailed') })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('settings.updateCheckFailed') })
     }
   }
   const triggerAppUpdate = async () => {
@@ -469,8 +469,8 @@ export function Settings({ onClose }: SettingsProps) {
     try {
       await startAppUpdate.mutateAsync()
       void updateTaskQuery.refetch()
-    } catch (err: any) {
-      pushToast({ type: 'error', message: err?.message || t('settings.updateFailed') })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('settings.updateFailed') })
     }
   }
 
@@ -635,7 +635,7 @@ export function Settings({ onClose }: SettingsProps) {
                             <span className="h-1 w-6 rounded-full" style={{ background: preview.accent }} />
                             <span className="h-1 w-4 rounded-full opacity-60" style={{ background: preview.fg }} />
                           </div>
-                          <div className="text-text-1 text-sm">{t(`settings.theme.${key}` as any)}</div>
+                          <div className="text-text-1 text-sm">{t(`settings.theme.${key}` as TranslationKey)}</div>
                         </button>
                       )
                     },
@@ -672,7 +672,7 @@ export function Settings({ onClose }: SettingsProps) {
                           aria-pressed={preferences.sidebarPosition === pos}
                           className="tmuxgo-segment__item"
                         >
-                          {t(`settings.sidebarPosition.${pos}` as any)}
+                          {t(`settings.sidebarPosition.${pos}` as TranslationKey)}
                         </button>
                       ))}
                     </div>

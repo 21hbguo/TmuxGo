@@ -34,6 +34,7 @@ import { api } from '@/lib/api'
 import { parseSessionName } from '@/lib/session-id'
 import { requestTerminalFocus } from '@/lib/terminal-focus-request'
 import { selectPaneInSession } from '@/lib/inbox-navigation'
+import type { Pane, Session, Window } from '@/types'
 import { QuickActions } from './QuickActions'
 import { ConfirmDialog } from './ConfirmDialog'
 import { PromptDialog } from './PromptDialog'
@@ -280,7 +281,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   }
   const handleRenameSession = async (sessionId: string) => {
     if (!activeHostId) return
-    const session = sessions.find((item: any) => item.id === sessionId)
+    const session = sessions.find((item: Session) => item.id === sessionId)
     const name = await prompt(t('drawer.renamePrompt'), session?.name || '')
     if (!name || name === session?.name) return
     try {
@@ -298,7 +299,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   }
   const confirmDeleteSession = async () => {
     if (!activeHostId || !pendingDeleteSessionId) return
-    const session = sessions.find((item: any) => item.id === pendingDeleteSessionId)
+    const session = sessions.find((item: Session) => item.id === pendingDeleteSessionId)
     try {
       await deleteSession.mutateAsync({ hostId: activeHostId, sessionId: pendingDeleteSessionId })
       try {
@@ -359,14 +360,14 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     })
   }, [sessions])
 
-  const sessionWindows = windowsData.filter((w: any) => w.sessionId === activeSessionId)
-  const panesByWindow = new Map<string, any[]>()
+  const sessionWindows = windowsData.filter((w: Window) => w.sessionId === activeSessionId)
+  const panesByWindow = new Map<string, Pane[]>()
   for (const pane of sessionPanes) {
     const list = panesByWindow.get(pane.windowId) || []
     list.push(pane)
     panesByWindow.set(pane.windowId, list)
   }
-  const isWindowExpanded = (window: any) => Boolean(window.active) !== flippedWindowIds.has(window.id)
+  const isWindowExpanded = (window: Window) => Boolean(window.active) !== flippedWindowIds.has(window.id)
   const toggleWindowExpand = (windowId: string) => {
     setFlippedWindowIds((prev) => {
       const next = new Set(prev)
@@ -379,7 +380,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     if (!activeHostId || !activeSessionId) return
     const previousWindows = getWindows()
     setWindows(
-      previousWindows.map((w: any) => (w.sessionId === activeSessionId ? { ...w, active: w.id === windowId } : w)),
+      previousWindows.map((w: Window) => (w.sessionId === activeSessionId ? { ...w, active: w.id === windowId } : w)),
     )
     try {
       const result = await api.windows.select(activeHostId, activeSessionId, windowId)
@@ -390,11 +391,11 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     }
     handleClose()
   }
-  const handleSelectPane = (pane: any) => {
+  const handleSelectPane = (pane: Pane) => {
     if (!activeHostId || !activeSessionId) return
     // 乐观落位：先 setActivePane+关抽屉，弱网不再干等 select-window/select-pane/
     // snapshot 三个 RTT；API 链后台跑完（其自身收尾会再 setActivePane 纠偏），失败只 toast
-    const currentWindowId = sessionWindows.find((w: any) => w.active)?.id
+    const currentWindowId = sessionWindows.find((w: Window) => w.active)?.id
     setActivePane(pane.id)
     handleClose()
     void selectPaneInSession({
@@ -673,7 +674,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
             <div className="space-y-2">
               {windowBatchMode &&
                 (() => {
-                  const nonActiveIds = sessionWindows.filter((w: any) => !w.active).map((w: any) => w.id)
+                  const nonActiveIds = sessionWindows.filter((w: Window) => !w.active).map((w: Window) => w.id)
                   return (
                     <div className="grid grid-cols-3 gap-2">
                       <Chip
@@ -704,7 +705,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
               {sessionWindows.length === 0 ? (
                 <div className="text-center text-text-3 py-4">{t('drawer.noWindows')}</div>
               ) : (
-                sessionWindows.map((window: any) => {
+                sessionWindows.map((window: Window) => {
                   if (windowBatchMode) {
                     if (window.active) {
                       return (
@@ -775,7 +776,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
                       </div>
                       {expanded && windowPanes.length > 0 && (
                         <div className="ml-4 mt-1 space-y-1 border-l border-text-3/20 pl-3">
-                          {windowPanes.map((pane: any) => (
+                          {windowPanes.map((pane: Pane) => (
                             <button
                               key={pane.id}
                               onClick={() => void handleSelectPane(pane)}
@@ -816,7 +817,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
         open={!!pendingDeleteSessionId}
         title={t('sidebar.deleteTitle')}
         message={t('sidebar.deleteConfirm', {
-          name: sessions.find((item: any) => item.id === pendingDeleteSessionId)?.name || '',
+          name: sessions.find((item: Session) => item.id === pendingDeleteSessionId)?.name || '',
         })}
         confirmLabel={t('sidebar.confirmDelete')}
         cancelLabel={t('common.cancel')}
@@ -829,8 +830,8 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
         title={t('sidebar.batchDeleteTitle')}
         message={t('sidebar.batchDeleteConfirm', { count: selectedSessionIds.length })}
         items={sessions
-          .filter((session: any) => selectedSessionIds.includes(session.id))
-          .map((session: any) => session.name)}
+          .filter((session: Session) => selectedSessionIds.includes(session.id))
+          .map((session: Session) => session.name)}
         confirmLabel={t('sidebar.batchDeleteSelected')}
         cancelLabel={t('common.cancel')}
         tone="danger"
@@ -854,8 +855,8 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
         title={t('window.batchDeleteTitle')}
         message={t('window.batchDeleteConfirm', { count: selectedWindowIds.length })}
         items={windowsData
-          .filter((window: any) => selectedWindowIds.includes(window.id))
-          .map((window: any) => window.name || `#${window.index}`)}
+          .filter((window: Window) => selectedWindowIds.includes(window.id))
+          .map((window: Window) => window.name || `#${window.index}`)}
         confirmLabel={t('window.batchDeleteSelected', { count: selectedWindowIds.length })}
         cancelLabel={t('common.cancel')}
         tone="danger"

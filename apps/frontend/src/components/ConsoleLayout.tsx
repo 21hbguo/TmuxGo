@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, type CSSProperties } from 'react'
 import { PaneGrid } from './PaneGrid'
 import { StatusBar } from './StatusBar'
 
@@ -51,6 +51,7 @@ import { OverlayShell } from './DesktopWindow'
 import { shouldResumeFromContinuity } from '@/lib/session-continuity-policy'
 import { MOBILE_QUERY } from '@/lib/console-device-state'
 import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
+import type { Host, Pane, Session } from '@/types'
 // 默认关闭、无全局副作用的面板走动态加载，避免拖大主入口；overlay 型面板 fallback 用同形 scrim 防闪帧
 const Settings = dynamic(() => import('./Settings').then((m) => ({ default: m.Settings })), {
   fallback: <LazyOverlayLoading zClass="z-50" />,
@@ -183,17 +184,18 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   const mobileSessionLongPressFiredRef = useRef(false)
   const mobileGitCloseRef = useRef<HTMLButtonElement>(null)
   const mobileQuickSessions = (() => {
-    const sessionMap = new Map(sessionsData.map((session: any) => [session.id, session]))
-    const pinned = mobilePinnedSessionIds.map((id) => sessionMap.get(id)).filter(Boolean)
-    const recent = mobileRecentSessionIds.map((id) => sessionMap.get(id)).filter(Boolean)
-    const seen = new Set(pinned.map((session: any) => session.id))
-    const mergedRecent = recent.filter((session: any) => !seen.has(session.id))
-    mergedRecent.forEach((session: any) => seen.add(session.id))
-    const fallback = sessionsData.filter((session: any) => !seen.has(session.id))
+    const sessionMap = new Map(sessionsData.map((session): [string, Session] => [session.id, session]))
+    const isSession = (item: Session | undefined): item is Session => !!item
+    const pinned = mobilePinnedSessionIds.map((id) => sessionMap.get(id)).filter(isSession)
+    const recent = mobileRecentSessionIds.map((id) => sessionMap.get(id)).filter(isSession)
+    const seen = new Set(pinned.map((session: Session) => session.id))
+    const mergedRecent = recent.filter((session: Session) => !seen.has(session.id))
+    mergedRecent.forEach((session: Session) => seen.add(session.id))
+    const fallback = sessionsData.filter((session: Session) => !seen.has(session.id))
     return [...pinned, ...mergedRecent, ...fallback].slice(0, MOBILE_QUICK_SESSION_LIMIT)
   })()
   const mobileSessionMenu = mobileSessionMenuId
-    ? sessionsData.find((session: any) => session.id === mobileSessionMenuId) || null
+    ? sessionsData.find((session: Session) => session.id === mobileSessionMenuId) || null
     : null
   const mobileSessionPinned = !!mobileSessionMenuId && mobilePinnedSessionIds.includes(mobileSessionMenuId)
 
@@ -349,7 +351,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   const handleQuickSessionRename = useCallback(
     async (sessionId: string) => {
       if (!activeHostId) return
-      const session = sessionsData.find((item: any) => item.id === sessionId)
+      const session = sessionsData.find((item: Session) => item.id === sessionId)
       const name = await prompt(t('drawer.renamePrompt'), session?.name || '')
       if (!name || name === session?.name) return
       try {
@@ -364,11 +366,11 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   )
   const confirmDeleteSession = useCallback(async () => {
     if (!activeHostId || !pendingDeleteSessionId) return
-    const session = sessionsData.find((item: any) => item.id === pendingDeleteSessionId)
+    const session = sessionsData.find((item: Session) => item.id === pendingDeleteSessionId)
     try {
       await deleteSession.mutateAsync({ hostId: activeHostId, sessionId: pendingDeleteSessionId })
       if (activeSessionId === pendingDeleteSessionId) {
-        const next = sessionsData.find((item: any) => item.id !== pendingDeleteSessionId)?.id || ''
+        const next = sessionsData.find((item: Session) => item.id !== pendingDeleteSessionId)?.id || ''
         setActiveSession(next)
       }
       pushToast({ type: 'success', message: t('session.deleted', { name: session?.name || pendingDeleteSessionId }) })
@@ -525,7 +527,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
     window.visualViewport?.addEventListener('resize', handleResize)
     window.addEventListener('orientationchange', handleOrientation)
     document.addEventListener('fullscreenchange', handleFullscreen)
-    document.addEventListener('webkitfullscreenchange', handleFullscreen as any)
+    document.addEventListener('webkitfullscreenchange', handleFullscreen as EventListener)
     window.addEventListener('tmuxgo-layout-change', handleFullscreen as EventListener)
     return () => {
       clearViewportSchedule()
@@ -533,7 +535,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
       window.visualViewport?.removeEventListener('resize', handleResize)
       window.removeEventListener('orientationchange', handleOrientation)
       document.removeEventListener('fullscreenchange', handleFullscreen)
-      document.removeEventListener('webkitfullscreenchange', handleFullscreen as any)
+      document.removeEventListener('webkitfullscreenchange', handleFullscreen as EventListener)
       window.removeEventListener('tmuxgo-layout-change', handleFullscreen as EventListener)
     }
   }, [clearViewportSchedule, scheduleViewportSync])
@@ -562,15 +564,15 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   useEffect(() => {
     if (hostsData.length > 0 && !activeHostId) {
       const persistedHost = readActiveHostId()
-      const localHost = hostsData.find((h: any) => h.id === 'local')
-      const restoredHost = persistedHost && hostsData.some((h: any) => h.id === persistedHost) ? persistedHost : null
+      const localHost = hostsData.find((h: Host) => h.id === 'local')
+      const restoredHost = persistedHost && hostsData.some((h: Host) => h.id === persistedHost) ? persistedHost : null
       setActiveHost(restoredHost || localHost?.id || hostsData[0]?.id || '')
     }
   }, [hostsData, activeHostId, setActiveHost])
   useEffect(() => {
     if (!activeHostId || !hostsData.length) return
-    if (hostsData.some((host: any) => host.id === activeHostId)) return
-    const localHost = hostsData.find((host: any) => host.id === 'local')
+    if (hostsData.some((host: Host) => host.id === activeHostId)) return
+    const localHost = hostsData.find((host: Host) => host.id === 'local')
     setActiveHost(localHost?.id || hostsData[0]?.id || '')
   }, [activeHostId, hostsData, setActiveHost])
 
@@ -581,7 +583,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
       return
     }
     const persistedSession = activeHostId ? readActiveSessionId(activeHostId) : null
-    const persistedSessionExists = !!persistedSession && sessionsData.some((s: any) => s.id === persistedSession)
+    const persistedSessionExists = !!persistedSession && sessionsData.some((s: Session) => s.id === persistedSession)
     const resumeFromContinuity = shouldResumeFromContinuity(
       sessionContinuity.enabled,
       sessionContinuity.resumeOnReconnect,
@@ -593,8 +595,8 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         ? sessionContinuity.resumePoints.find((item) => item.hostId === activeHostId)
         : null
     const continuitySessionExists =
-      !!continuityPoint?.sessionId && sessionsData.some((s: any) => s.id === continuityPoint.sessionId)
-    const activeSessionExists = !!activeSessionId && sessionsData.some((s: any) => s.id === activeSessionId)
+      !!continuityPoint?.sessionId && sessionsData.some((s: Session) => s.id === continuityPoint.sessionId)
+    const activeSessionExists = !!activeSessionId && sessionsData.some((s: Session) => s.id === activeSessionId)
     if (!activeSessionId || !activeSessionExists) {
       const fallback = sessionsData[0]?.id || ''
       setActiveSession(
@@ -608,7 +610,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   }, [sessionsData, sessionsFetched, activeSessionId, activeHostId, setActiveSession, sessionContinuity])
   useEffect(() => {
     if (!activeHostId || !activeSessionId || !snapshotData) return
-    const paneId = snapshotData.activePaneId || snapshotData.panes?.find?.((pane: any) => pane.active)?.id || null
+    const paneId = snapshotData.activePaneId || snapshotData.panes?.find?.((pane: Pane) => pane.active)?.id || null
     setActivePane(paneId)
   }, [activeHostId, activeSessionId, setActivePane, snapshotData])
 
@@ -791,7 +793,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   useEffect(() => () => clearMobileSessionLongPress(), [clearMobileSessionLongPress])
   useEffect(() => {
     if (!activeHostId) return
-    const validIds = new Set(sessionsData.map((session: any) => session.id))
+    const validIds = new Set(sessionsData.map((session: Session) => session.id))
     setMobileRecentSessionIds((prev) => {
       const next = prev.filter((id) => validIds.has(id))
       if (activeSessionId && validIds.has(activeSessionId)) {
@@ -805,7 +807,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   }, [activeHostId, activeSessionId, sessionsData])
   useEffect(() => {
     if (!activeHostId) return
-    const validIds = new Set(sessionsData.map((session: any) => session.id))
+    const validIds = new Set(sessionsData.map((session: Session) => session.id))
     setMobilePinnedSessionIds((prev) => {
       const next = prev.filter((id) => validIds.has(id))
       if (next.length !== prev.length) writeMobilePinnedSessions(activeHostId, next)
@@ -827,7 +829,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   return (
     <div
       className="tmuxgo-app-shell flex w-screen flex-col overflow-hidden bg-bg-0"
-      style={{ height: appHeight, ['--app-height' as any]: appHeight }}
+      style={{ height: appHeight, ['--app-height' as string]: appHeight } as CSSProperties}
     >
       <InstallAppBanner />
       <ImmersiveBackOrb />
@@ -850,7 +852,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
           {mobileQuickSessions.length > 0 && (
             <div className="tmuxgo-mobile-session-strip border-b px-2 pb-1 pt-1.5">
               <div ref={bindHorizontalWheelScroll} className="flex gap-1 overflow-x-auto scrollbar-none">
-                {mobileQuickSessions.map((session: any) => {
+                {mobileQuickSessions.map((session: Session) => {
                   const active = session.id === activeSessionId
                   return (
                     <button
@@ -992,7 +994,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         open={!!pendingDeleteSessionId}
         title={t('sidebar.deleteTitle')}
         message={t('sidebar.deleteConfirm', {
-          name: sessionsData.find((item: any) => item.id === pendingDeleteSessionId)?.name || '',
+          name: sessionsData.find((item: Session) => item.id === pendingDeleteSessionId)?.name || '',
         })}
         confirmLabel={t('sidebar.confirmDelete')}
         cancelLabel={t('common.cancel')}

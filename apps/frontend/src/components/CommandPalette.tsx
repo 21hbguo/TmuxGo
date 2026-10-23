@@ -15,6 +15,7 @@ import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 import { useHosts, useInvokePluginAction, usePlugins, useWindows } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
+import type { Host, Session, Window } from '@/types'
 import { ModalPortal } from './ModalPortal'
 
 interface CommandPaletteProps {
@@ -68,9 +69,9 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const q = query.toLowerCase()
   // 快捷键提示跟随平台：mac 用 Cmd，其余用 Ctrl（实际绑定均为 metaKey||ctrlKey）
   const mod = isApplePlatform() ? 'Cmd' : 'Ctrl'
-  const activeWindow = windows.find((window: any) => window.active) || windows[0] || null
-  const activeSession = sessions.find((session: any) => session.id === activeSessionId)
-  const hostName = (hostId: string) => hosts.find((host: any) => host.id === hostId)?.name || hostId
+  const activeWindow = windows.find((window: Window) => window.active) || windows[0] || null
+  const activeSession = sessions.find((session: Session) => session.id === activeSessionId)
+  const hostName = (hostId: string) => hosts.find((host: Host) => host.id === hostId)?.name || hostId
   const copySelection = async () => {
     const text = await requestTerminalSelection()
     if (!text) throw new Error('No selection')
@@ -275,8 +276,8 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const allItems: PaletteItem[] = [
     ...pluginItems.map((item) => ({ ...item, type: 'plugin' as const })),
     ...hosts
-      .filter((host: any) => matchQuery({ title: host.name, keywords: [host.address || ''] }))
-      .map((host: any): PaletteItem => ({
+      .filter((host: Host) => matchQuery({ title: host.name, keywords: [host.address || ''] }))
+      .map((host: Host): PaletteItem => ({
         key: `host-${host.id}`,
         type: 'host',
         title: host.name,
@@ -284,8 +285,8 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
         action: async () => setActiveHost(host.id),
       })),
     ...sessions
-      .filter((session: any) => matchQuery({ title: session.name, keywords: ['会话', 'session'] }))
-      .map((session: any): PaletteItem => ({
+      .filter((session: Session) => matchQuery({ title: session.name, keywords: ['会话', 'session'] }))
+      .map((session: Session): PaletteItem => ({
         key: `session-${session.id}`,
         type: 'session',
         title: session.name,
@@ -293,8 +294,8 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
         action: async () => setActiveSession(session.id),
       })),
     ...windows
-      .filter((window: any) => matchQuery({ title: window.name, keywords: ['窗口', 'window'] }))
-      .map((window: any): PaletteItem => ({
+      .filter((window: Window) => matchQuery({ title: window.name, keywords: ['窗口', 'window'] }))
+      .map((window: Window): PaletteItem => ({
         key: `window-${window.id}`,
         type: 'window',
         title: t('palette.switchWindow', { name: window.name }),
@@ -303,7 +304,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
           if (!activeHostId || !activeSessionId) return
           const previousWindows = getWindows()
           setWindows(
-            previousWindows.map((item: any) =>
+            previousWindows.map((item: Window) =>
               item.sessionId === activeSessionId ? { ...item, active: item.id === window.id } : item,
             ),
           )
