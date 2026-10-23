@@ -180,7 +180,9 @@ test('done state stays sticky across rescans while pane keeps ticking', async ()
   let paneId = ''
   try {
     await execTmux('local', ['new-session', '-d', '-s', sessionName, agentPath])
-    await new Promise((resolve) => setTimeout(resolve, 300))
+    // 等过 scan 缓存 TTL（750ms）：隔离 server 跨用例存活时 pane_id 会递增，
+    // 命中上一用例缓存的 scan 结果会把注入写到已经不存在的 pane 上
+    await new Promise((resolve) => setTimeout(resolve, 900))
     const first = await getHostAgentPanes('local', [sessionName])
     paneId = first[0]?.paneId || ''
     assert.equal(first[0]?.agent, 'codex')

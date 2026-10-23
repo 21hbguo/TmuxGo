@@ -30,6 +30,8 @@ function collectTests(dir: string, acc: string[] = []) {
 assertSupportedNode()
 
 const root = process.cwd()
+// 起 test server 的引导 session 名（设完 exit-empty 即删，测试不可见）
+const TEST_SERVER_BOOTSTRAP_SESSION = '__tmuxgo_test_bootstrap__'
 // 可选过滤：`pnpm test <路径子串>…` 只跑匹配文件。跑单文件一律走这里——
 // 自造 TMUX/TMUX_TMPDIR env 直跑 tsx --test 曾漏清 TMUX，kill-server 误杀
 // 用户默认 server（TMUX 已设置时 tmux 忽略 TMUX_TMPDIR）
@@ -59,11 +61,38 @@ const previousTmpDir = process.env.TMUXGO_TMP_DIR
 const previousTmux = process.env.TMUX
 const previousTmuxTmpDir = process.env.TMUX_TMPDIR
 const previousTmuxIsolated = process.env.TMUXGO_TEST_TMUX_ISOLATED
+const previousInvocationId = process.env.INVOCATION_ID
 const configDir = mkdtempSync(join(tmpdir(), 'tmuxgo-unit-tests-'))
 // 测试专用 tmux server：独立 socket 目录，清空 TMUX 避免继承外层 pane 的
 // socket 路径（run-e2e.ts 同款做法）。直接命令与应用子进程走同一 server
 const tmuxDir = mkdtempSync(join(tmpdir(), 'tmuxgo-test-tmux-'))
 prepareTmuxSocketDir(tmuxDir)
+// 固定 server 生命周期：默认 exit-empty on 时最后一个 session 消失 server 就退出，
+// 于是每个用例边界都在起停 server——客户端恰好撞上退出窗口会报
+// "server exited unexpectedly"，socket/lock 文件也会在删目录窗口内再现（ENOTEMPTY）。
+// 这里起 server 后关掉 exit-empty：session 归零 server 仍在，用例边界零起停。
+// 引导用一次性 session，设完选项立刻删掉，不留可见 session
+spawnSync(
+  'tmux',
+  [
+    '-S',
+    tmuxSocketPath(tmuxDir),
+    'new-session',
+    '-d',
+    '-s',
+    TEST_SERVER_BOOTSTRAP_SESSION,
+    ';',
+    'set-option',
+    '-s',
+    'exit-empty',
+    'off',
+    ';',
+    'kill-session',
+    '-t',
+    TEST_SERVER_BOOTSTRAP_SESSION,
+  ],
+  { stdio: 'ignore', env: tmuxTestEnv(tmuxDir) },
+)
 process.env.TMUXGO_CONFIG_DIR = configDir
 process.env.TMUXGO_PREFERENCES_DIR = join(configDir, 'preferences')
 process.env.TMUXGO_TMP_DIR = join(configDir, 'tmp')
@@ -71,6 +100,10 @@ process.env.TMUX = ''
 process.env.TMUX_TMPDIR = tmuxDir
 // test-tmux.ts 据此确认处于隔离 server（用户 shell 自带 TMUX_TMPDIR 不误判）
 process.env.TMUXGO_TEST_TMUX_ISOLATED = '1'
+// INVOCATION_ID 是 systemd 注入的：泄漏进测试会让 tmux-executor 把 new-session
+// 包进 `systemd-run --user --scope`（生产下让会话脱离 gateway unit 的 cgroup），
+// 该路径在负载下可达 30s 超时。测试一律走裸 tmux，结果与宿主 init 系统无关
+delete process.env.INVOCATION_ID
 
 let cleaned = false
 function cleanup() {
@@ -90,8 +123,12 @@ function cleanup() {
   else process.env.TMUX_TMPDIR = previousTmuxTmpDir
   if (previousTmuxIsolated === undefined) delete process.env.TMUXGO_TEST_TMUX_ISOLATED
   else process.env.TMUXGO_TEST_TMUX_ISOLATED = previousTmuxIsolated
-  rmSync(configDir, { recursive: true, force: true })
-  rmSync(tmuxDir, { recursive: true, force: true })
+  if (previousInvocationId === undefined) delete process.env.INVOCATION_ID
+  else process.env.INVOCATION_ID = previousInvocationId
+  // 隔离 server 退出是异步的，socket/lock 文件可能在删除遍历窗口内再现
+  // （ENOTEMPTY）：fs.rm 原生按 maxRetries 重试，专门收口这类竞态
+  rmSync(configDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+  rmSync(tmuxDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 }
 // 中断路径（SIGINT 在 spawnSync 阻塞期间挂起、返回后即触发）：正常、失败、
 // 中断都要清掉测试 server 与临时目录
