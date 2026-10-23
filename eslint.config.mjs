@@ -67,20 +67,25 @@ export default tseslint.config(
     },
   },
   {
+    // 生产源码 any 已全域清零（frontend/gateway/agent 源码+frontend 测试），
+    // error 档直接拦新增；gateway 测试、e2e、tests 存量 any 留待分批清理保持 off
+    files: ['apps/*/src/**/*.{ts,tsx}', 'scripts/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'error',
+    },
+  },
+  {
+    files: ['apps/gateway/**/*.test.{ts,tsx}', 'e2e/**/*.{ts,tsx}', 'tests/**/*.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
+  {
     files: ['apps/frontend/src/**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks },
     rules: {
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
-      // 生产源码 any 已清零，warn 档位接 warning-baseline ratchet 防回潮；
-      // 测试文件存量 any 留待分批清理，暂保持 off
-      '@typescript-eslint/no-explicit-any': 'warn',
-    },
-  },
-  {
-    files: ['apps/frontend/src/**/*.test.{ts,tsx}'],
-    rules: {
-      '@typescript-eslint/no-explicit-any': 'off',
     },
   },
 )

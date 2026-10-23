@@ -1,7 +1,7 @@
 import type { PaneResizeTarget } from './terminal-pane-interactions'
 import type { LayoutTerminal } from './terminal-layout'
 import { emitStreamEvent, STREAM_EVENT } from './stream-events'
-interface TerminalPaneResizeOptions {
+export interface TerminalPaneResizeOptions {
   container: HTMLElement
   guide: HTMLElement | null
   getTerminal: () => LayoutTerminal | null | undefined

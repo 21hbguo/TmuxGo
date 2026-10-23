@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createTerminalPaneResizeController } from './terminal-pane-resize'
+import { createTerminalPaneResizeController, type TerminalPaneResizeOptions } from './terminal-pane-resize'
+import type { LayoutTerminal } from './terminal-layout'
 import { STREAM_EVENT, subscribeStreamEvent } from './stream-events'
 
 const makeScreen = () => {
@@ -10,7 +11,12 @@ const makeScreen = () => {
   return screen
 }
 
-const setup = (overrides: Record<string, any> = {}) => {
+const setup = (
+  overrides: {
+    targetFor?: TerminalPaneResizeOptions['getPaneResizeTarget']
+    options?: Partial<TerminalPaneResizeOptions>
+  } = {},
+) => {
   const container = document.createElement('div')
   container.getBoundingClientRect = () =>
     ({ left: 0, top: 0, width: 1000, height: 600, right: 1000, bottom: 600, x: 0, y: 0 }) as DOMRect
@@ -30,7 +36,8 @@ const setup = (overrides: Record<string, any> = {}) => {
   const options = {
     container,
     guide: document.createElement('div'),
-    getTerminal: () => ({ element: { querySelector: () => screen }, cols: 100, rows: 40 }),
+    // 测试只消费 element/cols/rows 三字段：stub 断言成 LayoutTerminal，缺字段路径有可选链兜底
+    getTerminal: () => ({ element: { querySelector: () => screen }, cols: 100, rows: 40 }) as unknown as LayoutTerminal,
     getMouseCell: (e: MouseEvent) => ({ x: Math.round(e.clientX / 10), y: Math.round(e.clientY / 15) }),
     getPaneResizeTarget: targetFor,
     resizePane: vi.fn(() => Promise.resolve()),
