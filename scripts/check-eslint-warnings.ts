@@ -18,8 +18,10 @@ try {
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
   })
-} catch (error: any) {
-  output = error?.stdout || ''
+} catch (error) {
+  // 非 0 退出抛 ExecException，stdout 仍是完整 JSON
+  const failure = (error ?? {}) as { stdout?: string }
+  output = failure.stdout || ''
   if (!output) throw error
 }
 const results = JSON.parse(output) as {

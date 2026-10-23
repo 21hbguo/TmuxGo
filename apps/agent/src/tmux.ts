@@ -53,6 +53,11 @@ function isTmuxServerMissingError(message: string) {
     value.includes('failed to connect to server')
   )
 }
+// exec 失败形状（ExecException）只保证带回 message；这里与原实现同语义地只读该字段
+function failureMessage(err: unknown) {
+  if (err && typeof err === 'object' && 'message' in err) return String((err as { message?: unknown }).message || '')
+  return ''
+}
 function assertSessionAllowed(name: string) {
   if (!isValidSessionName(name)) throw new Error('Invalid session name')
   if (allowedSessions.size && !allowedSessions.has(name)) throw new Error('Session is not allowed')
@@ -101,8 +106,8 @@ export class TmuxManager {
             attached: attached === '1',
           }
         })
-    } catch (err: any) {
-      if (err.message.includes('no server running')) {
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('no server running')) {
         return []
       }
       throw err
@@ -113,8 +118,8 @@ export class TmuxManager {
     assertSessionAllowed(name)
     try {
       await execFileAsync('tmux', ['setenv', '-g', 'TMUXGO_ENV', '1'])
-    } catch (err: any) {
-      if (!isTmuxServerMissingError(String(err?.message || ''))) throw err
+    } catch (err) {
+      if (!isTmuxServerMissingError(failureMessage(err))) throw err
     }
     if (process.env.INVOCATION_ID)
       await execFileAsync('systemd-run', [
@@ -147,7 +152,7 @@ export class TmuxManager {
     await execFileAsync('tmux', ['kill-session', '-t', `=${name}`])
   }
 
-  async executeTmux(args: string[]) {
+  async executeTmux(args: unknown) {
     if (
       !Array.isArray(args) ||
       !args.length ||
@@ -155,12 +160,13 @@ export class TmuxManager {
       args.some((item) => typeof item !== 'string' || item.length > 4096)
     )
       throw new Error('Invalid tmux arguments')
-    const normalized = normalizeTmuxEnvArgs(args)
+    // 上面的校验已保证逐项 string
+    const normalized = normalizeTmuxEnvArgs(args as string[])
     if (normalized.needsSetEnv) {
       try {
         await execFileAsync('tmux', ['setenv', '-g', 'TMUXGO_ENV', '1'])
-      } catch (err: any) {
-        if (!isTmuxServerMissingError(String(err?.message || ''))) throw err
+      } catch (err) {
+        if (!isTmuxServerMissingError(failureMessage(err))) throw err
       }
     }
     const { stdout, stderr } = await execFileAsync('tmux', normalized.args)
