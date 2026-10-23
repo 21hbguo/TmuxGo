@@ -147,6 +147,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
       try {
         socket.terminate()
       } catch {}
+      // 传输层报错时 close 未必派发（半关闭/内核已回收），兜底清理防连接级资源泄漏
+      scheduleDeadSocketCleanup('WebSocket error')
     })
     const socketPingTimer = setInterval(() => {
       if (socket.readyState !== 1) return
@@ -154,6 +156,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
         try {
           socket.terminate()
         } catch {}
+        // terminate 不保证派发 close：兜底清理 5s 心跳定时器，否则每秒空转直到进程退出
+        scheduleDeadSocketCleanup('WebSocket pong timeout')
         return
       }
       try {
@@ -413,8 +417,13 @@ export async function streamRoutes(fastify: FastifyInstance) {
         session.send(payload)
       }
     })
-    socket.on('close', (code: number, reason: Buffer) => {
-      console.log('Client disconnected from stream')
+    // 连接级资源的唯一清理入口：close / error / pong 超时三条断开路径都归到这里，
+    // 用 cleaned 幂等标志保证恰好执行一次（terminate 后 close 可能迟到或干脆不派发，
+    // 双跑会重复减 activeClients、重复 unregister、把定时器清成孤儿）
+    let connectionCleaned = false
+    const cleanupConnection = (closeReason: string) => {
+      if (connectionCleaned) return
+      connectionCleaned = true
       clearInterval(socketPingTimer)
       session.cleanup()
       if (shareStateTimer) clearInterval(shareStateTimer)
@@ -424,7 +433,21 @@ export async function streamRoutes(fastify: FastifyInstance) {
       unsubscribeInbox = null
       agentFeed.dispose()
       updateStreamMetric('activeClients', streamPerfMetricsActiveClientsDelta(-1))
-      if (agentId) agentManager.unregister(agentId, agentSocket, reason.toString() || `WebSocket closed (${code})`)
+      if (agentId) {
+        agentManager.unregister(agentId, agentSocket, closeReason)
+        agentId = null
+      }
+    }
+    // terminate 之后 close 通常会在下一 tick 派发（带准确的 code/reason）：先让 close 赢，
+    // 1s 后 socket 仍未进入 CLOSED 才用兜底原因强制清理，避免改掉正常路径的 unregister 原因
+    const scheduleDeadSocketCleanup = (fallbackReason: string) => {
+      setTimeout(() => {
+        if (socket.readyState !== 3) cleanupConnection(fallbackReason)
+      }, 1000).unref()
+    }
+    socket.on('close', (code: number, reason: Buffer) => {
+      console.log('Client disconnected from stream')
+      cleanupConnection(reason.toString() || `WebSocket closed (${code})`)
     })
     session.send({ type: 'connected', timestamp: Date.now() })
     // share-link 只读观众不能收 agent/inbox 事件：消息正文、title、route

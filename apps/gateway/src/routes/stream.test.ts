@@ -39,6 +39,7 @@ const { agentMonitor } = await import('../lib/agent-monitor.js')
 const { issueScopedWebSocketTicket } = await import('../lib/auth.js')
 const { shareLinkStore } = await import('../lib/share-links.js')
 const { STREAM_PING_INTERVAL_MS } = await import('../lib/stream/stream-config.js')
+const { streamPerfMetrics } = await import('../lib/perf-metrics.js')
 
 type Frame = Record<string, unknown>
 
@@ -115,6 +116,29 @@ async function waitClosed(closed: Promise<{ code: number; reason: string }>, tim
       throw new Error('socket did not close in time')
     }),
   ])
+}
+
+// activeClients 是跨用例共享的全局量，close 清理可能延后一拍：
+// 先等它稳定再当基数，否则会把上一条连接的迟到 decrement 算进本用例
+async function stableActiveClients(timeoutMs = 6000) {
+  const deadline = Date.now() + timeoutMs
+  let previous = -1
+  while (Date.now() < deadline) {
+    const value = streamPerfMetrics.activeClients
+    if (value === previous) return value
+    previous = value
+    await delay(700)
+  }
+  return streamPerfMetrics.activeClients
+}
+
+async function waitFor(predicate: () => boolean, message: string, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (predicate()) return
+    await delay(15)
+  }
+  assert.fail(message)
 }
 
 function delay(ms: number) {
@@ -324,31 +348,48 @@ test('keeps a client alive while it answers keepalive pings', async (t) => {
   client.ws.close()
 })
 
-// 需要 TMUXGO_TEST_PONG_TIMEOUT=1 显式打开：
-// 客户端不回 pong 时服务端 socket.terminate() 后，route 的 'close' 回调不触发
-// （实测无 "Client disconnected" 日志），socketPingTimer 因此永不清除，
-// 进程被 5s 间隔钉住无法退出。这是实现侧泄漏，按"不改实现 + 缺缝上报"处理：
-// 默认跳过，等实现补 terminate 清理后再转为常开。
-test(
-  'terminates a client that stops answering keepalive pings',
-  {
-    timeout: 40000,
-    skip:
-      process.env.TMUXGO_TEST_PONG_TIMEOUT === '1'
-        ? false
-        : 'impl gap: terminate 后 close 不触发，定时器泄漏（见注释）',
-  },
-  async (t) => {
-    const { port } = await setup(t)
-    const { ticket } = await issueScopedWebSocketTicket('stalled', { hosts: ['local'], sessions: ['test'] })
-    // autoPong=false：只收 ping 不回 pong，触发 3×interval 的 pong 超时 terminate
-    const client = connect(port, ticket, false)
-    await new Promise<void>((resolve, reject) => {
-      client.ws.once('open', () => resolve())
-      client.ws.once('error', reject)
-    })
-    const closed = await waitClosed(client.closed, STREAM_PING_INTERVAL_MS * 3 + STREAM_PING_INTERVAL_MS + 5000)
-    // terminate 是硬断：客户端拿到 1006（异常关闭），不是 1008 的优雅关闭
-    assert.equal(closed.code, 1006)
-  },
-)
+test('terminates a client that stops answering keepalive pings', { timeout: 40000 }, async (t) => {
+  const { port } = await setup(t)
+  const baseline = await stableActiveClients()
+  const { ticket } = await issueScopedWebSocketTicket('stalled', { hosts: ['local'], sessions: ['test'] })
+  // autoPong=false：只收 ping 不回 pong，触发 3×interval 的 pong 超时 terminate
+  const client = connect(port, ticket, false)
+  await new Promise<void>((resolve, reject) => {
+    client.ws.once('open', () => resolve())
+    client.ws.once('error', reject)
+  })
+  const closed = await waitClosed(client.closed, STREAM_PING_INTERVAL_MS * 3 + STREAM_PING_INTERVAL_MS + 5000)
+  // terminate 是硬断：客户端拿到 1006（异常关闭），不是 1008 的优雅关闭
+  assert.equal(closed.code, 1006)
+  // 断开后连接级资源必须回收：activeClients 回到连接前基数（泄漏时会 +1 并累积）
+  await waitFor(() => streamPerfMetrics.activeClients === baseline, 'activeClients did not return to baseline')
+})
+
+test('cleans up exactly once when the client transport dies abruptly', { timeout: 20000 }, async (t) => {
+  const { port } = await setup(t)
+  const baseline = await stableActiveClients()
+  const first = connect(
+    port,
+    (await issueScopedWebSocketTicket('dead', { hosts: ['local'], sessions: ['test'] })).ticket,
+  )
+  const second = connect(
+    port,
+    (await issueScopedWebSocketTicket('alive', { hosts: ['local'], sessions: ['test'] })).ticket,
+  )
+  await first.connected
+  await second.connected
+  await waitFor(() => streamPerfMetrics.activeClients === baseline + 2, 'activeClients did not count both clients')
+
+  // 直接掐掉底层 TCP（RST/半关闭）：服务端走 error→terminate，close 未必带 1000
+  ;(first.ws as unknown as { _socket: { destroy: () => void } })._socket.destroy()
+  await waitClosed(first.closed, 5000)
+  // 只死一个：若 error 与 close 各减一次，这里会掉到 baseline（重复 decrement）
+  await waitFor(() => streamPerfMetrics.activeClients === baseline + 1, 'activeClients did not drop by exactly one')
+  // 收敛后再等一拍：重复 decrement 会在这一步露出来（掉到 baseline）
+  await delay(500)
+  assert.equal(streamPerfMetrics.activeClients, baseline + 1)
+
+  second.ws.close()
+  await waitClosed(second.closed, 5000)
+  await waitFor(() => streamPerfMetrics.activeClients === baseline, 'activeClients did not return to baseline')
+})
