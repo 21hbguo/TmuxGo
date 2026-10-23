@@ -42,6 +42,68 @@ describe('agent status', () => {
       })[0].agentStatus,
     ).toBe('working')
   })
+  it('drops a pane update whose stateSeq is older than the cached one', () => {
+    const panes = [
+      {
+        id: 'local:%1',
+        windowId: 'local:@1',
+        index: 0,
+        title: 'agent',
+        active: true,
+        size: { cols: 80, rows: 24 },
+        agent: 'codex',
+        agentStatus: 'done' as const,
+        revision: 4,
+        stateSeq: 12,
+      },
+    ]
+    // 双发期两路帧带同一 pane 的不同快照：revision 相同但 stateSeq 倒退，必须丢弃
+    expect(
+      mergeAgentPaneEvent(panes, {
+        paneId: 'local:%1',
+        tmuxPaneId: '%1',
+        sessionName: 'dev',
+        agent: 'codex',
+        agentStatus: 'working',
+        revision: 4,
+        stateSeq: 11,
+      })[0].agentStatus,
+    ).toBe('done')
+    expect(
+      mergeAgentPaneEvent(panes, {
+        paneId: 'local:%1',
+        tmuxPaneId: '%1',
+        sessionName: 'dev',
+        agent: 'codex',
+        agentStatus: 'working',
+        revision: 4,
+        stateSeq: 13,
+      })[0],
+    ).toMatchObject({ agentStatus: 'working', stateSeq: 13 })
+  })
+  it('carries stateSeq on merge and strips it on removal', () => {
+    const panes = [
+      {
+        id: 'local:%1',
+        windowId: 'local:@1',
+        index: 0,
+        title: 'agent',
+        active: true,
+        size: { cols: 80, rows: 24 },
+      },
+    ]
+    const merged = mergeAgentPaneEvent(panes, {
+      paneId: 'local:%1',
+      tmuxPaneId: '%1',
+      sessionName: 'dev',
+      agent: 'codex',
+      agentStatus: 'working',
+      revision: 2,
+      stateSeq: 7,
+    })[0]
+    expect(merged.stateSeq).toBe(7)
+    expect(removeAgentPaneEvent([merged], 'local:%1')[0]).not.toHaveProperty('stateSeq')
+  })
   it('allows an authoritative snapshot to replace cached metadata', () => {
     const panes = [
       {

@@ -15,6 +15,13 @@ function errorMessage(error: unknown, fallback = '') {
   return error instanceof Error && error.message ? error.message : fallback
 }
 
+// TMUXGO_AGENT_SNAPSHOT_SEEN：快照请求是否顺带清 done。默认开（=1），
+// 只有显式 0/"0"/false 才关；关闭时机归 S3（旧客户端下线后 GET 变纯读）
+function snapshotSeenEnabled() {
+  const raw = process.env.TMUXGO_AGENT_SNAPSHOT_SEEN?.trim().toLowerCase()
+  return raw !== '0' && raw !== 'false' && raw !== 'off'
+}
+
 function parseSessionName(hostId: string, sessionRef: string) {
   return parseSessionRef(hostId, sessionRef).sessionName
 }
@@ -219,7 +226,10 @@ export async function windowRoutes(fastify: FastifyInstance) {
       panes.find((pane) => pane.windowId === activeWindow?.id && pane.active) ||
       panes.find((pane) => pane.windowId === activeWindow?.id) ||
       null
-    if (activePane) {
+    // 快照请求顺带清 done：老前端不发 agent_seen，靠这条边读边写的"搭便车"消徽标。
+    // 新前端有显式 agent_seen 后两条路双清同一个 done 无害，所以默认保持 1；
+    // 待旧客户端消亡再翻 0（S3），届时快照变成纯读，GET 不再有写副作用
+    if (activePane && snapshotSeenEnabled()) {
       const seen = agentMonitor.markSeen(activePane.id) || markAgentPaneSeen(activePane.id)
       if (seen)
         Object.assign(activePane, {

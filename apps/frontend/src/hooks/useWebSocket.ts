@@ -198,11 +198,19 @@ export function useWebSocket() {
         case 'exclusive-revoked':
           emitStreamEvent(STREAM_EVENT.exclusiveRevoked, data)
           break
-        case 'error':
+        case 'error': {
+          // 老网关不认识 v1 订阅帧时只会回一条 "Unknown message type: agent_*"，
+          // 这不是连接故障：按能力协商失败处理，别把 socket 打成断线（会触发重连风暴）
+          const message = typeof data.message === 'string' ? data.message : ''
+          if (/^Unknown message type: agent_(subscribe|resync|unsubscribe)$/.test(message)) {
+            emitStreamEvent(STREAM_EVENT.agentFeedUnsupported, data)
+            break
+          }
           wsState.attached = false
           emitStreamEvent(STREAM_EVENT.error, data)
           updateConnection({ status: 'disconnected' })
           break
+        }
         case 'detached':
           emitStreamEvent(STREAM_EVENT.detached, data)
           break
@@ -211,6 +219,10 @@ export function useWebSocket() {
           break
         case 'agent_status_changed':
           emitStreamEvent(STREAM_EVENT.agentStatus, data)
+          break
+        // v1 订阅帧：seq/合并由 lib/agent-feed 的状态机处理，这里只做传输层派发
+        case 'agent_state':
+          emitStreamEvent(STREAM_EVENT.agentState, data)
           break
         case 'agent_status_snapshot':
           emitStreamEvent(STREAM_EVENT.agentStatusSnapshot, data)

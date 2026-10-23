@@ -24,6 +24,14 @@ const mocks = vi.hoisted(() => {
     queryCache,
     queryClient: {
       getQueryData: vi.fn((key: unknown[]) => queryCache.get(JSON.stringify(key))),
+      // 整 host 替换要枚举该 host 下所有 snapshot 查询：按 queryKey 前缀过滤
+      getQueryCache: () => ({
+        findAll: ({ queryKey }: { queryKey: unknown[] }) =>
+          [...queryCache.keys()]
+            .map((key) => JSON.parse(key) as unknown[])
+            .filter((key) => queryKey.every((part, index) => key[index] === part))
+            .map((key) => ({ queryKey: key })),
+      }),
       // setQueryData 支持「函数式更新」：入参是 unknown，函数分支按同形状调用
       setQueryData: vi.fn((key: unknown[], value: unknown) =>
         queryCache.set(
@@ -35,13 +43,32 @@ const mocks = vi.hoisted(() => {
       ),
     },
     snapshotGet: vi.fn(),
+    streamSend: vi.fn(() => true),
+    socketState: { ready: false },
     windowSelect: vi.fn(),
     paneSelect: vi.fn(),
   }
 })
 const { preferenceState, consoleState, queryCache, queryClient, snapshotGet, windowSelect, paneSelect } = mocks
+const { streamSend, socketState } = mocks
 
 vi.mock('@/hooks/usePreferences', () => ({ usePreferences: () => ({ preferences: mocks.preferenceState }) }))
+// 组件现在依赖全局 socket 发 agent_subscribe/agent_seen 与 hosts 列表：
+// 单测里既不该真连 socket，也不该要求 QueryClientProvider
+vi.mock('@/hooks/useWebSocket', () => ({
+  useWebSocket: () => ({
+    send: mocks.streamSend,
+    isConnected: mocks.socketState.ready,
+    isSocketReady: mocks.socketState.ready,
+    subscribeOutput: vi.fn(),
+    retryConnection: vi.fn(),
+  }),
+}))
+vi.mock('@/hooks/useApi', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useApi')>()),
+  useHosts: () => ({ data: [{ id: 'local' }] }),
+  useSessionSnapshot: () => ({ data: undefined }),
+}))
 vi.mock('@/hooks/useOptionalQueryClient', () => ({ useOptionalQueryClient: () => mocks.queryClient }))
 vi.mock('@/stores/useConsoleStore', () => ({
   useConsoleStore: Object.assign(
@@ -83,6 +110,32 @@ function emitAgentStatus(status: 'blocked' | 'done', revision: number) {
   })
 }
 
+function agentPane(paneId: string, agentStatus: 'working' | 'done' | 'blocked', stateSeq: number) {
+  return {
+    paneId,
+    tmuxPaneId: paneId.slice(paneId.indexOf(':') + 1),
+    sessionName: 'dev',
+    agent: 'codex',
+    agentStatus,
+    revision: stateSeq,
+    stateSeq,
+  }
+}
+function emitAgentState(overrides: Record<string, unknown> = {}) {
+  emitStreamEvent(STREAM_EVENT.agentState, {
+    type: 'agent_state',
+    agentProtoVersion: 1,
+    subId: 'as_1',
+    hostId: 'local',
+    mode: 'full',
+    seq: 1,
+    stateSeq: 1,
+    changed: [],
+    removed: [],
+    ...overrides,
+  })
+}
+
 describe('PaneNotifications', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -90,6 +143,8 @@ describe('PaneNotifications', () => {
     preferenceState.agentNotificationsEnabled = true
     preferenceState.agentNotificationDurationMs = 5000
     queryCache.clear()
+    streamSend.mockClear()
+    socketState.ready = false
     snapshotGet.mockReset()
     windowSelect.mockReset()
     paneSelect.mockReset()
@@ -353,5 +408,106 @@ describe('PaneNotifications', () => {
       expect.objectContaining({ activePaneId: 'local:%1' }),
     )
     expect(screen.queryByText('codex finished in dev')).not.toBeInTheDocument()
+  })
+  it('replaces the whole host view on a full agent_state frame', () => {
+    // 没有订阅就收不到帧（客户端会丢弃未订阅 host 的帧）：先让 socket 就绪完成订阅
+    socketState.ready = true
+    queryCache.set(JSON.stringify(['session-snapshot', 'local', 'session-local-dev']), {
+      panes: [
+        { id: 'local:%1', windowId: 'local:@1', title: 'codex' },
+        { id: 'local:%2', windowId: 'local:@1', title: 'shell', agent: 'codex', agentStatus: 'done', revision: 4 },
+      ],
+    })
+    render(<PaneNotifications />)
+    act(() => emitAgentState({ mode: 'full', seq: 1, stateSeq: 7, changed: [agentPane('local:%1', 'working', 7)] }))
+    // full 是整 host 的真相：帧里没有的 pane 必须丢掉 agent 元数据，不能留着旧 done
+    expect(queryClient.getQueryData(['session-snapshot', 'local', 'session-local-dev'])).toEqual({
+      panes: [
+        expect.objectContaining({ id: 'local:%1', agentStatus: 'working', stateSeq: 7 }),
+        { id: 'local:%2', windowId: 'local:@1', title: 'shell' },
+      ],
+    })
+  })
+  it('merges delta frames by pane and drops the older stateSeq', () => {
+    // 没有订阅就收不到帧（客户端会丢弃未订阅 host 的帧）：先让 socket 就绪完成订阅
+    socketState.ready = true
+    queryCache.set(JSON.stringify(['session-snapshot', 'local', 'session-local-dev']), {
+      panes: [
+        { id: 'local:%1', windowId: 'local:@1', title: 'codex', agent: 'codex', agentStatus: 'done', revision: 4 },
+      ],
+    })
+    render(<PaneNotifications />)
+    act(() => emitAgentState({ mode: 'full', seq: 1, stateSeq: 7, changed: [agentPane('local:%1', 'done', 7)] }))
+    act(() => emitAgentState({ mode: 'delta', seq: 2, stateSeq: 8, changed: [agentPane('local:%1', 'working', 8)] }))
+    const readPanes = () =>
+      (
+        queryClient.getQueryData(['session-snapshot', 'local', 'session-local-dev']) as
+          { panes: Array<Record<string, unknown>> } | undefined
+      )?.panes || []
+    expect(readPanes()[0]).toMatchObject({ agentStatus: 'working', stateSeq: 8 })
+    // 迟到的旧 delta（stateSeq 更小）不得把状态倒回 done
+    act(() => emitAgentState({ mode: 'delta', seq: 3, stateSeq: 5, changed: [agentPane('local:%1', 'done', 5)] }))
+    expect(readPanes()[0]).toMatchObject({ agentStatus: 'working', stateSeq: 8 })
+  })
+  it('strips pane metadata for removals carried by a delta frame', () => {
+    // 没有订阅就收不到帧（客户端会丢弃未订阅 host 的帧）：先让 socket 就绪完成订阅
+    socketState.ready = true
+    queryCache.set(JSON.stringify(['session-snapshot', 'local', 'session-local-dev']), {
+      panes: [
+        { id: 'local:%1', windowId: 'local:@1', title: 'codex', agent: 'codex', agentStatus: 'working', revision: 3 },
+      ],
+    })
+    render(<PaneNotifications />)
+    act(() =>
+      emitAgentState({
+        mode: 'full',
+        seq: 1,
+        stateSeq: 4,
+        changed: [agentPane('local:%1', 'working', 4)],
+      }),
+    )
+    act(() =>
+      emitAgentState({
+        mode: 'delta',
+        seq: 2,
+        stateSeq: 5,
+        changed: [],
+        removed: [{ paneId: 'local:%1', sessionName: 'dev', reason: 'pane_exited' }],
+      }),
+    )
+    expect(queryClient.getQueryData(['session-snapshot', 'local', 'session-local-dev'])).toEqual({
+      panes: [{ id: 'local:%1', windowId: 'local:@1', title: 'codex' }],
+    })
+  })
+  it('subscribes per host once the socket is ready and resyncs on a seq gap', () => {
+    socketState.ready = true
+    const { rerender } = render(<PaneNotifications />)
+    rerender(<PaneNotifications />)
+    expect(streamSend).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'agent_subscribe', agentProtoVersion: 1, hostId: 'local', needFull: true }),
+    )
+    act(() => emitAgentState({ mode: 'full', seq: 1, stateSeq: 3 }))
+    streamSend.mockClear()
+    act(() => emitAgentState({ mode: 'delta', seq: 3, stateSeq: 4 }))
+    expect(streamSend).toHaveBeenCalledWith({ type: 'agent_resync', subId: 'as_1' })
+  })
+  it('falls back to legacy frames when the gateway rejects the v1 subscribe', () => {
+    socketState.ready = true
+    const { rerender } = render(<PaneNotifications />)
+    rerender(<PaneNotifications />)
+    expect(streamSend).toHaveBeenCalledWith(expect.objectContaining({ type: 'agent_subscribe' }))
+    // useWebSocket 已把 "Unknown message type: agent_subscribe" 归一成能力协商失败事件
+    act(() =>
+      emitStreamEvent(STREAM_EVENT.agentFeedUnsupported, {
+        type: 'error',
+        message: 'Unknown message type: agent_subscribe',
+      }),
+    )
+    streamSend.mockClear()
+    act(() => emitStreamEvent(STREAM_EVENT.reconnected))
+    expect(streamSend).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'agent_subscribe' }))
+    // legacy 帧照旧生效（双发期的兜底路径）
+    act(() => emitAgentStatus('blocked', 11))
+    expect(screen.getByText('codex blocked in dev')).toBeInTheDocument()
   })
 })

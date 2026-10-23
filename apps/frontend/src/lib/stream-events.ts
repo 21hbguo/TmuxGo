@@ -11,6 +11,8 @@ export const STREAM_EVENT = {
   agentStatus: 'agent-status',
   agentStatusSnapshot: 'agent-status-snapshot',
   agentStatusRemoved: 'agent-status-removed',
+  agentState: 'agent-state',
+  agentFeedUnsupported: 'agent-feed-unsupported',
   agentNotification: 'agent-notification',
   agentMonitorError: 'agent-monitor-error',
   inboxMessageCreated: 'inbox-message-created',
