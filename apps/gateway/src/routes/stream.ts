@@ -20,9 +20,36 @@ import { shareLinkStore, type ShareTicket } from '../lib/share-links.js'
 import { StreamSession } from '../lib/stream/stream-session.js'
 import { applyPasteDataFrame } from '../lib/stream/paste-binary.js'
 import { STREAM_PING_INTERVAL_MS, STREAM_PONG_TIMEOUT_MS } from '../lib/stream/stream-config.js'
+// stream 帧 schema 只校验 type，其余字段随 type 而异；各分支自行消费/由专用 schema 校验
+interface StreamMessage {
+  type: string
+  hostId?: string
+  sessionName?: string
+  paneId?: unknown
+  tmuxPaneId?: string
+  agentSessionId?: string
+  provider?: string
+  agent?: string
+  version?: string
+  event?: unknown
+  payload?: unknown
+  lines?: unknown
+  sessions?: unknown
+  session?: unknown
+  timestamp?: number
+  profile?: string
+  level?: string
+  mobile?: unknown
+  binaryOutput?: boolean
+  compressOutput?: string
+  cellOutput?: boolean
+  compactHeader?: boolean
+}
+// 活跃 WS 客户端计数挂 globalThis：多模块共享且 tsx watch 热重载后不丢
+const streamGlobal = globalThis as typeof globalThis & { __tmuxgoActiveClients?: number }
 function streamPerfMetricsActiveClientsDelta(delta: number) {
-  const next = Math.max(0, Number((globalThis as any).__tmuxgoActiveClients || 0) + delta)
-  ;(globalThis as any).__tmuxgoActiveClients = next
+  const next = Math.max(0, Number(streamGlobal.__tmuxgoActiveClients || 0) + delta)
+  streamGlobal.__tmuxgoActiveClients = next
   return next
 }
 export async function streamRoutes(fastify: FastifyInstance) {
@@ -151,7 +178,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       let auditType = 'message'
       let auditData: unknown
       try {
-        const data: any = streamMessageSchema.parse(JSON.parse(message.toString()))
+        const data: StreamMessage = streamMessageSchema.parse(JSON.parse(message.toString()))
         auditData = data
         if (typeof data.type === 'string' && data.type) auditType = data.type
         if (agentId && agentManager.handleMessage(agentId, agentSocket, data)) {
@@ -277,10 +304,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
             session.requestCellResync()
             break
           case 'stream_profile':
-            session.setProfile(data.profile)
+            session.setProfile(data.profile as string)
             break
           case 'stream_backpressure':
-            session.setBackpressure(data.level, !!data.mobile)
+            session.setBackpressure(data.level as string, !!data.mobile)
             break
           case 'stream_backpressure_suppressed':
             // 前端 resize 宽限窗拦截的 high 上报计数（每窗每 pane 至多一条）
@@ -291,13 +318,13 @@ export async function streamRoutes(fastify: FastifyInstance) {
             if (scrollLines === 0) break
             if (!targetAllowed(data.hostId, data.sessionName))
               throw new Error('Access scope does not allow this session')
-            session.queueScroll(data.sessionName, data.hostId, scrollLines)
+            session.queueScroll(data.sessionName as string, data.hostId as string, scrollLines)
             break
           }
           case 'copy_mode_cancel':
             if (!targetAllowed(data.hostId, data.sessionName))
               throw new Error('Access scope does not allow this session')
-            session.cancelCopyMode(data.sessionName, data.hostId)
+            session.cancelCopyMode(data.sessionName as string, data.hostId as string)
             break
           case 'detach':
             session.cleanup(true)

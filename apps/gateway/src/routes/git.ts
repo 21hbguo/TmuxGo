@@ -27,6 +27,11 @@ import {
 } from '../lib/git-worktree.js'
 import { taskManager, type TaskExecutionContext, type TaskManager } from '../lib/task-manager.js'
 
+// catch 到的值不保证是 Error（tmux/SSH 通道可能抛字符串），统一收窄取文案
+function errorMessage(error: unknown, fallback = '') {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
 interface GitFileChange {
   path: string
   status: 'added' | 'modified' | 'deleted' | 'renamed' | 'copied' | 'unmerged'
@@ -516,8 +521,8 @@ export async function gitRoutes(fastify: FastifyInstance, options: { taskManager
       const { stdout } = await execGit(hostId, args, repoPath)
       const fastForward = stdout.includes('Fast-forward')
       return { ok: true, fastForward, conflicts: false, message: stdout.trim() }
-    } catch (err: any) {
-      const msg = err?.message || ''
+    } catch (err) {
+      const msg = errorMessage(err)
       if (msg.includes('CONFLICT') || msg.includes('conflict')) {
         return { ok: false, fastForward: false, conflicts: true, message: msg }
       }
@@ -575,8 +580,8 @@ export async function gitRoutes(fastify: FastifyInstance, options: { taskManager
     try {
       const { stdout } = await execGit(hostId, args, repoPath, 30000)
       return { ok: true, conflicts: false, message: stdout.trim() }
-    } catch (err: any) {
-      const msg = err?.message || ''
+    } catch (err) {
+      const msg = errorMessage(err)
       if (msg.includes('CONFLICT') || msg.includes('conflict')) {
         return { ok: false, conflicts: true, message: msg }
       }
@@ -618,8 +623,8 @@ export async function gitRoutes(fastify: FastifyInstance, options: { taskManager
     try {
       const { stdout, stderr } = await execGit(hostId, args, repoPath, 30000)
       return { ok: true, rejected: false, message: (stdout || stderr).trim() }
-    } catch (err: any) {
-      const msg = err?.message || ''
+    } catch (err) {
+      const msg = errorMessage(err)
       if (msg.includes('rejected') || msg.includes('failed to push')) {
         return { ok: false, rejected: true, message: msg }
       }
@@ -664,16 +669,16 @@ export async function gitRoutes(fastify: FastifyInstance, options: { taskManager
     const worktreePath = assertSafeWorktreePath(body.worktreePath)
     try {
       await execGit(hostId, buildWorktreeRemoveArgs(worktreePath, !!body.force), body.path)
-    } catch (err: any) {
+    } catch (err) {
       // dirty/missing 属于可预期结果，返回结构化失败由前端决定是否 --force 重试；
       // 文案分类失败时按实况复检（git 报错随宿主 locale 变化）；
       // 其余错误（SSH/远端/权限）继续抛出
-      let code = classifyWorktreeRemoveError(err?.message || '')
+      let code = classifyWorktreeRemoveError(errorMessage(err))
       if (code === 'other') {
         code = await classifyWorktreeRemoveByState((args, cwd) => execGit(hostId, args, cwd), body.path, worktreePath)
       }
       if (code === 'other') throw err
-      return { ok: false, code, message: String(err?.message || '').trim() }
+      return { ok: false, code, message: errorMessage(err).trim() }
     }
     await removeWorktreeRecord(hostId, body.path, worktreePath)
     return { ok: true }

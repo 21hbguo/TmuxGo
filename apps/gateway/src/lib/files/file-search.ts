@@ -20,6 +20,14 @@ import {
   type GitRepositoryInfo,
   type SearchMatchLine,
 } from './file-types.js'
+interface RgMatchEvent {
+  type?: string
+  data?: {
+    path?: { text?: string }
+    line_number?: number
+    lines?: { text?: string }
+  }
+}
 const execFileAsync = promisify(execFile)
 function parseSearchQuery(query: string) {
   return query
@@ -176,9 +184,10 @@ async function searchContentWithRg(
       >()
       for (const line of stdout.split('\n')) {
         if (!line) continue
-        let payload: any
+        // rg --json 每行一个事件对象；只有 match 事件带 data.path/lines
+        let payload: RgMatchEvent
         try {
-          payload = JSON.parse(line)
+          payload = JSON.parse(line) as RgMatchEvent
         } catch {
           continue
         }

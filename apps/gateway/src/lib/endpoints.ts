@@ -230,20 +230,25 @@ function quoteShellValue(value: string) {
 }
 const COLLECT_CMD = `if command -v python3 >/dev/null 2>&1; then exec python3 -c ${quoteShellValue(collectScript)}; elif command -v python >/dev/null 2>&1; then exec python -c ${quoteShellValue(collectScript)}; else echo __NOPY__; fi`
 
+// 采集脚本输出的 JSON 形状不可信：先收窄成记录再逐字段取值
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object'
+}
+type RawEndpointLocation = Record<string, unknown> & { path: string }
 const SOURCE_ORDER: EndpointSource[] = ['nginx', 'tailscale', 'docker', 'socket']
 const LOCATION_KINDS = new Set(['proxy', 'root', 'return', 'other'])
 function normalizeSourceState(value: unknown): EndpointSourceState {
   return value === 'ok' || value === 'error' ? value : 'unavailable'
 }
-function normalizeEndpoint(value: any, fallbackId: string): EndpointItem | null {
-  if (!value || typeof value !== 'object') return null
+function normalizeEndpoint(value: unknown, fallbackId: string): EndpointItem | null {
+  if (!isRecord(value)) return null
   const source = String(value.source || '')
   if (!SOURCE_ORDER.includes(source as EndpointSource)) return null
   const locations = Array.isArray(value.locations)
     ? value.locations
-        .filter((loc: any) => loc && typeof loc === 'object' && typeof loc.path === 'string')
+        .filter((loc): loc is RawEndpointLocation => isRecord(loc) && typeof loc.path === 'string')
         .slice(0, 50)
-        .map((loc: any): EndpointLocation => {
+        .map((loc): EndpointLocation => {
           const kind = String(loc.kind || '')
           return {
             path: loc.path.slice(0, 256),
@@ -278,12 +283,13 @@ async function runCollect(hostId: string): Promise<EndpointsResult> {
       endpoints: [],
     }
   }
-  const data = JSON.parse(stdout)
-  const endpoints = (Array.isArray(data?.endpoints) ? data.endpoints : [])
-    .map((item: any, index: number) => normalizeEndpoint(item, `${index}`))
+  const data: unknown = JSON.parse(stdout)
+  const rawEndpoints = isRecord(data) && Array.isArray(data.endpoints) ? data.endpoints : []
+  const endpoints = rawEndpoints
+    .map((item, index) => normalizeEndpoint(item, `${index}`))
     .filter((item: EndpointItem | null): item is EndpointItem => !!item)
     .slice(0, 500)
-  const rawSources = data?.sources && typeof data.sources === 'object' ? data.sources : {}
+  const rawSources = isRecord(data) && isRecord(data.sources) ? data.sources : {}
   const sources = Object.fromEntries(SOURCE_ORDER.map((key) => [key, normalizeSourceState(rawSources[key])])) as Record<
     EndpointSource,
     EndpointSourceState

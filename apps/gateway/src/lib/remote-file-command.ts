@@ -14,6 +14,18 @@ import {
 } from './ssh-options.js'
 import { agentManager } from '../agent-manager.js'
 
+// execFile 失败的错误对象在 message 之外还挂 stdout/stderr/退出码/killed；
+// 类型层只声明 Error，这里按最小结构补齐（catch 值也可能是字符串）
+interface ExecFileFailure extends Error {
+  code?: number | string
+  killed?: boolean
+  stdout?: string | Buffer
+  stderr?: string | Buffer
+}
+function asExecFailure(err: unknown): ExecFileFailure | null {
+  return err instanceof Error ? (err as ExecFileFailure) : null
+}
+
 const execFileAsync = promisify(execFile)
 const knownAuthMarkers = ['Permission denied']
 const knownHostKeyMarkers = ['Host key verification failed', 'REMOTE HOST IDENTIFICATION HAS CHANGED']
@@ -130,14 +142,15 @@ async function dispatchRemoteShell(
           })
         : await execFileAsync('ssh', sshArgs, { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 })
       return { stdout: String(result.stdout), stderr: String(result.stderr), exitCode: 0 }
-    } catch (err: any) {
-      const stderr = String(err?.stderr || '')
+    } catch (err) {
+      const failure = asExecFailure(err)
+      const stderr = String(failure?.stderr || '')
       return {
-        stdout: String(err?.stdout || ''),
+        stdout: String(failure?.stdout || ''),
         // err.message 形如 "Command failed: ssh ... <整条远端命令>"，会把 __TMUXGO_*__
         // 标记字面量混进 stderr 并顶掉真实原因；真实错误在 err.stderr，空时再兜底
-        stderr: stderr || (err?.killed ? `SSH command timed out after ${timeoutMs}ms` : 'SSH command failed'),
-        exitCode: typeof err?.code === 'number' ? err.code : 1,
+        stderr: stderr || (failure?.killed ? `SSH command timed out after ${timeoutMs}ms` : 'SSH command failed'),
+        exitCode: typeof failure?.code === 'number' ? failure.code : 1,
       }
     }
   }
@@ -145,8 +158,9 @@ async function dispatchRemoteShell(
     // agent 端 handleShell 已固定 sh -lc 执行，这里直接传裸命令
     const result = await agentManager.executeShell(hostId, command, timeoutMs)
     return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode }
-  } catch (err: any) {
-    return { stdout: '', stderr: String(err?.message || 'Agent shell failed'), exitCode: 1 }
+  } catch (err) {
+    const message = err instanceof Error && err.message ? err.message : 'Agent shell failed'
+    return { stdout: '', stderr: message, exitCode: 1 }
   }
 }
 // 供 attach 版本探测等非文件场景复用的远端 sh -c 通道（含 sshpass/multiplex 处理）

@@ -130,7 +130,35 @@ function sanitizePasswordEnv(value: string | undefined) {
   if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(envName)) throw new Error('Invalid password env name')
   return envName
 }
-function sanitizePassword(value: string | undefined) {
+// hosts.json / credentials.json 由旧版本或手工编辑产生，字段类型不可信：
+// 入口按 unknown 收下，逐字段 sanitize；这里只声明读取用的最小结构
+interface RawHostFields {
+  id?: unknown
+  name?: unknown
+  address?: unknown
+  user?: unknown
+  port?: unknown
+  groups?: unknown
+  tags?: unknown
+  favorite?: unknown
+  useAgent?: unknown
+  jumpHost?: unknown
+  knownHostsPolicy?: unknown
+  tmuxPath?: unknown
+  createdAt?: unknown
+  updatedAt?: unknown
+  password?: unknown
+  passwordEnv?: unknown
+  privateKeyPath?: unknown
+  vncDisplays?: unknown
+}
+function asHostFields(value: unknown): RawHostFields {
+  return value && typeof value === 'object' ? (value as RawHostFields) : {}
+}
+function isErrnoCode(error: unknown, code: string) {
+  return error instanceof Error && (error as NodeJS.ErrnoException).code === code
+}
+function sanitizePassword(value: unknown) {
   if (typeof value !== 'string') return ''
   if (value.length > 1024) throw new Error('Invalid password length')
   return value
@@ -167,24 +195,25 @@ function nextUpdatedAt(previous: string | undefined) {
   const previousMs = Date.parse(previous || '')
   return new Date(!Number.isNaN(previousMs) && now <= previousMs ? previousMs + 1 : now).toISOString()
 }
-function normalizeVncDisplays(raw: any): Record<string, { password: string }> | undefined {
+function normalizeVncDisplays(raw: unknown): Record<string, { password: string }> | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const displays: Record<string, { password: string }> = {}
   for (const [key, value] of Object.entries(raw)) {
     const display = Number(key)
-    const password = sanitizePassword((value as any)?.password)
+    const password = sanitizePassword(asHostFields(value).password)
     if (Number.isInteger(display) && display >= 0 && display <= 99 && password) {
       displays[String(display)] = { password }
     }
   }
   return Object.keys(displays).length ? displays : undefined
 }
-function normalizeCredentials(raw: any): HostCredentials {
-  const vncDisplays = normalizeVncDisplays(raw?.vncDisplays)
+function normalizeCredentials(value: unknown): HostCredentials {
+  const raw = asHostFields(value)
+  const vncDisplays = normalizeVncDisplays(raw.vncDisplays)
   return {
-    password: sanitizePassword(typeof raw?.password === 'string' ? raw.password : ''),
-    passwordEnv: sanitizePasswordEnv(typeof raw?.passwordEnv === 'string' ? raw.passwordEnv : ''),
-    privateKeyPath: sanitizePrivateKeyPath(typeof raw?.privateKeyPath === 'string' ? raw.privateKeyPath : ''),
+    password: sanitizePassword(raw.password),
+    passwordEnv: sanitizePasswordEnv(typeof raw.passwordEnv === 'string' ? raw.passwordEnv : ''),
+    privateKeyPath: sanitizePrivateKeyPath(typeof raw.privateKeyPath === 'string' ? raw.privateKeyPath : ''),
     ...(vncDisplays ? { vncDisplays } : {}),
   }
 }
@@ -196,25 +225,30 @@ function hasCredentials(credentials: HostCredentials) {
     Object.keys(credentials.vncDisplays || {}).length
   )
 }
-function normalizeHostRecord(raw: any): HostRecord {
-  const id = sanitizeHostId(String(raw?.id || ''))
+function normalizeHostRecord(value: unknown): HostRecord {
+  const raw = asHostFields(value)
+  const id = sanitizeHostId(String(raw.id || ''))
   return {
     id,
-    name: sanitizeHostName(typeof raw?.name === 'string' ? raw.name : undefined, id),
-    address: sanitizeHostAddress(String(raw?.address || '')),
-    user: sanitizeHostUser(String(raw?.user || '')),
-    port: sanitizeHostPort(typeof raw?.port === 'number' ? raw.port : Number(raw?.port)),
+    name: sanitizeHostName(typeof raw.name === 'string' ? raw.name : undefined, id),
+    address: sanitizeHostAddress(String(raw.address || '')),
+    user: sanitizeHostUser(String(raw.user || '')),
+    port: sanitizeHostPort(typeof raw.port === 'number' ? raw.port : Number(raw.port)),
     auth: 'auto',
-    groups: sanitizeGroups(raw?.groups),
-    tags: sanitizeGroups(raw?.tags),
-    favorite: raw?.favorite === true,
-    useAgent: raw?.useAgent !== false,
-    jumpHost: sanitizeJumpHost(typeof raw?.jumpHost === 'string' ? raw.jumpHost : ''),
-    knownHostsPolicy: sanitizeKnownHostsPolicy(raw?.knownHostsPolicy),
-    tmuxPath: sanitizeTmuxPath(typeof raw?.tmuxPath === 'string' ? raw.tmuxPath : ''),
-    createdAt: typeof raw?.createdAt === 'string' && raw.createdAt ? raw.createdAt : new Date().toISOString(),
-    updatedAt: typeof raw?.updatedAt === 'string' && raw.updatedAt ? raw.updatedAt : new Date().toISOString(),
+    groups: sanitizeGroups(raw.groups),
+    tags: sanitizeGroups(raw.tags),
+    favorite: raw.favorite === true,
+    useAgent: raw.useAgent !== false,
+    jumpHost: sanitizeJumpHost(typeof raw.jumpHost === 'string' ? raw.jumpHost : ''),
+    knownHostsPolicy: sanitizeKnownHostsPolicy(raw.knownHostsPolicy),
+    tmuxPath: sanitizeTmuxPath(typeof raw.tmuxPath === 'string' ? raw.tmuxPath : ''),
+    createdAt: typeof raw.createdAt === 'string' && raw.createdAt ? raw.createdAt : new Date().toISOString(),
+    updatedAt: typeof raw.updatedAt === 'string' && raw.updatedAt ? raw.updatedAt : new Date().toISOString(),
   }
+}
+function hasLegacyCredentialFields(value: unknown) {
+  const raw = asHostFields(value)
+  return 'password' in raw || 'passwordEnv' in raw || 'privateKeyPath' in raw
 }
 async function ensureConfigDir() {
   await fs.mkdir(getConfigDir(), { recursive: true, mode: 0o700 })
@@ -230,18 +264,14 @@ async function readHostStore(): Promise<HostStoreData> {
     const hosts = rawHosts.map((item) => normalizeHostRecord(item))
     const legacyCredentials: Record<string, HostCredentials> = {}
     for (const item of rawHosts) {
-      const id = String((item as any)?.id || '')
+      const id = String(asHostFields(item).id || '')
       const credentials = normalizeCredentials(item)
       if (isValidHostId(id) && hasCredentials(credentials)) legacyCredentials[id] = credentials
     }
-    const needsMigration =
-      parsed.version !== 2 ||
-      rawHosts.some(
-        (item: any) => 'password' in (item || {}) || 'passwordEnv' in (item || {}) || 'privateKeyPath' in (item || {}),
-      )
+    const needsMigration = parsed.version !== 2 || rawHosts.some((item) => hasLegacyCredentialFields(item))
     return { store: { version: 2, hosts }, legacyCredentials, needsMigration }
-  } catch (err: any) {
-    if (err?.code === 'ENOENT')
+  } catch (err) {
+    if (isErrnoCode(err, 'ENOENT'))
       return { store: { version: 2, hosts: [] }, legacyCredentials: {}, needsMigration: false }
     throw err
   }
@@ -258,8 +288,8 @@ async function readCredentialStore(): Promise<CredentialStoreFile> {
       if (isValidHostId(id) && hasCredentials(normalized)) credentials[id] = normalized
     }
     return { version: 1, credentials }
-  } catch (err: any) {
-    if (err?.code === 'ENOENT') return { version: 1, credentials: {} }
+  } catch (err) {
+    if (isErrnoCode(err, 'ENOENT')) return { version: 1, credentials: {} }
     throw err
   }
 }

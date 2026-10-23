@@ -73,8 +73,9 @@ export async function installTmuxAgentHooks(hostId: string, prefetched?: Map<Tmu
     await removeOwnHooks(hostId, event, existing)
     try {
       await execTmux(hostId, ['set-hook', '-g', '-a', event, hookCommand(event, queuePath)])
-    } catch (err: any) {
-      if (String(err?.message || '').includes('invalid option')) unsupportedHookEvents.add(`${hostId}:${event}`)
+    } catch (err) {
+      if ((err instanceof Error ? err.message : '').includes('invalid option'))
+        unsupportedHookEvents.add(`${hostId}:${event}`)
     }
   }
 }

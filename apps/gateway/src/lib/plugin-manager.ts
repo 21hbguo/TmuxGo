@@ -13,6 +13,11 @@ import {
 } from './plugin-manifest.js'
 import { createScopedApiToken, revokeScopedApiToken, verifyScopedApiToken } from './access-scope.js'
 
+// fs 错误用 errno code 分类；catch 值不保证是 Error，先收窄再读 code
+function isErrnoCode(error: unknown, code: string) {
+  return error instanceof Error && (error as NodeJS.ErrnoException).code === code
+}
+
 export interface PluginSource {
   kind: 'local' | 'github'
   owner?: string
@@ -635,8 +640,8 @@ export class PluginManager {
     this.assertStorageKey(key)
     try {
       return JSON.parse(await readFile(path.join(this.dataDir, pluginId, 'state', `${key}.json`), 'utf8'))
-    } catch (error: any) {
-      if (error?.code === 'ENOENT') return undefined
+    } catch (error) {
+      if (isErrnoCode(error, 'ENOENT')) return undefined
       throw error
     }
   }
@@ -733,8 +738,8 @@ export class PluginManager {
       backupRoot = `${finalRoot}.backup-${randomUUID()}`
       try {
         await rename(finalRoot, backupRoot)
-      } catch (error: any) {
-        if (error?.code !== 'ENOENT') throw error
+      } catch (error) {
+        if (!isErrnoCode(error, 'ENOENT')) throw error
         backupRoot = ''
       }
       await rename(checkout, finalRoot)

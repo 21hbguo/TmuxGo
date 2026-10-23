@@ -10,7 +10,10 @@ let file: WriteStream | null = null
 let size = 0
 
 export function getProcessLogPath() {
-  return process.env.TMUXGO_PROCESS_LOG || path.join(process.env.TMUXGO_CONFIG_DIR || path.join(os.homedir(), '.tmuxgo'), 'logs', 'gateway.log')
+  return (
+    process.env.TMUXGO_PROCESS_LOG ||
+    path.join(process.env.TMUXGO_CONFIG_DIR || path.join(os.homedir(), '.tmuxgo'), 'logs', 'gateway.log')
+  )
 }
 
 export function isProcessLogEnabled() {
@@ -69,7 +72,11 @@ export function installProcessLogCapture() {
   for (const name of ['stdout', 'stderr'] as const) {
     const stream = process[name]
     const original = stream.write.bind(stream)
-    stream.write = ((chunk: any, encoding?: any, cb?: any) => {
+    stream.write = ((
+      chunk: string | Uint8Array,
+      encoding?: BufferEncoding | ((error?: Error | null) => void),
+      cb?: (error?: Error | null) => void,
+    ) => {
       try {
         appendRotated(chunk)
       } catch {}

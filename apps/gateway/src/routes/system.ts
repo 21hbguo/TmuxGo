@@ -138,6 +138,10 @@ async function getNetwork(): Promise<{ sentBytes: number; recvBytes: number }> {
   return { sentBytes: 0, recvBytes: 0 }
 }
 
+// 远端采集脚本输出的 JSON 形状不可信：先收窄成记录再逐字段取值
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object'
+}
 function safeNumber(value: unknown) {
   const num = Number(value)
   return Number.isFinite(num) ? num : 0
@@ -300,18 +304,20 @@ async function sampleNetTop(hostId: string): Promise<NetTopData> {
   try {
     const { stdout } = await execHostShell(hostId, NET_TOP_CMD, { timeoutMs: 15000 })
     if (stdout.includes('__NOPY__')) return { available: false, mode: 'nopy', processes: [] }
-    const data = JSON.parse(stdout)
-    const processes = Array.isArray(data?.processes)
-      ? data.processes.map((p: any) => ({
-          name: String(p?.name || '?'),
-          pid: safeNumber(p?.pid),
-          conns: safeNumber(p?.conns),
-          rxBps: safeNumber(p?.rx),
-          txBps: safeNumber(p?.tx),
-        }))
-      : []
-    if (data?.mode === 'nodiag') return { available: false, mode: 'nodiag', processes: [] }
-    if (data?.mode !== 'sock') return { available: false, processes: [] }
+    const data: unknown = JSON.parse(stdout)
+    const rawProcesses = isRecord(data) && Array.isArray(data.processes) ? data.processes : []
+    const processes = rawProcesses.map((p): NetTopProc => {
+      const proc = isRecord(p) ? p : {}
+      return {
+        name: String(proc.name || '?'),
+        pid: safeNumber(proc.pid),
+        conns: safeNumber(proc.conns),
+        rxBps: safeNumber(proc.rx),
+        txBps: safeNumber(proc.tx),
+      }
+    })
+    if (isRecord(data) && data.mode === 'nodiag') return { available: false, mode: 'nodiag', processes: [] }
+    if (!isRecord(data) || data.mode !== 'sock') return { available: false, processes: [] }
     return { available: true, mode: 'sock', processes }
   } catch {
     return { available: false, processes: [] }
@@ -331,30 +337,34 @@ async function getNetTop(hostId: string) {
   netTopInflight.set(hostId, req)
   return req
 }
-function normalizeHostSystemInfo(hostId: string, value: any) {
-  const dependencies = value?.dependencies && typeof value.dependencies === 'object' ? value.dependencies : {}
+function normalizeHostSystemInfo(hostId: string, value: unknown) {
+  const raw = isRecord(value) ? value : {}
+  const dependencies = isRecord(raw.dependencies) ? raw.dependencies : {}
   const gpu =
-    value?.gpu && Number.isFinite(Number(value.gpu.used)) && Number.isFinite(Number(value.gpu.total))
-      ? { used: safeNumber(value.gpu.used), total: safeNumber(value.gpu.total) }
+    isRecord(raw.gpu) && Number.isFinite(Number(raw.gpu.used)) && Number.isFinite(Number(raw.gpu.total))
+      ? { used: safeNumber(raw.gpu.used), total: safeNumber(raw.gpu.total) }
       : null
-  const disks = Array.isArray(value?.disks)
-    ? value.disks
-        .filter((disk: any) => disk && typeof disk.mount === 'string')
-        .map((disk: any) => ({ mount: disk.mount, used: safeNumber(disk.used), total: safeNumber(disk.total) }))
+  const disks = Array.isArray(raw.disks)
+    ? raw.disks
+        .filter(
+          (disk): disk is Record<string, unknown> & { mount: string } =>
+            isRecord(disk) && typeof disk.mount === 'string',
+        )
+        .map((disk) => ({ mount: disk.mount, used: safeNumber(disk.used), total: safeNumber(disk.total) }))
     : []
-  const counters =
-    value?.net && typeof value.net === 'object'
-      ? {
-          sentBytes: Math.max(0, safeNumber(value.net.sentBytes)),
-          recvBytes: Math.max(0, safeNumber(value.net.recvBytes)),
-        }
-      : { sentBytes: 0, recvBytes: 0 }
+  const counters = isRecord(raw.net)
+    ? {
+        sentBytes: Math.max(0, safeNumber(raw.net.sentBytes)),
+        recvBytes: Math.max(0, safeNumber(raw.net.recvBytes)),
+      }
+    : { sentBytes: 0, recvBytes: 0 }
   const net = withNetWindow(hostId, counters)
+  const mem = isRecord(raw.mem) ? raw.mem : {}
   return {
     hostId,
     gpu,
-    cpu: Math.max(0, Math.min(100, safeNumber(value?.cpu))),
-    mem: { used: safeNumber(value?.mem?.used), total: safeNumber(value?.mem?.total) },
+    cpu: Math.max(0, Math.min(100, safeNumber(raw.cpu))),
+    mem: { used: safeNumber(mem.used), total: safeNumber(mem.total) },
     disks,
     net,
     dependencies: {

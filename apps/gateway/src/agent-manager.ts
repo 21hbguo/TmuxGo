@@ -15,7 +15,8 @@ export interface AgentSocket {
   readyState: number
   bufferedAmount?: number
   send(data: string | Buffer): void
-  on(event: string, listener: (...args: any[]) => void): unknown
+  // 回调参数形态随事件而异（由 ws 侧调用）；never[] 只用于放宽注册签名
+  on(event: string, listener: (...args: never[]) => void): unknown
   close?: (code?: number, reason?: string) => void
 }
 export interface AgentStatus {

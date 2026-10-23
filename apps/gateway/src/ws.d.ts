@@ -3,6 +3,6 @@ declare module 'ws' {
     readyState: number
     bufferedAmount?: number
     send(data: string | Buffer): void
-    on(event: string, listener: (...args: any[]) => void): this
+    on(event: string, listener: (...args: never[]) => void): this
   }
 }
