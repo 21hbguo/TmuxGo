@@ -35,7 +35,6 @@ import {
   type BackgroundDownloadInput,
   type BackgroundUploadInput,
   type FileRoot,
-  type StagedUploadFile,
 } from './file-types.js'
 const execFileAsync = promisify(execFile)
 function getFallbackRoot(roots: FileRoot[]) {

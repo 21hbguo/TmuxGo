@@ -15,7 +15,7 @@ import {
 } from './file-ops.js'
 import { discoverGitRepositories, searchContent, searchName } from './file-search.js'
 import { resolveDefaultUploadTarget } from './file-transfer.js'
-import type { FileRoot, GitRepositoryInfo, TrashEntry } from './file-types.js'
+import type { GitRepositoryInfo, TrashEntry } from './file-types.js'
 export async function listDirectoryForHost(hostId: string, rootId: string, relativePath: string, limit?: number) {
   if (hostId === 'local') return listDirectory(rootId, relativePath, limit)
   return runRemoteFileJson(hostId, { op: 'list', root: rootId, path: relativePath, limit })

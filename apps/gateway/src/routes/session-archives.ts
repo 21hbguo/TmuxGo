@@ -81,7 +81,8 @@ async function readArchives(hostId: string) {
   return archives.slice(0, maxArchiveCount)
 }
 function toArchiveSummary(archive: SessionArchive) {
-  const { panes, ...summary } = archive
+  // 摘要不回传 panes：解构命名仅为剔除该字段
+  const { panes: _panes, ...summary } = archive
   return summary
 }
 async function captureSessionArchive(

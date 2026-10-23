@@ -355,7 +355,8 @@ export function resolveAgentStatus(rawStatus: AgentStatus, previousStatus?: Agen
   return rawStatus
 }
 function toAgentPaneState(record: AgentRecord): AgentPaneState {
-  const { rawStatus, rawPhase, ...state } = record
+  // rawStatus/rawPhase 是内部跟踪字段，不进 AgentPaneState；解构命名仅为剔除
+  const { rawStatus: _rawStatus, rawPhase: _rawPhase, ...state } = record
   return state
 }
 function updateRecord(

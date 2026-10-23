@@ -6,8 +6,6 @@ import path from 'path'
 import {
   parsePluginManifest,
   supportsPluginPlatform,
-  type PluginAction,
-  type PluginEventHook,
   type PluginManifest,
   type PluginPermission,
 } from './plugin-manifest.js'
