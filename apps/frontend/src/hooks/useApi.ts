@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, type CredentialStoreFile, type HostStoreFile, type SystemTaskResponse } from '@/lib/api'
-import type { PluginPermission, SessionLayout, SessionTemplate } from '@/types'
+import type { PluginPermission, Session, SessionLayout, SessionMutationResult, SessionTemplate } from '@/types'
 import type {
   GitBranchesResponse,
   GitCommitResponse,
@@ -12,14 +12,14 @@ import type {
   GitStatusResponse,
 } from '@/types'
 
-function upsertSessionList(prev: any[] | undefined, session: any) {
+function upsertSessionList(prev: Session[] | undefined, session: SessionMutationResult) {
   if (!session?.id) return prev || []
   if (!Array.isArray(prev) || prev.length === 0) return [session]
   if (prev.some((item) => item?.id === session.id))
     return prev.map((item) => (item?.id === session.id ? { ...item, ...session } : item))
   return [...prev, session]
 }
-function removeSessionListItem(prev: any[] | undefined, sessionId: string) {
+function removeSessionListItem(prev: Session[] | undefined, sessionId: string) {
   if (!Array.isArray(prev) || !sessionId) return prev || []
   return prev.filter((item) => item?.id !== sessionId)
 }
@@ -359,7 +359,7 @@ export function useCreateSession() {
       cwd?: string
     }) => api.sessions.create(hostId, name, layout, cwd),
     onSuccess: (created, { hostId }) => {
-      queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) => upsertSessionList(prev, created))
+      queryClient.setQueryData(['sessions', hostId], (prev: Session[] | undefined) => upsertSessionList(prev, created))
       queryClient.invalidateQueries({ queryKey: ['sessions', hostId] })
     },
   })
@@ -370,7 +370,7 @@ export function useDeleteSession() {
     mutationFn: ({ hostId, sessionId }: { hostId: string; sessionId: string }) =>
       api.sessions.delete(hostId, sessionId),
     onSuccess: (_, { hostId, sessionId }) => {
-      queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) =>
+      queryClient.setQueryData(['sessions', hostId], (prev: Session[] | undefined) =>
         removeSessionListItem(prev, sessionId),
       )
       clearSessionQueries(queryClient, hostId, sessionId)
@@ -398,12 +398,12 @@ export function useBatchDeleteSessions() {
       if (result.mode === 'execute') {
         const deletedIds = new Set((result.deleted || []).map((item) => item.sessionId).filter(Boolean))
         if (deletedIds.size) {
-          queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) =>
+          queryClient.setQueryData(['sessions', hostId], (prev: Session[] | undefined) =>
             Array.isArray(prev) ? prev.filter((item) => !deletedIds.has(item?.id)) : prev || [],
           )
           Array.from(deletedIds).forEach((sessionId) => clearSessionQueries(queryClient, hostId, sessionId))
         } else if (Array.isArray(payload.sessionIds) && payload.sessionIds.length) {
-          queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) =>
+          queryClient.setQueryData(['sessions', hostId], (prev: Session[] | undefined) =>
             Array.isArray(prev) ? prev.filter((item) => !payload.sessionIds?.includes(item?.id)) : prev || [],
           )
         }
@@ -418,7 +418,7 @@ export function useRenameSession() {
     mutationFn: ({ hostId, sessionId, name }: { hostId: string; sessionId: string; name: string }) =>
       api.sessions.rename(hostId, sessionId, name),
     onSuccess: (renamed, { hostId, sessionId }) => {
-      queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) => {
+      queryClient.setQueryData(['sessions', hostId], (prev: Session[] | undefined) => {
         const next = upsertSessionList(removeSessionListItem(prev, sessionId), renamed)
         return next
       })

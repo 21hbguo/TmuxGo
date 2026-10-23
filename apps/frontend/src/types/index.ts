@@ -19,6 +19,9 @@ export interface Host {
   latencyMs?: number
   lastCheckedAt?: string
   lastConnectionError?: string
+  // source 为 gateway 读取时派生：store=hosts.json 托管条目，sshconfig=来自 ~/.ssh/config（configFile 为来源文件路径）
+  source?: 'local' | 'store' | 'sshconfig' | 'agent'
+  configFile?: string
   dependencies?: Record<string, boolean>
   agent?: {
     version: string
@@ -77,6 +80,34 @@ export interface Window {
   name: string
   active: boolean
   zoomed?: boolean
+  tmuxWindowId?: string
+}
+
+// window 增删/切换/重排接口的返回：失败时 ok:false + error，无 windows
+export interface WindowsMutationResult {
+  ok?: boolean
+  windows?: Window[]
+  error?: string
+}
+
+export interface PaneMutationResult {
+  ok?: boolean
+  error?: string
+}
+
+export interface SessionSnapshot {
+  sessionId: string
+  sessionName: string
+  windows: Window[]
+  panes: Pane[]
+  activeWindowId: string | null
+  activePaneId: string | null
+}
+
+// sessions.create/rename 的返回：命中已存在会话时带 existed，fallback 构造时带 attached
+export interface SessionMutationResult extends Session {
+  existed?: boolean
+  attached?: boolean
 }
 
 export interface Pane {
@@ -105,6 +136,8 @@ export interface Pane {
   message?: string
   revision?: number
   display?: AgentDisplayMetadata
+  // listBySession（-s 全量列 pane）比单 window 列表多带 window_name
+  windowName?: string
 }
 export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown'
 export type AgentPhase =

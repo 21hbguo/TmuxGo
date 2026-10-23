@@ -30,10 +30,14 @@ import type {
   GitStatusResponse,
   GitWorktreeMutationResponse,
   GitWorktreesResponse,
+  Host,
+  Pane,
+  PaneMutationResult,
   PluginCommandLog,
   PluginInfo,
   PluginPermission,
   RemotePreferences,
+  Session,
   SessionArchive,
   SessionArchivePolicy,
   SessionArchiveSummary,
@@ -41,7 +45,9 @@ import type {
   SessionLayout,
   SessionLayoutApplyMode,
   SessionLayoutDocument,
+  SessionMutationResult,
   SessionOrderPreference,
+  SessionSnapshot,
   SessionTemplate,
   SessionWorkspaceEntry,
   Snippet,
@@ -49,6 +55,8 @@ import type {
   UiPreferences,
   UploadJobResult,
   UploadedFile,
+  Window,
+  WindowsMutationResult,
   WorkspaceEntry,
 } from '@/types'
 
@@ -290,15 +298,19 @@ async function readResponseBody(response: Response) {
   if (typeof response.json === 'function') return response.json().catch(() => undefined)
   return undefined
 }
-async function listHostSessions(hostId: string) {
-  const sessions = await fetchApi<any[]>(`/api/hosts/${hostId}/sessions`)
+async function listHostSessions(hostId: string): Promise<Session[]> {
+  const sessions = await fetchApi<Session[]>(`/api/hosts/${hostId}/sessions`)
   return Array.isArray(sessions) ? sessions : []
 }
-async function findHostSessionByName(hostId: string, name: string) {
+async function findHostSessionByName(hostId: string, name: string): Promise<Session | null> {
   const sessions = await listHostSessions(hostId)
   return sessions.find((item) => item?.name === name) || null
 }
-function buildSessionFallback(hostId: string, name: string, session?: any) {
+function buildSessionFallback(
+  hostId: string,
+  name: string,
+  session?: Partial<SessionMutationResult>,
+): SessionMutationResult {
   return {
     id: buildSessionId(hostId, name),
     hostId,
@@ -542,14 +554,7 @@ export const api = {
   },
   snapshot: {
     get: (hostId: string, sessionId: string) =>
-      fetchApi<{
-        sessionId: string
-        sessionName: string
-        windows: any[]
-        panes: any[]
-        activeWindowId: string | null
-        activePaneId: string | null
-      }>(`/api/hosts/${hostId}/sessions/${sessionId}/snapshot`),
+      fetchApi<SessionSnapshot>(`/api/hosts/${hostId}/sessions/${sessionId}/snapshot`),
   },
   shares: {
     list: () => fetchApi<{ links: ShareLink[] }>('/api/shares'),
@@ -672,10 +677,10 @@ export const api = {
       ),
   },
   hosts: {
-    list: () => fetchApi<any[]>('/api/hosts'),
-    get: (id: string) => fetchApi<any>(`/api/hosts/${id}`),
+    list: () => fetchApi<Host[]>('/api/hosts'),
+    get: (id: string) => fetchApi<Host>(`/api/hosts/${id}`),
     create: (payload: HostPayload) =>
-      fetchApi<any>('/api/hosts', {
+      fetchApi<Host>('/api/hosts', {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
@@ -770,10 +775,15 @@ export const api = {
       fetchApi<{ success: boolean }>(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
   sessions: {
-    list: (hostId: string) => fetchApi<any[]>(`/api/hosts/${hostId}/sessions`),
-    create: async (hostId: string, name: string, layout?: SessionLayout, cwd?: string) => {
+    list: (hostId: string) => fetchApi<Session[]>(`/api/hosts/${hostId}/sessions`),
+    create: async (
+      hostId: string,
+      name: string,
+      layout?: SessionLayout,
+      cwd?: string,
+    ): Promise<SessionMutationResult> => {
       try {
-        const created = await fetchApi<any>(`/api/hosts/${hostId}/sessions`, {
+        const created = await fetchApi<Session>(`/api/hosts/${hostId}/sessions`, {
           method: 'POST',
           body: JSON.stringify({ name, layout, cwd }),
         })
@@ -786,9 +796,9 @@ export const api = {
         throw error
       }
     },
-    rename: async (hostId: string, sessionId: string, name: string) => {
+    rename: async (hostId: string, sessionId: string, name: string): Promise<SessionMutationResult> => {
       try {
-        const renamed = await fetchApi<any>(`/api/hosts/${hostId}/sessions/rename`, {
+        const renamed = await fetchApi<Session>(`/api/hosts/${hostId}/sessions/rename`, {
           method: 'POST',
           body: JSON.stringify({ sessionId, name }),
         })
@@ -803,9 +813,12 @@ export const api = {
     },
     delete: async (hostId: string, sessionId: string) => {
       try {
-        const removed = await fetchApi<any>(`/api/hosts/${hostId}/sessions/${sessionId}`, {
-          method: 'DELETE',
-        })
+        const removed = await fetchApi<{ success?: boolean; sessionId?: string } | null>(
+          `/api/hosts/${hostId}/sessions/${sessionId}`,
+          {
+            method: 'DELETE',
+          },
+        )
         return removed && typeof removed === 'object' ? removed : { success: true, sessionId }
       } catch (error) {
         const sessions = await listHostSessions(hostId).catch(() => null)
@@ -830,59 +843,60 @@ export const api = {
         replace?: boolean
       },
     ) =>
-      fetchApi<{ session: any; mode: SessionLayoutApplyMode }>(`/api/hosts/${hostId}/session-layouts/apply`, {
+      fetchApi<{ session: Session; mode: SessionLayoutApplyMode }>(`/api/hosts/${hostId}/session-layouts/apply`, {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
   },
   windows: {
-    list: (hostId: string, sessionId: string) => fetchApi<any[]>(`/api/hosts/${hostId}/sessions/${sessionId}/windows`),
+    list: (hostId: string, sessionId: string) =>
+      fetchApi<Window[]>(`/api/hosts/${hostId}/sessions/${sessionId}/windows`),
     create: (hostId: string, sessionId: string, name: string) =>
-      fetchApi<any>(`/api/hosts/${hostId}/sessions/${sessionId}/windows`, {
+      fetchApi<Window>(`/api/hosts/${hostId}/sessions/${sessionId}/windows`, {
         method: 'POST',
         body: JSON.stringify({ name }),
       }),
     select: (hostId: string, sessionId: string, windowId: string) =>
-      fetchApi<any>(`/api/hosts/${hostId}/sessions/${sessionId}/windows/select`, {
+      fetchApi<WindowsMutationResult>(`/api/hosts/${hostId}/sessions/${sessionId}/windows/select`, {
         method: 'POST',
         body: JSON.stringify({ windowId }),
       }),
     rename: (hostId: string, sessionId: string, windowId: string, name: string) =>
-      fetchApi<any>(`/api/hosts/${hostId}/sessions/${sessionId}/windows/rename`, {
+      fetchApi<WindowsMutationResult>(`/api/hosts/${hostId}/sessions/${sessionId}/windows/rename`, {
         method: 'POST',
         body: JSON.stringify({ windowId, name }),
       }),
     move: (hostId: string, sessionId: string, orderedWindowIds: string[]) =>
-      fetchApi<any>(`/api/hosts/${hostId}/sessions/${sessionId}/windows/move`, {
+      fetchApi<WindowsMutationResult>(`/api/hosts/${hostId}/sessions/${sessionId}/windows/move`, {
         method: 'POST',
         body: JSON.stringify({ orderedWindowIds }),
       }),
     kill: (hostId: string, sessionId: string, windowId: string) =>
-      fetchApi<any>(`/api/hosts/${hostId}/sessions/${sessionId}/windows/kill`, {
+      fetchApi<WindowsMutationResult>(`/api/hosts/${hostId}/sessions/${sessionId}/windows/kill`, {
         method: 'POST',
         body: JSON.stringify({ windowId }),
       }),
   },
   panes: {
-    list: (windowId: string) => fetchApi<any[]>(`/api/windows/${windowId}/panes`),
+    list: (windowId: string) => fetchApi<Pane[]>(`/api/windows/${windowId}/panes`),
     listBySession: (hostId: string, sessionId: string) =>
-      fetchApi<any[]>(`/api/hosts/${hostId}/sessions/${sessionId}/panes`),
+      fetchApi<Pane[]>(`/api/hosts/${hostId}/sessions/${sessionId}/panes`),
     output: (paneId: string) =>
       fetchApi<{ paneId: string; tmuxPaneId?: string; data: string }>(
         `/api/panes/${encodeURIComponent(paneId)}/output`,
       ),
     create: (windowId: string, direction: 'horizontal' | 'vertical') =>
-      fetchApi<any>(`/api/windows/${windowId}/panes`, {
+      fetchApi<Pane>(`/api/windows/${windowId}/panes`, {
         method: 'POST',
         body: JSON.stringify({ direction }),
       }),
     zoom: (session?: string) =>
-      fetchApi<any>('/api/panes/zoom', {
+      fetchApi<PaneMutationResult>('/api/panes/zoom', {
         method: 'POST',
         body: JSON.stringify({ paneId: session }),
       }),
     select: (paneId: string, options?: { keepZoom?: boolean }) =>
-      fetchApi<any>('/api/panes/select', {
+      fetchApi<PaneMutationResult>('/api/panes/select', {
         method: 'POST',
         body: JSON.stringify({ paneId, keepZoom: options?.keepZoom === true }),
       }),
@@ -892,22 +906,22 @@ export const api = {
         body: JSON.stringify({ paneId }),
       }),
     split: (paneId: string, direction: 'horizontal' | 'vertical') =>
-      fetchApi<any>('/api/panes/split', {
+      fetchApi<PaneMutationResult>('/api/panes/split', {
         method: 'POST',
         body: JSON.stringify({ paneId, direction }),
       }),
     zoomByPane: (paneId: string) =>
-      fetchApi<any>('/api/panes/zoom', {
+      fetchApi<PaneMutationResult>('/api/panes/zoom', {
         method: 'POST',
         body: JSON.stringify({ paneId }),
       }),
     resize: (paneId: string, size: { cols?: number; rows?: number }) =>
-      fetchApi<any>('/api/panes/resize', {
+      fetchApi<PaneMutationResult>('/api/panes/resize', {
         method: 'POST',
         body: JSON.stringify({ paneId, ...size }),
       }),
     kill: (paneId?: string) =>
-      fetchApi<any>('/api/panes/kill', {
+      fetchApi<PaneMutationResult>('/api/panes/kill', {
         method: 'POST',
         body: JSON.stringify({ paneId }),
       }),
