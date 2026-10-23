@@ -475,23 +475,33 @@ test.describe('render dedup regression', () => {
 
     const dom = await pageA.evaluate(() => {
       const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
-      const rowsEl = document.querySelector('[data-terminal] .xterm-rows') as HTMLElement | null
+      const root = document.querySelector('[data-terminal]')
+      const screenEl = root?.querySelector('.xterm-screen') as HTMLElement | null
+      // 桌面端默认走 WebGL 渲染器：行画在 <canvas> 里，DOM 里根本没有 .xterm-rows；
+      // DOM 渲染器才有 .xterm-rows。两者宽度都等于 cols * cellWidth，所以按渲染器二选一取基准，
+      // 而不是死等 .xterm-rows（空终端 + WebGL 时它永远不存在，断言只能拿到 0）
+      const rowsEl = root?.querySelector('.xterm-rows') as HTMLElement | null
+      const canvasEl = screenEl?.querySelector('canvas') ?? null
+      const widthEl = canvasEl ?? rowsEl ?? screenEl
       const cell = t?._core?._renderService?.dimensions?.css?.cell
       return {
         cols: t?.cols || 0,
-        rowsWidth: rowsEl?.getBoundingClientRect().width || 0,
-        rowsScrollWidth: rowsEl?.scrollWidth || 0,
-        rowsClientWidth: rowsEl?.clientWidth || 0,
+        widthSource: canvasEl ? 'canvas' : rowsEl ? 'rows' : screenEl ? 'screen' : 'none',
+        layerWidth: widthEl?.getBoundingClientRect().width || 0,
+        // 溢出判定统一看 .xterm-screen：两种渲染器下它都是行区的裁剪框
+        layerScrollWidth: screenEl?.scrollWidth || 0,
+        layerClientWidth: screenEl?.clientWidth || 0,
         cellWidth: cell?.width || 0,
         docScrollWidth: document.documentElement.scrollWidth,
         innerWidth: window.innerWidth,
       }
     })
     logCounts('size-consistency', { tmux: wide.cols, ...dom })
-    // DOM 行区宽换算列数与 window/xterm cols 收敛（±1 列亚像素容差），
-    // 且 .xterm-rows 不产生横向溢出
-    if (dom.cellWidth > 0) expect(Math.abs(Math.round(dom.rowsWidth / dom.cellWidth) - dom.cols)).toBeLessThanOrEqual(1)
-    expect(dom.rowsScrollWidth).toBeLessThanOrEqual(dom.rowsClientWidth + 2)
+    // 渲染层宽换算列数与 window/xterm cols 收敛（±1 列亚像素容差），且行区不产生横向溢出
+    expect(dom.widthSource).not.toBe('none')
+    if (dom.cellWidth > 0)
+      expect(Math.abs(Math.round(dom.layerWidth / dom.cellWidth) - dom.cols)).toBeLessThanOrEqual(1)
+    expect(dom.layerScrollWidth).toBeLessThanOrEqual(dom.layerClientWidth + 2)
     expect(dom.docScrollWidth).toBeLessThanOrEqual(dom.innerWidth + 1)
     await contextA.close()
   })
