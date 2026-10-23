@@ -127,6 +127,52 @@ test('restricted scope cannot search a session outside its allowlist', async () 
   }
 })
 
+test('serves the same search over GET for read-only tokens', async () => {
+  clearPaneSearchCache()
+  const [pane0] = await createTwoPaneSession()
+  const fastify = buildFastify({ hosts: '*', sessions: '*', readOnly: true })
+  try {
+    await sendTmuxKeys(pane0, 'printf "PANESEARCH_GET token\\n"', 'Enter')
+    await waitForText(pane0, 'PANESEARCH_GET token')
+    // accessScopeGuard 对只读身份只放行 GET/HEAD；搜索本身无副作用，因此留了 GET 变体
+    const response = await fastify.inject({
+      method: 'GET',
+      url: `/hosts/local/sessions/${TEST_TMUX_SESSION}/pane-search?query=PANESEARCH_GET&lines=200`,
+    })
+    assert.equal(response.statusCode, 200)
+    const body = response.json() as { ok: boolean; hits: { preview: string }[]; maxLines: number }
+    assert.equal(body.ok, true)
+    assert.equal(body.maxLines, 200)
+    assert.ok(body.hits.some((hit) => hit.preview.includes('PANESEARCH_GET')))
+  } finally {
+    await fastify.close()
+    await killTestTmuxSession()
+  }
+})
+
+test('accepts the session-<host>-<name> id form used by the frontend', async () => {
+  clearPaneSearchCache()
+  const [pane0] = await createTwoPaneSession()
+  const fastify = buildFastify()
+  try {
+    await sendTmuxKeys(pane0, 'printf "PANESEARCH_IDFORM x\\n"', 'Enter')
+    await waitForText(pane0, 'PANESEARCH_IDFORM x')
+    const response = await fastify.inject({
+      method: 'POST',
+      url: `/hosts/local/sessions/session-local-${TEST_TMUX_SESSION}/pane-search`,
+      payload: { query: 'PANESEARCH_IDFORM' },
+    })
+    assert.equal(response.statusCode, 200)
+    const body = response.json() as { ok: boolean; hits: { paneId: string }[] }
+    assert.equal(body.ok, true)
+    assert.ok(body.hits.length >= 1)
+    assert.equal(body.hits[0].paneId, `local:${pane0}`)
+  } finally {
+    await fastify.close()
+    await killTestTmuxSession()
+  }
+})
+
 test('rejects empty queries instead of scanning everything', async () => {
   await createTwoPaneSession()
   const fastify = buildFastify()
