@@ -402,6 +402,44 @@ test('writeRemoteUpload reports normalized remote failures instead of hanging', 
   await assert.rejects(writeRemoteUpload('remote-fail', '/tmp/file.bin', source, 10240), /SSH authentication failed/)
 })
 
+test('writeRemoteUpload surfaces the remote failure when the write side breaks first', async (t) => {
+  await withConfigDir(t)
+  await upsertRemoteHost({ id: 'remote-mask', address: '192.0.2.110', user: 'dev', port: 22 })
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  // 故意不设 SHIM_CAPTURE_FILE：桩不读 stdin 就 exit 255，1MiB 一定写不完 → 写端必然先撞 EPIPE。
+  // 这正是原来会抖的反向场景：用户必须看到远端原因，而不是本地 write EPIPE。
+  setEnv(t, { SHIM_SSH_STDERR: 'dev@192.0.2.110: Permission denied (publickey).', SHIM_SSH_EXIT: '255' })
+  const source = Readable.from([Buffer.alloc(1024 * 1024, 0x61)])
+  const error = await writeRemoteUpload('remote-mask', '/tmp/file.bin', source, 10240).then(
+    () => null,
+    (failure: Error) => failure,
+  )
+  assert.ok(error, 'upload must fail')
+  assert.equal(error.message, 'SSH authentication failed')
+  assert.notEqual((error as NodeJS.ErrnoException).code, 'EPIPE')
+})
+
+test('writeRemoteUpload keeps AbortError instead of masking it with the remote fallback', async (t) => {
+  const configDir = await withConfigDir(t)
+  await upsertRemoteHost({ id: 'remote-abort', address: '192.0.2.110', user: 'dev', port: 22 })
+  const shims = installShims(['ssh'])
+  t.after(shims.restore)
+  // 桩把 stdin 读到 EOF 且保持存活：源流不产生数据也不结束，只有 abort 能收场
+  setEnv(t, { SHIM_CAPTURE_FILE: path.join(configDir, 'abort.bin'), SHIM_SSH_EXIT: '0' })
+  const controller = new AbortController()
+  const stalled = new Readable({ read() {} })
+  const promise = writeRemoteUpload('remote-abort', '/tmp/slow.bin', stalled, 10240, controller.signal)
+  setTimeout(() => controller.abort(), 50)
+  const error = await promise.then(
+    () => null,
+    (failure: Error) => failure,
+  )
+  assert.ok(error, 'aborted upload must reject')
+  // 中止时 child 也会失败，但它只能给出 'Remote upload failed' 兜底文案；如实报 AbortError 才对
+  assert.equal(error.name, 'AbortError', `abort was masked by: ${error.message}`)
+})
+
 // ---- 后台任务：状态迁移、冲突改名、失败清理 ----
 
 test('runBackgroundUploadTask copies staged files into place and clears the staging area', async (t) => {

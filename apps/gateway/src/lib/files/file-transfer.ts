@@ -208,9 +208,20 @@ export async function writeRemoteUpload(
     else await pipeline(source, createRateLimitStream(rateLimitKBps), child.stdin!, { signal })
     await completion
   } catch (error) {
-    await completion.catch(() => {})
+    // 写端失败有两类原因，必须分开处理，否则其中一类会被另一类顶掉：
+    // ① 远端先失败（认证失败/路径非法）→ 管道这边只能看到 EPIPE，那只是症状，
+    //    completion 里的归一化错误（如 'SSH authentication failed'）才是用户该看到的；
+    // ② 调用方中止 → child 被 signal kill，completion 同样会失败，但它只会给出
+    //    'Remote upload failed' 这种兜底文案；此时 pipeline 抛的 AbortError 才是真相，
+    //    所以中止场景必须反过来优先抛管道错误，避免「用户主动取消」被报成远端故障。
+    const remoteFailure = await completion.catch((failure: unknown) => failure)
+    if (!isAbortLike(error, signal) && remoteFailure instanceof Error) throw remoteFailure
     throw error
   }
+}
+// pipeline 在 signal 中止时抛 AbortError；同时兜住「signal 已中止但错误类型不是 AbortError」的实现差异
+function isAbortLike(error: unknown, signal?: AbortSignal) {
+  return signal?.aborted === true || (error instanceof Error && error.name === 'AbortError')
 }
 function getDownloadProcessStream(child: ReturnType<typeof spawn>, fallback: string) {
   let stderr = ''
