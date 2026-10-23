@@ -8,7 +8,12 @@ import {
   type AgentEvent,
   type AgentPaneState,
 } from './agent-state.js'
-import { persistAgentNotification } from './agent-notifications.js'
+import {
+  getPushSubscriberCount,
+  onPushSubscriberChange,
+  persistAgentNotification,
+  refreshPushSubscriberCount,
+} from './agent-notifications.js'
 import { upsertRecoveryCandidate, type RecoveryCandidateInput } from './agent-recovery.js'
 import type { AgentProtocolEvent } from './agent-events.js'
 
@@ -65,7 +70,11 @@ interface AgentMonitorOptions {
   getHostIds?: () => Promise<string[]>
   intervalMs?: number
   idleMs?: number
+  // 有 web-push 订阅者但无 WS 监听者时的折中档：通知延迟由轮询节拍决定，
+  // 30s 怠速档会让"需要审批"提醒最坏拖半分钟
+  pushPollMs?: number
   hostRefreshMs?: number
+  hasPushSubscribers?: () => boolean
   now?: () => number
   onNotification?: (event: Extract<AgentMonitorEvent, { type: 'agent_notification' }>) => void
   // recovery manifest 落点：pane 移除/host 下线/agent 进程结束时记录候选；
@@ -209,6 +218,7 @@ export class AgentMonitor {
   private readonly getHostIds: () => Promise<string[]>
   private readonly intervalMs: number
   private readonly idleMs: number
+  private readonly pushPollMs: number
   private readonly hostRefreshMs: number
   private readonly now: () => number
   private readonly onNotification?: (event: Extract<AgentMonitorEvent, { type: 'agent_notification' }>) => void
@@ -217,6 +227,9 @@ export class AgentMonitor {
   private readonly pendingProtocolEvents = new Map<string, Map<string, AgentProtocolEvent>>()
   private readonly listeners = new Set<(event: AgentMonitorEvent) => void>()
   private readonly notificationThrottle = new Map<string, number>()
+  private readonly hasPushSubscribers: () => boolean
+  private lastPushSubscribers = false
+  private unsubscribePushChange: (() => void) | null = null
   private hostRefreshTimer: ReturnType<typeof setInterval> | null = null
   private running = false
   private startPromise: Promise<void> | null = null
@@ -232,7 +245,10 @@ export class AgentMonitor {
         return [...ids]
       })
     this.intervalMs = Math.max(250, options.intervalMs || 1500)
-    this.idleMs = Math.max(this.intervalMs, options.idleMs || 30000)
+    // 怠速档可配：远端 SSH 主机多/链路贵时调大，通知敏感部署可调小
+    this.idleMs = Math.max(this.intervalMs, Number(process.env.TMUXGO_AGENT_IDLE_POLL_MS) || options.idleMs || 30000)
+    this.pushPollMs = Math.max(this.intervalMs, options.pushPollMs || 5000)
+    this.hasPushSubscribers = options.hasPushSubscribers || (() => getPushSubscriberCount() > 0)
     this.hostRefreshMs = Math.max(this.intervalMs, options.hostRefreshMs || 5000)
     this.now = options.now || (() => Date.now())
     this.onNotification = options.onNotification
@@ -258,6 +274,13 @@ export class AgentMonitor {
   async start() {
     if (this.running) return this.startPromise || Promise.resolve()
     this.running = true
+    this.lastPushSubscribers = this.hasPushSubscribers()
+    if (!this.unsubscribePushChange) this.unsubscribePushChange = onPushSubscriberChange(() => this.syncPushCadence())
+    // web-push 订阅表只读探测不阻塞启动：start() 的时序被「stop 打断启动」类用例依赖，
+    // 探测落地后 syncPushCadence 自行把怠速档提到 push 档（毫秒级延迟，节拍是秒级）
+    void refreshPushSubscriberCount()
+      .then(() => this.syncPushCadence())
+      .catch(() => {})
     this.startPromise = (async () => {
       await this.refreshHosts(false)
       await Promise.all([...this.hosts.keys()].map((hostId) => this.pollHost(hostId)))
@@ -272,6 +295,8 @@ export class AgentMonitor {
 
   stop() {
     this.running = false
+    this.unsubscribePushChange?.()
+    this.unsubscribePushChange = null
     if (this.hostRefreshTimer) clearInterval(this.hostRefreshTimer)
     this.hostRefreshTimer = null
     for (const state of this.hosts.values()) {
@@ -298,10 +323,20 @@ export class AgentMonitor {
     }
   }
 
-  // 有订阅者用快速档（intervalMs），零订阅降怠速档（idleMs）：
-  // onNotification/web-push 不依赖 listeners，慢档仍保住后台通知，同时空闲时远程轮询降 ~20×
+  // 三档轮询：
+  //   有监听者（WS/agent.wait）→ intervalMs 快档，交互态要即时；
+  //   无监听者但有 web-push 订阅者 → pushPollMs，通知延迟等于节拍，不能按怠速走；
+  //   都没有 → idleMs 怠速（默认 30s），空闲时远程轮询降 ~20×
   private currentPollMs() {
-    return this.listeners.size ? this.intervalMs : this.idleMs
+    if (this.listeners.size) return this.intervalMs
+    return this.hasPushSubscribers() ? this.pushPollMs : this.idleMs
+  }
+  // web-push 订阅表变化时只在「有/无」翻转时重排节拍，避免每次注册都重置定时器
+  private syncPushCadence() {
+    const next = this.hasPushSubscribers()
+    if (next === this.lastPushSubscribers) return
+    this.lastPushSubscribers = next
+    this.refreshPollCadence()
   }
   private refreshPollCadence() {
     if (!this.running) return
@@ -316,6 +351,11 @@ export class AgentMonitor {
   getStates(hostId: string) {
     const state = this.hosts.get(hostId)
     return state?.initialized ? sortAgents(state.agents.values()) : null
+  }
+
+  // host 级 revision：推式帧里的排障字段（内容未变则不涨，见 applyScan）
+  getRevision(hostId: string) {
+    return this.hosts.get(hostId)?.revision ?? 0
   }
 
   getSessionStates(hostId: string, sessionName: string) {

@@ -362,6 +362,31 @@ test('scopes display seq dedup per source and keeps legacy unsourced patches com
   unsubscribe()
 })
 
+test('idle cadence uses the push tier while web-push subscribers exist', async () => {
+  let hasPush = false
+  const monitor = new AgentMonitor({
+    scan: async () => [],
+    getHostIds: async () => ['local'],
+    intervalMs: 250,
+    pushPollMs: 5000,
+    idleMs: 30000,
+    // 注入 push 探测避免依赖真实通知存储；启动时也会做一次只读探测，故与 options 同源
+    hasPushSubscribers: () => hasPush,
+  })
+  const currentPollMs = () => (monitor as unknown as { currentPollMs: () => number }).currentPollMs()
+  // 三档：无监听无 push → 怠速；有 push → 5s 折中；有监听者 → 快档
+  assert.equal(currentPollMs(), 30000)
+  // 必须先等 start 落地再断言，否则 stop() 早于定时器创建会留下 interval 把进程挂住
+  await monitor.start()
+  hasPush = true
+  assert.equal(currentPollMs(), 5000)
+  const unsubscribe = monitor.subscribe(() => {})
+  assert.equal(currentPollMs(), 250)
+  unsubscribe()
+  assert.equal(currentPollMs(), 5000)
+  monitor.stop()
+})
+
 test('stamps stateSeq once and only advances it on real state changes', async () => {
   let states: AgentPaneState[] = [pane('local:%6')]
   const monitor = new AgentMonitor({

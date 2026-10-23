@@ -48,11 +48,44 @@ let storePromise: Promise<NotificationStore> | null = null
 let loadedStorePath: string | null = null
 let savePromise: Promise<void> = Promise.resolve()
 let saveSequence = 0
+// web-push 订阅者数量缓存：agent-monitor 用它决定空闲轮询档位（5s vs 30s）。
+// 读侧必须同步且零 IO，写入侧在 loadStore/register/revoke/失效清理处更新
+let pushSubscriberCount = 0
+const pushSubscriberListeners = new Set<() => void>()
 function configDir() {
   return process.env.TMUXGO_CONFIG_DIR?.trim() || path.join(os.homedir(), '.tmuxgo')
 }
 function storePath() {
   return path.join(configDir(), 'agent-notifications.json')
+}
+export function getPushSubscriberCount() {
+  return pushSubscriberCount
+}
+export function onPushSubscriberChange(listener: () => void) {
+  pushSubscriberListeners.add(listener)
+  return () => {
+    pushSubscriberListeners.delete(listener)
+  }
+}
+function setPushSubscriberCount(count: number) {
+  if (count === pushSubscriberCount) return
+  pushSubscriberCount = count
+  for (const listener of [...pushSubscriberListeners]) {
+    try {
+      listener()
+    } catch {}
+  }
+}
+// 只读探测：启动时判断是否需要 5s 档。刻意不调 loadStore()——它在无存储文件时
+// 会生成 VAPID 并落盘，轮询节拍不该有这个副作用
+export async function refreshPushSubscriberCount() {
+  try {
+    const parsed = JSON.parse(await readFile(storePath(), 'utf8')) as { subscriptions?: unknown }
+    setPushSubscriberCount(Array.isArray(parsed.subscriptions) ? parsed.subscriptions.length : 0)
+  } catch {
+    setPushSubscriberCount(0)
+  }
+  return pushSubscriberCount
 }
 export function normalizeAgentDeviceId(value: unknown) {
   if (typeof value !== 'string') throw new Error('Invalid device id')
@@ -102,6 +135,7 @@ async function loadStore() {
     loadedStorePath = currentPath
     store.subscriptions = store.subscriptions.filter((item) => normalizeSubscription(item) !== null && typeof item.id === 'string' && typeof item.deviceId === 'string').map((item) => ({ ...item, ...normalizeSubscription(item)! }))
     store.notifications = store.notifications.filter((item) => item && typeof item.id === 'string' && typeof item.eventId === 'string' && typeof item.hostId === 'string' && typeof item.sessionName === 'string' && typeof item.paneId === 'string' && Array.isArray(item.readBy)).slice(0, 500)
+    setPushSubscriberCount(store.subscriptions.length)
     await saveStore(store)
     return store
   })().finally(() => { storePromise = null })
@@ -141,6 +175,7 @@ async function sendPush(value: NotificationStore, notification: AgentNotificatio
   }))
   if (removed.size) {
     value.subscriptions = value.subscriptions.filter((subscription) => !removed.has(subscription.id))
+    setPushSubscriberCount(value.subscriptions.length)
     await saveStore(value)
   }
 }
@@ -158,6 +193,7 @@ export async function registerAgentPushSubscription(deviceIdRaw: string, raw: un
   const previous = value.subscriptions.find((item) => item.id === id)
   const next: StoredSubscription = { ...subscription, id, deviceId, createdAt: previous?.createdAt || now, updatedAt: now }
   value.subscriptions = [...value.subscriptions.filter((item) => item.id !== id), next]
+  setPushSubscriberCount(value.subscriptions.length)
   await saveStore(value)
   return { id, deviceId, endpoint: subscription.endpoint, updatedAt: now }
 }
@@ -165,7 +201,10 @@ export async function revokeAgentPushSubscription(id: string, deviceId?: string)
   const value = await loadStore()
   const before = value.subscriptions.length
   value.subscriptions = value.subscriptions.filter((item) => !(item.id === id && (!deviceId || item.deviceId === deviceId)))
-  if (value.subscriptions.length !== before) await saveStore(value)
+  if (value.subscriptions.length !== before) {
+    setPushSubscriberCount(value.subscriptions.length)
+    await saveStore(value)
+  }
   return value.subscriptions.length !== before
 }
 export async function listUnreadAgentNotifications(deviceId: string, limit = 100) {

@@ -45,6 +45,12 @@ export const streamPerfMetrics = {
   sharedRedrawBoundaries: 0,
   droppedDuplicateChunks: 0,
   resizeAckWaitMs: 0,
+  // AgentFeed（推式订阅通道）：当前订阅数（gauge）/ 已发帧数 / 帧字节 / 合并窗落地次数 / 断号重同步
+  agentSubs: 0,
+  agentFramesSent: 0,
+  agentFrameBytes: 0,
+  agentFramesCoalesced: 0,
+  agentResyncRequests: 0,
 }
 export function recordStreamMetric<K extends keyof typeof streamPerfMetrics>(key: K, value = 1) {
   const current = streamPerfMetrics[key]
