@@ -22,6 +22,7 @@ import { useGithubDeviceLogin } from '@/hooks/useGithubDeviceLogin'
 import { createTerminalRuntime } from '@/lib/terminal-runtime'
 import { createTerminalResizeMask } from '@/lib/terminal-resize-mask'
 import type { TerminalSizeState } from '@/lib/terminal-size-state'
+import dynamic from '@/lib/dynamic'
 import { Chip } from './Chip'
 import type { FileRoot } from '@/types'
 const DEFAULT_TERMINAL_PERF = {
@@ -61,6 +62,9 @@ interface TerminalPaneProps {
   onSwipeLeft?: () => void
   onSwipeRight?: () => void
 }
+// 搜索面板只在按 Cmd/Ctrl+F 时才需要，拆成独立 chunk，别进终端首屏
+const TerminalSearch = dynamic(() => import('./TerminalSearch').then((m) => ({ default: m.TerminalSearch })))
+
 export function TerminalPane({
   sessionName,
   onInput,
@@ -97,6 +101,7 @@ export function TerminalPane({
   const touchMovedRef = useRef(false)
   const terminalInstance = useRef<LayoutTerminal | null>(null)
   const [historyState, setHistoryState] = useState<{ away: boolean; fresh: boolean }>({ away: false, fresh: false })
+  const [searchOpen, setSearchOpen] = useState(false)
   const viewportDisposersRef = useRef<Array<{ dispose: () => void } | undefined>>([])
   // 历史浏览提示：仅依赖 xterm 本地滚动状态（viewportY<baseY 表示离开实时
   // 位置）；alternate buffer（Vim 等全屏应用）baseY=0 永不误报。按钮语义只
@@ -550,6 +555,24 @@ export function TerminalPane({
     attachExclusiveRef,
     sizeState,
   ])
+  // Cmd/Ctrl+F 打开单终端搜索：必须在 capture 阶段拦下，否则浏览器原生查找条抢不走。
+  // 只在焦点落在本终端内时接管（多 pane 布局下各自有实例，别互相抢键）；
+  // pane-search 用的是 Cmd+Shift+F，这里显式排除 shift 以免两个面板打架。
+  useEffect(() => {
+    const handle = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) return
+      if (event.key.toLowerCase() !== 'f') return
+      const root = terminalRef.current
+      const active = document.activeElement
+      if (!root || (active !== root && !(active instanceof Node && root.contains(active)))) return
+      event.preventDefault()
+      event.stopPropagation()
+      setSearchOpen(true)
+    }
+    window.addEventListener('keydown', handle, true)
+    return () => window.removeEventListener('keydown', handle, true)
+  }, [])
+
   return (
     <div
       ref={terminalRef}
@@ -618,6 +641,15 @@ export function TerminalPane({
         data-testid="pane-resize-guide"
         className="pointer-events-none absolute z-20 hidden bg-accent shadow-[0_0_6px_var(--accent)]"
       />
+      {searchOpen && (
+        <TerminalSearch
+          terminal={terminalInstance.current}
+          onClose={() => {
+            setSearchOpen(false)
+            terminalInstance.current?.focus?.()
+          }}
+        />
+      )}
       {historyState.away && (
         <button
           type="button"

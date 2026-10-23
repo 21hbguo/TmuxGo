@@ -657,6 +657,11 @@ export const zh = {
 
   // TerminalSearch
   'terminalSearch.placeholder': '搜索...',
+  'terminalSearch.noResults': '无匹配',
+  'terminalSearch.caseSensitive': '区分大小写',
+  'terminalSearch.previous': '上一个',
+  'terminalSearch.next': '下一个',
+  'terminalSearch.close': '关闭搜索',
   'quick.attachModeTitle': '附着模式',
   'quick.attachShared': '共享附着',
   'quick.attachExclusive': '独占附着',

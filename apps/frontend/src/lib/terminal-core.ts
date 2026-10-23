@@ -18,6 +18,7 @@ export async function createTerminalCore(options: TerminalCoreOptions) {
   const { Terminal } = await import('@xterm/xterm')
   const { WebLinksAddon } = await import('@xterm/addon-web-links')
   const { Unicode11Addon } = await import('@xterm/addon-unicode11')
+  const { tryCreateSearchAddon } = await import('@/lib/terminal-search-addon')
   if (!options.container.isConnected) return null
   const style = getComputedStyle(document.documentElement)
   const getVar = (name: string) => style.getPropertyValue(name).trim()
@@ -45,6 +46,9 @@ export async function createTerminalCore(options: TerminalCoreOptions) {
     scrollback: options.scrollback,
   })
   terminal.loadAddon(new Unicode11Addon())
+  // 搜索 addon 必须在 open 之前挂上：TerminalSearch 通过 registry 查这个实例，
+  // 挂载时机晚于组件首次渲染就会变成「输入了没反应」
+  tryCreateSearchAddon(terminal)
   terminal.unicode.activeVersion = '11'
   terminal.loadAddon(
     new WebLinksAddon((event: MouseEvent, uri: string) => {
