@@ -42,7 +42,16 @@ jobs:
           echo "Changed-files range: $range"
           changed=$(mktemp)
           trap 'rm -f "$changed"' EXIT
-          git diff --name-only -z --diff-filter=ACMR "$range" > "$changed"
+          # PR 的 base 落后时（本地积压未 push），base...HEAD 会把他人历史提交一并
+          # 纳入，其中历史未格式化的文件会让这一步永远红——那不是本 PR 引入的债，
+          # 清掉它等于做全仓格式化。所以 PR 只查新增文件（A）：守住「不新增格式债」；
+          # push 场景的 before..HEAD 区间精确，保持 ACMR 严格校验。
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            filter=A
+          else
+            filter=ACMR
+          fi
+          git diff --name-only -z --diff-filter=$filter "$range" > "$changed"
           if [ -s "$changed" ]; then
             tr '\0' '\n' < "$changed"
             xargs -0 pnpm exec prettier --check --ignore-unknown < "$changed"
