@@ -308,3 +308,49 @@ test('shutdown capture covers local sessions, skips remote hosts and respects th
     assert.deepEqual(empty.saved, [])
   })
 })
+
+test('shutdown capture honours the session whitelist and records why the rest were skipped', async () => {
+  await withConfigDir(async () => {
+    const { exec } = createFakeTmux({ sessions: ['test', 'work', 'TmuxGo-1'] })
+    const captured: string[] = []
+    const result = await snapshotSessionsOnShutdown({
+      hostIds: ['local'],
+      include: ['test'],
+      exec,
+      capture: (async (options: { sessionId: string }) => {
+        captured.push(options.sessionId)
+        return { id: 'x', panes: [], degraded: [], stats: {}, layout: {}, sessionName: 'test' } as never
+      }) as never,
+    })
+    // 只抓白名单里的那个：生产机上关停不该连带扫别人的会话
+    assert.deepEqual(captured, ['session-local-test'])
+    assert.deepEqual(result.saved, ['local:test'])
+    assert.deepEqual(result.skipped, ['local:work:not-in-whitelist', 'local:TmuxGo-1:not-in-whitelist'])
+
+    // 白名单为空/未设 = 维持原行为（扫全部）
+    const all: string[] = []
+    const unrestricted = await snapshotSessionsOnShutdown({
+      hostIds: ['local'],
+      include: [],
+      exec: createFakeTmux({ sessions: ['test', 'work'] }).exec,
+      capture: (async (options: { sessionId: string }) => {
+        all.push(options.sessionId)
+        return { id: 'x', panes: [], degraded: [], stats: {}, layout: {}, sessionName: 'work' } as never
+      }) as never,
+    })
+    assert.deepEqual(all, ['session-local-test', 'session-local-work'])
+    assert.deepEqual(unrestricted.skipped, [])
+
+    // 白名单里的名字在当前 tmux 上不存在时不该报错（会话结束了而已）
+    const missing = await snapshotSessionsOnShutdown({
+      hostIds: ['local'],
+      include: ['gone'],
+      exec: createFakeTmux({ sessions: ['test'] }).exec,
+      capture: (async () => {
+        throw new Error('should not capture')
+      }) as never,
+    })
+    assert.deepEqual(missing.saved, [])
+    assert.deepEqual(missing.skipped, ['local:test:not-in-whitelist'])
+  })
+})

@@ -507,6 +507,7 @@ Recommended delivery checklist:
 | `TMUXGO_CONFIG_DIR`          | `~/.tmuxgo`                      | Host configuration directory, including `hosts.json`                                             |
 | `TMUXGO_ALLOWED_ORIGINS`     | empty                            | Additional browser Origins allowed to reach the Gateway, comma-separated                         |
 | `TMUX_WEB_ALLOWED_SESSIONS`  | empty                            | Comma-separated tmux session allowlist                                                           |
+| `TMUXGO_SNAPSHOT_SESSIONS`   | empty                            | Comma-separated sessions to snapshot on shutdown; empty = all local sessions                     |
 
 Gateway authentication is enabled by default. Unauthenticated access to protected APIs such as `/api/hosts` returns `401`. Authentication state and device sessions are stored in `~/.tmuxgo/auth.json`; browsers refresh their session automatically after the first login. The default `admin/admin123` password must be changed on first use, and changing the password revokes all device sessions. Password authentication does not replace TLS; production deployments still require HTTPS/WSS or an encrypted network.
 

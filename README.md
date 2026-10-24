@@ -519,6 +519,7 @@ npm run test:ssh-e2e
 | `TMUXGO_CONFIG_DIR`          | `~/.tmuxgo`                      | 主机配置目录，默认包含 `hosts.json`                          |
 | `TMUXGO_ALLOWED_ORIGINS`     | 空                               | 额外允许访问 Gateway 的浏览器 Origin，多个值用逗号分隔       |
 | `TMUX_WEB_ALLOWED_SESSIONS`  | 空                               | 逗号分隔的 tmux 会话白名单                                   |
+| `TMUXGO_SNAPSHOT_SESSIONS`   | 空                               | 关停自动快照只抓这些会话（逗号分隔）；留空抓全部本机会话     |
 
 Gateway 默认启用账号认证。未登录访问受保护 API（如 `/api/hosts`）返回 `401`。认证状态与设备会话保存在 `~/.tmuxgo/auth.json`，浏览器首次登录后会自动续期；使用默认 `admin/admin123` 登录时必须修改密码，修改密码会撤销所有设备会话。认证是密码认证，不等同于 TLS；生产环境仍必须使用 HTTPS/WSS 或加密网络。
 

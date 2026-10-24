@@ -85,6 +85,7 @@ TMUXGO_SSH_USER_MAP=admin=tmuxgo,alice=research
 - `TMUXGO_SSH_ALLOWED_HOSTS`：允许的 hostId 列表，支持 `user@hostId` 粒度；留空表示全部允许。
 - `TMUXGO_SSH_USER_MAP`：SSH 用户到 TmuxGo 用户映射，逗号分隔的 `sshuser=tmuxuser`。
 - session 白名单复用 `TMUX_WEB_ALLOWED_SESSIONS`。
+- 关停自动快照可用 `TMUXGO_SNAPSHOT_SESSIONS` 限定会话（逗号分隔，留空抓全部本机会话），生产机上避免关停时连带抓起无关会话。
 
 ## 审计
 
