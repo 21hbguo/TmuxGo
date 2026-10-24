@@ -10,7 +10,7 @@ import {
   type SessionLayoutDocument,
   type SessionLayoutPaneRow,
 } from './session-layout.js'
-import { applyTemplateLayout, type TmuxExec } from './session-layout-apply.js'
+import { applyTemplateLayout, buildSessionCreateArgs, type TmuxExec } from './session-layout-apply.js'
 
 // session 快照 L1（lean 档）：layout 元信息 + 每 pane cwd/前台命令 + 尾部 200 行纯文本。
 // 恢复语义是「同结构 + 同 cwd + 同命令重跑」，进程不会复活，scrollbackTail 只用于预览展示
@@ -358,7 +358,8 @@ export async function restoreSnapshot(options: {
   if (exists && !replace) throw new Error(`Session already exists: ${sessionName} (set replace=true to overwrite)`)
   if (exists) await exec(hostId, ['kill-session', '-t', `=${sessionName}`])
   try {
-    await exec(hostId, ['new-session', '-d', '-s', sessionName, '-e', 'TMUXGO_ENV=1'])
+    // 首 pane 的 cwd 交给 new-session -c：否则它继承 tmux server 的 cwd（远端 = home）
+    await exec(hostId, buildSessionCreateArgs(sessionName, layout))
     await applyTemplateLayout(hostId, sessionName, layout, exec)
   } catch (err) {
     // 半成品 session 留着比删掉更碍事：失败就清干净再抛

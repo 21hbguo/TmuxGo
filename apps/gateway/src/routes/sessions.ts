@@ -13,6 +13,7 @@ import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
 import { execTmux, execHostShell } from '../lib/tmux-executor.js'
 import {
   applyTemplateLayout,
+  buildSessionCreateArgs,
   getFirstPaneIndex,
   getFirstWindowTarget,
   getPaneStartupCommand,
@@ -610,7 +611,8 @@ export async function sessionRoutes(fastify: FastifyInstance) {
     if (existing) await execTmux(hostId, ['kill-session', '-t', exactSessionTarget(sessionName)])
     try {
       await raiseServerHistoryLimit(hostId)
-      await execTmux(hostId, ['new-session', '-d', '-s', sessionName, '-e', 'TMUXGO_ENV=1'])
+      // 首 pane 的 cwd 走 new-session -c，与快照恢复同一条规则（见 buildSessionCreateArgs）
+      await execTmux(hostId, buildSessionCreateArgs(sessionName, layout))
       await applyCreatedSessionDefaults(hostId, sessionName)
       await applyTemplateLayout(hostId, sessionName, layout)
     } catch (err) {
