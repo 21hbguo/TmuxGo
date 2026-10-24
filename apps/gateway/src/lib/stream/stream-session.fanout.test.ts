@@ -14,7 +14,7 @@ import {
 } from './stream-session.js'
 import { resetSharedTerminalsForTest, countSharedTerminals } from './shared-terminal.js'
 import { streamPerfMetrics } from '../perf-metrics.js'
-import { STREAM_FANOUT_ENABLED, RESYNC_RESET_SEQ } from './stream-config.js'
+import { STREAM_FANOUT_ENABLED, RESYNC_RESET_SEQ, setMirrorEnabledForTest } from './stream-config.js'
 
 type FakePty = IPty & {
   emitData: (data: string) => void
@@ -76,8 +76,15 @@ function fakePty(pid: number): FakePty {
 
 function createSocket() {
   // 帧形状按实际推送字段声明：JSON 帧带 type/data/cols/rows，二进制帧以 __binary 标记
-  const sent: Array<{ type?: string; __binary?: boolean; buf?: Buffer; data?: string; cols?: number; rows?: number }> =
-    []
+  const sent: Array<{
+    type?: string
+    __binary?: boolean
+    buf?: Buffer
+    data?: string
+    cols?: number
+    rows?: number
+    mirrorSeq?: number
+  }> = []
   const socket = {
     readyState: 1,
     bufferedAmount: 0,
@@ -487,6 +494,9 @@ test('attach refresh dedup: output mid-window cancels the remaining slots', asyn
 
 test('fanout redraw broadcast: B attach redraws once and peers get the reset boundary first', async () => {
   setupEnv()
+  // 本用例钉的是重绘合并语义：关掉镜像，让 B 走 refresh-client 路径（镜像命中的
+  // 新行为由 mirror attach 用例覆盖）
+  setMirrorEnabledForTest(false)
   const spawns = setupPtySpawn()
   const refreshCount = setupRefreshExec()
   resetExclusiveOwnershipForTest()
@@ -524,6 +534,121 @@ test('fanout redraw broadcast: B attach redraws once and peers get the reset bou
     sa.cleanup()
     sb.cleanup()
   } finally {
+    setMirrorEnabledForTest(null)
+    teardownEnv()
+  }
+})
+
+test('mirror attach: a later client gets the exact screen instead of a redraw request', async () => {
+  setupEnv()
+  setMirrorEnabledForTest(true)
+  const spawns = setupPtySpawn()
+  const refreshCount = setupRefreshExec()
+  resetExclusiveOwnershipForTest()
+  resetSharedTerminalsForTest()
+  try {
+    const a = createSocket()
+    const b = createSocket()
+    const sa = new StreamSession(a.socket, null)
+    const sb = new StreamSession(b.socket, null)
+    await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
+    // A 的输出进了共享 hub 的镜像
+    spawns[0].emitData('MIRROR-SEED')
+    await sleep(20)
+    a.sent.length = 0
+
+    await sb.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
+    await sleep(200)
+
+    // 镜像 warm：不发 refresh-client（重绘会经共享 PTY 扇出所有人，跟快照叠加就是花屏）
+    assert.equal(refreshCount(), 0, '镜像命中时不应再请求重绘')
+    const bResyncs = b.sent.filter((m) => m.type === 'output_resync')
+    assert.equal(bResyncs.length, 1, 'B 应收到一段镜像快照')
+    assert.ok(String(bResyncs[0].data).startsWith(RESYNC_RESET_SEQ), '快照要带复位边界')
+    assert.match(String(bResyncs[0].data), /MIRROR-SEED/, '快照内容来自镜像而非重绘')
+    assert.ok((streamPerfMetrics.mirrorAttachSnapshots as number) >= 1, '命中镜像快照要记账')
+    sa.cleanup()
+    sb.cleanup()
+  } finally {
+    setMirrorEnabledForTest(null)
+    teardownEnv()
+  }
+})
+
+test('mirror attach: a stale client only receives the delta it missed', async () => {
+  setupEnv()
+  setMirrorEnabledForTest(true)
+  const spawns = setupPtySpawn()
+  setupRefreshExec()
+  resetExclusiveOwnershipForTest()
+  resetSharedTerminalsForTest()
+  try {
+    const a = createSocket()
+    const b = createSocket()
+    const sa = new StreamSession(a.socket, null)
+    const sb = new StreamSession(b.socket, null)
+    await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
+    spawns[0].emitData('FIRST')
+    await sleep(20)
+    // 客户端把「最后收到的输出帧」上的 mirrorSeq 记下来，重连时报回去
+    const lastSeen = a.sent
+      .filter((m) => m.type === 'output' && typeof m.mirrorSeq === 'number')
+      .map((m) => m.mirrorSeq as number)
+      .pop()
+    assert.equal(typeof lastSeen, 'number', '输出帧要带 mirrorSeq，客户端才有据可报')
+
+    // 断线期间的输出：hub 因 A 以外的订阅者仍在而存活（此处用 B 未 attach 前的窗口
+    // 直接喂 hub），镜像与环继续累积
+    spawns[0].emitData('SECOND')
+    await sleep(20)
+    b.sent.length = 0
+
+    await sb.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24, lastSeq: lastSeen })
+    await sleep(200)
+
+    const bResyncs = b.sent.filter((m) => m.type === 'output_resync')
+    assert.equal(bResyncs.length, 0, '有可用增量时不应发整快照')
+    const bDeltas = b.sent.filter((m) => m.type === 'output')
+    assert.equal(bDeltas.length, 1, '只补一段增量')
+    assert.match(String(bDeltas[0].data), /SECOND/)
+    assert.doesNotMatch(String(bDeltas[0].data), /FIRST/, '已收到的内容不重发')
+    assert.ok((streamPerfMetrics.mirrorAttachDeltas as number) >= 1, '增量命中要记账')
+    sa.cleanup()
+    sb.cleanup()
+  } finally {
+    setMirrorEnabledForTest(null)
+    teardownEnv()
+  }
+})
+
+test('mirror attach: cold mirror falls back to the redraw path', async () => {
+  setupEnv()
+  setMirrorEnabledForTest(true)
+  setupPtySpawn()
+  const refreshCount = setupRefreshExec()
+  resetExclusiveOwnershipForTest()
+  resetSharedTerminalsForTest()
+  try {
+    const a = createSocket()
+    const b = createSocket()
+    const sa = new StreamSession(a.socket, null)
+    const sb = new StreamSession(b.socket, null)
+    // hub 建好但一字节都没喂过：镜像 cold
+    await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
+    await sleep(20)
+    // A 自己的 attach 也是冷镜像、也会刷新，只看 B 这一段
+    const before = refreshCount()
+    await sb.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
+    await sleep(200)
+    // 回退路径会按 attach 兜底槽位重绘（没有可见输出时槽位不提前 done），
+    // 关键断言是「确实回到了 refresh 路径」而不是次数
+    assert.ok(refreshCount() - before >= 1, '冷镜像必须回退重绘路径')
+    assert.ok(b.sent.filter((m) => m.type === 'output_resync').length >= 1, '回退路径仍发边界帧')
+    assert.ok((streamPerfMetrics.mirrorFallbacks as number) >= 1, '回退要记账')
+    sa.cleanup()
+    sb.cleanup()
+  } finally {
+    setMirrorEnabledForTest(null)
     teardownEnv()
   }
 })

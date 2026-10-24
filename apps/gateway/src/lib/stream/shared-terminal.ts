@@ -2,6 +2,9 @@ import { recordStreamMetric, updateStreamMetric } from '../perf-metrics.js'
 import { createTerminalAttachment } from '../terminal-attachment.js'
 import { createTerminalOutputSanitizer, hasSubstantiveTerminalContent } from '../terminal-output.js'
 import type { TerminalProcess } from './stream-config.js'
+import { PaneMirror } from './pane-mirror.js'
+import { execTmux } from '../tmux-executor.js'
+import { isMirrorEnabled } from './stream-config.js'
 
 // 会话级输出 fan-out 枢纽：同一 host+session 只保留一份 tmux attach PTY，
 // sanitize 一次后扇出给全部 StreamSession 订阅者；各端仍走自己的
@@ -23,6 +26,9 @@ export interface SharedTerminalSubscriber {
 
 export class SharedTerminal {
   readonly subscribers = new Set<SharedTerminalSubscriber>()
+  // pane 镜像挂在这里而不是 StreamSession：多客户端共享一份，客户端全断也不影响
+  // 镜像活着（hub 还在时其他端的输出继续喂它），重连才能拿到精确画面
+  readonly mirror: PaneMirror
   cols: number
   rows: number
   private sanitize = createTerminalOutputSanitizer()
@@ -39,6 +45,7 @@ export class SharedTerminal {
   ) {
     this.cols = cols
     this.rows = rows
+    this.mirror = new PaneMirror(hostId, sessionName, cols, rows)
     pty.onData((chunk: string) => this.handleData(chunk))
     pty.onExit((exitCode: number) => this.handleExit(exitCode))
   }
@@ -58,6 +65,7 @@ export class SharedTerminal {
     this.pty.resize(cols, rows)
     this.cols = cols
     this.rows = rows
+    this.mirror.resize(cols, rows)
   }
   write(data: string) {
     if (this.dead) return
@@ -81,12 +89,15 @@ export class SharedTerminal {
     if (this.sanitizeMode === 'heavy' && hasSubstantiveTerminalContent(filtered)) {
       this.sanitizeMode = 'light'
     }
+    // 镜像喂点：唯一一处 hook，在 sanitize 之后、扇出之前
+    this.mirror.feed(filtered)
     for (const sub of this.subscribers) sub.onSharedOutput(filtered)
   }
   private handleExit(exitCode: number) {
     if (this.dead) return
     const subs = [...this.subscribers]
     this.dead = true
+    this.mirror.dispose()
     if (sharedTerminals.get(this.key) === this) sharedTerminals.delete(this.key)
     updateStreamMetric('sharedTerminals', sharedTerminals.size)
     try {
@@ -116,6 +127,7 @@ export function resetSharedTerminalsForTest() {
     sharedTerminals.delete(hub.key)
     try {
       hub.dead = true
+      hub.mirror.dispose()
       hub.pty.kill()
     } catch {
       // kill 失败可忽略
@@ -130,10 +142,27 @@ function destroySharedTerminal(key: string) {
   sharedTerminals.delete(key)
   updateStreamMetric('sharedTerminals', sharedTerminals.size)
   hub.dead = true
+  hub.mirror.dispose()
   try {
     hub.pty.kill()
   } catch {
     // kill 失败可忽略
+  }
+}
+
+// 冷启动基线：hub 刚建、PTY 首屏重绘还没到时，镜像里什么都没有。用 capture-pane
+// 带 -e（保留 SGR）和 -S -（含历史）灌一份，attach 才不会拿到残缺画面。
+// 注意不能覆盖 live 输出：只要 mirror 已经收到过字节就放弃回填（首屏重绘才是权威）
+async function seedMirrorBaseline(hub: SharedTerminal) {
+  if (!isMirrorEnabled()) return
+  try {
+    const { stdout } = await execTmux(hub.hostId, ['capture-pane', '-p', '-e', '-S', '-', '-t', hub.sessionName])
+    if (hub.dead || !stdout) return
+    if (hub.mirror.seq > 0) return
+    hub.mirror.seedBaseline(stdout)
+    recordStreamMetric('mirrorBaselines')
+  } catch {
+    // 回填是尽力而为：失败就保持冷镜像，attach 自动回退重绘路径
   }
 }
 
@@ -176,6 +205,7 @@ export async function acquireSharedTerminal(opts: {
     }
     const hub = new SharedTerminal(key, opts.hostId, opts.sessionName, pty, opts.cols, opts.rows)
     sharedTerminals.set(key, hub)
+    void seedMirrorBaseline(hub)
     updateStreamMetric('sharedTerminals', sharedTerminals.size)
     return { hub, reused: false }
   })()

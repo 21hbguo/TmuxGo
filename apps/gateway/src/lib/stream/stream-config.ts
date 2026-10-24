@@ -22,6 +22,16 @@ export const RESYNC_RESET_SEQ = '\u001b[0m\u001b[4l\u001b[?6l\u001b[r\u001b(B\u0
 export const STREAM_COMPRESS_ENABLED = process.env.TMUXGO_STREAM_COMPRESS !== '0'
 export const STREAM_COMPRESS_THRESHOLD = Math.max(0, Number(process.env.TMUXGO_STREAM_COMPRESS_THRESHOLD || 256) || 256)
 export const STREAM_CELL_ENABLED = process.env.TMUXGO_STREAM_CELL === '1'
+// pane 镜像（session 级 headless 终端）默认开：attach 时用它给出精确画面而不是
+// refresh-client 重绘的近似还原。设 0 可整体关闭，行为回退到纯重绘路径
+let mirrorEnabled = process.env.TMUXGO_MIRROR !== '0'
+export function isMirrorEnabled() {
+  return mirrorEnabled
+}
+// 测试缝：只想验重绘合并/边界语义的用例不必让镜像插一脚
+export function setMirrorEnabledForTest(value: boolean | null) {
+  mirrorEnabled = value ?? process.env.TMUXGO_MIRROR !== '0'
+}
 export const STREAM_COMPACT_ENABLED = process.env.TMUXGO_STREAM_COMPACT !== '0'
 // 会话级 PTY 输出 fan-out：默认开；TMUXGO_STREAM_FANOUT=0 回退每连接一条 PTY
 export const STREAM_FANOUT_ENABLED = process.env.TMUXGO_STREAM_FANOUT !== '0'

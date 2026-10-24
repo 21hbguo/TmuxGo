@@ -175,6 +175,8 @@ export const streamAttachMessageSchema = z.object({
   passive: z.boolean().optional(),
   cols: z.number().finite().optional(),
   rows: z.number().finite().optional(),
+  // 镜像增量补发：客户端记住的最后一个输出序号
+  lastSeq: z.number().int().min(0).optional(),
 })
 export const streamInputMessageSchema = z.object({
   type: z.literal('input'),
