@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FiAlertCircle, FiCheckCircle, FiClock, FiRefreshCw, FiTrash2 } from 'react-icons/fi'
 import { api, type AgentTodoItem, type AgentTodoQueue } from '@/lib/api'
+import { markAgentNotificationsRead } from '@/lib/agent-push'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { useTranslation } from '@/i18n'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -184,7 +185,11 @@ export function InboxTasksView({ t, onJumpToPane }: InboxTasksViewProps) {
                     <li key={item.id}>
                       <button
                         type="button"
-                        onClick={() => onJumpToPane?.(item)}
+                        onClick={() => {
+                          onJumpToPane?.(item)
+                          // 与消息行对齐：点开即已读（按设备），失败静默——待办是否仍 blocked 由 agent 状态决定
+                          void markAgentNotificationsRead([item.id])
+                        }}
                         disabled={!onJumpToPane}
                         className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-bg-1 disabled:cursor-default disabled:hover:bg-transparent"
                       >

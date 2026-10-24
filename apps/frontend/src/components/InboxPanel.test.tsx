@@ -223,6 +223,39 @@ describe('InboxPanel', () => {
     expect(screen.queryByText('Needs you')).not.toBeInTheDocument()
   })
 
+  it('jumps from a task row to its pane through the route handler (host/session/pane intact)', async () => {
+    apiMocks.list.mockResolvedValue({ ok: true, messages: [], nextCursor: null, unreadCount: 0, total: 0 })
+    const tasks = vi.mocked((await import('@/lib/api')).api.agentNotifications.tasks)
+    tasks.mockResolvedValue({
+      blocked: [
+        {
+          id: 'n-jump',
+          eventId: 'n-jump',
+          hostId: 'edge',
+          sessionName: 'agent-2',
+          paneId: 'edge:%7',
+          agent: 'claude',
+          status: 'permission_required',
+          message: 'claude is waiting for permission',
+          timestamp: new Date().toISOString(),
+          kind: 'todo',
+          todoState: 'blocked',
+          task: 'T-239',
+        },
+      ],
+      pending: [],
+      done: [],
+      counts: { blocked: 1, pending: 0, done: 0 },
+    })
+    const onJumpToRoute = vi.fn()
+    render(<InboxPanel mode="mobile" onClose={vi.fn()} onJumpToRoute={onJumpToRoute} />)
+    await act(async () => {})
+    fireEvent.click(screen.getByRole('tab', { name: 'Tasks' }))
+    fireEvent.click(await screen.findByText('claude is waiting for permission'))
+    // 三个定位字段一个不少：少 hostId 会跳到别的机器上的同名 session
+    expect(onJumpToRoute).toHaveBeenCalledWith({ hostId: 'edge', sessionName: 'agent-2', paneId: 'edge:%7' })
+  })
+
   it('lists messages with unread dot and opens preview + marks read on click (mobile)', async () => {
     const onPreview = vi.fn()
     useInboxStore.setState({
