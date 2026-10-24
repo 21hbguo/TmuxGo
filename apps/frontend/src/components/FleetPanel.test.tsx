@@ -130,6 +130,29 @@ describe('FleetPanel', () => {
     expect(screen.getByText('T-236')).toBeTruthy()
   })
 
+  it('anchors every row with a status tone and spells the status out', async () => {
+    vi.mocked((await import('@/lib/api')).api.hosts.list).mockResolvedValue([host()])
+    wrap(makeClient(), React.createElement(FleetPanel))
+    await waitFor(() => expect(document.querySelectorAll('[data-fleet-row]')).toHaveLength(2))
+    // 状态不只靠颜色：blocked/failed 走 danger 锚点，行内 badge 带可见文案
+    const anchors = Array.from(document.querySelectorAll('[data-fleet-row] [data-fleet-anchor]'))
+    expect(anchors.map((node) => node.getAttribute('data-fleet-anchor'))).toEqual(['danger', 'working'])
+    expect(screen.getByText('等待处理')).toBeTruthy()
+    expect(screen.getByText('工作中')).toBeTruthy()
+  })
+
+  it('points at the filters when every row is filtered out', async () => {
+    vi.mocked((await import('@/lib/api')).api.hosts.list).mockResolvedValue([host()])
+    apiMocks.list.mockImplementation(async () => [session('dev', [pane({ agentStatus: 'idle' })])])
+    wrap(makeClient(), React.createElement(FleetPanel))
+    await waitFor(() => expect(document.querySelectorAll('[data-fleet-row]')).toHaveLength(1))
+    act(() => screen.getByRole('button', { name: '只看需处理' }).click())
+    // 有 agent、只是被筛掉：给的是放宽筛选的提示，不是「去装 hook」
+    expect(await screen.findByText('没有符合条件的结果')).toBeTruthy()
+    expect(screen.getByText('换个关键词，或放宽上面的筛选条件')).toBeTruthy()
+    expect(screen.queryByText('本机还没有 agent pane')).toBeNull()
+  })
+
   it('jumps to the pane through the existing select action', async () => {
     vi.mocked((await import('@/lib/api')).api.hosts.list).mockResolvedValue([host()])
     panes['local:local:dev'] = [{ id: 'local:%2', tmuxPaneId: '%2', index: 1, task: 'T-236' }]
