@@ -977,6 +977,16 @@ function WorktreesTab({ hostId, repoPath, t }: { hostId: string; repoPath: strin
   )
 }
 
+// pull 的 409 是可操作失败（工作区脏、游离 HEAD、没上游、rebase/merge 未完成），git 原文
+// 对用户不可读。按 code 换成分类提示；无 code（老后端/网络错误）继续透传原文，守兼容。
+const PULL_BLOCKED_HINTS = {
+  GIT_DIRTY_TREE: 'git.pullBlockedDirtyTree',
+  GIT_DETACHED_HEAD: 'git.pullBlockedDetachedHead',
+  GIT_NO_UPSTREAM: 'git.pullBlockedNoUpstream',
+  GIT_REBASE_IN_PROGRESS: 'git.pullBlockedRebaseInProgress',
+  GIT_MERGE_IN_PROGRESS: 'git.pullBlockedMergeInProgress',
+} as const
+
 export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) {
   const { t } = useTranslation()
   const activeHostId = useConsoleStore((state) => state.activeHostId)
@@ -1050,7 +1060,11 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
           })
           queryClient.invalidateQueries({ queryKey: ['git-status'] })
         },
-        onError: (err) => pushToast({ type: 'error', message: err.message }),
+        onError: (err) => {
+          const code = (err as Error & { code?: string }).code
+          const hintKey = code ? PULL_BLOCKED_HINTS[code as keyof typeof PULL_BLOCKED_HINTS] : undefined
+          pushToast({ type: 'error', message: hintKey ? t(hintKey) : err.message })
+        },
       },
     )
   }

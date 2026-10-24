@@ -269,6 +269,39 @@ describe('GitPanel', () => {
     expect(useConsoleStore.getState().toasts.at(-1)?.message).toBe('拉取成功')
   })
 
+  it('maps pull 409 codes to actionable hints and keeps the raw message without a code', async () => {
+    const user = userEvent.setup()
+    const queryClient = new QueryClient()
+    render(
+      React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(I18nProvider, null, React.createElement(GitPanel)),
+      ),
+    )
+    await user.click(screen.getByRole('button', { name: '拉取' }))
+    const onError = gitPullMutateMock.mock.calls[0][1].onError as (err: Error & { code?: string }) => void
+
+    const cases: [string, string][] = [
+      ['GIT_DIRTY_TREE', '工作区有未提交改动，请先提交或暂存后再拉取'],
+      ['GIT_DETACHED_HEAD', '当前处于游离 HEAD，请先切回分支再拉取'],
+      ['GIT_NO_UPSTREAM', '当前分支未设置上游分支，请先设置后再拉取'],
+      ['GIT_REBASE_IN_PROGRESS', '有未完成的变基操作，请先完成或中止后再拉取'],
+      ['GIT_MERGE_IN_PROGRESS', '有未完成的合并操作，请先完成或中止后再拉取'],
+    ]
+    for (const [code, expected] of cases) {
+      await act(async () => onError(Object.assign(new Error('git 原文不可读'), { code })))
+      expect(useConsoleStore.getState().toasts.at(-1)?.message).toBe(expected)
+    }
+
+    // 老后端/网络错误没有 code：保持透传原文，不吞信息
+    await act(async () => onError(new Error('network down')))
+    expect(useConsoleStore.getState().toasts.at(-1)?.message).toBe('network down')
+    // 未知 code 同样回退原文（后端将来加了新 code 也不会显示空白提示）
+    await act(async () => onError(Object.assign(new Error('some git stderr'), { code: 'GIT_SOMETHING_NEW' })))
+    expect(useConsoleStore.getState().toasts.at(-1)?.message).toBe('some git stderr')
+  })
+
   it('opens commit diff inside the mobile Git panel and returns one level', async () => {
     const user = userEvent.setup()
     const queryClient = new QueryClient()
