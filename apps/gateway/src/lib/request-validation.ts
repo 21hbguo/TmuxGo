@@ -3,7 +3,12 @@ import { z, type ZodError } from 'zod'
 // ZodError → 400 INVALID_REQUEST 的可读 message：`path: reason` 用分号连接，
 // 顶层（path 为空）落成 'request' 占位，便于前端直接展示
 export function describeZodError(error: ZodError) {
-  return error.issues.map((issue) => `${issue.path.join('.') || 'request'}: ${issue.message}`).join('; ')
+  // zod4 把类型错误的文案改成 `Invalid input: expected string, received undefined`
+  // 这类冗长前缀，前端会原样展示；这里统一剥掉前缀只留 `expected X, received Y`，
+  // 既保留 zod 的诊断信息又不让 UI 出现一屏客套话
+  return error.issues
+    .map((issue) => `${issue.path.join('.') || 'request'}: ${issue.message.replace(/^Invalid input: /, '')}`)
+    .join('; ')
 }
 
 const identifier = z.string().min(1).max(120)
@@ -21,7 +26,7 @@ export const fileContentBodySchema = z.object({
   root: identifier,
   path: filePath,
   content: z.string().max(1024 * 1024),
-  modifiedAt: z.string().datetime().optional(),
+  modifiedAt: z.iso.datetime().optional(),
 })
 export const fileEntryBodySchema = z.object({ root: identifier, path: filePath, name: z.string().min(1).max(255) })
 export const fileTransferBodySchema = z.object({

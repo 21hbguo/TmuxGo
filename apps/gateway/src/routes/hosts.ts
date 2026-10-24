@@ -33,8 +33,8 @@ import { taskManager, type TaskExecutionContext, type TaskManager } from '../lib
 interface HostTestTaskInput {
   hostId: string
 }
-const hostStoreSchema = z.object({ version: z.literal(2), hosts: z.array(z.record(z.unknown())) })
-const credentialStoreSchema = z.object({ version: z.literal(1), credentials: z.record(z.unknown()) })
+const hostStoreSchema = z.object({ version: z.literal(2), hosts: z.array(z.record(z.string(), z.unknown())) })
+const credentialStoreSchema = z.object({ version: z.literal(1), credentials: z.record(z.string(), z.unknown()) })
 const hostConfigBodySchema = z.object({
   hosts: hostStoreSchema.optional(),
   credentials: credentialStoreSchema.optional(),
