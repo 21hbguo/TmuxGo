@@ -95,6 +95,11 @@ vi.mock('@/i18n', () => ({
     t: (key: string, params?: Record<string, string | number>) => {
       const map: Record<string, string> = {
         'sshPanel.title': 'SSH',
+        'sshPanel.subtitle': '{hosts} hosts · {online} online',
+        'sshPanel.emptyHint': 'Quick add or ssh config',
+        'sshPanel.status.online': 'Online',
+        'sshPanel.status.unknown': 'Status unknown',
+        'sshPanel.status.offline': 'Offline',
         'sshPanel.newHost': 'New Host',
         'sshPanel.local': 'Local',
         'sshPanel.remote': 'Remote Hosts',
@@ -259,8 +264,19 @@ describe('SshPanel', () => {
     render(<SshPanel />)
     fireEvent.click(screen.getByText('hosts.json'))
     expect(screen.queryByText('Web Prod')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /hosts.json/ })).toHaveAttribute('aria-expanded', 'false')
     fireEvent.click(screen.getByText('hosts.json'))
     expect(screen.getByText('Web Prod')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /hosts.json/ })).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('renders the unified header with host counts and per-host status labels', () => {
+    render(<SshPanel />)
+    // local + edge(agent online) 在线；devbox unknown、web-prod offline
+    expect(screen.getByText('4 hosts · 2 online')).toBeInTheDocument()
+    expect(screen.getAllByLabelText('Online')).toHaveLength(2)
+    expect(screen.getByLabelText('Status unknown')).toBeInTheDocument()
+    expect(screen.getByLabelText('Offline')).toBeInTheDocument()
   })
 
   it('hides delete on sshconfig rows and shows config-managed details', () => {

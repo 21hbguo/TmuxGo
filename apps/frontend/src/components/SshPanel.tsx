@@ -1,6 +1,18 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { FiCode, FiFileText, FiRefreshCw, FiStar } from 'react-icons/fi'
+import {
+  FiChevronDown,
+  FiChevronRight,
+  FiCode,
+  FiCpu,
+  FiFileText,
+  FiGlobe,
+  FiPlus,
+  FiRefreshCw,
+  FiServer,
+  FiStar,
+  FiTerminal,
+} from 'react-icons/fi'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import {
   useAddSshConfigHost,
@@ -33,12 +45,29 @@ interface SshConfigHostFields {
   forwardAgent?: string
 }
 
+// 在线判定同时被 header 统计和状态点复用，避免两处各写一遍 agent/status 的分叉
+function isHostOnline(host: Host) {
+  return host.agent ? host.agent.online === true : host.status === 'online'
+}
+
+// 状态点走主题 token（accent-2/warn/danger）：原来写死 green/yellow 在浅色主题下发灰
 function StatusDot({ host }: { host: Host }) {
-  const isOnline = host.agent ? host.agent.online === true : host.status === 'online'
-  const isWarn = !host.agent && (host.status === 'unknown' || host.status === 'unreachable')
+  const { t } = useTranslation()
+  const online = isHostOnline(host)
+  const unknown = !host.agent && (host.status === 'unknown' || host.status === 'unreachable')
+  const label = online
+    ? t('sshPanel.status.online')
+    : unknown
+      ? t('sshPanel.status.unknown')
+      : t('sshPanel.status.offline')
   return (
     <span
-      className={`h-2 w-2 shrink-0 rounded-full ${isOnline ? 'bg-green-400' : isWarn ? 'bg-yellow-400' : 'bg-danger'}`}
+      role="img"
+      aria-label={label}
+      title={label}
+      className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+        online ? 'bg-accent-2 shadow-[0_0_6px_rgb(var(--accent-2)/0.5)]' : unknown ? 'bg-warn' : 'bg-danger'
+      }`}
     />
   )
 }
@@ -143,6 +172,7 @@ export function SshPanel() {
   const remoteHosts = hosts.filter(
     (host: Host) => host.id !== 'local' && !(host.agent || host.connectionMode === 'agent'),
   )
+  const onlineHosts = hosts.filter((host: Host) => isHostOnline(host)).length
   const selectedHost = hosts.find((host: Host) => host.id === selectedHostId) || null
   const pendingDeleteHost = hosts.find((host: Host) => host.id === pendingDeleteHostId)
   const toggleGroup = (group: string) => setCollapsedGroups((prev) => ({ ...prev, [group]: !prev[group] }))
@@ -376,19 +406,30 @@ export function SshPanel() {
     const ok = await copy(text)
     pushToast({ type: ok ? 'success' : 'error', message: ok ? t('sshPanel.copied') : t('clipboard.copyFailed') })
   }
-  const renderGroup = (title: string, groupHosts: Host[], subtitle?: string, groupKey?: string) => {
+  // 分组头统一成 Endpoints 的 section 样式：chevron + 可选来源图标 + 大写标题 + 计数胶囊
+  const renderGroup = (
+    title: string,
+    groupHosts: Host[],
+    subtitle?: string,
+    groupKey?: string,
+    icon?: typeof FiServer,
+  ) => {
     if (!groupHosts.length) return null
     const collapsed = collapsedGroups[title] === true
+    const GroupIcon = icon
+    const Chevron = collapsed ? FiChevronRight : FiChevronDown
     return (
-      <div key={groupKey}>
+      <section key={groupKey} aria-label={title}>
         <button
           onClick={() => toggleGroup(title)}
+          aria-expanded={!collapsed}
           title={subtitle}
-          className="flex min-h-11 w-full items-center gap-2 px-3 py-1.5 text-meta font-semibold text-text-3 hover:bg-bg-2"
+          className="flex min-h-8 w-full items-center gap-1.5 px-3 pb-1 pt-2 text-caption uppercase tracking-wide text-text-3 transition-colors hover:text-text-1"
         >
-          <span className="text-caption">{collapsed ? '▶' : '▼'}</span>
-          <span>{title}</span>
-          <span className="ml-auto rounded-full bg-bg-2 px-1.5 py-0.5 text-caption">{groupHosts.length}</span>
+          <Chevron aria-hidden="true" size={11} className="shrink-0" />
+          {GroupIcon && <GroupIcon aria-hidden="true" size={11} className="shrink-0" />}
+          <span className="min-w-0 truncate">{title}</span>
+          <span className="ml-auto shrink-0 rounded-full bg-bg-2 px-1.5 py-0.5 text-caption">{groupHosts.length}</span>
         </button>
         {!collapsed && (
           <div>
@@ -398,34 +439,32 @@ export function SshPanel() {
               const resolved = resolvedDetails[host.id]
               return (
                 <div key={host.id}>
-                  <div className="group flex items-center gap-1 pr-2">
+                  <div className="group flex items-center gap-1 px-2">
                     <button
                       onClick={() => setSelectedHostId(selectedHostId === host.id ? null : host.id)}
-                      className={`min-w-0 flex-1 border-l-2 px-3 py-2 text-left ${selectedHostId === host.id ? 'border-accent' : 'border-transparent'}`}
+                      aria-expanded={selectedHostId === host.id}
+                      className={`tmuxgo-list-row flex min-w-0 flex-1 items-center gap-2 rounded-apple border px-2 py-1.5 text-left ${
+                        selectedHostId === host.id
+                          ? 'tmuxgo-list-row--active border-accent/45'
+                          : 'border-transparent hover:bg-bg-2/55'
+                      }`}
                     >
-                      <div className="flex items-center gap-2">
-                        <StatusDot host={host} />
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1 truncate text-sm text-text-1">
-                            <span className="truncate">{host.name || host.id}</span>
-                            {host.favorite === true && (
-                              <FiStar
-                                aria-hidden="true"
-                                size={10}
-                                className="shrink-0 text-yellow-400"
-                                fill="currentColor"
-                              />
-                            )}
-                          </div>
-                          <div className="mt-0.5 truncate text-xs text-text-3">
-                            {isSshConfig
-                              ? `${host.user ? `${host.user}@` : ''}${host.address || host.id}${host.port && host.port !== 22 ? `:${host.port}` : ''}`
-                              : `${host.user ? `${host.user}@` : ''}${host.address || host.id}:${host.port || 22}`}
-                          </div>
+                      <StatusDot host={host} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1 truncate text-xs text-text-1">
+                          <span className="truncate">{host.name || host.id}</span>
+                          {host.favorite === true && (
+                            <FiStar aria-hidden="true" size={10} className="shrink-0 text-warn" fill="currentColor" />
+                          )}
+                        </div>
+                        <div className="mt-0.5 truncate font-mono text-caption text-text-3">
+                          {isSshConfig
+                            ? `${host.user ? `${host.user}@` : ''}${host.address || host.id}${host.port && host.port !== 22 ? `:${host.port}` : ''}`
+                            : `${host.user ? `${host.user}@` : ''}${host.address || host.id}:${host.port || 22}`}
                         </div>
                       </div>
                     </button>
-                    <div className="flex shrink-0 items-center gap-0.5 opacity-100 lg:opacity-0 lg:group-hover:opacity-100">
+                    <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
                       {!isAgent && host.id !== 'local' && (
                         <Chip onClick={() => void toggleFavorite(host)}>{host.favorite ? '★' : '☆'}</Chip>
                       )}
@@ -447,8 +486,8 @@ export function SshPanel() {
                     </div>
                   </div>
                   {selectedHostId === host.id && (
-                    <div className="border-b border-[var(--line)] bg-bg-2 px-3 py-2">
-                      <div className="mb-1 text-caption uppercase tracking-[0.18em] text-text-3">
+                    <div className="border-b border-[var(--line)] bg-bg-2/40 px-3 py-2">
+                      <div className="mb-1 text-caption uppercase tracking-wide text-text-3">
                         {t('sshPanel.details')}
                       </div>
                       <div className="space-y-1">
@@ -552,45 +591,59 @@ export function SshPanel() {
             })}
           </div>
         )}
-      </div>
+      </section>
     )
   }
   return (
     <div className="flex h-full min-h-0 flex-col bg-bg-1">
-      <div className="border-b border-[var(--line)] px-3 py-2">
-        <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold text-text-1">{t('sshPanel.title')}</div>
-          <div className="flex items-center gap-1">
-            <button
+      <div className="shrink-0 border-b border-[var(--line)]">
+        {/* 统一 header：h-11 + 图标块 + 标题/副标题 + 右侧动作 */}
+        <div className="flex h-11 items-center gap-2 px-3">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-apple bg-bg-2 text-accent">
+            <FiGlobe aria-hidden="true" size={13} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-xs font-medium text-text-1">{t('sshPanel.title')}</div>
+            <div className="truncate text-caption text-text-3">
+              {t('sshPanel.subtitle', { hosts: hosts.length, online: onlineHosts })}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon-sm"
               aria-label={t('sshPanel.refresh')}
               title={t('sshPanel.refresh')}
               onClick={() => void refetchHosts()}
-              className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta"
             >
               <FiRefreshCw aria-hidden="true" size={13} />
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
               aria-label={t('sshPanel.openConfig')}
               title={t('sshPanel.openConfig')}
               onClick={openSshConfig}
-              className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta"
             >
               <FiFileText aria-hidden="true" size={13} />
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
               aria-label={t('sshPanel.jsonConfig')}
               title={t('sshPanel.jsonConfig')}
               onClick={openJsonConfig}
-              className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta"
             >
               <FiCode aria-hidden="true" size={13} />
-            </button>
-            <Chip tone="accent" onClick={openCreateHostDialog}>
+            </Button>
+            <Button variant="accent" size="sm" onClick={openCreateHostDialog}>
+              <FiPlus aria-hidden="true" size={13} />
               {t('sshPanel.newHost')}
-            </Chip>
+            </Button>
           </div>
         </div>
-        <div className="mt-2 flex items-center gap-1">
+        {/* 快速添加收成 toolbar 行：与 Fleet/Inbox 的搜索行同高同边距 */}
+        <div className="flex items-center gap-1.5 px-3 pb-2">
           <input
             value={quickAddDraft}
             onChange={(event) => setQuickAddDraft(event.target.value)}
@@ -600,19 +653,31 @@ export function SshPanel() {
               if (event.key === 'Enter') void quickAddHost()
             }}
             placeholder={t('sshPanel.quickAddHint')}
-            className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-2 py-1 font-mono text-xs"
+            className="tmuxgo-control tmuxgo-input h-7 min-w-0 flex-1 rounded-apple px-2 font-mono text-xs"
           />
-          <Chip onClick={() => void quickAddHost()}>{t('sshPanel.quickAdd')}</Chip>
+          <Chip className="h-7 px-2 text-caption" onClick={() => void quickAddHost()}>
+            {t('sshPanel.quickAdd')}
+          </Chip>
         </div>
-        {!!hostActionMessage && <div className="mt-1 break-words text-xs text-text-2">{hostActionMessage}</div>}
+        {!!hostActionMessage && (
+          <div className="break-words px-3 pb-2 text-caption text-text-2">{hostActionMessage}</div>
+        )}
       </div>
       <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
-        {!hosts.length && <div className="p-3 text-xs text-text-3">{t('sshPanel.empty')}</div>}
-        {renderGroup(t('sshPanel.local'), localHosts)}
-        {remoteGroups.map(([key, group]) =>
-          renderGroup(group.title, group.hosts, key === 'hosts.json' ? undefined : key, key),
+        {!hosts.length && (
+          <div className="flex flex-col items-center gap-1.5 px-3 py-8 text-center">
+            <span className="flex h-9 w-9 items-center justify-center rounded-apple bg-bg-2 text-text-3">
+              <FiServer aria-hidden="true" size={16} />
+            </span>
+            <div className="text-xs text-text-2">{t('sshPanel.empty')}</div>
+            <div className="max-w-56 text-caption text-text-3">{t('sshPanel.emptyHint')}</div>
+          </div>
         )}
-        {renderGroup(t('sshPanel.agents'), agentHosts)}
+        {renderGroup(t('sshPanel.local'), localHosts, undefined, 'local', FiServer)}
+        {remoteGroups.map(([key, group]) =>
+          renderGroup(group.title, group.hosts, key === 'hosts.json' ? undefined : key, key, FiTerminal),
+        )}
+        {renderGroup(t('sshPanel.agents'), agentHosts, undefined, 'agents', FiCpu)}
       </div>
       {selectedHost && (
         <div className="border-t border-[var(--line)] p-3">
@@ -641,15 +706,15 @@ export function SshPanel() {
           )}
         </div>
       )}
-      <div className="border-t border-[var(--line)] p-3">
-        <div className="mb-1 text-caption uppercase tracking-[0.18em] text-text-3">{t('sshPanel.entryConfig')}</div>
+      <div className="border-t border-[var(--line)] bg-bg-2/20 p-3">
+        <div className="mb-1 text-caption uppercase tracking-wide text-text-3">{t('sshPanel.entryConfig')}</div>
         <div className="text-xs text-text-3">{t('sshPanel.userMap')}</div>
         <div className="mt-1 flex items-center gap-1">
           <input
             value={userMapDraft}
             onChange={(event) => setUserMapDraft(event.target.value)}
             placeholder={t('sshPanel.userMapHint')}
-            className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-2 py-1 text-sm"
+            className="tmuxgo-control tmuxgo-input h-7 min-w-0 flex-1 rounded-apple px-2 text-xs"
           />
           <Chip onClick={() => void copyText(`TMUXGO_SSH_USER_MAP="${userMapDraft.trim()}"`)}>
             {t('sshPanel.copy')}
@@ -661,7 +726,7 @@ export function SshPanel() {
             value={allowedHostsDraft}
             onChange={(event) => setAllowedHostsDraft(event.target.value)}
             placeholder={t('sshPanel.allowedHostsHint')}
-            className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-2 py-1 text-sm"
+            className="tmuxgo-control tmuxgo-input h-7 min-w-0 flex-1 rounded-apple px-2 text-xs"
           />
           <Chip onClick={() => void copyText(`TMUXGO_SSH_ALLOWED_HOSTS="${allowedHostsDraft.trim()}"`)}>
             {t('sshPanel.copy')}
@@ -669,7 +734,7 @@ export function SshPanel() {
         </div>
         <div className="mt-2 text-xs text-text-3">{t('sshPanel.envHint')}</div>
         <div className="mt-2 text-xs text-text-3">{t('sshPanel.usage')}</div>
-        <div className="mt-1 rounded-apple bg-bg-2 px-2 py-1 font-mono text-xs text-text-2">
+        <div className="mt-1 rounded-apple border border-[var(--line)] bg-bg-2/50 px-2 py-1.5 font-mono text-caption text-text-2">
           {t('sshPanel.usageExample')}
         </div>
         <div className="mt-2 flex items-center justify-between gap-2">
