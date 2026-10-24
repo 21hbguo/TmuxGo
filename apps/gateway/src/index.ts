@@ -7,6 +7,7 @@ import websocket from '@fastify/websocket'
 import { existsSync } from 'fs'
 import path from 'path'
 import { applyTmuxGoEnv, cleanupMultiplexSockets } from './lib/tmux-executor.js'
+import { clearSharedTerminalGraceTimers } from './lib/stream/shared-terminal.js'
 import { hostRoutes } from './routes/hosts.js'
 import { listAllHosts } from './lib/hosts.js'
 import { sessionRoutes } from './routes/sessions.js'
@@ -251,6 +252,7 @@ const shutdown = createShutdownSequence({
     if (summary) fastify.log[summary.level](summary.payload, summary.message)
   },
   cleanupSockets: () => cleanupMultiplexSockets(),
+  clearHubGraceTimers: () => clearSharedTerminalGraceTimers(),
   closeServer: () => fastify.close(),
   exit: (code) => process.exit(code),
 })

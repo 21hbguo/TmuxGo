@@ -37,6 +37,9 @@ export const streamPerfMetrics = {
   mirrorAttachDeltas: 0,
   mirrorFallbacks: 0,
   mirrorBaselines: 0,
+  // hub 空闲宽限：期内重连复用（省一次重建 + 能吃增量）/ 到期真正销毁
+  hubGraceReused: 0,
+  hubGraceExpired: 0,
   cellSnapshots: 0,
   cellDiffs: 0,
   cellFallbackAnsi: 0,
