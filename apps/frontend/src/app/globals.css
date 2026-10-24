@@ -26,6 +26,19 @@
   --glass-highlight: rgb(255 255 255 / 14%);
   --glass-shadow: none;
   --glass-shadow-hover: none;
+  /* 原语层共享 token（设计简报 §1.2）：表面态 / 细分隔 / focus / 面板上沿 / 浮层阴影 / 时长缓动。
+     只扩展现有体系，不改名不推翻；面板与 components/* 共用，别再各写一套 160ms ease */
+  --surface-hover: rgb(var(--bg-2) / 0.55);
+  --surface-pressed: rgb(var(--bg-2) / 0.8);
+  --surface-selected: rgb(var(--accent) / 0.1);
+  /* --line 已是完整颜色，不能按 RGB 三元组加透明度，细分隔单独出变量 */
+  --line-subtle: color-mix(in srgb, var(--line) 60%, transparent);
+  --focus-ring: rgb(var(--accent) / 0.65);
+  --shadow-panel: inset 0 1px 0 rgb(var(--text-1) / 0.04);
+  --shadow-popover: 0 8px 24px rgb(0 0 0 / 0.2);
+  --duration-fast: 120ms;
+  --duration-normal: 160ms;
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
   /* VSCode 风格：JetBrains Mono 拉丁 + 系统 CJK 回退（Linux/macOS/Windows 顺序） */
   --font-ui: 'JetBrains Mono', 'Noto Sans Mono CJK SC', 'PingFang SC', 'Microsoft YaHei', monospace;
   --font-mono: 'JetBrains Mono', 'Noto Sans Mono CJK SC', 'PingFang SC', 'Microsoft YaHei', monospace;
@@ -61,9 +74,13 @@
   --glass-highlight: rgb(255 255 255 / 100%);
   --glass-shadow: none;
   --glass-shadow-hover: none;
+  /* 浅色下浮层阴影降到约 0.1，避免发脏 */
+  --shadow-popover: 0 8px 24px rgb(28 28 30 / 0.1);
 }
 
 [data-theme='high-contrast'] {
+  /* 高对比下细分隔不做透明度衰减，直接等同 --line */
+  --line-subtle: var(--line);
   --bg-0: 0 0 0;
   --bg-1: 10 10 10;
   --bg-2: 26 26 26;
@@ -400,15 +417,16 @@ a {
   width: 2.75rem;
 }
 .tmuxgo-list-row {
+  /* 原语层统一时长/缓动（设计简报 §1.2），值与原 160ms ease 等价 */
   transition:
-    background-color 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease,
-    box-shadow 160ms ease;
+    background-color var(--duration-normal) var(--ease-standard),
+    border-color var(--duration-normal) var(--ease-standard),
+    color var(--duration-normal) var(--ease-standard),
+    box-shadow var(--duration-normal) var(--ease-standard);
 }
 .tmuxgo-list-row--active {
   border-color: rgb(var(--accent) / 0.45);
-  background: rgb(var(--accent) / 0.1);
+  background: var(--surface-selected);
   color: rgb(var(--text-1));
 }
 .tmuxgo-list-row--batch {
@@ -417,7 +435,7 @@ a {
   color: rgb(var(--text-1));
 }
 .tmuxgo-list-row--hover:hover {
-  background: rgb(var(--bg-2) / 0.55);
+  background: var(--surface-hover);
 }
 /* 分段控件：bg-2 容器 + accent 高亮项，替代各面板自写 pill 组 */
 .tmuxgo-segment {
@@ -473,7 +491,8 @@ a {
   border: 1px solid var(--line);
   border-radius: 20px;
   background: rgb(var(--bg-1));
-  box-shadow: var(--glass-shadow-hover);
+  /* 菜单是浮层：主题的 --glass-shadow-hover 多为 none，这里补 elevation 让层级看得出来 */
+  box-shadow: var(--glass-shadow-hover), var(--shadow-popover);
 }
 .tmuxgo-menu-item {
   display: flex;
@@ -1415,4 +1434,79 @@ a {
     right: 0;
     transform: none;
   }
+}
+
+/* =========================================================
+   共享交互钩子（设计简报 §1.2）：面板原语与面板自身都引用这几个类/变量，避免各写一套伪类
+   - tmuxgo-focus-ring：2px outline + 2px offset，与 Button/Chip 现有 2px 环视觉一致
+   - tmuxgo-transition：只过渡颜色/透明度/阴影，不用 transition-all（布局属性不参与动画）
+   - tmuxgo-filter-toggle：双态筛选钮，off 中性、on 由 aria-pressed 决定 accent/danger
+   - tmuxgo-empty-state：列表与面板空态的统一排布
+   ========================================================= */
+.tmuxgo-focus-ring:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.tmuxgo-transition {
+  transition-property: background-color, border-color, color, opacity, box-shadow;
+  transition-duration: var(--duration-normal);
+  transition-timing-function: var(--ease-standard);
+}
+
+.tmuxgo-filter-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-apple, 12px);
+  background: rgb(var(--bg-2) / 0.45);
+  color: rgb(var(--text-3));
+  transition-property: background-color, border-color, color, box-shadow;
+  transition-duration: var(--duration-fast);
+  transition-timing-function: var(--ease-standard);
+}
+.tmuxgo-filter-toggle:hover:not(:disabled) {
+  color: rgb(var(--text-1));
+  border-color: rgb(var(--text-1) / 0.2);
+}
+.tmuxgo-filter-toggle:active:not(:disabled) {
+  background: var(--surface-pressed);
+}
+.tmuxgo-filter-toggle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.tmuxgo-filter-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+/* 选中态：不能只靠文字变色，边框+底色一起表达 on；hover 保留语义色不被中性灰覆盖 */
+.tmuxgo-filter-toggle--accent[aria-pressed='true'] {
+  border-color: rgb(var(--accent) / 0.35);
+  background: var(--surface-selected);
+  color: rgb(var(--accent));
+}
+.tmuxgo-filter-toggle--accent[aria-pressed='true']:hover:not(:disabled) {
+  border-color: rgb(var(--accent) / 0.5);
+  background: rgb(var(--accent) / 0.16);
+}
+.tmuxgo-filter-toggle--danger[aria-pressed='true'] {
+  border-color: rgb(var(--danger) / 0.35);
+  background: rgb(var(--danger) / 0.1);
+  color: rgb(var(--danger));
+}
+.tmuxgo-filter-toggle--danger[aria-pressed='true']:hover:not(:disabled) {
+  border-color: rgb(var(--danger) / 0.5);
+  background: rgb(var(--danger) / 0.16);
+}
+
+.tmuxgo-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 12px;
+  text-align: center;
 }
