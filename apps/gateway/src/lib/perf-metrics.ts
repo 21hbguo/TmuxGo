@@ -40,6 +40,9 @@ export const streamPerfMetrics = {
   // hub 空闲宽限：期内重连复用（省一次重建 + 能吃增量）/ 到期真正销毁
   hubGraceReused: 0,
   hubGraceExpired: 0,
+  // 无订阅者时把 window 钉回虚拟视口（herdr headless 等价物）：钉成功 / 见多 client 或查询失败而跳过
+  hubHeadlessPinned: 0,
+  hubHeadlessPinSkipped: 0,
   cellSnapshots: 0,
   cellDiffs: 0,
   cellFallbackAnsi: 0,

@@ -12,7 +12,14 @@ import {
   setWindowSizeQueryForTest,
   StreamSession,
 } from './stream-session.js'
-import { resetSharedTerminalsForTest, countSharedTerminals, setHubGraceMsForTest } from './shared-terminal.js'
+import {
+  resetSharedTerminalsForTest,
+  countSharedTerminals,
+  setCountAttachedClientsForTest,
+  setHeadlessPinDelayForTest,
+  setHeadlessViewportForTest,
+  setHubGraceMsForTest,
+} from './shared-terminal.js'
 import { streamPerfMetrics } from '../perf-metrics.js'
 import { STREAM_FANOUT_ENABLED, RESYNC_RESET_SEQ, setMirrorEnabledForTest } from './stream-config.js'
 import { STREAM_BINARY_VERSION_COMPACT, STREAM_BINARY_VERSION_COMPACT_SEQ } from '../stream-binary.js'
@@ -97,6 +104,15 @@ function createSocket() {
     close() {},
   }
   return { socket, sent }
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 800) {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < timeoutMs) {
+    if (predicate()) return
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  throw new Error('waitUntil timed out')
 }
 
 function setupPtySpawn() {
@@ -793,4 +809,63 @@ test('claimExclusiveOwnership still demotes without hub (legacy path)', () => {
   first.cleanup()
   second.cleanup()
   resetExclusiveOwnershipForTest()
+})
+
+test('an idle hub pins the window, and the next exclusive attach re-fits it without breaking arbitration', async () => {
+  assert.ok(STREAM_FANOUT_ENABLED, 'fanout must be enabled for this suite')
+  setupEnv()
+  const spawns = setupPtySpawn()
+  resetExclusiveOwnershipForTest()
+  resetSharedTerminalsForTest()
+  setHubGraceMsForTest(400)
+  setHeadlessPinDelayForTest(0)
+  setHeadlessViewportForTest({ cols: 120, rows: 40 })
+  setCountAttachedClientsForTest(async () => 1)
+  try {
+    const a = createSocket()
+    const sa = new StreamSession(a.socket, null)
+    await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: true, cols: 100, rows: 30 })
+    const hub = sa.sharedHub
+    assert.ok(hub)
+    assert.equal(hub.cols, 100)
+    const versionBefore = a.sent.filter((m) => m.type === 'attached').at(-1)
+    assert.equal(versionBefore?.cols, 100)
+
+    // 最后一个订阅者走了：宽限期开始 → 钉回虚拟视口（真 window 跟着变）
+    sa.cleanup()
+    await waitUntil(() => hub.cols === 120 && hub.rows === 40)
+    assert.deepEqual(spawns[0].resizes.at(-1), [120, 40])
+
+    // 新 attach 按自己的 fit 抢回尺寸：ownerEpoch/windowVersion 照常推进
+    const b = createSocket()
+    const sb = new StreamSession(b.socket, null)
+    await sb.attach({ hostId: 'local', sessionName: 'test', exclusive: true, cols: 142, rows: 38 })
+    assert.equal(spawns.length, 1, '宽限期内必须复用同一个 hub/PTY')
+    assert.equal(hub.cols, 142, '新 client 的 fit 要能覆盖钉住的尺寸')
+    const attached = b.sent.filter((m) => m.type === 'attached').at(-1) as
+      { cols?: number; rows?: number; windowVersion?: number; ownerEpoch?: number } | undefined
+    assert.equal(attached?.cols, 142)
+    assert.equal(attached?.rows, 38)
+    const epochAfterAttach = attached?.ownerEpoch ?? 0
+    assert.equal(epochAfterAttach >= 1, true, 'owner epoch 由新独占端接手')
+
+    // 再改一次尺寸：仲裁链路（claim → resize → reconcile → window-size）必须照常推进
+    b.sent.length = 0
+    // reconcile 读回的 window 尺寸与主张不同：仍以 tmux 实际值为权威并下发 window-size
+    setWindowSizeQueryForTest(async () => ({ cols: 128, rows: 35 }))
+    await sb.attach({ hostId: 'local', sessionName: 'test', exclusive: true, cols: 130, rows: 36 })
+    await waitUntil(() => b.sent.some((m) => m.type === 'window-size' && m.cols === 128))
+    const windowSize = b.sent.filter((m) => m.type === 'window-size').at(-1) as
+      { cols?: number; windowVersion?: number; ownerEpoch?: number } | undefined
+    assert.equal(windowSize?.cols, 128)
+    assert.ok((windowSize?.windowVersion ?? 0) >= 1, 'windowVersion 必须随尺寸决策推进')
+    assert.equal(hub.cols, 128, 'reconcile 之后 hub 跟随 tmux 实际 window 尺寸')
+    sb.cleanup()
+  } finally {
+    setHubGraceMsForTest(null)
+    setHeadlessPinDelayForTest(null)
+    setHeadlessViewportForTest(null)
+    setCountAttachedClientsForTest(null)
+    teardownEnv()
+  }
 })
