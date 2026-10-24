@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { FiAlertCircle, FiCheckCircle, FiClock, FiRefreshCw } from 'react-icons/fi'
+import { FiAlertCircle, FiCheckCircle, FiClock, FiRefreshCw, FiTrash2 } from 'react-icons/fi'
 import { api, type AgentTodoItem, type AgentTodoQueue } from '@/lib/api'
 import { markAgentNotificationsRead } from '@/lib/agent-push'
+import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { useTranslation } from '@/i18n'
+import { ConfirmDialog } from './ConfirmDialog'
 
 type TranslateFn = ReturnType<typeof useTranslation>['t']
 
@@ -47,6 +49,8 @@ export function InboxTasksView({ t, onJumpToPane }: InboxTasksViewProps) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [now, setNow] = useState(() => Date.now())
+  const [confirmClear, setConfirmClear] = useState(false)
+  const pushToast = useConsoleStore((state) => state.pushToast)
 
   const load = useCallback(async () => {
     try {
@@ -63,6 +67,24 @@ export function InboxTasksView({ t, onJumpToPane }: InboxTasksViewProps) {
   useEffect(() => {
     void load()
   }, [load])
+
+  // 破坏性动作（清 done）只删存储里推导为 done 的记录；确认后调后端，回来立刻重拉队列
+  const clearDone = useCallback(async () => {
+    try {
+      const result = await api.agentNotifications.clearDoneTasks()
+      // 队列是投影：清了 N 条不代表 done 段归零（同一 pane 可能还有更早的 pending 记录被顶上来），
+      // 所以不本地瞎改，直接以服务端重算后的队列为准
+      await load()
+      pushToast({ type: 'success', message: t('inbox.tasksClearDoneResult', { count: result.removed }) })
+    } catch (err) {
+      pushToast({
+        type: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setConfirmClear(false)
+    }
+  }, [load, pushToast, t])
 
   // 停留时长每分钟重算：纯本地计时，不触发网络（刷新策略见设计稿 §3.5）
   useEffect(() => {
@@ -135,7 +157,23 @@ export function InboxTasksView({ t, onJumpToPane }: InboxTasksViewProps) {
               <section.icon aria-hidden="true" size={13} className={section.tone} />
               <h3 className="text-caption font-medium text-text-2">{section.title}</h3>
               <span className="text-caption text-text-3">{section.items.length}</span>
-              <span className="ml-auto truncate text-caption text-text-3">{section.hint}</span>
+              {section.key === 'done' && section.items.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmClear(true)}
+                  title={t('inbox.tasksClearDone')}
+                  aria-label={t('inbox.tasksClearDone')}
+                  className="ml-auto flex shrink-0 items-center gap-1 rounded-apple px-1.5 py-0.5 text-caption text-text-3 hover:text-danger"
+                >
+                  <FiTrash2 aria-hidden="true" size={12} />
+                  {t('inbox.tasksClearDone')}
+                </button>
+              )}
+              <span
+                className={`${section.key === 'done' && section.items.length > 0 ? '' : 'ml-auto'} truncate text-caption text-text-3`}
+              >
+                {section.hint}
+              </span>
             </header>
             {section.items.length === 0 ? (
               <p className="px-3 pb-2.5 text-caption text-text-3">{t('inbox.tasksEmpty')}</p>
@@ -181,6 +219,16 @@ export function InboxTasksView({ t, onJumpToPane }: InboxTasksViewProps) {
           </section>
         ))}
       </div>
+      <ConfirmDialog
+        open={confirmClear}
+        title={t('inbox.tasksClearDoneTitle')}
+        message={t('inbox.tasksClearDoneMessage', { count: queue.counts.done })}
+        confirmLabel={t('inbox.tasksClearDoneConfirm')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onConfirm={clearDone}
+        onCancel={() => setConfirmClear(false)}
+      />
     </div>
   )
 }

@@ -423,6 +423,38 @@ export async function closeAgentTodosForPane(hostId: string, paneId: string) {
   if (changed) await saveStore(value)
   return changed
 }
+/**
+ * 清空已完成待办：把推导为 done 的通知记录从存储里删掉（不是改状态、不是标记已读）。
+ * 判定必须走 normalizeNotification + todoStateOf 这同一份推导：队列视图就是按它分类的，
+ * 若这里另写一套条件（比如只看 status==='done'），ended/failed 与 pane 消失收口的记录会漏掉，
+ * 用户按「队列里显示 3 条 done」去清，结果只清掉 1 条。
+ * hostId 缺省为全部 host；返回值带删掉的条数与命中的 host，供审计记录范围。
+ */
+export async function clearDoneAgentTodos(options: { hostId?: string } = {}) {
+  const value = await loadStore()
+  const kept: AgentNotificationRecord[] = []
+  const hosts = new Set<string>()
+  let removed = 0
+  for (const record of value.notifications) {
+    if (options.hostId && record.hostId !== options.hostId) {
+      kept.push(record)
+      continue
+    }
+    const normalized = normalizeNotification(record)
+    // kind='info'（disconnected 播报）本来就不进待办队列，即便推导成 done 也不该被「清待办」带走
+    if (normalized.kind === 'todo' && normalized.todoState === 'done') {
+      removed++
+      if (record.hostId) hosts.add(record.hostId)
+      continue
+    }
+    kept.push(record)
+  }
+  if (removed) {
+    value.notifications = kept
+    await saveStore(value)
+  }
+  return { removed, hosts: [...hosts].sort() }
+}
 export async function markAgentNotificationsRead(deviceIdRaw: string, ids: string[]) {
   const deviceId = normalizeAgentDeviceId(deviceIdRaw)
   const selected = new Set(ids.filter((id) => typeof id === 'string' && id.length <= 256))

@@ -1,7 +1,10 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
+import { appendAuditEvent } from '../lib/audit-log.js'
 import { agentMonitor } from '../lib/agent-monitor.js'
+import { getRequestPrincipal } from '../lib/principal.js'
 import {
+  clearDoneAgentTodos,
   getAgentPushPublicKey,
   listAgentTodoQueue,
   listUnreadAgentNotifications,
@@ -19,6 +22,14 @@ const deviceIdSchema = z
 const subscriptionBody = z.object({
   deviceId: deviceIdSchema.optional(),
   subscription: z.record(z.string(), z.unknown()),
+})
+const clearDoneBody = z.object({
+  // 缺省=全部 host；给了就只清该 host 的已完成待办
+  hostId: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9._:-]{1,128}$/)
+    .optional(),
 })
 const readBody = z.object({
   deviceId: deviceIdSchema.optional(),
@@ -89,6 +100,38 @@ export async function agentNotificationRoutes(fastify: FastifyInstance) {
       reply.header('cache-control', 'no-store')
       return await loadTodoQueue(doneLimit)
     } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+  // 清空已完成待办（v2 P3 批量动作的破坏性一个）：只删推导为 done 的记录，
+  // blocked/pending 一条不动；响应回 blocked 数，前端据此立刻刷新角标，不用再拉一次 /unread
+  fastify.post('/agent-notifications/tasks/clear-done', { bodyLimit: 8 * 1024 }, async (request, reply) => {
+    const principal = getRequestPrincipal(request)
+    const audit = (result: 'success' | 'failure', hostId: string | undefined, message: string) => {
+      void appendAuditEvent({
+        id: `${Date.now().toString(36)}-${request.id}`,
+        timestamp: new Date().toISOString(),
+        user: principal.actor,
+        actor: principal.actor,
+        source: principal.source,
+        action: 'agent-todo-clear-done',
+        target: hostId || '*',
+        result,
+        method: request.method,
+        statusCode: result === 'success' ? 200 : 400,
+        hostId,
+        message,
+      }).catch(() => {})
+    }
+    try {
+      const body = clearDoneBody.parse(request.body || {})
+      const cleared = await clearDoneAgentTodos({ hostId: body.hostId })
+      const queue = await loadTodoQueue()
+      audit('success', body.hostId, `removed=${cleared.removed};hosts=${cleared.hosts.join(',') || '-'}`)
+      reply.header('cache-control', 'no-store')
+      return { ok: true, removed: cleared.removed, hosts: cleared.hosts, tasksBlocked: queue.counts.blocked }
+    } catch (error) {
+      audit('failure', undefined, error instanceof Error ? error.message : 'invalid clear-done request')
       return sendError(reply, error)
     }
   })

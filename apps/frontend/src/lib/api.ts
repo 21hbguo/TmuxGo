@@ -718,6 +718,12 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ deviceId, ids }),
       }),
+    // 破坏性：只删队列里推导为 done 的记录，blocked/pending 不动（gateway 用同一份推导）
+    clearDoneTasks: (hostId?: string) =>
+      fetchApi<{ ok: boolean; removed: number; hosts: string[]; tasksBlocked: number }>(
+        '/api/agent-notifications/tasks/clear-done',
+        { method: 'POST', body: JSON.stringify(hostId ? { hostId } : {}) },
+      ),
   },
   agentRecovery: {
     list: (hostId: string) =>
