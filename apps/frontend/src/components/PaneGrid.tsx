@@ -11,6 +11,7 @@ import { usePreferences } from '@/hooks/usePreferences'
 import { isMobileDevice } from '@/hooks/useMobileKeyboard'
 import { useHosts, useSessionSnapshot, useSetSyncPanes, useSyncPanes, useWindows } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
+import { SnapshotResumeHint } from './SnapshotResumeHint'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { api } from '@/lib/api'
 import { parseSessionName } from '@/lib/session-id'
@@ -1375,6 +1376,8 @@ export function PaneGrid({
             {t('grid.selectRecent')}
           </button>
         ) : null}
+        {/* 有快照才出现：空态本来可能一个会话都没有，恢复入口往往就是唯一能走的路 */}
+        <SnapshotResumeHint hostId={activeHostId || 'local'} />
       </div>
     )
   }

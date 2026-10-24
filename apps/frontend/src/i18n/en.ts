@@ -669,6 +669,7 @@ export const en = {
   'grid.addHost': 'Add host',
   'grid.createSession': 'New session',
   'grid.selectRecent': 'Select recent session',
+  'grid.snapshotResume': '{count} recent snapshots · restore layout',
   'grid.selectSession': 'Select a session from the sidebar',
   'grid.control.owned': 'Writable · local control',
   'grid.control.spectating': 'Spectating · control is elsewhere',
