@@ -12,6 +12,22 @@ import { isMirrorEnabled } from './stream-config.js'
 // PTY 创建模式固定 exclusive-capable（不带 ignore-size），这样 exclusive owner
 // 的 resize 能驱动 window size；shared 首订者用当前 window 尺寸起附着，
 // 避免 attach 即抢 window。非 owner 端永不调用 resizePty（见 StreamSession）。
+// 最后一个订阅者离开后 hub 的存活宽限：期内重连能复用同一份 PTY + 镜像（吃增量），
+// 到期再销毁。孤儿风险是真约束——每个挂起 hub = 一条活 tmux client + 镜像内存
+// （~0.5MB），所以只做有限宽限，绝不无限期保活
+const DEFAULT_HUB_GRACE_MS = 30000
+function readHubGraceMs() {
+  const raw = process.env.TMUXGO_HUB_GRACE_MS
+  if (raw === undefined || raw === '') return DEFAULT_HUB_GRACE_MS
+  const value = Number(raw)
+  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_HUB_GRACE_MS
+}
+let hubGraceMs = readHubGraceMs()
+// 测试缝：0 = 立即销毁（旧行为）
+export function setHubGraceMsForTest(value: number | null) {
+  hubGraceMs = value ?? readHubGraceMs()
+}
+
 export function sharedTerminalKey(hostId: string, sessionName: string) {
   return `${hostId}\0${sessionName}`
 }
@@ -57,8 +73,10 @@ export class SharedTerminal {
   }
   unsubscribe(sub: SharedTerminalSubscriber) {
     this.subscribers.delete(sub)
-    // 最后一个订阅者离开 → 销毁 hub（含 PTY），避免孤儿 attach 挂着 tmux client
-    if (!this.subscribers.size && sharedTerminals.get(this.key) === this) destroySharedTerminal(this.key)
+    // 最后一个订阅者离开：不立刻销毁，先进宽限期——短期内重连能复用同一份
+    // PTY + 镜像（配合 lastSeq 只补增量）；宽限 0 时 scheduleIdleDestroy 立即销毁，
+    // 等价于旧行为
+    if (!this.subscribers.size && sharedTerminals.get(this.key) === this) scheduleIdleDestroy(this.key)
   }
   resizePty(cols: number, rows: number) {
     if (this.dead) return
@@ -95,6 +113,8 @@ export class SharedTerminal {
   }
   private handleExit(exitCode: number) {
     if (this.dead) return
+    // PTY 自己退了：宽限不救回，定时器一并摘掉（免得到期时对已删 hub 再删一次）
+    cancelGraceTimer(this.key)
     const subs = [...this.subscribers]
     this.dead = true
     this.mirror.dispose()
@@ -110,6 +130,42 @@ export class SharedTerminal {
 }
 
 const sharedTerminals = new Map<string, SharedTerminal>()
+// 挂起的宽限销毁定时器：key 与 hub 同键，任何一次 attach/kill/销毁都要先摘掉它
+const graceTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function cancelGraceTimer(key: string) {
+  const timer = graceTimers.get(key)
+  if (!timer) return
+  clearTimeout(timer)
+  graceTimers.delete(key)
+}
+
+// 宽限到期销毁走既有 destroy 路径（不另写一套清理），并且 unref：
+// 进程退出时挂起的定时器不该拖着事件循环
+function scheduleIdleDestroy(key: string) {
+  if (hubGraceMs <= 0) {
+    destroySharedTerminal(key)
+    return
+  }
+  cancelGraceTimer(key)
+  const timer = setTimeout(() => {
+    graceTimers.delete(key)
+    recordStreamMetric('hubGraceExpired')
+    destroySharedTerminal(key)
+  }, hubGraceMs)
+  timer.unref?.()
+  graceTimers.set(key, timer)
+}
+
+// 关停路径：挂起的宽限定时器全部清掉，别在快照/关 server 期间突然杀 PTY
+export function clearSharedTerminalGraceTimers() {
+  for (const timer of graceTimers.values()) clearTimeout(timer)
+  graceTimers.clear()
+}
+
+export function countSharedTerminalGraceTimers() {
+  return graceTimers.size
+}
 // 并发 attach 同一 key 时串行化 PTY 创建：两个首订者同时 miss 会各起一条 attach
 const pendingAcquires = new Map<string, Promise<{ hub: SharedTerminal; reused: boolean }>>()
 
@@ -123,6 +179,7 @@ export function countSharedTerminals() {
 
 export function resetSharedTerminalsForTest() {
   pendingAcquires.clear()
+  clearSharedTerminalGraceTimers()
   for (const hub of [...sharedTerminals.values()]) {
     sharedTerminals.delete(hub.key)
     try {
@@ -137,6 +194,8 @@ export function resetSharedTerminalsForTest() {
 }
 
 function destroySharedTerminal(key: string) {
+  // 幂等：宽限到期与 handleExit 可能先后到达，第二次直接返回
+  cancelGraceTimer(key)
   const hub = sharedTerminals.get(key)
   if (!hub) return
   sharedTerminals.delete(key)
@@ -176,6 +235,11 @@ export async function acquireSharedTerminal(opts: {
   const existing = sharedTerminals.get(key)
   if (existing) {
     recordStreamMetric('sharedPtyReuses')
+    // 宽限期内的 hub：取消销毁、原地复活。镜像还在，客户端报 lastSeq 就能只补增量
+    if (graceTimers.has(key)) {
+      cancelGraceTimer(key)
+      recordStreamMetric('hubGraceReused')
+    }
     return { hub: existing, reused: true }
   }
   const pending = pendingAcquires.get(key)

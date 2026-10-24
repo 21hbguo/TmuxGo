@@ -12,7 +12,7 @@ import {
   setWindowSizeQueryForTest,
   StreamSession,
 } from './stream-session.js'
-import { resetSharedTerminalsForTest, countSharedTerminals } from './shared-terminal.js'
+import { resetSharedTerminalsForTest, countSharedTerminals, setHubGraceMsForTest } from './shared-terminal.js'
 import { streamPerfMetrics } from '../perf-metrics.js'
 import { STREAM_FANOUT_ENABLED, RESYNC_RESET_SEQ, setMirrorEnabledForTest } from './stream-config.js'
 import { STREAM_BINARY_VERSION_COMPACT, STREAM_BINARY_VERSION_COMPACT_SEQ } from '../stream-binary.js'
@@ -112,6 +112,8 @@ function setupPtySpawn() {
 }
 
 function setupEnv() {
+  // 既有用例钉的是「最后一个订阅者离开即杀 PTY」的旧语义；hub 宽限单独测
+  setHubGraceMsForTest(0)
   setPrepareSessionAttachForTest(async () => {})
   setWindowSizeQueryForTest(async () => ({ cols: 80, rows: 24 }))
   // 实现签名要求 host: HostRecord，但 refresh 路径只消费 stdout，桩按实际行为传 null
@@ -121,6 +123,7 @@ function setupEnv() {
 }
 
 function teardownEnv() {
+  setHubGraceMsForTest(null)
   setPtySpawnForTest(() => {
     throw new Error('pty spawn not mocked')
   })
@@ -709,6 +712,60 @@ test('binary output keeps the v2 header for clients that did not declare mirrorS
     for (const frame of frames) assert.equal(frame.buf![2], STREAM_BINARY_VERSION_COMPACT, '未声明就维持 v2 头')
     sa.cleanup()
   } finally {
+    setMirrorEnabledForTest(null)
+    teardownEnv()
+  }
+})
+
+test('a reconnect inside the hub grace window gets the delta instead of a snapshot', async () => {
+  setupEnv()
+  setMirrorEnabledForTest(true)
+  setHubGraceMsForTest(500)
+  const spawns = setupPtySpawn()
+  const refreshCount = setupRefreshExec()
+  resetExclusiveOwnershipForTest()
+  resetSharedTerminalsForTest()
+  try {
+    const a = createSocket()
+    const sa = new StreamSession(a.socket, null)
+    await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
+    spawns[0].emitData('BEFORE-DISCONNECT')
+    await sleep(20)
+    const lastSeen = a.sent
+      .filter((m) => m.type === 'output' && typeof m.mirrorSeq === 'number')
+      .map((m) => m.mirrorSeq as number)
+      .pop()
+    assert.equal(typeof lastSeen, 'number', '断开前客户端要拿到镜像序号')
+    // 最后一个订阅者离场：hub 进宽限期而不是立刻销毁
+    sa.cleanup()
+    assert.equal(countSharedTerminals(), 1, '宽限期内 hub 还活着')
+    spawns[0].emitData('WHILE-AWAY')
+    await sleep(20)
+    const before = refreshCount()
+
+    const b = createSocket()
+    const sb = new StreamSession(b.socket, null)
+    await sb.attach({
+      hostId: 'local',
+      sessionName: 'test',
+      exclusive: false,
+      cols: 80,
+      rows: 24,
+      lastSeq: lastSeen,
+    })
+    await sleep(150)
+
+    assert.equal(spawns.length, 1, '宽限期内重连不该重建 PTY')
+    assert.equal(refreshCount() - before, 0, '吃到增量就不该再请求重绘')
+    const resyncs = b.sent.filter((m) => m.type === 'output_resync')
+    assert.equal(resyncs.length, 0, '有可用增量时不该发整快照')
+    const deltas = b.sent.filter((m) => m.type === 'output')
+    assert.equal(deltas.length, 1, '只补断线期间那一段')
+    assert.match(String(deltas[0].data), /WHILE-AWAY/)
+    assert.doesNotMatch(String(deltas[0].data), /BEFORE-DISCONNECT/, '已收到的内容不重发')
+    sb.cleanup()
+  } finally {
+    setHubGraceMsForTest(null)
     setMirrorEnabledForTest(null)
     teardownEnv()
   }

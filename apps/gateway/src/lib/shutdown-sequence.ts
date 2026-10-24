@@ -10,6 +10,8 @@ export type ShutdownDeps = {
   /** 退出前自动快照（自带 deadline，失败不阻塞关停） */
   snapshotSessions?: () => Promise<void>
   cleanupSockets: () => Promise<void>
+  /** 清掉挂起的 hub 空闲宽限定时器：关停期间不该突然杀 PTY */
+  clearHubGraceTimers?: () => void
   closeServer: () => Promise<void>
   exit: (code: number) => void
   timeoutMs?: number
@@ -35,6 +37,9 @@ export function createShutdownSequence(deps: ShutdownDeps) {
         deps.unregisterAgents('Gateway restarted')
         // ws 长连接不随 HTTP server 关闭自动断开，显式终止以免阻塞排空
         deps.terminateWebSockets()
+        // ws 断开会让订阅者离场、给 hub 起宽限定时器；关停路径直接清掉，
+        // 避免宽限到期在快照/关 server 中途杀 PTY
+        deps.clearHubGraceTimers?.()
         await deps.shutdownPlugins()
         // 快照排在关 server 之前：先拿数据再断连接；实现内部有 deadline，这里再兜一层
         if (deps.snapshotSessions) {
