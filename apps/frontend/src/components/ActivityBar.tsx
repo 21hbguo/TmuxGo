@@ -99,7 +99,8 @@ function ActivityIconBody({ item }: { item: ActivityItem }) {
     <span className="relative">
       <Icon aria-hidden="true" size={18} />
       {item.unread > 0 && (
-        <span className="absolute -right-2.5 -top-1.5 min-w-4 rounded-full bg-danger px-0.5 text-center text-[9px] font-medium leading-4 text-white">
+        // ring 用侧栏底色描边：角标压在图标右上角，不描边会和图形糊在一起
+        <span className="absolute -right-2.5 -top-1.5 min-w-4 rounded-full bg-danger px-0.5 text-center text-[9px] font-medium leading-4 tabular-nums text-on-danger ring-1 ring-bg-1/80">
           {item.unread > 99 ? '99+' : item.unread}
         </span>
       )}
@@ -111,11 +112,19 @@ function ActivityButton({ item }: { item: ActivityItem }) {
   return (
     <button
       aria-label={item.label}
+      aria-pressed={item.active}
       title={item.title ?? item.label}
       disabled={item.disabled}
       onClick={item.onClick}
-      className={`tmuxgo-toolbar-icon ${item.active ? 'tmuxgo-toolbar-icon--active' : ''} disabled:opacity-40 disabled:cursor-not-allowed`}
+      className={`tmuxgo-toolbar-icon relative focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60 ${item.active ? 'tmuxgo-toolbar-icon--active' : ''} disabled:cursor-not-allowed disabled:opacity-40`}
     >
+      {/* active 左侧竖条：图标列只有 40px 宽，用贴边的细条标记当前位置，不额外加背景块 */}
+      {item.active && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute -left-2 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-full bg-accent"
+        />
+      )}
       <ActivityIconBody item={item} />
     </button>
   )
