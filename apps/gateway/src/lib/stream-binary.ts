@@ -2,6 +2,9 @@ import { gzip, gzipSync, gunzipSync } from 'zlib'
 
 export const STREAM_BINARY_VERSION = 1
 export const STREAM_BINARY_VERSION_COMPACT = 2
+// v3 = compact + 头带 mirrorSeq(u32)。单独加版本号而不是复用 v2 的 reserved 两字节：
+// 4ms flush 下 16bit 序号几分钟就回绕，「服务端 seq > 客户端 seq」会假阳性
+export const STREAM_BINARY_VERSION_COMPACT_SEQ = 3
 export const STREAM_BINARY_TYPE_OUTPUT = 1
 export const STREAM_BINARY_TYPE_RESYNC = 2
 export const STREAM_BINARY_TYPE_OUTPUT_GZIP = 3
@@ -154,17 +157,23 @@ export function encodeStreamBinaryFrameCompact(
   routeIdx: number,
   payload: Buffer,
   gzip = false,
+  // 给了镜像序号就走 v3 头（16B），否则维持 v2（12B）——老客户端只声明了
+  // compactHeader 时不能收到它不认的头
+  mirrorSeq?: number,
 ) {
   if (!Number.isInteger(routeIdx) || routeIdx < 1 || routeIdx > 0xffff)
     throw new Error('stream binary route index out of range')
-  const header = Buffer.allocUnsafe(12)
+  const withSeq = typeof mirrorSeq === 'number' && Number.isFinite(mirrorSeq) && mirrorSeq >= 0
+  const header = Buffer.allocUnsafe(withSeq ? 16 : 12)
   header.writeUInt8(0x54, 0)
   header.writeUInt8(0x47, 1)
-  header.writeUInt8(STREAM_BINARY_VERSION_COMPACT, 2)
+  header.writeUInt8(withSeq ? STREAM_BINARY_VERSION_COMPACT_SEQ : STREAM_BINARY_VERSION_COMPACT, 2)
   header.writeUInt8(typeCodeOf(type, gzip), 3)
   header.writeUInt16LE(routeIdx, 4)
   header.writeUInt16LE(0, 6)
   header.writeUInt32LE(payload.length, 8)
+  // seq 在头里、payload 之外：gzip 只作用于 payload，互不影响
+  if (withSeq) header.writeUInt32LE(Math.floor(mirrorSeq as number) >>> 0, 12)
   return Buffer.concat([header, payload])
 }
 
@@ -172,14 +181,14 @@ export function encodeStreamOutputBinaryCompact(
   type: StreamBinaryAnsiType,
   routeIdx: number,
   data: string,
-  options?: { compress?: boolean; threshold?: number },
+  options?: { compress?: boolean; threshold?: number; mirrorSeq?: number },
 ) {
   const raw = Buffer.from(data || '', 'utf8')
   const threshold = options?.threshold ?? 4096
   const force = type === 'output_resync'
   const allow = options?.compress === true && (force || raw.length >= threshold)
   const { payload, gzip } = maybeGzip(raw, allow, force ? 0 : threshold)
-  return encodeStreamBinaryFrameCompact(type, routeIdx, payload, gzip)
+  return encodeStreamBinaryFrameCompact(type, routeIdx, payload, gzip, options?.mirrorSeq)
 }
 
 export function encodeStreamCellBinaryCompact(
@@ -217,14 +226,17 @@ export async function encodeStreamOutputBinaryCompactAsync(
   type: StreamBinaryAnsiType,
   routeIdx: number,
   data: string,
-  options?: { compress?: boolean; threshold?: number },
+  options?: { compress?: boolean; threshold?: number; mirrorSeq?: number },
 ): Promise<{ frame: Buffer; gzipFailed: boolean }> {
   const raw = Buffer.from(data || '', 'utf8')
   const threshold = options?.threshold ?? 4096
   const force = type === 'output_resync'
   const allow = options?.compress === true && (force || raw.length >= threshold)
   const { payload, gzip, failed } = await maybeGzipAsync(raw, allow, force ? 0 : threshold)
-  return { frame: encodeStreamBinaryFrameCompact(type, routeIdx, payload, gzip), gzipFailed: failed }
+  return {
+    frame: encodeStreamBinaryFrameCompact(type, routeIdx, payload, gzip, options?.mirrorSeq),
+    gzipFailed: failed,
+  }
 }
 
 export async function encodeStreamCellBinaryCompactAsync(

@@ -163,9 +163,9 @@ export function useWebSocket() {
           break
         case 'output':
         case 'output_resync': {
-          // 快照是新的基准，之前的序号不再可比；普通输出帧带 mirrorSeq 才更新
+          // 快照是新的基准，之前的序号不再可比；输出帧没带 seq 同样作废（宁可整快照）
           if (data.type === 'output_resync') wsState.lastMirrorSeq = null
-          else if (typeof data.mirrorSeq === 'number') wsState.lastMirrorSeq = data.mirrorSeq
+          else wsState.lastMirrorSeq = typeof data.mirrorSeq === 'number' ? data.mirrorSeq : null
           emitOutput({
             // output 帧契约上 data 必有；协议容错起见原样透传，不做补默认值
             data: data.data as string,
@@ -355,6 +355,8 @@ export function useWebSocket() {
                 compressOutput: 'gzip',
                 cellOutput: true,
                 compactHeader: true,
+                // 声明能解 v3 compact 头（带 mirrorSeq）；不声明就继续收 v2
+                mirrorSeq: true,
               }),
             )
           } catch {}
@@ -368,8 +370,6 @@ export function useWebSocket() {
             if (typeof ArrayBuffer !== 'undefined' && event.data instanceof ArrayBuffer) {
               const decoded = decodeStreamOutputBinary(event.data, wsState.routes as StreamRouteMap)
               if (!decoded) return
-              // 二进制输出帧不带 mirrorSeq（协议未扩），序号从此不可信：宁可整快照
-              if (decoded.type === 'output' || decoded.type === 'output_resync') wsState.lastMirrorSeq = null
               if ((decoded.type === 'cell_snapshot' || decoded.type === 'cell_snapshot_v2') && decoded.cellPayload) {
                 const snap = (decoded.type === 'cell_snapshot_v2' ? decodeCellSnapshotV2 : decodeCellSnapshot)(
                   decoded.cellPayload,
@@ -425,11 +425,14 @@ export function useWebSocket() {
                 })
                 return
               }
+              // v3 compact 头带的镜像序号随转发一起交给 handleMessage：
+              // 序号语义只在那里维护一处，避免两条路径互相覆盖
               wsState.onMessage?.({
                 type: decoded.type,
                 data: decoded.data,
                 sessionName: decoded.sessionName,
                 hostId: decoded.hostId,
+                ...(typeof decoded.mirrorSeq === 'number' ? { mirrorSeq: decoded.mirrorSeq } : {}),
               })
               return
             }

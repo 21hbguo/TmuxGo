@@ -2,7 +2,11 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useWebSocket } from './useWebSocket'
 import { subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
-import { STREAM_BINARY_TYPE_OUTPUT, STREAM_BINARY_VERSION } from '@/lib/stream-binary'
+import {
+  STREAM_BINARY_TYPE_OUTPUT,
+  STREAM_BINARY_VERSION,
+  STREAM_BINARY_VERSION_COMPACT_SEQ,
+} from '@/lib/stream-binary'
 const updateConnectionMock = vi.fn()
 const preferenceState = { autoReconnect: false, reconnectInterval: 1000 }
 const authState = { enabled: false }
@@ -63,6 +67,23 @@ function binaryOutputFrame(hostId: string, sessionName: string, data: string) {
   return buffer
 }
 
+// v3 compact 头（16B）：payloadLen 仍在 offset 8，镜像序号在 12，payload 从 16 起
+function binaryCompactSeqFrame(routeIdx: number, data: string, mirrorSeq: number) {
+  const payload = new TextEncoder().encode(data)
+  const buffer = new ArrayBuffer(16 + payload.length)
+  const view = new DataView(buffer)
+  view.setUint8(0, 0x54)
+  view.setUint8(1, 0x47)
+  view.setUint8(2, STREAM_BINARY_VERSION_COMPACT_SEQ)
+  view.setUint8(3, STREAM_BINARY_TYPE_OUTPUT)
+  view.setUint16(4, routeIdx, true)
+  view.setUint16(6, 0, true)
+  view.setUint32(8, payload.length, true)
+  view.setUint32(12, mirrorSeq, true)
+  new Uint8Array(buffer).set(payload, 16)
+  return buffer
+}
+
 vi.mock('./usePreferences', () => ({
   usePreferences: () => ({ preferences: preferenceState }),
 }))
@@ -120,17 +141,40 @@ describe('useWebSocket', () => {
     unmount()
   })
 
-  it('drops the mirror sequence when a binary output frame arrives', () => {
+  it('records the mirror sequence carried by v3 binary frames', () => {
     const { result, unmount } = renderHook(() => useWebSocket())
     act(() => {
       socketInstances[0].open()
     })
     act(() => {
-      socketInstances[0].message({ type: 'output', data: 'a', hostId: 'local', sessionName: 'dev', mirrorSeq: 7 })
+      socketInstances[0].message({ type: 'stream_route', routeIdx: 1, hostId: 'local', sessionName: 'dev' })
     })
-    expect(result.current.getLastMirrorSeq()).toBe(7)
-    // 二进制输出帧协议上不带 mirrorSeq：此后序号不可信，继续上报会让服务端补发
-    // 已经渲染过的字节（重复内容）。宁可回整快照
+    act(() => {
+      socketInstances[0].binaryMessage(binaryCompactSeqFrame(1, 'a', 42))
+    })
+    // 默认走二进制（caps 已声明 mirrorSeq）：这条路径必须真的记下来，
+    // 否则「重连只补增量」永远只是 JSON 路径上的摆设
+    expect(result.current.getLastMirrorSeq()).toBe(42)
+    act(() => {
+      socketInstances[0].binaryMessage(binaryCompactSeqFrame(1, 'b', 43))
+    })
+    expect(result.current.getLastMirrorSeq()).toBe(43)
+    unmount()
+  })
+
+  it('drops the sequence when a legacy v2 binary frame arrives', () => {
+    const { result, unmount } = renderHook(() => useWebSocket())
+    act(() => {
+      socketInstances[0].open()
+    })
+    act(() => {
+      socketInstances[0].message({ type: 'stream_route', routeIdx: 1, hostId: 'local', sessionName: 'dev' })
+    })
+    act(() => {
+      socketInstances[0].binaryMessage(binaryCompactSeqFrame(1, 'a', 42))
+    })
+    expect(result.current.getLastMirrorSeq()).toBe(42)
+    // 老网关不发 v3 头：序号无从得知，继续上报旧值会让服务端补发已渲染的字节
     act(() => {
       socketInstances[0].binaryMessage(binaryOutputFrame('local', 'dev', 'x'))
     })
