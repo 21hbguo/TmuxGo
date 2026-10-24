@@ -52,6 +52,11 @@ export interface TmuxExecOptions {
   timeoutMs?: number
   allowPrompt?: boolean
   needsPty?: boolean
+  /**
+   * 取消信号：轮询/扫描在宿主停摆（agentMonitor.stop 等）时要能立刻掐掉在跑的
+   * ssh/sh 子进程。不传则行为完全不变；子进程由 execFile 的 signal 支持直接 kill。
+   */
+  signal?: AbortSignal
 }
 export interface TmuxExecResult {
   stdout: string
@@ -220,6 +225,7 @@ async function runLocalShell(command: string, options: TmuxExecOptions = {}) {
   const { stdout, stderr } = await execFileAsync('sh', ['-lc', command], {
     timeout: options.timeoutMs || defaultTimeoutMs,
     maxBuffer: 8 * 1024 * 1024,
+    signal: options.signal,
   })
   return { stdout, stderr }
 }
@@ -237,6 +243,7 @@ async function runRemoteTmux(host: HostRecord, args: string[], options: TmuxExec
         timeout: options.timeoutMs || defaultTimeoutMs,
         env: { ...process.env, ...passwordEnv },
         maxBuffer: 8 * 1024 * 1024,
+        signal: options.signal,
       })
       return { stdout, stderr }
     } catch (err) {
@@ -253,6 +260,7 @@ async function runRemoteTmux(host: HostRecord, args: string[], options: TmuxExec
     const { stdout, stderr } = await execFileAsync('ssh', sshArgs, {
       timeout: options.timeoutMs || defaultTimeoutMs,
       maxBuffer: 8 * 1024 * 1024,
+      signal: options.signal,
     })
     return { stdout, stderr }
   } catch (err) {
@@ -281,6 +289,7 @@ async function runRemoteShell(host: HostRecord, command: string, options: TmuxEx
         timeout: options.timeoutMs || defaultTimeoutMs,
         env: { ...process.env, ...passwordEnv },
         maxBuffer: 8 * 1024 * 1024,
+        signal: options.signal,
       })
       return { stdout, stderr }
     } catch (err) {
@@ -297,6 +306,7 @@ async function runRemoteShell(host: HostRecord, command: string, options: TmuxEx
     const { stdout, stderr } = await execFileAsync('ssh', sshArgs, {
       timeout: options.timeoutMs || defaultTimeoutMs,
       maxBuffer: 8 * 1024 * 1024,
+      signal: options.signal,
     })
     return { stdout, stderr }
   } catch (err) {

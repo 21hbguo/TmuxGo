@@ -66,7 +66,9 @@ interface MonitorHostState {
   timer: ReturnType<typeof setInterval> | null
 }
 interface AgentMonitorOptions {
-  scan?: (hostId: string) => Promise<AgentPaneState[]>
+  // signal：宿主停摆（stop）时用来掐掉在跑的扫描（远端是 ssh 子进程），
+  // 否则文件/进程要等在跑的 ssh 自然超时才退，测试表现为「用例全绿但进程不退出」
+  scan?: (hostId: string, signal?: AbortSignal) => Promise<AgentPaneState[]>
   getHostIds?: () => Promise<string[]>
   intervalMs?: number
   idleMs?: number
@@ -214,7 +216,7 @@ function applyProtocolEvent(
 }
 
 export class AgentMonitor {
-  private readonly scan: (hostId: string) => Promise<AgentPaneState[]>
+  private readonly scan: (hostId: string, signal?: AbortSignal) => Promise<AgentPaneState[]>
   private readonly getHostIds: () => Promise<string[]>
   private readonly intervalMs: number
   private readonly idleMs: number
@@ -232,10 +234,17 @@ export class AgentMonitor {
   private unsubscribePushChange: (() => void) | null = null
   private hostRefreshTimer: ReturnType<typeof setInterval> | null = null
   private running = false
+  // 每轮 start 的世代号：stop() 会 +1 让「还在飞的 start」失效。没有它，一次
+  // stop/start 交错就能让上一轮 start 在 stop 之后挂上 hostRefreshTimer，再被新一轮
+  // 覆盖成孤儿定时器——进程于是永远退不掉（测试表现为用例全绿后文件级超时）
+  private runGeneration = 0
+  // 每轮运行一个 controller：stop() 一 abort，在跑的扫描（远端 ssh 子进程）立刻被掐断。
+  // 只影响「还在飞的扫描」，不改变任何对外语义——正常轮询仍按节拍走。
+  private scanAbort: AbortController | null = null
   private startPromise: Promise<void> | null = null
 
   constructor(options: AgentMonitorOptions = {}) {
-    this.scan = options.scan || ((hostId) => getHostAgentPanes(hostId))
+    this.scan = options.scan || ((hostId, signal) => getHostAgentPanes(hostId, undefined, signal))
     this.getHostIds =
       options.getHostIds ||
       (async () => {
@@ -274,6 +283,8 @@ export class AgentMonitor {
   async start() {
     if (this.running) return this.startPromise || Promise.resolve()
     this.running = true
+    const generation = ++this.runGeneration
+    this.scanAbort = new AbortController()
     this.lastPushSubscribers = this.hasPushSubscribers()
     if (!this.unsubscribePushChange) this.unsubscribePushChange = onPushSubscriberChange(() => this.syncPushCadence())
     // web-push 订阅表只读探测不阻塞启动：start() 的时序被「stop 打断启动」类用例依赖，
@@ -284,7 +295,11 @@ export class AgentMonitor {
     this.startPromise = (async () => {
       await this.refreshHosts(false)
       await Promise.all([...this.hosts.keys()].map((hostId) => this.pollHost(hostId)))
-      if (this.running) this.hostRefreshTimer = setInterval(() => void this.refreshHosts(), this.hostRefreshMs)
+      if (this.running && this.runGeneration === generation) {
+        // 覆盖前先清：即使将来有别的路径重复挂，也不会留下没人引用的定时器
+        if (this.hostRefreshTimer) clearInterval(this.hostRefreshTimer)
+        this.hostRefreshTimer = setInterval(() => void this.refreshHosts(), this.hostRefreshMs)
+      }
     })()
     try {
       await this.startPromise
@@ -295,6 +310,11 @@ export class AgentMonitor {
 
   stop() {
     this.running = false
+    // 让在飞的 start 失效：它的 setInterval 不允许在 stop 之后落地
+    this.runGeneration++
+    // 先掐在跑的扫描：ssh 子进程活着会让宿主进程迟迟退不掉
+    this.scanAbort?.abort()
+    this.scanAbort = null
     this.unsubscribePushChange?.()
     this.unsubscribePushChange = null
     if (this.hostRefreshTimer) clearInterval(this.hostRefreshTimer)
@@ -473,7 +493,7 @@ export class AgentMonitor {
     if (!state || state.scanning) return
     state.scanning = true
     try {
-      const agents = await this.scan(hostId)
+      const agents = await this.scan(hostId, this.scanAbort?.signal)
       if (!this.running || this.hosts.get(hostId) !== state) return
       this.applyScan(hostId, state, agents)
     } catch {
