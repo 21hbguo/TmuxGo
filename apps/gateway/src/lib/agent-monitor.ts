@@ -64,6 +64,8 @@ interface MonitorHostState {
   disconnected: boolean
   scanning: boolean
   timer: ReturnType<typeof setInterval> | null
+  // 连续「扫出 0 个 agent pane」的轮数：为空时降压扫描频率，扫到 pane/出错即清零
+  emptyScans: number
 }
 interface AgentMonitorOptions {
   // signal：宿主停摆（stop）时用来掐掉在跑的扫描（远端是 ssh 子进程），
@@ -76,6 +78,8 @@ interface AgentMonitorOptions {
   // 30s 怠速档会让"需要审批"提醒最坏拖半分钟
   pushPollMs?: number
   hostRefreshMs?: number
+  // 空扫退避阶梯（测试缝）：默认读 EMPTY_SCAN_BACKOFF_STEPS
+  emptyScanBackoff?: (emptyRounds: number) => number
   hasPushSubscribers?: () => boolean
   now?: () => number
   onNotification?: (event: Extract<AgentMonitorEvent, { type: 'agent_notification' }>) => void
@@ -92,6 +96,19 @@ const notificationEvents = new Set<AgentEvent>([
   'ended',
   'disconnected',
 ])
+// 空扫退避阶梯：远端 host 每扫一次就是一条 ssh（本地只是一次 tmux execFile），
+// 而「纯 ssh、从没跑过 agent TUI」的主机永远扫出空集——空结果的持续代价不该按满频付。
+// 连续空扫达到 emptyRounds 后，该 host 的扫描间隔至少拉到 floorMs；从高到低匹配，
+// 扫到任意 pane 或扫描出错都清零（出错不是「空」，不能拿来退避）。
+const EMPTY_SCAN_BACKOFF_STEPS: ReadonlyArray<{ emptyRounds: number; floorMs: number }> = [
+  { emptyRounds: 8, floorMs: 120_000 },
+  { emptyRounds: 5, floorMs: 60_000 },
+  { emptyRounds: 2, floorMs: 15_000 },
+]
+export function emptyScanBackoffMs(emptyRounds: number): number {
+  for (const step of EMPTY_SCAN_BACKOFF_STEPS) if (emptyRounds >= step.emptyRounds) return step.floorMs
+  return 0
+}
 const protocolOverlayMaxAgeMs = 30 * 60 * 1000
 const displayDefaultTtlMs = 60 * 1000
 const notificationThrottleMs = 30 * 1000
@@ -222,6 +239,7 @@ export class AgentMonitor {
   private readonly idleMs: number
   private readonly pushPollMs: number
   private readonly hostRefreshMs: number
+  private readonly emptyScanBackoff: (emptyRounds: number) => number
   private readonly now: () => number
   private readonly onNotification?: (event: Extract<AgentMonitorEvent, { type: 'agent_notification' }>) => void
   private readonly onRecoveryCandidate: (candidate: RecoveryCandidateInput) => void
@@ -259,6 +277,7 @@ export class AgentMonitor {
     this.pushPollMs = Math.max(this.intervalMs, options.pushPollMs || 5000)
     this.hasPushSubscribers = options.hasPushSubscribers || (() => getPushSubscriberCount() > 0)
     this.hostRefreshMs = Math.max(this.intervalMs, options.hostRefreshMs || 5000)
+    this.emptyScanBackoff = options.emptyScanBackoff || emptyScanBackoffMs
     this.now = options.now || (() => Date.now())
     this.onNotification = options.onNotification
     this.onRecoveryCandidate =
@@ -351,6 +370,25 @@ export class AgentMonitor {
     if (this.listeners.size) return this.intervalMs
     return this.hasPushSubscribers() ? this.pushPollMs : this.idleMs
   }
+  // 单 host 的实际扫描间隔：档位节拍之上叠加空扫退避。
+  // 只对远端生效——local 的「扫描」就是一次 tmux execFile，退避没有收益还拖慢本机可观测性。
+  private pollIntervalMs(hostId: string, state: MonitorHostState) {
+    const base = this.currentPollMs()
+    if (hostId === 'local') return base
+    return Math.max(base, this.emptyScanBackoff(state.emptyScans))
+  }
+  // 每次扫描后都要重新挂表：退避档位是随扫描结果变化的，沿用旧定时器会一直卡在原档
+  private armHostTimer(hostId: string, state: MonitorHostState) {
+    if (state.timer) clearInterval(state.timer)
+    state.timer = this.running
+      ? setInterval(() => void this.pollHost(hostId), this.pollIntervalMs(hostId, state))
+      : null
+  }
+  // 排障/测试只读：当前 host 的扫描间隔（未跟踪的 host 回 null）
+  getPollIntervalMs(hostId: string) {
+    const state = this.hosts.get(hostId)
+    return state ? this.pollIntervalMs(hostId, state) : null
+  }
   // web-push 订阅表变化时只在「有/无」翻转时重排节拍，避免每次注册都重置定时器
   private syncPushCadence() {
     const next = this.hasPushSubscribers()
@@ -360,11 +398,7 @@ export class AgentMonitor {
   }
   private refreshPollCadence() {
     if (!this.running) return
-    const ms = this.currentPollMs()
-    for (const [hostId, state] of this.hosts) {
-      if (state.timer) clearInterval(state.timer)
-      state.timer = setInterval(() => void this.pollHost(hostId), ms)
-    }
+    for (const [hostId, state] of this.hosts) this.armHostTimer(hostId, state)
     if (this.listeners.size) for (const hostId of this.hosts.keys()) void this.pollHost(hostId)
   }
 
@@ -460,11 +494,12 @@ export class AgentMonitor {
         disconnected: false,
         scanning: false,
         timer: null,
+        emptyScans: 0,
       }
       this.pendingProtocolEvents.delete(hostId)
       this.hosts.set(hostId, state)
       if (this.running) {
-        state.timer = setInterval(() => void this.pollHost(hostId), this.currentPollMs())
+        this.armHostTimer(hostId, state)
         if (pollNewHosts) void this.pollHost(hostId)
       }
     }
@@ -501,10 +536,14 @@ export class AgentMonitor {
       this.applyFailure(hostId, state)
     } finally {
       state.scanning = false
+      // 空扫轮数刚变过：下一拍必须按新档位挂，否则要等旧定时器自然到期才生效
+      if (this.running && this.hosts.get(hostId) === state) this.armHostTimer(hostId, state)
     }
   }
 
   private applyScan(hostId: string, state: MonitorHostState, agents: AgentPaneState[]) {
+    // 空集 = 该 host 上没有 agent pane；连续空轮数决定还要不要按满频付 ssh
+    state.emptyScans = agents.length === 0 ? state.emptyScans + 1 : 0
     const initial = !state.initialized
     const wasDisconnected = state.disconnected
     state.initialized = true
@@ -643,6 +682,8 @@ export class AgentMonitor {
   }
 
   private applyFailure(hostId: string, state: MonitorHostState) {
+    // 出错 ≠ 空：故障主机要按满频重试，不能借空扫退避把它藏起来
+    state.emptyScans = 0
     const initial = !state.initialized
     if (!state.disconnected) {
       state.disconnected = true
