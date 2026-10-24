@@ -102,3 +102,9 @@ frontend 的两类报错都具体可修：
 - `tailwindcss@4.3.3` 的 changelog 未逐条核，档位依据是 v4 的已知迁移面（配置形态 + 默认值/类名变更）；
 - `upload-artifact@v7` release notes 未逐条核；
 - 所有 PR 的 CI 结论都受 §0-1 的基线红灯污染，合前一律本地复跑。
+
+## 6. 政策定案（2026-10-05）
+
+- **Node 20：继续保留在 CI 矩阵**，不为升测试工具链而 drop。`vitest 5` / `jsdom 30` / `jest-dom 7` / `@types/node 26` 四包定案不升，对应 PR 来了即关。
+- **TypeScript 7：等 typescript-eslint 官宣 peer 支持再升**，不采用双版本方案。已量化收益 ~5.8×（gateway 3.18s→0.55s），届时一次到位。
+- **执行方式修正**：因本地 master 长期领先远端，依赖升级一律**本地应用 + 验证 + 关远端 PR**，不在 GitHub 上点 merge，避免 lockfile 岔口。
