@@ -30,7 +30,7 @@ export async function paneRoutes(fastify: FastifyInstance) {
     const { paneId, keepZoom } = paneSelectBodySchema.parse(request.body)
     try {
       const { hostId, tmuxPaneId } = parsePaneId(paneId)
-      if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
+      await assertTargetAllowed(hostId, tmuxPaneId)
       try {
         // keepZoom → select-pane -Z（tmux>=3.3）：zoom 状态下直接换 zoomed pane，
         // 不退出 zoom（移动端 zoom 全屏翻页依赖该语义）；未 zoom 时 -Z 为 no-op
@@ -66,7 +66,7 @@ export async function paneRoutes(fastify: FastifyInstance) {
     const { paneId } = paneIdBodySchema.parse(request.body)
     try {
       const { hostId, tmuxPaneId } = parsePaneId(paneId)
-      if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
+      await assertTargetAllowed(hostId, tmuxPaneId)
       const { stdout } = await execTmux(hostId, [
         'display-message',
         '-p',
@@ -97,7 +97,7 @@ export async function paneRoutes(fastify: FastifyInstance) {
     const { paneId, since, peek } = paneCopySelectionBodySchema.parse(request.body)
     try {
       const { hostId, tmuxPaneId } = parsePaneId(paneId)
-      if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
+      await assertTargetAllowed(hostId, tmuxPaneId)
       const newestBufferName = async () => {
         const { stdout } = await execTmux(hostId, ['list-buffers', '-F', '#{buffer_name}'])
         return stdout.split('\n')[0]?.trim() || ''
@@ -123,7 +123,7 @@ export async function paneRoutes(fastify: FastifyInstance) {
     const { paneId } = paneIdBodySchema.parse(request.body)
     try {
       const { hostId, tmuxPaneId } = parsePaneId(paneId)
-      if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
+      await assertTargetAllowed(hostId, tmuxPaneId)
       const { stdout } = await execTmux(hostId, ['display-message', '-p', '-t', tmuxPaneId, '#{pane_current_path}'])
       return { ok: true, cwd: stdout.trim() }
     } catch (err) {
@@ -134,7 +134,7 @@ export async function paneRoutes(fastify: FastifyInstance) {
     const { paneId, direction } = paneSplitBodySchema.parse(request.body)
     try {
       const { hostId, tmuxPaneId } = parsePaneId(paneId)
-      if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
+      await assertTargetAllowed(hostId, tmuxPaneId)
       const flag = direction === 'horizontal' ? '-h' : '-v'
       await execTmux(hostId, [
         'split-window',
@@ -157,7 +157,7 @@ export async function paneRoutes(fastify: FastifyInstance) {
       // 禁止无目标调用：gateway 自身跑在 tmux 内，裸 resize-pane 会命中 gateway 所在 pane
       if (!paneId) throw new Error('paneId is required')
       const { hostId, tmuxPaneId } = parsePaneId(paneId)
-      if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
+      await assertTargetAllowed(hostId, tmuxPaneId)
       await execTmux(hostId, ['resize-pane', '-Z', '-t', tmuxPaneId])
       return { ok: true }
     } catch (err) {
@@ -168,7 +168,7 @@ export async function paneRoutes(fastify: FastifyInstance) {
     const { paneId, cols, rows } = paneResizeBodySchema.parse(request.body)
     try {
       const { hostId, tmuxPaneId } = parsePaneId(paneId)
-      if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
+      await assertTargetAllowed(hostId, tmuxPaneId)
       const args = ['resize-pane', '-t', tmuxPaneId]
       if (typeof cols === 'number' && Number.isFinite(cols)) args.push('-x', String(Math.max(2, Math.round(cols))))
       if (typeof rows === 'number' && Number.isFinite(rows)) args.push('-y', String(Math.max(2, Math.round(rows))))
@@ -186,7 +186,7 @@ export async function paneRoutes(fastify: FastifyInstance) {
       // pane；若恰好是最后 window 的最后 pane，会连带销毁 session 甚至 tmux server
       if (!paneId) throw new Error('paneId is required')
       const { hostId, tmuxPaneId } = parsePaneId(paneId)
-      if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
+      await assertTargetAllowed(hostId, tmuxPaneId)
       await execTmux(hostId, ['kill-pane', '-t', tmuxPaneId])
       return { ok: true }
     } catch (err) {

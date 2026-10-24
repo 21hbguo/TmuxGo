@@ -1,8 +1,5 @@
-import { execFile } from 'child_process'
-import { promisify } from 'util'
 import { execTmux } from './tmux-executor.js'
 
-const execFileAsync = promisify(execFile)
 const allowedSessions = new Set(
   (process.env.TMUX_WEB_ALLOWED_SESSIONS || '')
     .split(',')
@@ -17,8 +14,8 @@ export function assertSessionAllowed(sessionName: string) {
   if (!isValidSessionName(sessionName)) throw new Error('Invalid session name')
   if (allowedSessions.size && !allowedSessions.has(sessionName)) throw new Error('Session is not allowed')
 }
-export async function assertTargetAllowed(target: string, expectedSessionName?: string) {
-  const sessionName = await getTargetSessionName(target)
+export async function assertTargetAllowed(hostId: string, target: string, expectedSessionName?: string) {
+  const sessionName = await getTargetSessionName(hostId, target)
   assertSessionAllowed(sessionName)
   if (expectedSessionName && sessionName !== expectedSessionName)
     throw new Error('Tmux target does not belong to session')
@@ -65,9 +62,18 @@ export function setPrepareSessionAttachForTest(fn: PrepareSessionAttach | null) 
 export async function prepareSessionAttach(hostId: string, sessionName: string) {
   await prepareSessionAttachImpl(hostId, sessionName)
 }
-async function getTargetSessionName(target: string) {
+type TmuxExecRunner = typeof execTmux
+let execTmuxImpl: TmuxExecRunner = execTmux
+// 测试缝：策略断言的用例不该触真实 tmux/ssh（与本文件 setPrepareSessionAttachForTest 同款）
+export function setExecTmuxForTest(fn: TmuxExecRunner | null) {
+  execTmuxImpl = fn ?? execTmux
+}
+// 经 execTmux 路由：local 直跑本机 tmux，远端走 agent/ssh 通道。策略断言因此对远端
+// 也成立——早先用本机 execFile 解析 pane→session，远端拿不到结果，只能整段放行。
+// 代价是每次断言多一条 display-message；被断言的动作本身就要发 execTmux，可接受。
+async function getTargetSessionName(hostId: string, target: string) {
   if (!target) throw new Error('Missing tmux target')
-  const { stdout } = await execFileAsync('tmux', ['display-message', '-p', '-t', target, '#{session_name}'])
+  const { stdout } = await execTmuxImpl(hostId, ['display-message', '-p', '-t', target, '#{session_name}'])
   const sessionName = stdout.trim()
   if (!sessionName) throw new Error('Unable to resolve session')
   return sessionName

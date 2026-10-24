@@ -74,16 +74,14 @@ function controlError(reply: FastifyReply, error: unknown, failedCode: string) {
 async function parsePaneTarget(paneId: string) {
   const { hostId, tmuxPaneId } = parseHostPaneId(paneId)
   await assertKnownHost(hostId)
-  if (hostId === 'local') {
-    try {
-      await assertTargetAllowed(tmuxPaneId)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : ''
-      // 会话策略拒绝（非法名/不在允许集）保持 400 通用失败；tmux 目标解析失败
-      // （pane 不存在/不可达）映射 PANE_MISSING——调用方据此区分「目标没了」
-      if (message === 'Invalid session name' || message === 'Session is not allowed') throw error
-      throw new AgentWaitError('PANE_MISSING', `Pane ${tmuxPaneId} does not exist or is unreachable`)
-    }
+  try {
+    await assertTargetAllowed(hostId, tmuxPaneId)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    // 会话策略拒绝（非法名/不在允许集）保持 400 通用失败；tmux 目标解析失败
+    // （pane 不存在/不可达）映射 PANE_MISSING——调用方据此区分「目标没了」
+    if (message === 'Invalid session name' || message === 'Session is not allowed') throw error
+    throw new AgentWaitError('PANE_MISSING', `Pane ${tmuxPaneId} does not exist or is unreachable`)
   }
   return { hostId, tmuxPaneId }
 }
@@ -282,9 +280,9 @@ export async function agentControlRoutes(fastify: FastifyInstance) {
   }
   // display-message 无法解析目标（pane 不存在、server 未起等）= pane 缺失：
   // 翻成语义码而非通用 400；仅放行 session 策略拒绝（白名单）
-  const assertActionTargetAllowed = async (tmuxPaneId: string) => {
+  const assertActionTargetAllowed = async (hostId: string, tmuxPaneId: string) => {
     try {
-      await assertTargetAllowed(tmuxPaneId)
+      await assertTargetAllowed(hostId, tmuxPaneId)
     } catch (error) {
       const message = error instanceof Error ? error.message : ''
       if (message === 'Invalid session name' || message === 'Session is not allowed') throw error
@@ -309,7 +307,7 @@ export async function agentControlRoutes(fastify: FastifyInstance) {
       const body = controlAgentStartBodySchema.parse(request.body)
       const { hostId, tmuxPaneId } = parseHostPaneId(body.paneId)
       await assertKnownHost(hostId)
-      if (hostId === 'local') await assertActionTargetAllowed(tmuxPaneId)
+      await assertActionTargetAllowed(hostId, tmuxPaneId)
       const result = await startAgentInPane(hostId, tmuxPaneId, body)
       reply.header('cache-control', 'no-store')
       auditAction(
@@ -353,7 +351,7 @@ export async function agentControlRoutes(fastify: FastifyInstance) {
       const body = controlAgentPromptBodySchema.parse(request.body)
       const { hostId, tmuxPaneId } = parseHostPaneId(body.paneId)
       await assertKnownHost(hostId)
-      if (hostId === 'local') await assertActionTargetAllowed(tmuxPaneId)
+      await assertActionTargetAllowed(hostId, tmuxPaneId)
       const result = await promptAgentInPane(hostId, tmuxPaneId, body)
       reply.header('cache-control', 'no-store')
       auditAction(request, 'agent.prompt', body.paneId, 'success', 200, `${result.acked ? 'acked' : 'sent'}`, hostId)

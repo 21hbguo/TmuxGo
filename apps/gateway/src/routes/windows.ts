@@ -94,7 +94,7 @@ async function normalizeWindowOrder(hostId: string, sessionName: string, ordered
     return item.slice(hostId.length + 1)
   })
   for (const move of getNormalizedWindowMoves(sessionName, tmuxOrderedIds)) {
-    if (hostId === 'local') await assertTargetAllowed(move.source, sessionName)
+    await assertTargetAllowed(hostId, move.source, sessionName)
     await execTmux(hostId, ['move-window', '-s', move.source, '-t', move.target])
   }
 }
@@ -315,7 +315,7 @@ export async function windowRoutes(fastify: FastifyInstance) {
       if (sep <= 0 || sep === paneId.length - 1) throw new Error('Invalid pane id')
       const hostId = paneId.slice(0, sep)
       const tmuxPaneId = await parsePaneTarget(hostId, paneId)
-      if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
+      await assertTargetAllowed(hostId, tmuxPaneId)
       const { stdout } = await execTmux(hostId, ['capture-pane', '-pt', tmuxPaneId, '-p'])
       return { paneId, tmuxPaneId, data: stdout }
     } catch (err) {
@@ -365,7 +365,7 @@ export async function windowRoutes(fastify: FastifyInstance) {
       const sessionName = parseSessionName(hostId, sessionId)
       const tmuxWindowId = parseWindowRef(hostId, windowId)
       assertSessionAllowed(sessionName)
-      if (hostId === 'local') await assertTargetAllowed(tmuxWindowId, sessionName)
+      await assertTargetAllowed(hostId, tmuxWindowId, sessionName)
       await execTmux(hostId, ['select-window', '-t', tmuxWindowId])
       // 各 window 尺寸独立：切换当前 window 后附着的 client 视图可能与
       // window 尺寸发散，调度一次同 session 仲裁把所有附着同步过去
@@ -383,7 +383,7 @@ export async function windowRoutes(fastify: FastifyInstance) {
       const sessionName = parseSessionName(hostId, sessionId)
       const tmuxWindowId = parseWindowRef(hostId, windowId)
       assertSessionAllowed(sessionName)
-      if (hostId === 'local') await assertTargetAllowed(tmuxWindowId, sessionName)
+      await assertTargetAllowed(hostId, tmuxWindowId, sessionName)
       await execTmux(hostId, ['rename-window', '-t', tmuxWindowId, name])
       const windows = await getTmuxWindows(hostId, sessionName)
       return { ok: true, windows }
@@ -412,7 +412,7 @@ export async function windowRoutes(fastify: FastifyInstance) {
       const sessionName = parseSessionName(hostId, sessionId)
       const tmuxWindowId = parseWindowRef(hostId, windowId)
       assertSessionAllowed(sessionName)
-      if (hostId === 'local') await assertTargetAllowed(tmuxWindowId, sessionName)
+      await assertTargetAllowed(hostId, tmuxWindowId, sessionName)
       await execTmux(hostId, ['kill-window', '-t', tmuxWindowId])
       const windows = await getTmuxWindows(hostId, sessionName)
       return { ok: true, windows }

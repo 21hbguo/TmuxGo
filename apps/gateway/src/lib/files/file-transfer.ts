@@ -45,7 +45,9 @@ function mapAbsolutePathToRoot(roots: FileRoot[], absolutePath: string) {
   return sortedRoots.find((root) => isPathInside(root.path, absolutePath)) || null
 }
 async function getPaneCurrentPath(paneId: string) {
-  await assertTargetAllowed(paneId)
+  // 只服务本机：resolveDefaultUploadTargetForHost 对远端走 runRemoteFileJson，不会到这里。
+  // 断言因此显式写 'local'——远端同名函数在 agent 侧另有实现。
+  await assertTargetAllowed('local', paneId)
   const { stdout } = await execFileAsync('tmux', ['display-message', '-p', '-t', paneId, '#{pane_current_path}'])
   return stdout.trim()
 }
