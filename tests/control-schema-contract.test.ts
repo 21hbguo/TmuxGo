@@ -122,6 +122,9 @@ test('mcp pane tools mirror the protocol params constraints', async (t) => {
     tmuxgo_pane_snapshot: 'panes.snapshot',
     tmuxgo_pane_wait_output: 'panes.wait-output',
     tmuxgo_pane_run: 'panes.run',
+    tmuxgo_agent_start: 'agent.start',
+    tmuxgo_agent_prompt: 'agent.prompt',
+    tmuxgo_agent_wait: 'agent.wait',
     tmuxgo_control_schema: 'schema',
   }
   const constraintKeys = ['type', 'minLength', 'maxLength', 'minimum', 'maximum', 'pattern', 'enum', 'default']

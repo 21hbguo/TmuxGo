@@ -323,6 +323,151 @@ const TOOLS = [
       required: ['paneId', 'text'],
     },
   },
+  // agent 编排三件套：body 形状与 control-protocol.ts 的 controlAgent{Start,Prompt}BodySchema /
+  // controlWaitBodySchema 一一对应（tests/control-schema-contract.test.ts 断言约束值相等）
+  {
+    name: 'tmuxgo_agent_start',
+    description:
+      'Start a coding agent in an existing shell pane (send-keys only; never creates, splits or moves layout). provider=claude|codex, args are single argv tokens checked against the action allowlist. Returns right after sending unless ackTimeoutMs is set, in which case it waits for the agent event ack and fails explicably with ACK_TIMEOUT / PANE_OCCUPIED / PANE_NOT_AGENT.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        paneId: {
+          type: 'string',
+          minLength: 3,
+          maxLength: 256,
+          description: 'Host-scoped pane id like local:%3 (required)',
+        },
+        provider: { type: 'string', enum: ['claude', 'codex'], description: 'Agent CLI to start (required)' },
+        args: {
+          type: 'array',
+          maxItems: 8,
+          items: { type: 'string', pattern: '^-{0,2}[A-Za-z0-9][A-Za-z0-9._:/=-]{0,126}$' },
+          description: 'Single argv tokens, e.g. ["--resume","<id>"]; pattern-checked server-side (max 8)',
+        },
+        ackTimeoutMs: {
+          type: 'integer',
+          minimum: 250,
+          maximum: 30000,
+          description: 'Wait for the agent event ack instead of returning immediately (250-30000 ms)',
+        },
+        opId: {
+          type: 'string',
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$',
+          description: 'Idempotency key for the ack wait; POST it to /v1/control/agent/cancel to cancel',
+        },
+      },
+      required: ['paneId', 'provider'],
+    },
+  },
+  {
+    name: 'tmuxgo_agent_prompt',
+    description:
+      'Send a prompt to the agent occupying a pane. Same send-then-optional-ack contract as tmuxgo_agent_start; the prompt body is never written to the audit log. Use ackTimeoutMs to wait for the agent to acknowledge before returning.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        paneId: {
+          type: 'string',
+          minLength: 3,
+          maxLength: 256,
+          description: 'Host-scoped pane id like local:%3 (required)',
+        },
+        prompt: { type: 'string', minLength: 1, maxLength: 8192, description: 'Prompt text (1-8192 chars)' },
+        ackTimeoutMs: {
+          type: 'integer',
+          minimum: 250,
+          maximum: 30000,
+          description: 'Wait for the agent event ack instead of returning immediately (250-30000 ms)',
+        },
+        opId: {
+          type: 'string',
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$',
+          description: 'Idempotency key for the ack wait; POST it to /v1/control/agent/cancel to cancel',
+        },
+      },
+      required: ['paneId', 'prompt'],
+    },
+  },
+  {
+    name: 'tmuxgo_agent_wait',
+    description:
+      'Long-blocking: wait until the agent in a pane (or the named agent of a session) reaches a status/phase/lastEvent condition. Server-held, bounded by timeoutMs (250-600000 ms, default 60000); fails explicably with TIMEOUT, OCCUPANT_CHANGED, PANE_REMOVED or INVALID_TARGET. Returns waitId, elapsedMs and the settled pane.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        hostId: { type: 'string', minLength: 1, maxLength: 128, description: 'Host id (default local)' },
+        target: {
+          description: 'Either {paneId} or {sessionName, agent}',
+          anyOf: [
+            {
+              type: 'object',
+              properties: {
+                paneId: {
+                  type: 'string',
+                  minLength: 3,
+                  maxLength: 256,
+                  description: 'Host-scoped pane id like local:%3',
+                },
+              },
+              required: ['paneId'],
+            },
+            {
+              type: 'object',
+              properties: {
+                sessionName: { type: 'string', minLength: 1, maxLength: 64 },
+                agent: { type: 'string', minLength: 1, maxLength: 64 },
+              },
+              required: ['sessionName', 'agent'],
+            },
+          ],
+        },
+        condition: {
+          type: 'object',
+          description: 'At least one of status/phase/lastEvent',
+          properties: {
+            status: { type: 'string', enum: ['idle', 'working', 'blocked', 'done', 'unknown'] },
+            phase: {
+              type: 'string',
+              enum: [
+                'idle',
+                'working',
+                'needs_input',
+                'permission_required',
+                'retrying',
+                'failed',
+                'ended',
+                'disconnected',
+                'unknown',
+              ],
+            },
+            lastEvent: {
+              type: 'string',
+              enum: [
+                'started',
+                'permission_required',
+                'question_required',
+                'completed',
+                'failed',
+                'retrying',
+                'ended',
+                'disconnected',
+                'reconnected',
+              ],
+            },
+          },
+          anyOf: [{ required: ['status'] }, { required: ['phase'] }, { required: ['lastEvent'] }],
+        },
+        timeoutMs: {
+          type: 'integer',
+          minimum: 250,
+          maximum: 600000,
+          description: 'Max wait 250-600000 ms (default 60000)',
+        },
+      },
+      required: ['target', 'condition'],
+    },
+  },
   {
     name: 'tmuxgo_control_schema',
     description:
@@ -404,6 +549,30 @@ function defaultRoute(args) {
   const pane = args.tmuxPaneId || resolvePaneId()
   if (pane) route.tmuxPaneId = pane
   return route
+}
+
+// agent/start|prompt 的 ack 等待上限是 30s（control-protocol actionAckTimeout）：
+// client fetch 比服务端晚放弃，才不会把「在等 ack」变成 transport error
+function actionAckBudget(ackTimeoutMs) {
+  const ack = Number(ackTimeoutMs) > 0 ? Number(ackTimeoutMs) : 30000
+  return Math.min(ack + 10000, 40000)
+}
+// agent/wait 的 target 是 union：只透传合法形状，避免把无关字段送进协议校验
+function normalizeWaitTarget(target) {
+  if (!target || typeof target !== 'object') return null
+  if (typeof target.paneId === 'string' && target.paneId) return { paneId: target.paneId }
+  if (typeof target.sessionName === 'string' && target.sessionName && typeof target.agent === 'string' && target.agent)
+    return { sessionName: target.sessionName, agent: target.agent }
+  return null
+}
+// condition 的服务端 refine 要求至少一个键命中；这里先挑出已知键，其余一律丢弃
+function normalizeWaitCondition(condition) {
+  if (!condition || typeof condition !== 'object') return null
+  const picked = {}
+  for (const key of ['status', 'phase', 'lastEvent']) {
+    if (typeof condition[key] === 'string' && condition[key]) picked[key] = condition[key]
+  }
+  return Object.keys(picked).length ? picked : null
 }
 
 async function callGateway(pathname, body, timeoutMs = 30000, method = 'POST') {
@@ -553,6 +722,51 @@ async function handleToolCall(id, params) {
       enter: args.enter !== false,
       allowOccupied: args.allowOccupied === true ? true : undefined,
     })
+  } else if (name === 'tmuxgo_agent_start' || name === 'tmuxgo_agent_prompt') {
+    const isStart = name === 'tmuxgo_agent_start'
+    if (typeof args.paneId !== 'string' || !args.paneId) return toolResult(id, 'paneId is required', true)
+    // provider 在 MCP 侧先挡一层：enum 之外的值得不到可解释的服务端错误，只会得到 400 INVALID_ARGUMENT
+    if (isStart && args.provider !== 'claude' && args.provider !== 'codex')
+      return toolResult(id, 'provider must be "claude" or "codex"', true)
+    if (!isStart && (typeof args.prompt !== 'string' || !args.prompt)) return toolResult(id, 'prompt is required', true)
+    const body = isStart
+      ? {
+          paneId: args.paneId,
+          provider: args.provider,
+          args: Array.isArray(args.args) && args.args.length ? args.args : undefined,
+          ackTimeoutMs: typeof args.ackTimeoutMs === 'number' ? args.ackTimeoutMs : undefined,
+          opId: typeof args.opId === 'string' && args.opId ? args.opId : undefined,
+        }
+      : {
+          paneId: args.paneId,
+          prompt: args.prompt,
+          ackTimeoutMs: typeof args.ackTimeoutMs === 'number' ? args.ackTimeoutMs : undefined,
+          opId: typeof args.opId === 'string' && args.opId ? args.opId : undefined,
+        }
+    // 设了 ackTimeoutMs 时服务端最多挂起 30s 等 ack：client fetch 超时按 ack + 10s 放宽，
+    // 否则会先于 gateway 返回，把「在等 ack」误报成网络失败
+    result = await callGateway(
+      isStart ? '/v1/control/agent/start' : '/v1/control/agent/prompt',
+      body,
+      actionAckBudget(args.ackTimeoutMs),
+    )
+  } else if (name === 'tmuxgo_agent_wait') {
+    const target = normalizeWaitTarget(args.target)
+    if (!target) return toolResult(id, 'target must be {paneId} or {sessionName, agent}', true)
+    const condition = normalizeWaitCondition(args.condition)
+    if (!condition) return toolResult(id, 'condition needs at least one of status/phase/lastEvent', true)
+    // 服务端挂起最长 600s：client fetch 超时按 timeoutMs + 10s 放宽（与 pane_wait_output 同策略）
+    const timeoutMs = Number(args.timeoutMs) > 0 ? Number(args.timeoutMs) : 60000
+    result = await callGateway(
+      '/v1/control/agent/wait',
+      {
+        hostId: typeof args.hostId === 'string' && args.hostId ? args.hostId : undefined,
+        target,
+        condition,
+        timeoutMs: typeof args.timeoutMs === 'number' ? args.timeoutMs : undefined,
+      },
+      Math.min(timeoutMs + 10000, 610000),
+    )
   } else if (name === 'tmuxgo_control_schema') {
     result = await callGateway('/v1/control/schema', undefined, 10000, 'GET')
   } else if (name === 'tmuxgo_inbox_list') {
