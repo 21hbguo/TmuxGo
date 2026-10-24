@@ -8,7 +8,9 @@ permissions:
   contents: read
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # PR 上新的 push 取消旧的（省额度）；master 上不取消——矩阵兄弟被取消会让
+  # merge-gate 的 needs 聚合永久拿不到全部 success
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   lint-typecheck:
     runs-on: ubuntu-latest
@@ -49,6 +51,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      # 不 fail-fast：20 与 22 的结果都是合并判据的一部分，一个失败不该取消兄弟
+      fail-fast: false
       matrix:
         node: [20, 22]
     steps:
@@ -113,6 +117,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
+      # 重试策略在 playwright.config.ts 里按 CI 生效（--retries 追加到 npm 脚本
+      # 末尾会落到最后一条子命令上，这里不传参）
       - run: pnpm run test:e2e
         env:
           CI: '1'
