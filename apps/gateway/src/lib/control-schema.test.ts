@@ -31,7 +31,9 @@ test('zodToJsonSchema converts the protocol subset faithfully', () => {
   assert.equal((obj.properties as Record<string, { default?: string }>).def.default, 'd')
   // refine 包装透传内层 schema（跨字段约束由 paramsPatch 另行表达）
   assert.equal((zodToJsonSchema(z.object({ x: z.string() }).refine(() => true)) as { type: string }).type, 'object')
-  assert.throws(() => zodToJsonSchema(z.date()), /unsupported type/)
+  // 不可表达的类型必须炸（防静默产出残缺契约）；zod4 官方报错文案是
+  // `Date cannot be represented in JSON Schema`，不再是旧内省器的 `unsupported type`
+  assert.throws(() => zodToJsonSchema(z.date()), /cannot be represented in JSON Schema/)
 })
 
 test('protocol document mirrors the zod request models', () => {

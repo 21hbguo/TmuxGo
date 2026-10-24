@@ -157,22 +157,22 @@
             "maxLength": 256
           },
           "direction": {
+            "default": "horizontal",
             "type": "string",
             "enum": [
               "horizontal",
               "vertical"
-            ],
-            "default": "horizontal"
+            ]
           },
           "cwd": {
             "type": "string",
             "maxLength": 4096
           }
         },
-        "additionalProperties": true,
         "required": [
           "paneId"
-        ]
+        ],
+        "additionalProperties": true
       },
       "result": {
         "type": "object",
@@ -218,10 +218,10 @@
             "maximum": 2000
           }
         },
-        "additionalProperties": true,
         "required": [
           "paneId"
-        ]
+        ],
+        "additionalProperties": true
       },
       "result": {
         "type": "object",
@@ -269,10 +269,10 @@
             "maximum": 100
           }
         },
-        "additionalProperties": true,
         "required": [
           "paneId"
-        ]
+        ],
+        "additionalProperties": true
       },
       "result": {
         "type": "object",
@@ -323,8 +323,8 @@
             "maxLength": 512
           },
           "regex": {
-            "type": "boolean",
-            "default": false
+            "default": false,
+            "type": "boolean"
           },
           "lines": {
             "type": "integer",
@@ -337,10 +337,10 @@
             "maximum": 600000
           }
         },
-        "additionalProperties": true,
         "required": [
           "paneId"
-        ]
+        ],
+        "additionalProperties": true
       },
       "result": {
         "type": "object",
@@ -401,19 +401,19 @@
             "maxLength": 4096
           },
           "enter": {
-            "type": "boolean",
-            "default": true
+            "default": true,
+            "type": "boolean"
           },
           "allowOccupied": {
-            "type": "boolean",
-            "default": false
+            "default": false,
+            "type": "boolean"
           }
         },
-        "additionalProperties": true,
         "required": [
           "paneId",
           "text"
-        ]
+        ],
+        "additionalProperties": true
       },
       "result": {
         "type": "object",
@@ -468,10 +468,10 @@
                     "maxLength": 256
                   }
                 },
-                "additionalProperties": true,
                 "required": [
                   "paneId"
-                ]
+                ],
+                "additionalProperties": true
               },
               {
                 "type": "object",
@@ -487,11 +487,11 @@
                     "maxLength": 64
                   }
                 },
-                "additionalProperties": true,
                 "required": [
                   "sessionName",
                   "agent"
-                ]
+                ],
+                "additionalProperties": true
               }
             ]
           },
@@ -562,11 +562,11 @@
             "maximum": 600000
           }
         },
-        "additionalProperties": true,
         "required": [
           "target",
           "condition"
-        ]
+        ],
+        "additionalProperties": true
       },
       "result": {
         "type": "object",
@@ -619,12 +619,12 @@
             ]
           },
           "args": {
+            "maxItems": 8,
             "type": "array",
             "items": {
               "type": "string",
               "pattern": "^-{0,2}[A-Za-z0-9][A-Za-z0-9._:/=-]{0,126}$"
-            },
-            "maxItems": 8
+            }
           },
           "ackTimeoutMs": {
             "type": "integer",
@@ -636,11 +636,11 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
           }
         },
-        "additionalProperties": true,
         "required": [
           "paneId",
           "provider"
-        ]
+        ],
+        "additionalProperties": true
       },
       "result": {
         "type": "object",
@@ -710,11 +710,11 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
           }
         },
-        "additionalProperties": true,
         "required": [
           "paneId",
           "prompt"
-        ]
+        ],
+        "additionalProperties": true
       },
       "result": {
         "type": "object",
@@ -765,10 +765,10 @@
             "maxLength": 128
           }
         },
-        "additionalProperties": true,
         "required": [
           "opId"
-        ]
+        ],
+        "additionalProperties": true
       },
       "result": {
         "type": "object",
@@ -898,10 +898,10 @@
             "maximum": 2592000000
           }
         },
-        "additionalProperties": true,
         "required": [
           "type"
-        ]
+        ],
+        "additionalProperties": true
       },
       "result": {
         "type": "object",
@@ -1078,42 +1078,46 @@
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "status"
               }
             },
-            "additionalProperties": true,
             "required": [
               "op"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "launch"
               }
             },
-            "additionalProperties": true,
             "required": [
               "op"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "stop"
               }
             },
-            "additionalProperties": true,
             "required": [
               "op"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "navigate"
               },
               "url": {
@@ -1126,16 +1130,17 @@
                 "maxLength": 256
               }
             },
-            "additionalProperties": true,
             "required": [
               "op",
               "url"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "back"
               },
               "targetId": {
@@ -1143,15 +1148,16 @@
                 "maxLength": 256
               }
             },
-            "additionalProperties": true,
             "required": [
               "op"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "forward"
               },
               "targetId": {
@@ -1159,15 +1165,16 @@
                 "maxLength": 256
               }
             },
-            "additionalProperties": true,
             "required": [
               "op"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "reload"
               },
               "targetId": {
@@ -1175,15 +1182,16 @@
                 "maxLength": 256
               }
             },
-            "additionalProperties": true,
             "required": [
               "op"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "snapshot"
               },
               "targetId": {
@@ -1191,15 +1199,16 @@
                 "maxLength": 256
               }
             },
-            "additionalProperties": true,
             "required": [
               "op"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "click"
               },
               "ref": {
@@ -1211,16 +1220,17 @@
                 "maxLength": 256
               }
             },
-            "additionalProperties": true,
             "required": [
               "op",
               "ref"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "type"
               },
               "ref": {
@@ -1236,17 +1246,18 @@
                 "maxLength": 256
               }
             },
-            "additionalProperties": true,
             "required": [
               "op",
               "ref",
               "text"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "press"
               },
               "key": {
@@ -1258,40 +1269,42 @@
                 "maxLength": 256
               }
             },
-            "additionalProperties": true,
             "required": [
               "op",
               "key"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "scroll"
               },
               "dx": {
-                "type": "number",
-                "default": 0
+                "default": 0,
+                "type": "number"
               },
               "dy": {
-                "type": "number",
-                "default": 0
+                "default": 0,
+                "type": "number"
               },
               "targetId": {
                 "type": "string",
                 "maxLength": 256
               }
             },
-            "additionalProperties": true,
             "required": [
               "op"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "screenshot"
               },
               "targetId": {
@@ -1299,15 +1312,16 @@
                 "maxLength": 256
               }
             },
-            "additionalProperties": true,
             "required": [
               "op"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "eval"
               },
               "expression": {
@@ -1320,16 +1334,17 @@
                 "maxLength": 256
               }
             },
-            "additionalProperties": true,
             "required": [
               "op",
               "expression"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "pick"
               },
               "targetId": {
@@ -1342,15 +1357,16 @@
                 "maximum": 120000
               }
             },
-            "additionalProperties": true,
             "required": [
               "op"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "pickCancel"
               },
               "targetId": {
@@ -1358,27 +1374,29 @@
                 "maxLength": 256
               }
             },
-            "additionalProperties": true,
             "required": [
               "op"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "tabs"
               }
             },
-            "additionalProperties": true,
             "required": [
               "op"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "open"
               },
               "url": {
@@ -1387,16 +1405,17 @@
                 "maxLength": 4096
               }
             },
-            "additionalProperties": true,
             "required": [
               "op",
               "url"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "close"
               },
               "targetId": {
@@ -1405,16 +1424,17 @@
                 "maxLength": 256
               }
             },
-            "additionalProperties": true,
             "required": [
               "op",
               "targetId"
-            ]
+            ],
+            "additionalProperties": true
           },
           {
             "type": "object",
             "properties": {
               "op": {
+                "type": "string",
                 "const": "activate"
               },
               "targetId": {
@@ -1423,11 +1443,11 @@
                 "maxLength": 256
               }
             },
-            "additionalProperties": true,
             "required": [
               "op",
               "targetId"
-            ]
+            ],
+            "additionalProperties": true
           }
         ]
       },

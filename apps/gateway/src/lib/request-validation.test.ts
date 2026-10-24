@@ -22,7 +22,9 @@ test('describes zod issues as path: reason pairs', () => {
   const parsed = fileEntryBodySchema.safeParse({ root: 'root-0', path: 'src' })
   assert.equal(parsed.success, false)
   if (parsed.success) return
-  assert.equal(describeZodError(parsed.error), 'name: Required')
+  // zod4 的文案从 `Required` 变成 `Invalid input: expected string, received undefined`，
+  // describeZodError 剥掉 `Invalid input: ` 前缀后前端看到的是后者
+  assert.equal(describeZodError(parsed.error), 'name: expected string, received undefined')
   assert.match(describeZodError(parsed.error), /^name: /)
 })
 

@@ -1,4 +1,4 @@
-import type { z } from 'zod'
+import { z } from 'zod'
 import {
   CONTROL_CAPABILITIES,
   CONTROL_ERROR_CODES,
@@ -29,91 +29,40 @@ export interface JsonSchema {
   [key: string]: unknown
 }
 
-type ZodDef = {
-  typeName: string
-  checks?: { kind: string; value?: number; inclusive?: boolean; regex?: RegExp }[]
-  values?: string[]
-  value?: unknown
-  options?: z.ZodTypeAny[]
-  innerType?: z.ZodTypeAny
-  defaultValue?: () => unknown
-  schema?: z.ZodTypeAny
-  type?: z.ZodTypeAny
-  minLength?: { value: number } | null
-  maxLength?: { value: number } | null
-  shape?: () => Record<string, z.ZodTypeAny>
-}
-
-const def = (schema: z.ZodTypeAny) => schema._def as unknown as ZodDef
-
-function isOptional(schema: z.ZodTypeAny): boolean {
-  return schema.isOptional()
-}
-
-// zod → JSON Schema 的最小子集转换；遇未支持类型抛错（测试兜底，防静默产出不完整契约）
+// zod4 自带官方 toJSONSchema（zod3 没有，早期这里是手写的内省器，靠 _def.typeName 分派）。
+// 升级 zod4 后 _def 结构整体改名（typeName → type），手写内省器直接崩；改用官方实现，
+// 少一层与 zod 内部结构绑定的维护面。
 export function zodToJsonSchema(schema: z.ZodTypeAny): JsonSchema {
-  const d = def(schema)
-  switch (d.typeName) {
-    case 'ZodObject': {
-      const shape = d.shape!()
-      const properties: Record<string, JsonSchema> = {}
-      const required: string[] = []
-      for (const [key, value] of Object.entries(shape)) {
-        properties[key] = zodToJsonSchema(value)
-        if (!isOptional(value)) required.push(key)
-      }
-      // 服务端 strip 未知字段（兼容约定）——如实声明 additionalProperties:true
-      const out: JsonSchema = { type: 'object', properties, additionalProperties: true }
-      if (required.length) out.required = required
-      return out
-    }
-    case 'ZodString': {
-      const out: JsonSchema = { type: 'string' }
-      for (const check of d.checks || []) {
-        if (check.kind === 'min') out.minLength = check.value
-        else if (check.kind === 'max') out.maxLength = check.value
-        else if (check.kind === 'regex') out.pattern = check.regex!.source
-        else throw new Error(`zodToJsonSchema: unsupported string check ${check.kind}`)
-      }
-      return out
-    }
-    case 'ZodNumber': {
-      const out: JsonSchema = { type: 'number' }
-      for (const check of d.checks || []) {
-        if (check.kind === 'int') out.type = 'integer'
-        else if (check.kind === 'min') out[check.inclusive === false ? 'exclusiveMinimum' : 'minimum'] = check.value
-        else if (check.kind === 'max') out[check.inclusive === false ? 'exclusiveMaximum' : 'maximum'] = check.value
-        else throw new Error(`zodToJsonSchema: unsupported number check ${check.kind}`)
-      }
-      return out
-    }
-    case 'ZodBoolean':
-      return { type: 'boolean' }
-    case 'ZodLiteral':
-      return typeof d.value === 'string' ? { const: d.value } : { const: d.value }
-    case 'ZodEnum':
-      return { type: 'string', enum: d.values }
-    case 'ZodUnion':
-      return { anyOf: d.options!.map((option) => zodToJsonSchema(option)) }
-    case 'ZodArray': {
-      const out: JsonSchema = { type: 'array', items: zodToJsonSchema(d.type!) }
-      if (d.minLength) out.minItems = d.minLength.value
-      if (d.maxLength) out.maxItems = d.maxLength.value
-      return out
-    }
-    case 'ZodOptional':
-    case 'ZodEffects':
-    case 'ZodReadonly':
-      // optional/refine 只影响校验不影响线格式，内层类型即 wire schema
-      return zodToJsonSchema((d.innerType || d.schema)!)
-    case 'ZodDefault': {
-      const out = zodToJsonSchema(d.innerType!)
-      out.default = d.defaultValue!()
-      return out
-    }
-    default:
-      throw new Error(`zodToJsonSchema: unsupported type ${d.typeName}`)
+  const json = z.toJSONSchema(schema, { target: 'draft-2020-12', io: 'input' }) as JsonSchema
+  return normalizeWireSchema(json)
+}
+
+// 两处与官方输出的差异需要拉回契约本意：
+// 1) 官方在每个根节点带 $schema，我们只在协议文档顶层声明一次，嵌套层全部剥掉；
+// 2) zod 的 object 默认 strip 未知字段，等价于「接受但不透传」——契约里如实写
+//    additionalProperties: true，否则第三方客户端会以为多传字段会被拒。
+function normalizeWireSchema(schema: JsonSchema): JsonSchema {
+  const { $schema: _ignored, ...rest } = schema
+  const out: JsonSchema = { ...rest }
+  if (out.type === 'object' && out.properties && out.additionalProperties === undefined) {
+    out.additionalProperties = true
   }
+  if (out.properties && typeof out.properties === 'object') {
+    out.properties = Object.fromEntries(
+      Object.entries(out.properties as Record<string, JsonSchema>).map(([key, value]) => [
+        key,
+        normalizeWireSchema(value),
+      ]),
+    )
+  }
+  if (out.items && typeof out.items === 'object' && !Array.isArray(out.items)) {
+    out.items = normalizeWireSchema(out.items as JsonSchema)
+  }
+  for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
+    const branches = out[key]
+    if (Array.isArray(branches)) out[key] = branches.map((branch) => normalizeWireSchema(branch as JsonSchema))
+  }
+  return out
 }
 
 const PANE_ID_EXAMPLE = 'local:%0'

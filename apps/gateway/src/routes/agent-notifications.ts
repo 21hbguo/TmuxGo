@@ -1,32 +1,50 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
-import { getAgentPushPublicKey, listUnreadAgentNotifications, markAgentNotificationsRead, normalizeAgentDeviceId, registerAgentPushSubscription, revokeAgentPushSubscription } from '../lib/agent-notifications.js'
+import {
+  getAgentPushPublicKey,
+  listUnreadAgentNotifications,
+  markAgentNotificationsRead,
+  normalizeAgentDeviceId,
+  registerAgentPushSubscription,
+  revokeAgentPushSubscription,
+} from '../lib/agent-notifications.js'
 
-const deviceIdSchema = z.string().trim().regex(/^[A-Za-z0-9._:-]{1,128}$/)
+const deviceIdSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9._:-]{1,128}$/)
 const subscriptionBody = z.object({
   deviceId: deviceIdSchema.optional(),
-  subscription: z.record(z.unknown()),
+  subscription: z.record(z.string(), z.unknown()),
 })
 const readBody = z.object({
   deviceId: deviceIdSchema.optional(),
   ids: z.array(z.string().min(1).max(256)).max(500).optional(),
 })
 function query(request: FastifyRequest) {
-  return request.query && typeof request.query === 'object' ? request.query as Record<string, unknown> : {}
+  return request.query && typeof request.query === 'object' ? (request.query as Record<string, unknown>) : {}
 }
 function headerDeviceId(request: FastifyRequest) {
   const value = request.headers['x-tmuxgo-device-id']
   return typeof value === 'string' ? value : undefined
 }
 function resolveDeviceId(request: FastifyRequest, body?: { deviceId?: unknown }) {
-  const values = [body?.deviceId, query(request).deviceId, headerDeviceId(request)].filter((value): value is string => value !== undefined)
+  const values = [body?.deviceId, query(request).deviceId, headerDeviceId(request)].filter(
+    (value): value is string => value !== undefined,
+  )
   if (!values.length) throw new Error('Device id is required')
   const deviceId = normalizeAgentDeviceId(values[0])
-  if (values.some((value) => normalizeAgentDeviceId(value) !== deviceId)) throw new Error('Device id does not match request')
+  if (values.some((value) => normalizeAgentDeviceId(value) !== deviceId))
+    throw new Error('Device id does not match request')
   return deviceId
 }
 function sendError(reply: { code: (status: number) => { send: (payload: unknown) => unknown } }, error: unknown) {
-  return reply.code(400).send({ message: error instanceof Error ? error.message : 'Invalid notification request', code: 'INVALID_AGENT_NOTIFICATION_REQUEST' })
+  return reply
+    .code(400)
+    .send({
+      message: error instanceof Error ? error.message : 'Invalid notification request',
+      code: 'INVALID_AGENT_NOTIFICATION_REQUEST',
+    })
 }
 export async function agentNotificationRoutes(fastify: FastifyInstance) {
   fastify.get('/agent-notifications/vapid-public-key', async (_request, reply) => {
@@ -47,7 +65,8 @@ export async function agentNotificationRoutes(fastify: FastifyInstance) {
   fastify.delete('/agent-notifications/subscriptions/:id', async (request, reply) => {
     try {
       const params = request.params as { id?: unknown }
-      if (typeof params.id !== 'string' || !/^[A-Za-z0-9]{1,128}$/.test(params.id)) throw new Error('Invalid subscription id')
+      if (typeof params.id !== 'string' || !/^[A-Za-z0-9]{1,128}$/.test(params.id))
+        throw new Error('Invalid subscription id')
       const deviceId = resolveDeviceId(request)
       return { revoked: await revokeAgentPushSubscription(params.id, deviceId) }
     } catch (error) {
