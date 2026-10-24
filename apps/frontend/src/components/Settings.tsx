@@ -41,6 +41,10 @@ import { SystemHealthPanel } from './SystemHealthPanel'
 import { Button } from './Button'
 import { Chip } from './Chip'
 import { Select } from './Select'
+import { EmptyState } from './EmptyState'
+import { ListRow } from './ListRow'
+import { StatusDot } from './StatusDot'
+import { SettingRow, SettingsSwitch } from './SettingsControls'
 
 interface SettingsProps {
   onClose: () => void
@@ -481,16 +485,20 @@ export function Settings({ onClose }: SettingsProps) {
   return (
     <div
       ref={rootRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('settings.title')}
       className="fixed inset-0 z-50 flex items-center justify-center tmuxgo-scrim p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]"
       onClick={onClose}
     >
       <div
-        className="tmuxgo-glass tmuxgo-glass-dialog flex h-[70vh] md:h-[600px] w-full max-w-[700px] flex-col overflow-hidden rounded-apple border"
+        className="tmuxgo-glass tmuxgo-glass-dialog flex h-[70vh] md:h-[600px] w-full max-w-[700px] flex-col overflow-hidden rounded-apple border shadow-[var(--shadow-popover)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="shrink-0 p-4 border-b border-[var(--line)] flex items-center justify-between">
-          <h2 className="text-text-1 text-lg font-medium">{t('settings.title')}</h2>
-          <Button variant="ghost" size="sm" aria-label="close" onClick={onClose}>
+        {/* 标题与 28px 关闭控件同基线对齐；浮层 elevation 只在这一层，内容组不再叠阴影 */}
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
+          <h2 className="min-w-0 truncate text-base font-medium text-text-1">{t('settings.title')}</h2>
+          <Button variant="ghost" size="icon-sm" className="shrink-0" aria-label={t('common.close')} onClick={onClose}>
             ✕
           </Button>
         </div>
@@ -499,17 +507,24 @@ export function Settings({ onClose }: SettingsProps) {
           ref={bindHorizontalWheelScroll}
           className="tmuxgo-scrollbar shrink-0 flex overflow-x-auto border-b border-[var(--line)]"
         >
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-3 text-sm ${
-                activeTab === tab.id ? 'text-text-1 border-b border-accent' : 'text-text-2 hover:text-text-1'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+          {/* 分类保持 button 语义（aria-pressed 表达当前项），不做半套 tab 关联；当前项只靠 2px accent 下划线 + 亮字表达，不叠底色 */}
+          <div className="flex">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                aria-pressed={activeTab === tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`tmuxgo-focus-ring -mb-px shrink-0 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
+                  activeTab === tab.id
+                    ? 'border-accent text-text-1'
+                    : 'border-transparent text-text-2 hover:border-[var(--line)] hover:text-text-1'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-6">
@@ -531,46 +546,32 @@ export function Settings({ onClose }: SettingsProps) {
               <div>
                 <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.reconnect')}</h3>
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.autoReconnect')}</span>
-                    <button
-                      onClick={() => updatePreferences({ autoReconnect: !preferences.autoReconnect })}
-                      className={`w-10 h-6 rounded-full relative ${
-                        preferences.autoReconnect ? 'bg-accent' : 'bg-bg-2'
-                      }`}
-                    >
-                      <div
-                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${
-                          preferences.autoReconnect ? 'right-1' : 'left-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.reconnectInterval')}</span>
-                    <span className="text-text-1 text-sm">{preferences.reconnectInterval / 1000}s</span>
-                  </div>
+                  <SettingRow label={t('settings.autoReconnect')}>
+                    <SettingsSwitch
+                      checked={preferences.autoReconnect}
+                      onChange={() => updatePreferences({ autoReconnect: !preferences.autoReconnect })}
+                      label={t('settings.autoReconnect')}
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    label={t('settings.reconnectInterval')}
+                    value={<>{preferences.reconnectInterval / 1000}s</>}
+                  />
                 </div>
               </div>
 
               <div>
                 <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.notifications')}</h3>
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.agentNotificationsEnabled')}</span>
-                    <button
-                      onClick={() =>
+                  <SettingRow label={t('settings.agentNotificationsEnabled')}>
+                    <SettingsSwitch
+                      checked={preferences.agentNotificationsEnabled}
+                      onChange={() =>
                         updatePreferences({ agentNotificationsEnabled: !preferences.agentNotificationsEnabled })
                       }
-                      className={`w-10 h-6 rounded-full relative ${preferences.agentNotificationsEnabled ? 'bg-accent' : 'bg-bg-2'}`}
-                      aria-label={t('settings.agentNotificationsEnabled')}
-                      aria-pressed={preferences.agentNotificationsEnabled}
-                    >
-                      <div
-                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${preferences.agentNotificationsEnabled ? 'right-1' : 'left-1'}`}
-                      />
-                    </button>
-                  </div>
+                      label={t('settings.agentNotificationsEnabled')}
+                    />
+                  </SettingRow>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-text-2 text-sm">{t('settings.agentNotificationDuration')}</span>
                     <Select
@@ -593,7 +594,7 @@ export function Settings({ onClose }: SettingsProps) {
                   <div className="text-text-2 text-sm">{t('settings.forceRefresh')}</div>
                   <div className="mt-1 text-caption text-text-3">{t('settings.forceRefreshDesc')}</div>
                 </div>
-                <Button size="sm" onClick={() => window.location.reload()}>
+                <Button size="sm" className="shrink-0" onClick={() => window.location.reload()}>
                   {t('settings.forceRefresh')}
                 </Button>
               </div>
@@ -618,9 +619,14 @@ export function Settings({ onClose }: SettingsProps) {
                       return (
                         <button
                           key={theme}
+                          type="button"
+                          aria-pressed={preferences.theme === theme}
                           onClick={() => updatePreferences({ theme })}
-                          className={`p-3 bg-bg-2 rounded-apple border-2 ${
-                            preferences.theme === theme ? 'border-accent' : 'border-transparent'
+                          // 选中靠 2px accent 边框表达；未选中保留同宽透明边框占位，点击前后不跳动
+                          className={`tmuxgo-focus-ring rounded-apple border-2 bg-bg-2 p-3 transition-colors ${
+                            preferences.theme === theme
+                              ? 'border-accent'
+                              : 'border-transparent hover:border-[var(--line)] hover:bg-bg-2/80'
                           }`}
                         >
                           <div
@@ -637,22 +643,18 @@ export function Settings({ onClose }: SettingsProps) {
                     },
                   )}
                 </div>
-                <div className="mt-3 flex items-center justify-between">
-                  <div className="min-w-0 pr-3">
-                    <div className="text-text-2 text-sm">{t('settings.immersiveFullscreen')}</div>
-                    <div className="mt-1 text-caption text-text-3">{t('settings.immersiveFullscreenDesc')}</div>
-                  </div>
-                  <button
-                    onClick={() => void toggleImmersiveFullscreen()}
-                    className={`w-10 h-6 shrink-0 rounded-full relative ${preferences.immersiveFullscreen ? 'bg-accent' : 'bg-bg-2'}`}
-                    aria-label={t('settings.immersiveFullscreen')}
-                    aria-pressed={preferences.immersiveFullscreen}
-                  >
-                    <div
-                      className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${preferences.immersiveFullscreen ? 'right-1' : 'left-1'}`}
-                    />
-                  </button>
-                </div>
+                <SettingRow
+                  className="mt-3"
+                  label={t('settings.immersiveFullscreen')}
+                  description={t('settings.immersiveFullscreenDesc')}
+                  align="start"
+                >
+                  <SettingsSwitch
+                    checked={preferences.immersiveFullscreen}
+                    onChange={() => void toggleImmersiveFullscreen()}
+                    label={t('settings.immersiveFullscreen')}
+                  />
+                </SettingRow>
               </div>
 
               <div>
@@ -673,36 +675,20 @@ export function Settings({ onClose }: SettingsProps) {
                       ))}
                     </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.showStatusBar')}</span>
-                    <button
-                      onClick={() => updatePreferences({ showStatusBar: !preferences.showStatusBar })}
-                      className={`w-10 h-6 rounded-full relative ${
-                        preferences.showStatusBar ? 'bg-accent' : 'bg-bg-2'
-                      }`}
-                    >
-                      <div
-                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${
-                          preferences.showStatusBar ? 'right-1' : 'left-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.showQuickActions')}</span>
-                    <button
-                      onClick={() => updatePreferences({ showQuickActions: !preferences.showQuickActions })}
-                      className={`w-10 h-6 rounded-full relative ${
-                        preferences.showQuickActions ? 'bg-accent' : 'bg-bg-2'
-                      }`}
-                    >
-                      <div
-                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${
-                          preferences.showQuickActions ? 'right-1' : 'left-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
+                  <SettingRow label={t('settings.showStatusBar')}>
+                    <SettingsSwitch
+                      checked={preferences.showStatusBar}
+                      onChange={() => updatePreferences({ showStatusBar: !preferences.showStatusBar })}
+                      label={t('settings.showStatusBar')}
+                    />
+                  </SettingRow>
+                  <SettingRow label={t('settings.showQuickActions')}>
+                    <SettingsSwitch
+                      checked={preferences.showQuickActions}
+                      onChange={() => updatePreferences({ showQuickActions: !preferences.showQuickActions })}
+                      label={t('settings.showQuickActions')}
+                    />
+                  </SettingRow>
                   {/* 紧凑底栏自定义：两行互移，localStorage 持久化并即时同步到底栏 */}
                   <div data-mobile-nav-editor>
                     <div className="flex items-center justify-between">
@@ -775,7 +761,7 @@ export function Settings({ onClose }: SettingsProps) {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-text-2 text-sm">{t('settings.fontSize')}</span>
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                       <Chip
                         onClick={() =>
                           updatePreferences({ fontSize: Math.max(8, Math.round((preferences.fontSize - 1) * 10) / 10) })
@@ -783,7 +769,7 @@ export function Settings({ onClose }: SettingsProps) {
                       >
                         -
                       </Chip>
-                      <span className="text-text-1 text-sm w-12 text-center">{fontSizeLabel}px</span>
+                      <span className="w-12 text-center text-text-1 text-sm tabular-nums">{fontSizeLabel}px</span>
                       <Chip
                         onClick={() =>
                           updatePreferences({
@@ -795,22 +781,16 @@ export function Settings({ onClose }: SettingsProps) {
                       </Chip>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.cursorBlink')}</span>
-                    <button
-                      onClick={() => updatePreferences({ cursorBlink: !preferences.cursorBlink })}
-                      className={`w-10 h-6 rounded-full relative ${preferences.cursorBlink ? 'bg-accent' : 'bg-bg-2'}`}
-                    >
-                      <div
-                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${
-                          preferences.cursorBlink ? 'right-1' : 'left-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
+                  <SettingRow label={t('settings.cursorBlink')}>
+                    <SettingsSwitch
+                      checked={preferences.cursorBlink}
+                      onChange={() => updatePreferences({ cursorBlink: !preferences.cursorBlink })}
+                      label={t('settings.cursorBlink')}
+                    />
+                  </SettingRow>
                   <div className="flex items-center justify-between">
                     <span className="text-text-2 text-sm">{t('settings.terminalPadding')}</span>
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                       <input
                         type="range"
                         min={0}
@@ -823,7 +803,7 @@ export function Settings({ onClose }: SettingsProps) {
                         }}
                         className="w-24 accent-accent"
                       />
-                      <span className="text-text-1 text-sm w-8 text-center">{terminalPaddingDraft}px</span>
+                      <span className="w-8 text-center text-text-1 text-sm tabular-nums">{terminalPaddingDraft}px</span>
                     </div>
                   </div>
                 </div>
@@ -860,7 +840,7 @@ export function Settings({ onClose }: SettingsProps) {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-text-2 text-sm">{t('settings.uploadRateLimit')}</span>
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                       <input
                         type="range"
                         min={50}
@@ -873,12 +853,14 @@ export function Settings({ onClose }: SettingsProps) {
                         onKeyUp={commitUploadRateLimit}
                         className="w-24 accent-accent"
                       />
-                      <span className="text-text-1 text-sm w-16 text-center">{uploadRateLimitDraft}KB/s</span>
+                      <span className="w-16 text-center text-text-1 text-sm tabular-nums">
+                        {uploadRateLimitDraft}KB/s
+                      </span>
                     </div>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-text-2 text-sm">{t('settings.downloadRateLimit')}</span>
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                       <input
                         type="range"
                         min={50}
@@ -891,7 +873,9 @@ export function Settings({ onClose }: SettingsProps) {
                         onKeyUp={commitDownloadRateLimit}
                         className="w-24 accent-accent"
                       />
-                      <span className="text-text-1 text-sm w-16 text-center">{downloadRateLimitDraft}KB/s</span>
+                      <span className="w-16 text-center text-text-1 text-sm tabular-nums">
+                        {downloadRateLimitDraft}KB/s
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -1029,18 +1013,15 @@ export function Settings({ onClose }: SettingsProps) {
                   />
                 </div>
                 <div className="mt-3 flex items-center justify-between">
-                  <button
-                    onClick={() => setTokenReadOnlyDraft(!tokenReadOnlyDraft)}
-                    className="flex items-center gap-2 text-sm text-text-2"
-                    aria-pressed={tokenReadOnlyDraft}
-                  >
-                    <span className={`relative h-6 w-10 rounded-full ${tokenReadOnlyDraft ? 'bg-accent' : 'bg-bg-1'}`}>
-                      <span
-                        className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${tokenReadOnlyDraft ? 'right-1' : 'left-1'}`}
-                      />
-                    </span>
-                    {t('settings.tokensReadOnly')}
-                  </button>
+                  {/* 开关自带 aria-pressed/label；外层不再套 button，避免嵌套可交互元素 */}
+                  <div className="flex items-center gap-2 text-sm text-text-2">
+                    <SettingsSwitch
+                      checked={tokenReadOnlyDraft}
+                      onChange={() => setTokenReadOnlyDraft(!tokenReadOnlyDraft)}
+                      label={t('settings.tokensReadOnly')}
+                    />
+                    <span>{t('settings.tokensReadOnly')}</span>
+                  </div>
                   <Button
                     variant="primary"
                     size="sm"
@@ -1179,47 +1160,35 @@ export function Settings({ onClose }: SettingsProps) {
               <div>
                 <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.sessionContinuity')}</h3>
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.sessionContinuityEnabled')}</span>
-                    <button
-                      onClick={() => updateSessionContinuity({ enabled: !sessionContinuity.enabled })}
-                      className={`w-10 h-6 rounded-full relative ${sessionContinuity.enabled ? 'bg-accent' : 'bg-bg-2'}`}
-                    >
-                      <div
-                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.enabled ? 'right-1' : 'left-1'}`}
-                      />
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.resumeOnReconnect')}</span>
-                    <button
-                      onClick={() =>
+                  <SettingRow label={t('settings.sessionContinuityEnabled')}>
+                    <SettingsSwitch
+                      checked={sessionContinuity.enabled}
+                      onChange={() => updateSessionContinuity({ enabled: !sessionContinuity.enabled })}
+                      label={t('settings.sessionContinuityEnabled')}
+                    />
+                  </SettingRow>
+                  <SettingRow label={t('settings.resumeOnReconnect')}>
+                    <SettingsSwitch
+                      checked={sessionContinuity.resumeOnReconnect}
+                      onChange={() =>
                         updateSessionContinuity({ resumeOnReconnect: !sessionContinuity.resumeOnReconnect })
                       }
-                      className={`w-10 h-6 rounded-full relative ${sessionContinuity.resumeOnReconnect ? 'bg-accent' : 'bg-bg-2'}`}
-                    >
-                      <div
-                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.resumeOnReconnect ? 'right-1' : 'left-1'}`}
-                      />
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.resumeOnNewDevice')}</span>
-                    <button
-                      onClick={() =>
+                      label={t('settings.resumeOnReconnect')}
+                    />
+                  </SettingRow>
+                  <SettingRow label={t('settings.resumeOnNewDevice')}>
+                    <SettingsSwitch
+                      checked={sessionContinuity.resumeOnNewDevice}
+                      onChange={() =>
                         updateSessionContinuity({ resumeOnNewDevice: !sessionContinuity.resumeOnNewDevice })
                       }
-                      className={`w-10 h-6 rounded-full relative ${sessionContinuity.resumeOnNewDevice ? 'bg-accent' : 'bg-bg-2'}`}
-                    >
-                      <div
-                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.resumeOnNewDevice ? 'right-1' : 'left-1'}`}
-                      />
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.archiveEnabled')}</span>
-                    <button
-                      onClick={() =>
+                      label={t('settings.resumeOnNewDevice')}
+                    />
+                  </SettingRow>
+                  <SettingRow label={t('settings.archiveEnabled')}>
+                    <SettingsSwitch
+                      checked={sessionContinuity.archive.enabled}
+                      onChange={() =>
                         updateSessionContinuity({
                           archive: {
                             ...sessionContinuity.archive,
@@ -1232,13 +1201,9 @@ export function Settings({ onClose }: SettingsProps) {
                           },
                         })
                       }
-                      className={`w-10 h-6 rounded-full relative ${sessionContinuity.archive.enabled ? 'bg-accent' : 'bg-bg-2'}`}
-                    >
-                      <div
-                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.archive.enabled ? 'right-1' : 'left-1'}`}
-                      />
-                    </button>
-                  </div>
+                      label={t('settings.archiveEnabled')}
+                    />
+                  </SettingRow>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-text-2 text-sm">{t('settings.archiveCaptureMode')}</span>
                     <Select
@@ -1302,13 +1267,10 @@ export function Settings({ onClose }: SettingsProps) {
                       className="tmuxgo-control tmuxgo-input w-20 rounded-apple px-2 py-1.5 text-right text-sm disabled:opacity-50"
                     />
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.resumePointCount')}</span>
-                    <span className="text-text-1 text-sm">{sessionContinuity.resumePoints.length}</span>
-                  </div>
+                  <SettingRow label={t('settings.resumePointCount')} value={sessionContinuity.resumePoints.length} />
                   <div className="flex items-center justify-between">
                     <span className="text-text-2 text-sm">{t('settings.maxResumePoints')}</span>
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                       <input
                         type="range"
                         min={1}
@@ -1317,7 +1279,9 @@ export function Settings({ onClose }: SettingsProps) {
                         onChange={(event) => updateSessionContinuity({ maxResumePoints: Number(event.target.value) })}
                         className="w-24 accent-accent"
                       />
-                      <span className="text-text-1 text-sm w-8 text-center">{sessionContinuity.maxResumePoints}</span>
+                      <span className="w-8 text-center text-text-1 text-sm tabular-nums">
+                        {sessionContinuity.maxResumePoints}
+                      </span>
                     </div>
                   </div>
                   <div className="flex items-center justify-end">
@@ -1472,11 +1436,14 @@ export function Settings({ onClose }: SettingsProps) {
       {archiveDialogOpen && (
         <div
           ref={archiveRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('settings.archives')}
           className="fixed inset-0 z-[70] flex items-center justify-center tmuxgo-scrim-strong p-4"
           onClick={() => setArchiveDialogOpen(false)}
         >
           <div
-            className="tmuxgo-glass tmuxgo-glass-dialog flex h-[75vh] w-full max-w-4xl flex-col overflow-hidden rounded-apple border"
+            className="tmuxgo-glass tmuxgo-glass-dialog flex h-[75vh] w-full max-w-4xl flex-col overflow-hidden rounded-apple border shadow-[var(--shadow-popover)]"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
@@ -1487,49 +1454,56 @@ export function Settings({ onClose }: SettingsProps) {
             </div>
             <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[280px_1fr]">
               <div className="tmuxgo-scrollbar overflow-y-auto border-b border-[var(--line)] md:border-b-0 md:border-r">
+                {/* 加载态与真空态分开表达，不能把 loading 伪装成“没有存档” */}
                 {archiveLoading && !archives.length && (
                   <div className="p-4 text-sm text-text-3">{t('common.loading')}</div>
                 )}
-                {!archiveLoading && !archives.length && (
-                  <div className="p-4 text-sm text-text-3">{t('settings.archiveEmpty')}</div>
-                )}
+                {!archiveLoading && !archives.length && <EmptyState title={t('settings.archiveEmpty')} />}
                 {archives.map((archive) => (
-                  <div
+                  <ListRow
                     key={archive.id}
-                    className={`tmuxgo-list-row flex border-b border-[var(--line)] ${archiveDetail?.id === archive.id ? 'tmuxgo-list-row--active' : 'tmuxgo-list-row--hover'}`}
+                    className={`px-0 py-0 ${archiveDetail?.id === archive.id ? 'tmuxgo-list-row--active' : 'tmuxgo-list-row--hover'}`}
                   >
-                    <button onClick={() => void openArchive(archive.id)} className="min-w-0 flex-1 p-3 text-left">
+                    <button
+                      type="button"
+                      onClick={() => void openArchive(archive.id)}
+                      aria-pressed={archiveDetail?.id === archive.id}
+                      className="tmuxgo-focus-ring min-w-0 flex-1 p-3 text-left"
+                    >
                       <div className="truncate text-sm text-text-1">{archive.sessionName}</div>
-                      <div className="mt-1 text-xs text-text-3">
+                      <div className="mt-1 font-mono text-xs tabular-nums text-text-3">
                         {new Date(archive.createdAt).toLocaleString()} · {archive.paneCount} ·{' '}
                         {Math.ceil(archive.size / 1024)} KB
                       </div>
                     </button>
                     <button
+                      type="button"
                       onClick={() => void deleteArchive(archive.id)}
-                      className="w-10 text-text-3 hover:text-danger"
+                      className="tmuxgo-focus-ring w-10 shrink-0 self-stretch text-text-3 transition-colors hover:text-danger"
                       aria-label={t('settings.deleteArchive')}
                     >
                       ×
                     </button>
-                  </div>
+                  </ListRow>
                 ))}
               </div>
               <div className="tmuxgo-scrollbar min-h-0 overflow-y-auto p-4">
-                {!archiveDetail && (
-                  <div className="flex h-full items-center justify-center text-sm text-text-3">
-                    {t('settings.selectArchive')}
-                  </div>
-                )}
+                {!archiveDetail && <EmptyState title={t('settings.selectArchive')} className="h-full justify-center" />}
                 {archiveDetail && (
                   <div className="space-y-4">
                     <div>
                       <div className="text-base font-medium text-text-1">{archiveDetail.sessionName}</div>
-                      <div className="mt-1 text-xs text-text-3">
-                        {archiveDetail.captureMode === 'history'
-                          ? t('settings.archiveHistory')
-                          : t('settings.archiveVisible')}{' '}
-                        · {new Date(archiveDetail.createdAt).toLocaleString()}
+                      <div className="mt-1 flex items-center gap-1.5 text-xs text-text-3">
+                        {/* 圆点表达抓取模式：history = accent，visible = 成功色 */}
+                        <StatusDot tone={archiveDetail.captureMode === 'history' ? 'accent' : 'success'} />
+                        <span>
+                          {archiveDetail.captureMode === 'history'
+                            ? t('settings.archiveHistory')
+                            : t('settings.archiveVisible')}
+                        </span>
+                        <span className="font-mono tabular-nums">
+                          · {new Date(archiveDetail.createdAt).toLocaleString()}
+                        </span>
                       </div>
                     </div>
                     {archiveDetail.panes.map((pane) => (

@@ -257,3 +257,56 @@ describe('Settings restart rebuild', () => {
     expect(copy).toHaveBeenCalledWith(`${window.location.origin}/share#token=share-token`)
   })
 })
+
+describe('Settings polish semantics', () => {
+  const renderSettings = () =>
+    render(React.createElement(I18nProvider, null, React.createElement(Settings, { onClose: vi.fn() })))
+
+  beforeEach(() => {
+    updatePreferences.mockReset()
+    localStorage.clear()
+    localStorage.setItem('tmuxgo-preferences', JSON.stringify({ language: 'en' }))
+  })
+
+  it('marks the active category with aria-pressed instead of styling alone', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    const general = screen.getByRole('button', { name: 'General' })
+    const appearance = screen.getByRole('button', { name: 'Appearance' })
+    expect(general.getAttribute('aria-pressed')).toBe('true')
+    expect(appearance.getAttribute('aria-pressed')).toBe('false')
+    await act(async () => {
+      await user.click(appearance)
+    })
+    expect(appearance.getAttribute('aria-pressed')).toBe('true')
+    expect(general.getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('gives every switch a readable name and keeps pressed state in sync', () => {
+    renderSettings()
+    const autoReconnect = screen.getByRole('button', { name: 'Auto-reconnect' })
+    expect(autoReconnect.getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(autoReconnect)
+    expect(updatePreferences).toHaveBeenCalledWith({ autoReconnect: false })
+  })
+
+  it('exposes the selected theme card and switches selection without layout-affecting classes', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: 'Appearance' }))
+    })
+    const dark = screen.getByRole('button', { name: 'Dark' })
+    const nord = screen.getByRole('button', { name: 'Nord' })
+    expect(dark.getAttribute('aria-pressed')).toBe('true')
+    expect(nord.getAttribute('aria-pressed')).toBe('false')
+    // 选中/未选中都保留 2px 边框，只换颜色，避免点击后卡片尺寸跳动
+    expect(dark.className).toContain('border-2')
+    expect(nord.className).toContain('border-2')
+    expect(nord.className).toContain('border-transparent')
+    await act(async () => {
+      await user.click(nord)
+    })
+    expect(updatePreferences).toHaveBeenCalledWith({ theme: 'nord' })
+  })
+})
