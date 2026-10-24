@@ -154,15 +154,16 @@ export function SessionPanel() {
     setTemplateWorkspace(null)
     setCreateDialogOpen(true)
   }
-  // resume 会重新拉起 agent（可能新建/复用 pane）：session 列表与候选列表都要重新取，
-  // 否则徽标还挂在已经恢复的 session 上
-  const handleRecoveryResumed = () => {
+  // session 刷新与恢复候选同车：agent 在后台死掉不会自己冒出来，用户点刷新、恢复快照、
+  // 导入布局这些「已经有动作在刷 session」的时机顺手把候选也重取一次，徽标就能立刻出现。
+  // 刻意不在这里加定时器——候选是低频事件，空轮询是纯浪费（见 useAgentRecoveryList 注释）。
+  const refreshSessions = () => {
     void refetch()
     refetchRecovery()
   }
   const handleLayoutApplied = (session: Session) => {
     setShowLayoutImport(false)
-    void refetch()
+    refreshSessions()
     if (session.id) {
       setActiveSession(session.id)
       requestTerminalFocus(activeHostId || 'local', parseSessionName(activeHostId || 'local', session.id))
@@ -610,7 +611,7 @@ export function SessionPanel() {
           <AgentRecoveryBadge
             hostId={activeHostId || 'local'}
             candidates={recoveryBySession.get(session.name)}
-            onResumed={handleRecoveryResumed}
+            onResumed={refreshSessions}
           />
         </div>
       </button>
@@ -923,7 +924,7 @@ export function SessionPanel() {
             <div className="p-3 text-xs text-danger">
               <div className="break-words">{error instanceof Error ? error.message : t('session.loadFailed')}</div>
               <button
-                onClick={() => void refetch()}
+                onClick={refreshSessions}
                 className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm mt-2 w-auto px-2 text-accent"
               >
                 {t('common.retry')}
@@ -1037,7 +1038,7 @@ export function SessionPanel() {
         hostId={activeHostId || 'local'}
         activeSessionId={activeSessionId}
         // 恢复后列表里没有新 session：重建完必须刷新，否则要等下一次轮询才看得见
-        onRestored={() => void refetch()}
+        onRestored={refreshSessions}
       />
       <ConfirmDialog
         open={!!pendingDeleteSessionId}

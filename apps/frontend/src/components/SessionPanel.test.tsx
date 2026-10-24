@@ -331,6 +331,24 @@ describe('SessionPanel session actions', () => {
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThan(1))
   })
 
+  it('refreshes recovery candidates together with the session list', async () => {
+    const listSpy = vi.spyOn(api.agentRecovery, 'list').mockResolvedValue({ candidates: [] } as never)
+    // spyOn 复用同一个 spy（beforeEach 只 mockReset 各依赖、不 restore），调用记录会跨用例累积
+    listSpy.mockClear()
+
+    // 加载失败态的「重试」按钮就是现有 session 刷新触发点之一
+    orderedSessionQueryState.data = []
+    orderedSessionQueryState.isError = true
+    orderedSessionQueryState.error = new Error('SSH connection timed out')
+    render(<SessionPanel />)
+    await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByText('common.retry'))
+    // 同车：一次点击同时重取 session 与候选，agent 后台死掉的徽标因此能立刻出现
+    expect(refetchSessionsMock).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(2))
+  })
+
   it('shows session loading errors and retries', () => {
     orderedSessionQueryState.data = []
     orderedSessionQueryState.isError = true
