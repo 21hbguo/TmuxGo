@@ -34,8 +34,10 @@ interface SshConfigHostFields {
 }
 
 function StatusDot({ host }: { host: Host }) {
-  const isOnline = host.agent ? host.agent.online === true : host.status === 'online'
-  const isWarn = !host.agent && (host.status === 'unknown' || host.status === 'unreachable')
+  // local 上的 agent 字段只是同机 agent 的折叠信息：本机执行不经过 agent，可用性恒为 online
+  const isLocal = host.id === 'local'
+  const isOnline = isLocal ? true : host.agent ? host.agent.online === true : host.status === 'online'
+  const isWarn = !isLocal && !host.agent && (host.status === 'unknown' || host.status === 'unreachable')
   return (
     <span
       className={`h-2 w-2 shrink-0 rounded-full ${isOnline ? 'bg-green-400' : isWarn ? 'bg-yellow-400' : 'bg-danger'}`}
