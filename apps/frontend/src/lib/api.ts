@@ -817,7 +817,9 @@ export const api = {
       fetchApi<{ success: boolean }>(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
   sessions: {
-    list: (hostId: string) => fetchApi<Session[]>(`/api/hosts/${hostId}/sessions`),
+    // includeAgents=false：调用方已订阅 WS 推送，REST 省掉 agents/agentSummary
+    list: (hostId: string, options: { includeAgents?: boolean } = {}) =>
+      fetchApi<Session[]>(`/api/hosts/${hostId}/sessions${options.includeAgents === false ? '?agents=0' : ''}`),
     create: async (
       hostId: string,
       name: string,

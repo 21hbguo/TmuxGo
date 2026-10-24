@@ -364,8 +364,13 @@ async function assertCwdExists(hostId: string, cwd: string) {
 export async function sessionRoutes(fastify: FastifyInstance) {
   fastify.get('/hosts/:hostId/sessions', async (request) => {
     const { hostId } = request.params as { hostId: string }
+    // agents=0：客户端已订阅 WS 推送（agent_state 帧会写同一个缓存），REST 不必再算一遍
+    // agents/summary——省的是每次轮询的 filter+summarize 与 payload，不是频次。
+    // 缺省（含老客户端）行为完全不变：照旧返回 agents 与 agentSummary
+    const includeAgents = (request.query as { agents?: string } | undefined)?.agents !== '0'
     const sessions = await getHostTmuxSessions(hostId)
     if (!sessions.length) return []
+    if (!includeAgents) return sessions
     const agentPanes =
       agentMonitor.getStates(hostId) ||
       (await getHostAgentPanes(

@@ -295,3 +295,31 @@ test('import rejects invalid layout documents and unsafe cwd', async () => {
     await killTestTmuxSession()
   }
 })
+
+// 已订阅 WS 推送的客户端用 agents=0 省掉 REST 的 agents/summary；
+// 缺省行为必须不变（老客户端与未订阅端仍拿到 agents 字段）
+test('agents=0 omits agent fields while the default response still carries them', async () => {
+  const sessionName = TEST_TMUX_SESSION
+  const fastify = Fastify()
+  await fastify.register(sessionRoutes)
+  try {
+    await killTestTmuxSession()
+    await execTmuxFile('tmux', ['new-session', '-d', '-s', sessionName])
+    const withAgents = await fastify.inject({ method: 'GET', url: '/hosts/local/sessions' })
+    assert.equal(withAgents.statusCode, 200)
+    const [withAgentFields] = withAgents.json() as { agents?: unknown[]; agentSummary?: unknown }[]
+    assert.ok(Array.isArray(withAgentFields.agents), 'default response should carry agents')
+    assert.ok(withAgentFields.agentSummary !== undefined, 'default response should carry agentSummary')
+
+    const skipped = await fastify.inject({ method: 'GET', url: '/hosts/local/sessions?agents=0' })
+    assert.equal(skipped.statusCode, 200)
+    const [withoutAgentFields] = skipped.json() as { agents?: unknown[]; agentSummary?: unknown; name: string }[]
+    assert.equal('agents' in withoutAgentFields, false)
+    assert.equal('agentSummary' in withoutAgentFields, false)
+    // 结构字段照旧，别把会话本身也省掉
+    assert.equal(withoutAgentFields.name, sessionName)
+  } finally {
+    await fastify.close()
+    await killTestTmuxSession()
+  }
+})

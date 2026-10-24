@@ -47,6 +47,21 @@ interface AgentSub {
   stateSeq: number
   resyncAttempts: number
 }
+// 推送健康度注册表（hostId 维度）：REST 侧据此决定还要不要自带 agents。
+// 只有「订阅建立且最近一次降级已恢复」才算健康——降级期间立刻回落到带 agents 的
+// REST，避免推送断了界面还停在旧状态。用模块级 Set 而不是实例状态，是因为
+// AgentFeedClient 活在组件 ref 里，而 useSessions 的 queryFn 读不到组件实例。
+const freshHosts = new Set<string>()
+
+export function isAgentFeedFresh(hostId: string) {
+  return freshHosts.has(hostId)
+}
+
+// 仅供测试与连接级重置清理用
+export function resetAgentFeedFreshness() {
+  freshHosts.clear()
+}
+
 // 订阅型 agent 通道的客户端状态机。
 // 三套序各管一件事：hostId 找订阅、seq 判连续（断号→resync）、stateSeq 判新鲜度（合并交给视图层）。
 // 以 hostId 为主键而不是 subId：重连/重订后 subId 会变，hostId 才是订阅意图的稳定标识
@@ -87,19 +102,26 @@ export class AgentFeedClient {
       wantNotifications: true,
     })
     // socket 没开：撤掉占位，等就绪事件重试（否则会留下永远收不到帧的"幽灵订阅"）
-    if (!ok) this.subs.delete(hostId)
+    if (!ok) {
+      this.subs.delete(hostId)
+      freshHosts.delete(hostId)
+      return
+    }
+    freshHosts.add(hostId)
   }
 
   unsubscribe(hostId: string) {
     const sub = this.subs.get(hostId)
     if (!sub) return
     this.subs.delete(hostId)
+    freshHosts.delete(hostId)
     if (sub.subId) this.port.send({ type: 'agent_unsubscribe', subId: sub.subId })
   }
 
   // 连接级重置：服务端订阅随 socket 消失，本地 seq 基线也必须清零
   reset() {
     this.subs.clear()
+    freshHosts.clear()
   }
 
   handleFrame(frame: AgentStateFrame) {
@@ -122,6 +144,8 @@ export class AgentFeedClient {
     sub.subId = frame.subId || sub.subId
     sub.lastSeq = seq
     sub.resyncAttempts = 0
+    // 收到任何被接受的帧都说明订阅活着；重同步成功同样走这里恢复健康度
+    freshHosts.add(sub.hostId)
     const stateSeq = Number(frame.stateSeq)
     if (Number.isFinite(stateSeq)) sub.stateSeq = Math.max(sub.stateSeq, stateSeq)
     // pulse 只推进水位：明细由消费方按需 resync 或等下一次变化
@@ -140,6 +164,7 @@ export class AgentFeedClient {
     sub.resyncAttempts += 1
     if (sub.resyncAttempts > AGENT_FEED_RESYNC_MAX || !sub.subId) {
       this.subs.delete(sub.hostId)
+      freshHosts.delete(sub.hostId)
       this.port.onDegraded(sub.hostId)
       return
     }
