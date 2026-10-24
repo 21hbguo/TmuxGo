@@ -52,7 +52,7 @@ import { OverlayShell } from './DesktopWindow'
 import { shouldResumeFromContinuity } from '@/lib/session-continuity-policy'
 import { MOBILE_QUERY } from '@/lib/console-device-state'
 import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
-import type { Host, Pane, Session } from '@/types'
+import type { Host, InboxMessageRoute, Pane, Session } from '@/types'
 // 默认关闭、无全局副作用的面板走动态加载，避免拖大主入口；overlay 型面板 fallback 用同形 scrim 防闪帧
 const Settings = dynamic(() => import('./Settings').then((m) => ({ default: m.Settings })), {
   fallback: <LazyOverlayLoading zClass="z-50" />,
@@ -339,15 +339,19 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
     },
     [inboxPreviewOpen, pushOverlay],
   )
-  const handleInboxJump = useCallback(
-    (message: { route?: import('@/types').InboxMessageRoute }) => {
-      const route = message.route || {}
+  // 消息与待办共用一条跳转实现：入参都是 route，差别只在消息侧要额外拆出 message.route
+  const handleInboxJumpRoute = useCallback(
+    (route: InboxMessageRoute) => {
       void navigateInboxRoute(route, inboxQueryClient).then((result) => {
         if (result === 'pane' || result === 'session') closeInboxOverlays()
         else pushToast({ type: 'error', message: t('inbox.targetMissing') })
       })
     },
     [closeInboxOverlays, inboxQueryClient, pushToast, t],
+  )
+  const handleInboxJump = useCallback(
+    (message: { route?: InboxMessageRoute }) => handleInboxJumpRoute(message.route || {}),
+    [handleInboxJumpRoute],
   )
   useEffect(() => {
     if (!mobileGitSheetOpen) return
@@ -970,7 +974,12 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
       {showSettings && <Settings onClose={dismissSettings} />}
       {showTasks && <TaskCenter onClose={dismissTasks} />}
       {inboxPanelOpen && !isMobile && (
-        <InboxPanel mode="desktop" onClose={() => closeOverlay('inbox')} onJump={handleInboxJump} />
+        <InboxPanel
+          mode="desktop"
+          onClose={() => closeOverlay('inbox')}
+          onJump={handleInboxJump}
+          onJumpToRoute={handleInboxJumpRoute}
+        />
       )}
       <MobileBottomSheet
         open={!!mobileSessionMenu}
@@ -1120,6 +1129,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
           onClose={() => closeOverlay('inbox')}
           onPreview={openInboxPreview}
           onJump={handleInboxJump}
+          onJumpToRoute={handleInboxJumpRoute}
         />
       </MobileBottomSheet>
       <MobileBottomSheet
