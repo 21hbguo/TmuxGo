@@ -24,7 +24,8 @@ export async function createTerminalCore(options: TerminalCoreOptions) {
   const getVar = (name: string) => style.getPropertyValue(name).trim()
   const terminal = new Terminal({
     theme: {
-      background: `rgb(${getVar('--bg-1')})`,
+      // 终端画布与 Monaco 编辑器同用 --bg-0：两者是同一块工作面，bg-1 只留给 tab 条/面板分层
+      background: `rgb(${getVar('--bg-0')})`,
       foreground: `rgb(${getVar('--text-1')})`,
       cursor: `rgb(${getVar('--accent')})`,
       selectionBackground: `rgb(${getVar('--accent')} / 0.2)`,

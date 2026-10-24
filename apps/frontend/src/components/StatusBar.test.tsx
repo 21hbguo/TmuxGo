@@ -124,7 +124,8 @@ describe('StatusBar', () => {
     render(<StatusBar />)
     const sync = screen.getByLabelText('Session sync status')
     expect(within(sync).getByText('14s')).toBeInTheDocument()
-    expect(sync.firstElementChild).toHaveClass('text-accent-2')
+    // 正常同步不上色块：只有延迟/失败才着色，底栏保持安静
+    expect(sync.firstElementChild).toHaveClass('text-text-2')
     act(() => vi.advanceTimersByTime(1000))
     expect(within(sync).getByText('15s')).toBeInTheDocument()
     expect(sync.firstElementChild).toHaveClass('text-warn')

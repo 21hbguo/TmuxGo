@@ -353,7 +353,7 @@ export function ActivityBar() {
     if (next.length && !arraysEqual(next, savedIds)) updatePreferences({ activityBarOrder: next })
   }
   return (
-    <aside className="tmuxgo-glass tmuxgo-glass-sidebar flex h-full w-14 shrink-0 flex-col items-center gap-2 border-r border-[var(--line)] py-3 overflow-hidden scrollbar-none">
+    <aside className="flex h-full w-14 shrink-0 flex-col items-center gap-2 overflow-hidden border-r border-[var(--line)] bg-bg-0 py-3 scrollbar-none">
       <img src="/app-icon.svg" alt="" className="mb-1 h-9 w-9" />
       <DndContext
         sensors={sensors}

@@ -95,7 +95,7 @@ export function SessionSplitView({ group }: { group: SessionSplitGroup }) {
         className={`relative flex min-h-0 min-w-0 flex-1 overflow-hidden ${horizontal ? 'flex-row' : 'flex-col'}`}
       >
         <div className="relative min-h-0 min-w-0 overflow-hidden" style={primarySize}>
-          <div className="absolute left-0 top-0 z-10 flex h-7 max-w-full items-center gap-2 border-b border-r border-[var(--line)] bg-bg-1/85 px-2 backdrop-blur">
+          <div className="absolute left-0 top-0 z-10 flex h-7 max-w-full items-center gap-2 border-b border-r border-[var(--line)] bg-bg-1 px-2">
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
             <span className="min-w-0 flex-1 truncate font-mono text-caption text-text-1">{primaryName}</span>
             <span className="shrink-0 text-caption text-text-3">{t('split.primary')}</span>
@@ -107,7 +107,7 @@ export function SessionSplitView({ group }: { group: SessionSplitGroup }) {
           className={`z-20 shrink-0 bg-[var(--line)] transition-colors hover:bg-accent ${horizontal ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize'}`}
         />
         <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden" style={secondarySize}>
-          <div className="absolute left-0 top-0 z-10 flex h-7 max-w-full items-center gap-2 border-b border-r border-[var(--line)] bg-bg-1/85 px-2 backdrop-blur">
+          <div className="absolute left-0 top-0 z-10 flex h-7 max-w-full items-center gap-2 border-b border-r border-[var(--line)] bg-bg-1 px-2">
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-text-3/60" />
             <span className="min-w-0 flex-1 truncate font-mono text-caption text-text-2">{secondaryName}</span>
             <span className="shrink-0 text-caption text-text-3">{t('split.secondary')}</span>
