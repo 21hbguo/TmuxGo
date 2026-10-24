@@ -7,6 +7,8 @@ import path from 'path'
 import {
   SESSION_SNAPSHOT_KIND,
   SNAPSHOT_MAX_COUNT,
+  SNAPSHOT_REMOTE_CALL_CAP_MS,
+  SNAPSHOT_REMOTE_HOST_BUDGET_MS,
   SNAPSHOT_TAIL_BYTES,
   SNAPSHOT_TAIL_LINES,
   captureSessionSnapshot,
@@ -351,21 +353,28 @@ test('restore throws for an unknown snapshot id', async () => {
   })
 })
 
-test('shutdown capture covers local sessions, skips remote hosts and respects the deadline', async () => {
+test('shutdown capture covers local and remote hosts and respects the deadline', async () => {
   await withConfigDir(async () => {
     const { exec } = createFakeTmux({ sessions: ['work', 'ops'] })
-    const captured: string[] = []
+    const captured: Array<{ sessionId: string; exec?: TmuxExec }> = []
     const result = await snapshotSessionsOnShutdown({
       hostIds: ['local', 'devbox'],
       exec,
-      capture: (async (options: { sessionId: string }) => {
-        captured.push(options.sessionId)
+      capture: (async (options: { sessionId: string; exec?: TmuxExec }) => {
+        captured.push({ sessionId: options.sessionId, exec: options.exec })
         return { id: 'x', panes: [], degraded: [], stats: {}, layout: {}, sessionName: 'work' } as never
       }) as never,
     })
-    assert.deepEqual(captured, ['session-local-work', 'session-local-ops'])
-    assert.deepEqual(result.saved, ['local:work', 'local:ops'])
-    assert.deepEqual(result.skipped, ['devbox:remote-host'])
+    // 远端不再分类跳过：与本地同一条采集路径，白名单/预算/错误语义也一致
+    assert.deepEqual(
+      captured.map((item) => item.sessionId),
+      ['session-local-work', 'session-local-ops', 'session-devbox-work', 'session-devbox-ops'],
+    )
+    assert.deepEqual(result.saved, ['local:work', 'local:ops', 'devbox:work', 'devbox:ops'])
+    assert.deepEqual(result.skipped, [])
+    // 本地维持原样（裸 exec），远端才包超时封顶
+    assert.equal(captured[0].exec, exec)
+    assert.notEqual(captured[2].exec, exec)
 
     const empty = await snapshotSessionsOnShutdown({
       hostIds: ['local'],
@@ -375,6 +384,72 @@ test('shutdown capture covers local sessions, skips remote hosts and respects th
     })
     // 没有 tmux server 属正常退出路径，不报错不阻塞
     assert.deepEqual(empty.saved, [])
+  })
+})
+
+// 远端 ssh 不可达的时序仿真：注入 exec 按传入的 timeoutMs 拒绝，不封顶时退化成真实的
+// ssh connect 超时（~5s），从而复现「一个不可达 host 吃光整个预算」的原始故障
+function createHungRemoteExec(connectMs = 5000) {
+  const timeouts: Array<number | undefined> = []
+  const exec = (async (_hostId: string, _args: string[], options?: { timeoutMs?: number }) => {
+    timeouts.push(options?.timeoutMs)
+    await new Promise((_resolve, reject) => {
+      const wait = options?.timeoutMs ?? connectMs
+      setTimeout(() => reject(new Error('ssh: connect timed out')), wait)
+    })
+    return { stdout: '', stderr: '' }
+  }) as unknown as TmuxExec
+  return { exec, timeouts }
+}
+
+test('shutdown capture does not let an unreachable remote host starve the local one', async () => {
+  await withConfigDir(async () => {
+    // 远端排前面：它的 ssh 超时必须被 per-host 预算掐断，本机才有机会被采集
+    const remote = createHungRemoteExec()
+    const local = createFakeTmux({ sessions: ['work'] })
+    const exec = (async (hostId: string, args: string[], options?: { timeoutMs?: number }) =>
+      hostId === 'local' ? local.exec(hostId, args, options) : remote.exec(hostId, args, options)) as TmuxExec
+    const warnings: string[] = []
+    const started = Date.now()
+    const result = await snapshotSessionsOnShutdown({
+      hostIds: ['devbox', 'local'],
+      exec,
+      logWarn: (message) => warnings.push(message),
+    })
+    const elapsed = Date.now() - started
+    // 承重断言：一个不可达的远端不能让本机陪葬
+    assert.deepEqual(result.saved, ['local:work'])
+    // 远端失败留 host 级痕迹（* = 连会话名都没拿到），不是静默跳过
+    assert.deepEqual(result.skipped, ['devbox:*:error'])
+    assert.equal(warnings.length, 1)
+    // 每次远端调用都被封顶，且整轮远端的耗时不超过 per-host 预算（留调度余量）
+    assert.ok(remote.timeouts.length >= 1)
+    assert.ok(remote.timeouts.every((value) => value !== undefined && value <= SNAPSHOT_REMOTE_CALL_CAP_MS))
+    assert.ok(elapsed < SNAPSHOT_REMOTE_HOST_BUDGET_MS + 1500, `remote host ate ${elapsed}ms`)
+  })
+})
+
+test('shutdown capture applies the session-name policy on remote hosts too', async () => {
+  await withConfigDir(async () => {
+    // 远端返回一个非法会话名：必须在 capture 之前被 assertSessionAllowed 挡住
+    const calls: string[][] = []
+    const exec = (async (_hostId: string, args: string[]) => {
+      calls.push(args)
+      if (args[0] === 'list-sessions') return { stdout: 'ok\nbad name\n', stderr: '' }
+      return { stdout: '0|w\n', stderr: '' }
+    }) as unknown as TmuxExec
+    const captured: string[] = []
+    const result = await snapshotSessionsOnShutdown({
+      hostIds: ['devbox'],
+      exec,
+      capture: (async (options: { sessionId: string }) => {
+        captured.push(options.sessionId)
+        return { id: 'x', panes: [], degraded: [], stats: {}, layout: {}, sessionName: 'ok' } as never
+      }) as never,
+    })
+    assert.deepEqual(captured, ['session-devbox-ok'])
+    assert.deepEqual(result.saved, ['devbox:ok'])
+    assert.deepEqual(result.skipped, ['devbox:bad name:error'])
   })
 })
 
@@ -426,19 +501,14 @@ test('shutdown capture honours the session whitelist and records why the rest we
 
 // 关停摘要走 warn：生产默认 level=warn，走 info 时白名单/跳过效果对运维不可见
 test('shutdown snapshot summary is warn-level with a reason breakdown', () => {
-  const skipped = [
-    'devbox:remote-host',
-    'local:work:not-in-whitelist',
-    'local:ops:not-in-whitelist',
-    'local:x:deadline',
-  ]
-  assert.deepEqual(summarizeSkipReasons(skipped), { 'remote-host': 1, 'not-in-whitelist': 2, deadline: 1 })
+  const skipped = ['devbox:*:error', 'local:work:not-in-whitelist', 'local:ops:not-in-whitelist', 'local:x:deadline']
+  assert.deepEqual(summarizeSkipReasons(skipped), { error: 1, 'not-in-whitelist': 2, deadline: 1 })
 
   const summary = describeShutdownSnapshots({ saved: ['local:test'], skipped })
   assert.equal(summary?.level, 'warn')
   assert.equal(summary?.payload.saved, 1)
   assert.equal(summary?.payload.skipped, 4)
-  assert.deepEqual(summary?.payload.reasons, { 'remote-host': 1, 'not-in-whitelist': 2, deadline: 1 })
+  assert.deepEqual(summary?.payload.reasons, { error: 1, 'not-in-whitelist': 2, deadline: 1 })
 
   // 只有 saved 也是 warn：运维要能从默认日志看到「这次关停抓到了什么」
   assert.equal(describeShutdownSnapshots({ saved: ['local:a'], skipped: [] })?.level, 'warn')
