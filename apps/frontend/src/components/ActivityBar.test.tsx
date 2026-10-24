@@ -1,5 +1,6 @@
 import React from 'react'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ActivityBar, orderActivityItems } from './ActivityBar'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -22,6 +23,9 @@ vi.mock('@/hooks/usePreferences', () => ({
 }))
 
 const items = (...ids: string[]) => ids.map((id) => ({ id }))
+// ActivityBar 的 fleet 角标读 react-query 缓存，渲染必须有 provider
+const renderBar = (client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) =>
+  render(React.createElement(QueryClientProvider, { client }, React.createElement(ActivityBar)))
 
 describe('ActivityBar browser entry', () => {
   beforeEach(() => {
@@ -30,7 +34,7 @@ describe('ActivityBar browser entry', () => {
 
   it('disables the browser icon for remote hosts and explains why', () => {
     useConsoleStore.setState({ activeHostId: 'devbox' })
-    render(<ActivityBar />)
+    renderBar()
     const browser = screen.getByRole('button', { name: 'Browser' }) as HTMLButtonElement
     expect(browser.disabled).toBe(true)
     expect(browser.title).toBe('Browser · Browser panel is local-only')
@@ -39,8 +43,46 @@ describe('ActivityBar browser entry', () => {
   })
 
   it('keeps the browser icon clickable on the local host', () => {
-    render(<ActivityBar />)
+    renderBar()
     expect((screen.getByRole('button', { name: 'Browser' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+})
+
+describe('ActivityBar fleet entry', () => {
+  beforeEach(() => {
+    useConsoleStore.setState({ activeHostId: 'local', fleetPanelOpen: false })
+  })
+
+  it('sits between sessions and files', () => {
+    renderBar()
+    const labels = screen.getAllByRole('button').map((button) => button.getAttribute('aria-label'))
+    const sessions = labels.indexOf('activity.sessions')
+    const fleet = labels.indexOf('activity.fleet')
+    const files = labels.indexOf('activity.explorer')
+    expect(sessions).toBeGreaterThanOrEqual(0)
+    expect(fleet).toBeGreaterThan(sessions)
+    expect(files).toBeGreaterThan(fleet)
+  })
+
+  it('badges only the blocked agents, not the total', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    client.setQueryData(
+      ['sessions', 'local'],
+      [
+        {
+          id: 'local:dev',
+          hostId: 'local',
+          name: 'dev',
+          agents: [
+            { paneId: 'local:%1', agentStatus: 'blocked' },
+            { paneId: 'local:%2', agentStatus: 'working' },
+          ],
+        },
+      ],
+    )
+    renderBar(client)
+    const fleet = screen.getByRole('button', { name: 'activity.fleet' })
+    await waitFor(() => expect(fleet.textContent).toContain('1'))
   })
 })
 

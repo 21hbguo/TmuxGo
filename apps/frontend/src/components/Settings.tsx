@@ -49,6 +49,7 @@ interface SettingsProps {
 /** 紧凑底栏可调配项 → i18n 标签 */
 const NAV_ITEM_LABEL_KEYS: Record<NavBarItemKey, Parameters<ReturnType<typeof useTranslation>['t']>[0]> = {
   inbox: 'nav.inbox',
+  fleet: 'activity.fleet',
   upload: 'uploadTab.title',
   files: 'nav.files',
   git: 'nav.git',

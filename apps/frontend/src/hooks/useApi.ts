@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { api, type CredentialStoreFile, type HostStoreFile, type SystemTaskResponse } from '@/lib/api'
 import { isAgentFeedFresh } from '@/lib/agent-feed'
 import type { PluginPermission, Session, SessionLayout, SessionMutationResult, SessionTemplate } from '@/types'
@@ -326,10 +326,11 @@ function withCarriedAgents(next: Session[], previous: Session[] | undefined): Se
   })
 }
 
-export function useSessions(hostId: string) {
-  const queryClient = useQueryClient()
-  return useQuery({
-    queryKey: ['sessions', hostId],
+// sessions 列表的取数规则只有一份：fleet 面板要观察同一批 host 的同一份缓存（agent 状态由
+// 推式通道原地 patch），所以把 queryOptions 抽出来共用，别让两个观察者各写一遍「要不要带 agents」
+export function sessionsQueryOptions(hostId: string, queryClient: QueryClient) {
+  return {
+    queryKey: ['sessions', hostId] as const,
     queryFn: async () => {
       const skipAgents = isAgentFeedFresh(hostId)
       const sessions = await api.sessions.list(hostId, { includeAgents: !skipAgents })
@@ -339,6 +340,12 @@ export function useSessions(hostId: string) {
     },
     enabled: !!hostId,
     staleTime: 4000,
+  }
+}
+export function useSessions(hostId: string) {
+  const queryClient = useQueryClient()
+  return useQuery({
+    ...sessionsQueryOptions(hostId, queryClient),
     refetchInterval: 10000,
     refetchIntervalInBackground: false,
   })

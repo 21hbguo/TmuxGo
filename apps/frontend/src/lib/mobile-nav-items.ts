@@ -5,6 +5,7 @@ export const NAV_BAR_ITEMS_EVENT = 'tmuxgo-nav-bar-items-changed'
 
 export const NAV_BAR_ITEM_KEYS = [
   'inbox',
+  'fleet',
   'upload',
   'files',
   'git',

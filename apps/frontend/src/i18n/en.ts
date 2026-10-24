@@ -668,6 +668,18 @@ export const en = {
   'templates.importLayout': 'Import JSON',
 
   // PaneGrid
+  'activity.fleet': 'Fleet',
+  'fleet.title': 'Fleet overview',
+  'fleet.subtitle': '{count} agents',
+  'fleet.searchPlaceholder': 'Task / session / agent',
+  'fleet.onlyAttention': 'Needs attention',
+  'fleet.onlyTask': 'With task',
+  'fleet.refresh': 'Realign',
+  'fleet.empty': 'No agent panes on this machine yet',
+  'fleet.emptyHint': 'Install the hook on the agent side first: docs/architecture/agent-push.md',
+  'fleet.noMatch': 'No matching rows',
+  'fleet.disconnected': 'disconnected',
+  'fleet.jump': 'Jump to pane',
   'grid.noWindows': 'No windows open',
   'grid.addHost': 'Add host',
   'grid.createSession': 'New session',

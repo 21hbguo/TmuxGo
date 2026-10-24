@@ -661,6 +661,18 @@ export const zh = {
   'templates.importLayout': '导入 JSON',
 
   // PaneGrid
+  'activity.fleet': '机队',
+  'fleet.title': '机队总览',
+  'fleet.subtitle': '{count} 个 agent',
+  'fleet.searchPlaceholder': '任务号 / session / agent',
+  'fleet.onlyAttention': '只看需处理',
+  'fleet.onlyTask': '只看有任务',
+  'fleet.refresh': '重新对齐',
+  'fleet.empty': '本机还没有 agent pane',
+  'fleet.emptyHint': '需要先在 agent 侧装 hook，见 docs/architecture/agent-push.md',
+  'fleet.noMatch': '没有符合条件的结果',
+  'fleet.disconnected': 'disconnected',
+  'fleet.jump': '跳到 pane',
   'grid.noWindows': '没有打开的窗口',
   'grid.selectSession': '从侧边栏选择一个会话',
   'grid.addHost': '添加主机',

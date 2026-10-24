@@ -74,6 +74,7 @@ const closedSidePanels = {
   gitPanelOpen: false,
   sshPanelOpen: false,
   endpointsPanelOpen: false,
+  fleetPanelOpen: false,
   activePluginView: null,
 }
 const panelsForOverlayView = (view: DesktopViewMode) => (view === 'full' ? closedSidePanels : {})
@@ -419,6 +420,7 @@ interface ConsoleState {
   gitPanelOpen: boolean
   sshPanelOpen: boolean
   endpointsPanelOpen: boolean
+  fleetPanelOpen: boolean
   activeSplitGroupId: string | null
   activePluginView: { pluginId: string; viewId: string } | null
   activeDesktop: ActiveDesktop | null
@@ -473,6 +475,8 @@ interface ConsoleState {
   toggleGitPanel: () => void
   toggleSshPanel: () => void
   toggleEndpointsPanel: () => void
+  setFleetPanelOpen: (open: boolean) => void
+  toggleFleetPanel: () => void
   setActivePluginView: (view: { pluginId: string; viewId: string } | null) => void
   toggleDesktop: (hostId: string, port?: number) => void
   setActiveDesktop: (desktop: { hostId: string; port: number } | null) => void
@@ -642,6 +646,8 @@ export const useConsoleStore = create<ConsoleState>()(
       gitPanelOpen: false,
       sshPanelOpen: false,
       endpointsPanelOpen: false,
+      // fleet 是跨 host 的扁平总览，与 files/git/ssh/endpoints 一样互斥占右栏
+      fleetPanelOpen: false,
       activeSplitGroupId: null,
       activePluginView: null,
       activeDesktop: null,
@@ -683,6 +689,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 sessionPanelExpanded: true,
                 sshPanelOpen: false,
                 endpointsPanelOpen: false,
+                fleetPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
                 activeBrowser: parkBrowser(state.activeBrowser),
@@ -698,6 +705,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 gitPanelOpen: false,
                 sshPanelOpen: false,
                 endpointsPanelOpen: false,
+                fleetPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
                 activeBrowser: parkBrowser(state.activeBrowser),
@@ -712,6 +720,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 gitPanelOpen: false,
                 sshPanelOpen: false,
                 endpointsPanelOpen: false,
+                fleetPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
                 activeBrowser: parkBrowser(state.activeBrowser),
@@ -727,6 +736,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 gitPanelOpen: false,
                 sshPanelOpen: false,
                 endpointsPanelOpen: false,
+                fleetPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
                 activeBrowser: parkBrowser(state.activeBrowser),
@@ -738,6 +748,7 @@ export const useConsoleStore = create<ConsoleState>()(
           filePanelOpen: false,
           gitPanelOpen: false,
           sshPanelOpen: false,
+          fleetPanelOpen: false,
           activePluginView: null,
           activeDesktop: parkDesktop(state.activeDesktop),
           activeBrowser: parkBrowser(state.activeBrowser),
@@ -751,6 +762,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 filePanelOpen: false,
                 sshPanelOpen: false,
                 endpointsPanelOpen: false,
+                fleetPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
                 activeBrowser: parkBrowser(state.activeBrowser),
@@ -766,6 +778,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 filePanelOpen: false,
                 sshPanelOpen: false,
                 endpointsPanelOpen: false,
+                fleetPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
                 activeBrowser: parkBrowser(state.activeBrowser),
@@ -780,6 +793,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 filePanelOpen: false,
                 gitPanelOpen: false,
                 endpointsPanelOpen: false,
+                fleetPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
                 activeBrowser: parkBrowser(state.activeBrowser),
@@ -794,6 +808,37 @@ export const useConsoleStore = create<ConsoleState>()(
                 filePanelOpen: false,
                 gitPanelOpen: false,
                 sshPanelOpen: false,
+                fleetPanelOpen: false,
+                activePluginView: null,
+                activeDesktop: parkDesktop(state.activeDesktop),
+                activeBrowser: parkBrowser(state.activeBrowser),
+              },
+        ),
+      setFleetPanelOpen: (open) =>
+        set((state) =>
+          open
+            ? {
+                fleetPanelOpen: true,
+                filePanelOpen: false,
+                gitPanelOpen: false,
+                sshPanelOpen: false,
+                endpointsPanelOpen: false,
+                activePluginView: null,
+                activeDesktop: parkDesktop(state.activeDesktop),
+                activeBrowser: parkBrowser(state.activeBrowser),
+              }
+            : { fleetPanelOpen: false },
+        ),
+      toggleFleetPanel: () =>
+        set((state) =>
+          state.fleetPanelOpen
+            ? { fleetPanelOpen: false }
+            : {
+                fleetPanelOpen: true,
+                filePanelOpen: false,
+                gitPanelOpen: false,
+                sshPanelOpen: false,
+                endpointsPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
                 activeBrowser: parkBrowser(state.activeBrowser),
@@ -1375,6 +1420,7 @@ export const useConsoleStore = create<ConsoleState>()(
           terminalPerf: current.terminalPerf,
           showCommandPalette: false,
           showPaneSearch: false,
+          fleetPanelOpen: false,
           activePluginView: null,
           activeDesktop: null,
           activeBrowser: null,

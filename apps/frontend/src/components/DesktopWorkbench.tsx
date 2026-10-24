@@ -29,6 +29,7 @@ const GitPanel = dynamic(() => import('./GitPanel').then((m) => ({ default: m.Gi
 const SshPanel = dynamic(() => import('./SshPanel').then((m) => ({ default: m.SshPanel })))
 const PluginView = dynamic(() => import('./PluginView').then((m) => ({ default: m.PluginView })))
 const EndpointsPanel = dynamic(() => import('./EndpointsPanel').then((m) => ({ default: m.EndpointsPanel })))
+const FleetPanel = dynamic(() => import('./FleetPanel').then((m) => ({ default: m.FleetPanel })))
 
 const ACTIVITY_BAR_WIDTH = 56
 const SESSION_RAIL_WIDTH = 109
@@ -39,7 +40,7 @@ function clampValue(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
 }
 
-type SidePanelKind = 'file' | 'git' | 'ssh'
+type SidePanelKind = 'file' | 'git' | 'ssh' | 'fleet'
 // files/git/ssh 面板共用外壳：定宽 surface + 右缘拖拽手柄；clip=内容需裁剪（如 FilePanel 溢出内容）
 function SidePanelShell({
   clip,
@@ -78,6 +79,7 @@ export function DesktopWorkbench() {
   const sidePanelWidth = useConsoleStore((state) => state.sidePanelWidth)
   const filePanelOpen = useConsoleStore((state) => state.filePanelOpen)
   const gitPanelOpen = useConsoleStore((state) => state.gitPanelOpen)
+  const fleetPanelOpen = useConsoleStore((state) => state.fleetPanelOpen)
   const sshPanelOpen = useConsoleStore((state) => state.sshPanelOpen)
   const endpointsPanelOpen = useConsoleStore((state) => state.endpointsPanelOpen)
   const activeSplitGroupId = useConsoleStore((state) => state.activeSplitGroupId)
@@ -97,7 +99,7 @@ export function DesktopWorkbench() {
   const placeEditorInSplit = useConsoleStore((state) => state.placeEditorInSplit)
   const pushToast = useConsoleStore((state) => state.pushToast)
   const containerRef = useRef<HTMLDivElement>(null)
-  const resizingRef = useRef<'session' | 'file' | 'git' | 'ssh' | 'rail' | null>(null)
+  const resizingRef = useRef<'session' | 'file' | 'git' | 'ssh' | 'fleet' | 'rail' | null>(null)
   const sessionCollapseArmedRef = useRef(false)
   const restoredRef = useRef(false)
   const pendingSessionWidthRef = useRef(sessionPanelWidth)
@@ -192,15 +194,21 @@ export function DesktopWorkbench() {
         }
         return
       }
-      if (resizingRef.current === 'file' || resizingRef.current === 'git' || resizingRef.current === 'ssh') {
-        // 三个面板同宽，手柄按各自面板左缘（排在其前的同宽面板数）换算回栏宽
+      if (
+        resizingRef.current === 'file' ||
+        resizingRef.current === 'git' ||
+        resizingRef.current === 'ssh' ||
+        resizingRef.current === 'fleet'
+      ) {
+        // 四个面板同宽，手柄按各自面板左缘（排在其前的同宽面板数）换算回栏宽
         const sessionOffset =
           ACTIVITY_BAR_WIDTH +
           (sessionPanelExpanded
             ? (previewSessionWidth ?? pendingSessionWidthRef.current ?? renderedSessionPanelWidth)
             : compactSessionWidth)
+        // fleet 与 files 排在 git/ssh 之前，且与其它侧栏互斥，所以它前面同宽面板数为 0
         const panelsBefore =
-          resizingRef.current === 'file'
+          resizingRef.current === 'file' || resizingRef.current === 'fleet'
             ? 0
             : (filePanelOpen ? 1 : 0) + (resizingRef.current === 'ssh' && gitPanelOpen ? 1 : 0)
         const panelOffset = sessionOffset + panelsBefore * renderedSidePanelWidth
@@ -222,7 +230,12 @@ export function DesktopWorkbench() {
         else setSessionPanelWidth(pendingSessionWidthRef.current)
         setPreviewSessionWidth(null)
       }
-      if (resizingRef.current === 'file' || resizingRef.current === 'git' || resizingRef.current === 'ssh') {
+      if (
+        resizingRef.current === 'file' ||
+        resizingRef.current === 'git' ||
+        resizingRef.current === 'ssh' ||
+        resizingRef.current === 'fleet'
+      ) {
         setSidePanelWidth(pendingSideWidthRef.current)
         setPreviewSideWidth(null)
       }
@@ -440,6 +453,11 @@ export function DesktopWorkbench() {
         {filePanelOpen && (
           <SidePanelShell clip width={renderedSidePanelWidth} onStartResize={() => beginSideResize('file')}>
             <FilePanel mode="explorer" onOpenFile={handleOpenFile} />
+          </SidePanelShell>
+        )}
+        {fleetPanelOpen && (
+          <SidePanelShell clip width={renderedSidePanelWidth} onStartResize={() => beginSideResize('fleet')}>
+            <FleetPanel onClose={() => useConsoleStore.getState().setFleetPanelOpen(false)} />
           </SidePanelShell>
         )}
         {gitPanelOpen && (
