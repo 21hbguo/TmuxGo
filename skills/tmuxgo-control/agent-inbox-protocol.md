@@ -171,7 +171,7 @@ Duplicates are not errors: a repeated `dedupeKey` returns `200` with `deduplicat
 
 ## MCP stdio registration snippets
 
-The bridge is `apps/mcp/index.mjs` (zero-dependency Node ≥18 script). Exposed tools: `tmuxgo_push_text`, `tmuxgo_push_file` (image/video/any file by path), `tmuxgo_push_link`, `tmuxgo_open_target`, `tmuxgo_inbox_list` (delivery/read receipt query). Token resolution order: `TMUXGO_AGENT_EVENT_TOKEN` env → `~/.tmuxgo/agent-event-token` (0600, gateway-managed). Gateway URL: `TMUXGO_GATEWAY_URL` → default `http://127.0.0.1:3001`. Do not put a token in config.
+The bridge is `apps/mcp/index.mjs` (zero-dependency Node ≥18 script). Exposed tools: `tmuxgo_push_text`, `tmuxgo_push_file` (image/video/any file by path), `tmuxgo_push_link`, `tmuxgo_open_target`, `tmuxgo_inbox_list` (delivery/read receipt query), plus the pane/agent orchestration tools `tmuxgo_pane_snapshot`, `tmuxgo_pane_wait_output`, `tmuxgo_pane_run`, `tmuxgo_agent_start`, `tmuxgo_agent_prompt`, `tmuxgo_agent_wait` (bodies mirror the control protocol; long-blocking tools widen their client timeout to server timeout + 10s). Token resolution order: `TMUXGO_AGENT_EVENT_TOKEN` env → `~/.tmuxgo/agent-event-token` (0600, gateway-managed). Gateway URL: `TMUXGO_GATEWAY_URL` → default `http://127.0.0.1:3001`. Do not put a token in config.
 
 ```text
 TMUXGO_MCP_COMMAND="node <repo>/apps/mcp/index.mjs"
