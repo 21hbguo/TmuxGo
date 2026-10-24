@@ -36,7 +36,8 @@ import { getFileIcon } from '@/lib/file-icons'
 import { ZoomSurface } from './ZoomSurface'
 import {
   FiAlignLeft,
-  FiArrowUp,
+  FiChevronLeft,
+  FiChevronRight,
   FiChevronsUp,
   FiEye,
   FiEyeOff,
@@ -59,6 +60,10 @@ import { usePrompt } from '@/hooks/usePrompt'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ModalPortal } from './ModalPortal'
 import { Select } from './Select'
+import { PanelHeader } from './PanelHeader'
+import { EmptyState } from './EmptyState'
+import { StatusDot } from './StatusDot'
+import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
 import { chooseFileRoot, getRootRelativePath } from '@/lib/terminal-paths'
 
 type SearchMode = 'name' | 'content'
@@ -234,6 +239,14 @@ function matchesFileTypeFilter(item: { type: 'file' | 'directory' }, fileTypeFil
 // tone 语义保留，open 透传目录展开态
 function getFileVisual(path: string, type: 'file' | 'directory', open = false) {
   return { icon: getFileIcon(path, type, { open }), tone: 'text-text-1' }
+}
+// 符号链接角标：一枚克制的箭头，hover title 说明；点击/跟随语义仍由 gateway 决定，这里纯展示
+function LinkBadge({ label }: { label: string }) {
+  return (
+    <span role="img" aria-label={label} title={label} className="shrink-0 text-caption leading-none text-text-3">
+      ↗
+    </span>
+  )
 }
 function getRootKind(root: FileRoot) {
   const label = root.label.toLowerCase()
@@ -1110,6 +1123,19 @@ export function FilePanel({
       return parts.length > 1 ? parts.slice(0, -1).join('/') : null
     })
   }
+  // 面包屑跳转：直接落到目标目录（不走 history 栈），副作用与 goMobileParentDirectory 一致
+  const goDirectoryPath = (nextPath: string) => {
+    if (nextPath === currentPathRef.current) return
+    setFollowSuspended(true)
+    currentPathRef.current = nextPath
+    mobileNavigationDepthRef.current = 0
+    setCurrentPath(nextPath)
+    setSelectedPath('')
+    setSelectedPaths(new Set())
+    setSelectionAnchor('')
+    setSelectedPreviewLine(1)
+    setSearchNavigationPath(null)
+  }
   useEffect(() => {
     if (!isMobile) return
     const handleBack = (event: Event) => {
@@ -1720,7 +1746,9 @@ export function FilePanel({
     const sizeLabel = item.type === 'directory' ? '—' : formatFileSize(item.size)
     const modifiedLabel = item.modifiedAt ? new Date(item.modifiedAt).toLocaleString() : '—'
     const detail = `${t('file.type')}: ${item.type === 'directory' ? t('file.dir') : t('file.file')} · ${t('file.size')}: ${sizeLabel} · ${t('file.modified')}: ${modifiedLabel}`
-    return `${getItemFullPath(item)}\n${detail}\n${t('file.permission')}: ${formatModeBits(item.mode, item.type)}`
+    // 链接说明单独一行：路径/大小/mode 都是链接目标的值，不写清楚会让人以为那是链接本身
+    const linkLine = item.link ? `\n${t('file.symlink')}` : ''
+    return `${getItemFullPath(item)}\n${detail}\n${t('file.permission')}: ${formatModeBits(item.mode, item.type)}${linkLine}`
   }
   const startDownload = (item: FileItem | FileContentMatch) => {
     void api.files
@@ -2076,6 +2104,8 @@ export function FilePanel({
       ? 'flex h-full min-h-0 flex-col overflow-hidden'
       : `relative flex h-full ${embedded ? 'min-w-0 flex-1' : 'shrink-0'} flex-col bg-bg-1 overflow-hidden ${dock === 'left' ? 'border-r border-[var(--line)]' : 'border-l border-[var(--line)]'}`
   const shellStyle = isMobile || embedded || isPicker ? undefined : { width: previewWidth ?? sidePanelWidth }
+  // 头部副标题与面包屑都以 panelAbsolutePath 为准：它是「当前目录真实绝对路径」，与 picker 的上传/选择目标一致
+  const panelAbsolutePath = joinPath(activeSourceRootPath, joinRelativePath(activeRootBasePath, currentPath)) || '/'
   const imagePreviewPath =
     preview?.path &&
     preview.type === 'file' &&
@@ -2344,7 +2374,10 @@ export function FilePanel({
           )}
           <div className="flex min-w-0 flex-1 items-center gap-1.5 py-[2px] pr-2">
             <span className="shrink-0">{visual.icon}</span>
-            <span className={`min-w-0 flex-1 truncate font-mono ${visual.tone}`}>{item.name}</span>
+            <span className={`flex min-w-0 flex-1 items-center gap-1 font-mono ${visual.tone}`}>
+              <span className="min-w-0 truncate">{item.name}</span>
+              {item.link && <LinkBadge label={t('file.symlink')} />}
+            </span>
             {item.type === 'directory' && cachedChildren?.length === 0 && (
               <span className="shrink-0 font-mono text-caption text-text-3">{t('file.emptyDir')}</span>
             )}
@@ -2353,6 +2386,7 @@ export function FilePanel({
             )}
             {item.type === 'directory' && !cachedChildren && loadStatus?.state === 'error' && (
               <div className="flex shrink-0 items-center gap-1">
+                <StatusDot tone="danger" label={t('file.treeLoadFailed')} />
                 <span className="font-mono text-caption text-danger">{t('file.treeLoadFailed')}</span>
                 <button
                   type="button"
@@ -2362,7 +2396,7 @@ export function FilePanel({
                     event.stopPropagation()
                     void loadDirectoryChildren(item)
                   }}
-                  className="font-mono text-caption text-accent hover:text-text-1"
+                  className="rounded-apple px-0.5 font-mono text-caption text-accent hover:text-text-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--focus-ring)]"
                 >
                   {t('file.retryLoad')}
                 </button>
@@ -2428,6 +2462,7 @@ export function FilePanel({
                       className="flex items-center gap-2 px-2 py-[3px] font-mono text-meta"
                       style={!isMobile ? { paddingLeft: `${22 + (depth + 1) * 14}px` } : undefined}
                     >
+                      <StatusDot tone="danger" label={t('file.treeLoadFailed')} />
                       <span className="text-danger">{t('file.treeLoadFailed')}</span>
                       <button
                         type="button"
@@ -2437,7 +2472,7 @@ export function FilePanel({
                           event.stopPropagation()
                           void loadDirectoryChildren(item)
                         }}
-                        className="text-accent hover:text-text-1"
+                        className="rounded-apple px-0.5 text-accent hover:text-text-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--focus-ring)]"
                       >
                         {t('file.retryLoad')}
                       </button>
@@ -2510,9 +2545,10 @@ export function FilePanel({
                 <span>{visual.icon}</span>
               </span>
               <span
-                className={`min-w-0 flex-1 truncate font-mono ${item.type === 'directory' ? 'text-text-1' : visual.tone}`}
+                className={`flex min-w-0 flex-1 items-center gap-1 font-mono ${item.type === 'directory' ? 'text-text-1' : visual.tone}`}
               >
-                {item.name}
+                <span className="min-w-0 truncate">{item.name}</span>
+                {item.link && <LinkBadge label={t('file.symlink')} />}
               </span>
               <span className="opacity-0 text-caption text-text-3 group-hover:opacity-100 transition-opacity">
                 {item.type === 'file' ? formatFileSize(item.size) : 'dir'}
@@ -2585,9 +2621,10 @@ export function FilePanel({
           <div className="flex items-center gap-1.5">
             <span className="shrink-0">{getFileVisual(item.path, item.type, openDirectories.has(item.path)).icon}</span>
             <span
-              className={`min-w-0 flex-1 truncate font-mono ${getFileVisual(item.path, item.type, openDirectories.has(item.path)).tone}`}
+              className={`flex min-w-0 flex-1 items-center gap-1 font-mono ${getFileVisual(item.path, item.type, openDirectories.has(item.path)).tone}`}
             >
-              {item.name}
+              <span className="min-w-0 truncate">{item.name}</span>
+              {item.link && <LinkBadge label={t('file.symlink')} />}
             </span>
             <span className="opacity-0 text-caption text-text-3 group-hover:opacity-100 transition-opacity">
               {item.type === 'file' ? formatFileSize(item.size) : 'dir'}
@@ -2630,84 +2667,79 @@ export function FilePanel({
         <div className="flex h-full items-center justify-center text-xs text-text-3">{t('file.loading')}</div>
       ) : (
         <>
-          <div className="shrink-0 border-b border-[var(--line)] px-2 py-2">
-            <div className="flex items-center gap-1.5">
-              {isMobile && mobileView === 'preview' && (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="back to list"
-                  onClick={() => {
-                    if (mobileEditOpen) closeMobileEditor()
-                    else setMobileView('list')
-                  }}
-                >
-                  ‹
-                </Button>
-              )}
-              {(isMobile ? mobileView !== 'preview' : isPicker) && !!currentPath && (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="go back"
-                  onClick={() =>
-                    mobileNavigationDepthRef.current > 0 ? window.history.back() : goMobileParentDirectory()
-                  }
-                >
-                  ‹
-                </Button>
-              )}
-
-              <Select
-                value={selectedRootId}
-                onChange={(v) => {
-                  setFollowSuspended(true)
-                  switchRoot(v)
-                }}
-                options={rootOptions.map((item) => ({ value: item.id, label: item.label }))}
-                className="min-w-0 flex-1 rounded-apple px-2 py-1 text-meta"
-              />
-              {isPicker ? (
-                <>
-                  <Chip tone="accent" onClick={handlePickCurrentFolder}>
-                    {t('session.selectThisFolder')}
-                  </Chip>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="close"
-                    onClick={onClose || (() => setFilePanelOpen(false))}
-                  >
-                    ×
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <button
-                    title={t('file.upload')}
-                    aria-label={t('file.upload')}
-                    onClick={requestUploadPick}
-                    className="tmuxgo-toolbar-icon h-7 w-7 shrink-0"
-                  >
-                    <FiUpload size={14} />
-                  </button>
-                  <button
-                    title={t('file.trash')}
-                    aria-label={t('file.trash')}
-                    onClick={() => void openTrash()}
-                    className="tmuxgo-toolbar-icon h-7 w-7 shrink-0"
-                  >
-                    <FiTrash2 size={14} />
-                  </button>
-                  {activeFavorite && (
-                    <button
-                      title={t('file.removeFavorite')}
-                      aria-label={t('file.removeFavorite')}
-                      onClick={() => removeFavoriteDirectory(activeFavorite)}
-                      className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--active h-7 w-7 shrink-0"
+          <div className="shrink-0 border-b border-[var(--line)]">
+            <PanelHeader
+              icon={<FiFolder aria-hidden="true" size={13} />}
+              title={isPicker ? t('session.selectWorkspace') : t('file.title')}
+              subtitle={
+                <span className="font-mono" title={panelAbsolutePath}>
+                  {panelAbsolutePath}
+                </span>
+              }
+              actions={
+                <div className="flex shrink-0 items-center gap-1">
+                  {isMobile && mobileView === 'preview' && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="back to list"
+                      onClick={() => {
+                        if (mobileEditOpen) closeMobileEditor()
+                        else setMobileView('list')
+                      }}
                     >
-                      <FiStar size={14} fill="currentColor" />
-                    </button>
+                      ‹
+                    </Button>
+                  )}
+                  {(isMobile ? mobileView !== 'preview' : isPicker) && !!currentPath && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="go back"
+                      onClick={() =>
+                        mobileNavigationDepthRef.current > 0 ? window.history.back() : goMobileParentDirectory()
+                      }
+                    >
+                      ‹
+                    </Button>
+                  )}
+                  {isPicker ? (
+                    <Chip tone="accent" onClick={handlePickCurrentFolder}>
+                      {t('session.selectThisFolder')}
+                    </Chip>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        title={t('file.upload')}
+                        aria-label={t('file.upload')}
+                        onClick={requestUploadPick}
+                        className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm tmuxgo-focus-ring"
+                      >
+                        <FiUpload aria-hidden="true" size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        title={t('file.trash')}
+                        aria-label={t('file.trash')}
+                        onClick={() => void openTrash()}
+                        className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm tmuxgo-focus-ring"
+                      >
+                        <FiTrash2 aria-hidden="true" size={14} />
+                      </button>
+                      {activeFavorite && (
+                        <button
+                          type="button"
+                          title={t('file.removeFavorite')}
+                          aria-label={t('file.removeFavorite')}
+                          aria-pressed="true"
+                          onClick={() => removeFavoriteDirectory(activeFavorite)}
+                          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm tmuxgo-toolbar-icon--active tmuxgo-focus-ring"
+                        >
+                          <FiStar aria-hidden="true" size={14} fill="currentColor" />
+                        </button>
+                      )}
+                    </>
                   )}
                   <Button
                     variant="ghost"
@@ -2722,17 +2754,60 @@ export function FilePanel({
                   >
                     ×
                   </Button>
-                </>
+                </div>
+              }
+            />
+            {/* 根切换 + 面包屑共用一行：根本身就是第一段路径，拆成两行会白吃一行树高 */}
+            <div className="flex items-center gap-1 px-3 pb-2">
+              <div className="w-[7.5rem] max-w-[52%] shrink-0">
+                <Select
+                  value={selectedRootId}
+                  onChange={(v) => {
+                    setFollowSuspended(true)
+                    switchRoot(v)
+                  }}
+                  options={rootOptions.map((item) => ({ value: item.id, label: item.label }))}
+                  title={activeSourceRootPath}
+                  className="tmuxgo-control tmuxgo-input h-7 w-full rounded-apple px-2 text-xs"
+                />
+              </div>
+              {!showSearchResults && (parentDirectory || currentPath || activeFavorite) && (
+                <div
+                  ref={bindHorizontalWheelScroll}
+                  className="flex min-w-0 flex-1 items-center overflow-x-auto text-caption text-text-3"
+                >
+                  {parentDirectory && (
+                    <button
+                      type="button"
+                      onClick={goParentDirectory}
+                      title={`${t('file.upToParent')}\n${parentDirectory.label || '/'}`}
+                      aria-label={t('file.upToParent')}
+                      className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm tmuxgo-focus-ring"
+                    >
+                      <FiChevronLeft aria-hidden="true" size={13} />
+                    </button>
+                  )}
+                  {getBreadcrumbs(currentPath)
+                    .slice(1)
+                    .map((crumb, index, rest) => {
+                      const last = index === rest.length - 1
+                      return (
+                        <button
+                          key={crumb.path}
+                          type="button"
+                          onClick={() => goDirectoryPath(crumb.path)}
+                          title={crumb.path}
+                          aria-current={last ? 'location' : undefined}
+                          className={`flex min-w-0 items-center gap-0.5 rounded-apple px-0.5 hover:text-text-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--focus-ring)] ${last ? 'text-text-1' : ''}`}
+                        >
+                          <span className="max-w-[18ch] truncate">{crumb.name}</span>
+                          {!last && <FiChevronRight aria-hidden="true" className="shrink-0" size={11} />}
+                        </button>
+                      )
+                    })}
+                </div>
               )}
             </div>
-            {isPicker && (
-              <div
-                className="mt-1 truncate font-mono text-caption text-text-3"
-                title={joinPath(activeSourceRootPath, joinRelativePath(activeRootBasePath, currentPath))}
-              >
-                {joinPath(activeSourceRootPath, joinRelativePath(activeRootBasePath, currentPath)) || '/'}
-              </div>
-            )}
           </div>
           {(!isMobile || mobileView === 'list') && (
             <div className="shrink-0 border-b border-[var(--line)] px-2 py-2">
@@ -2770,7 +2845,7 @@ export function FilePanel({
                     }}
                     disabled={!query}
                     aria-label={t('file.clearSearch')}
-                    className={`tmuxgo-toolbar-icon absolute right-0.5 top-1/2 h-6 w-6 -translate-y-1/2 ${query ? '' : 'opacity-40'}`}
+                    className="tmuxgo-toolbar-icon tmuxgo-focus-ring absolute right-0.5 top-1/2 h-6 w-6 -translate-y-1/2"
                   >
                     ×
                   </button>
@@ -2823,7 +2898,7 @@ export function FilePanel({
                       onClick={() => void createEntry('file', currentPath)}
                       title={t('file.newFile')}
                       aria-label={t('file.newFile')}
-                      className="tmuxgo-toolbar-icon h-7 w-7 shrink-0"
+                      className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm tmuxgo-focus-ring"
                     >
                       <FiFilePlus size={14} />
                     </button>
@@ -2831,7 +2906,7 @@ export function FilePanel({
                       onClick={() => void createEntry('directory', currentPath)}
                       title={t('file.newFolder')}
                       aria-label={t('file.newFolder')}
-                      className="tmuxgo-toolbar-icon h-7 w-7 shrink-0"
+                      className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm tmuxgo-focus-ring"
                     >
                       <FiFolderPlus size={14} />
                     </button>
@@ -2839,7 +2914,7 @@ export function FilePanel({
                       onClick={refreshFiles}
                       title={`${t('file.refresh')} (F5)`}
                       aria-label={t('file.refresh')}
-                      className="tmuxgo-toolbar-icon h-7 w-7 shrink-0"
+                      className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm tmuxgo-focus-ring"
                     >
                       <FiRefreshCw size={14} />
                     </button>
@@ -2850,7 +2925,7 @@ export function FilePanel({
                       title={`${t('file.sort')}: ${fileSort.field === 'name' ? t('file.sortName') : fileSort.field === 'size' ? t('file.sortSize') : t('file.sortModified')} · ${fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')}`}
                       aria-label={t('file.sort')}
                       aria-haspopup="menu"
-                      className="tmuxgo-toolbar-icon h-7 w-7 shrink-0"
+                      className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm tmuxgo-focus-ring"
                     >
                       {fileSort.direction === 'asc' ? '↑' : '↓'}
                     </button>
@@ -2859,7 +2934,7 @@ export function FilePanel({
                       title={hideDotFiles ? t('file.showDotfiles') : t('file.hideDotfiles')}
                       aria-label={hideDotFiles ? t('file.showDotfiles') : t('file.hideDotfiles')}
                       aria-pressed={!hideDotFiles}
-                      className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 ${hideDotFiles ? '' : 'tmuxgo-toolbar-icon--active'}`}
+                      className={`tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm tmuxgo-focus-ring ${hideDotFiles ? '' : 'tmuxgo-toolbar-icon--active'}`}
                     >
                       {hideDotFiles ? <FiEyeOff size={14} /> : <FiEye size={14} />}
                     </button>
@@ -2868,7 +2943,7 @@ export function FilePanel({
                       disabled={!openDirectories.size && !directoryCache.size}
                       title={t('file.clearExpanded')}
                       aria-label={t('file.clearExpanded')}
-                      className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 ${openDirectories.size || directoryCache.size ? '' : 'opacity-40'}`}
+                      className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm tmuxgo-focus-ring"
                     >
                       <FiChevronsUp size={14} />
                     </button>
@@ -2955,26 +3030,6 @@ export function FilePanel({
                   </div>
                 </div>
               )}
-              {!showSearchResults && parentDirectory && (
-                <div className="shrink-0 border-b border-[var(--line)] px-3 py-1.5">
-                  <button
-                    type="button"
-                    onClick={goParentDirectory}
-                    title={`${t('file.upToParent')}\n${parentDirectory.label || '/'}`}
-                    aria-label={t('file.upToParent')}
-                    className="tmuxgo-list-row tmuxgo-list-row--hover flex h-7 w-full items-center gap-1.5 rounded-lg px-2 text-left text-meta text-text-2 hover:text-text-1"
-                  >
-                    <FiArrowUp size={11} className="shrink-0 text-text-3" aria-hidden="true" />
-                    <span className="shrink-0 font-mono text-text-1">..</span>
-                    <span
-                      className="min-w-0 flex-1 truncate text-right font-mono text-caption text-text-3"
-                      style={{ direction: 'rtl' }}
-                    >
-                      {parentDirectory.label || '/'}
-                    </span>
-                  </button>
-                </div>
-              )}
               {(listLoading || searchLoading) && <div className="p-3 text-xs text-text-3">{t('file.loading')}</div>}
               {!isMobile && !isPicker && !showSearchResults && !listLoading && (
                 <VirtualizedRows
@@ -2999,26 +3054,26 @@ export function FilePanel({
                 />
               )}
               {!listLoading && !searchLoading && !visibleItems.length && (
-                <div className="flex items-center gap-2 p-3 text-xs text-text-3">
-                  <span>
-                    {hostOffline
+                // 真空/无匹配/加载失败/主机离线四种语义各有文案；失败额外给重试，不伪装成空目录
+                <EmptyState
+                  icon={<FiFolder aria-hidden="true" size={20} />}
+                  title={
+                    hostOffline
                       ? t('file.hostOffline')
                       : showSearchResults
                         ? t('file.noResults')
                         : listError
                           ? t('file.loadFailed')
-                          : t('file.emptyDir')}
-                  </span>
-                  {listError && !hostOffline && (
-                    <button
-                      type="button"
-                      onClick={() => void refetchList()}
-                      className="shrink-0 text-accent hover:underline"
-                    >
-                      {t('common.retry')}
-                    </button>
-                  )}
-                </div>
+                          : t('file.emptyDir')
+                  }
+                  action={
+                    listError && !hostOffline ? (
+                      <Button variant="ghost" size="sm" onClick={() => void refetchList()}>
+                        {t('common.retry')}
+                      </Button>
+                    ) : undefined
+                  }
+                />
               )}
               {!listLoading && !showSearchResults && listData?.truncated && (
                 <div className="border-t border-[var(--line)] px-3 py-2">

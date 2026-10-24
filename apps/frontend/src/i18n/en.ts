@@ -863,6 +863,7 @@ export const en = {
   'file.removeFavorite': 'Unfavorite',
   'file.clearExpanded': 'Collapse all',
   'file.upToParent': 'Go to parent directory',
+  'file.symlink': 'Symbolic link',
   'file.clearSearch': 'Clear search',
   'editor.dropOpen': 'DROP TO OPEN',
   'editor.emptyArea': 'No open files — drag one in or double-click in Files',

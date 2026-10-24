@@ -1,6 +1,6 @@
 import os from 'os'
 import path from 'path'
-import { cp, mkdir, opendir, realpath, rename, rm, stat } from 'fs/promises'
+import { cp, lstat, mkdir, opendir, realpath, rename, rm, stat } from 'fs/promises'
 import { isPathInside, normalizeRelativePath } from '../file-path.js'
 import { runRemoteFilePython } from '../remote-file-command.js'
 import {
@@ -77,7 +77,8 @@ def is_binary(data):
  return b'\\0' in data
 def file_item(root_path, abs_path, name):
  st=os.stat(abs_path)
- return {'name':name,'path':norm_rel(os.path.relpath(abs_path,root_path)),'type':'directory' if stat.S_ISDIR(st.st_mode) else 'file','size':st.st_size,'modifiedAt':iso(st.st_mtime),'mode':st.st_mode & 0o7777}
+ # stat 跟随符号链接（链接目录要能点开），islink 另取：UI 上要标出「这是链接」
+ return {'name':name,'path':norm_rel(os.path.relpath(abs_path,root_path)),'type':'directory' if stat.S_ISDIR(st.st_mode) else 'file','size':st.st_size,'modifiedAt':iso(st.st_mtime),'mode':st.st_mode & 0o7777,'link':os.path.islink(abs_path)}
 def breadcrumbs(rel):
  parts=[p for p in rel.split('/') if p]
  out=[{'name':'/','path':''}]
@@ -367,6 +368,11 @@ export function toRelative(rootPath: string, absolutePath: string) {
 }
 export async function toFileItem(rootPath: string, absolutePath: string, name: string): Promise<FileItem> {
   const info = await stat(absolutePath)
+  // stat 跟随链接（链接目录要能进），islink 单独取一次，只用于 UI 标记
+  const link = await lstat(absolutePath).then(
+    (entry) => entry.isSymbolicLink(),
+    () => false,
+  )
   return {
     name,
     path: toRelative(rootPath, absolutePath),
@@ -374,6 +380,7 @@ export async function toFileItem(rootPath: string, absolutePath: string, name: s
     size: info.size,
     modifiedAt: info.mtime.toISOString(),
     mode: info.mode & 0o7777,
+    link,
   }
 }
 export async function fileExists(absolutePath: string) {

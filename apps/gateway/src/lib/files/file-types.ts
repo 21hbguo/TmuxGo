@@ -78,6 +78,8 @@ export interface FileItem {
   size: number
   modifiedAt: string
   mode?: number
+  /** 目录项本身是符号链接（type/size 仍按链接目标给出）：只用于 UI 标记，不改变跟随语义 */
+  link?: boolean
 }
 export interface SearchMatchLine {
   number: number
