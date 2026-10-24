@@ -84,8 +84,15 @@ export function appendAuditEvent(event: AuditEvent): Promise<void> {
   )
 }
 // 测试缝：等所有在飞审计落盘。生产侧不需要它——写入失败/延迟不该阻塞请求。
-export async function flushAuditWrites() {
-  while (inFlightAuditWrites.size > 0) await Promise.allSettled([...inFlightAuditWrites])
+// 返回本次确实等过的写入条数，让调用方能区分「刚等到落盘」与「压根没在写」：
+// 慢盘只该让等待变长，不该被当成用例超时。
+export async function flushAuditWrites(): Promise<number> {
+  let waited = 0
+  while (inFlightAuditWrites.size > 0) {
+    waited += inFlightAuditWrites.size
+    await Promise.allSettled([...inFlightAuditWrites])
+  }
+  return waited
 }
 export async function recordAuditRequest(request: FastifyRequest, reply: FastifyReply) {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return
