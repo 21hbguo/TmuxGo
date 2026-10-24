@@ -5,6 +5,7 @@ import test from 'node:test'
 import Fastify from 'fastify'
 import websocket from '@fastify/websocket'
 import { WebSocket } from 'ws'
+import { execFileSync } from 'node:child_process'
 
 // 免 ticket 路径：先置空密码再加载路由
 process.env.TMUXGO_AUTH_PASSWORD = ''
@@ -15,6 +16,27 @@ const { browserManager, resolveBrowserBinary } = await import('../lib/browser-ma
 
 const hasBrowser = !!resolveBrowserBinary()
 
+// 二进制存在 ≠ 能起：CI 镜像里 playwright 的 headless-shell 常常在，但缺 libnss3/libgbm
+// 这类共享库、或以 root 跑被 sandbox 拒。这类失败跟业务代码无关，skip 并打出原因；
+// 其它错误照旧 fail，不掩盖真 bug。
+const UNUSABLE_BROWSER =
+  /error while loading shared libraries|shared object file|cannot open shared|No usable sandbox|Failed to launch|Missing X server|libnss3|libgbm|libatk/i
+
+function browserLaunchBlocker(): string | null {
+  const bin = resolveBrowserBinary()
+  if (!bin) return 'no chromium binary found'
+  try {
+    execFileSync(bin.bin, ['--version'], { stdio: 'ignore', timeout: 5_000 })
+    return null
+  } catch (error) {
+    const detail = error instanceof Error ? error.message.split('\n')[0] : String(error)
+    return `browser binary present but not runnable: ${detail}`
+  }
+}
+
+// 模块加载时探一次：--version 能跑才认为环境可用（比等 launch 15s 超时快得多）
+const launchBlocker = browserLaunchBlocker()
+
 async function setup() {
   const app = Fastify()
   await app.register(websocket)
@@ -24,6 +46,18 @@ async function setup() {
   const port = typeof address === 'object' && address ? address.port : 0
   return { app, port }
 }
+
+// 分类器只对「环境起不来」放行：真实业务错误必须继续 fail，不能借 skip 掩盖
+test('browser launch failure classification only skips environment failures', () => {
+  for (const env of [
+    'error while loading shared libraries: libnss3.so',
+    'No usable sandbox! Update your kernel or see the docs',
+    'Failed to launch browser: Missing X server',
+  ])
+    assert.equal(UNUSABLE_BROWSER.test(env), true, `应判为环境问题: ${env}`)
+  for (const real of ['net::ERR_CONNECTION_REFUSED', 'CDP socket closed', 'NO_BROWSER_BINARY'])
+    assert.equal(UNUSABLE_BROWSER.test(real), false, `不应判为环境问题: ${real}`)
+})
 
 test('browser setup endpoint reports binary probe result', async (t) => {
   const { app, port } = await setup()
@@ -96,14 +130,20 @@ test(
   'browser full loop: launch → WS frames → navigate → snapshot → click',
   { timeout: 45000, skip: slowSkip },
   async (t) => {
-    if (!hasBrowser) return t.skip('no chromium binary found')
+    if (launchBlocker) return t.skip(launchBlocker)
     const { app, port } = await setup()
     t.after(async () => {
       await browserManager.get('local')!.stop()
       await app.close()
     })
     const launch = await fetch(`http://127.0.0.1:${port}/api/browser/launch`, { method: 'POST' })
-    assert.equal(launch.status, 200)
+    if (launch.status !== 200) {
+      // 兜底：--version 能跑但真 launch 仍失败（sandbox/CDP 等只在实际启动时暴露）
+      const body = (await launch.json().catch(() => ({}))) as Record<string, unknown>
+      const reason = typeof body.error === 'string' ? body.error : `HTTP ${launch.status}`
+      if (UNUSABLE_BROWSER.test(reason)) return t.skip(`browser present but launch failed: ${reason}`)
+      assert.equal(launch.status, 200, `launch failed: ${reason}`)
+    }
     const status = await launch.json()
     assert.equal(status.state, 'ready')
     assert.ok(status.pages.length >= 1)
