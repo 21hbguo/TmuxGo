@@ -270,6 +270,9 @@ export const zh = {
   'settings.performanceDepOk': '可用',
   'settings.performanceDepMissing': '缺失',
   'settings.performanceDepWarn': '缺失依赖：{list}',
+  // 远端缺 python 时 gateway 只回 shell fallback（0/空），这些数字不是读数：显式降级
+  'settings.performanceUnavailable': '不可用',
+  'settings.performanceUnavailableHint': '远端缺 python3，装好后即可恢复采集',
   'settings.connection': '连接',
   'settings.reconnect': '重连',
   'settings.sessionContinuity': '会话持续化',

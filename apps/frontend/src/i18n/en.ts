@@ -273,6 +273,9 @@ export const en = {
   'settings.performanceDepOk': 'OK',
   'settings.performanceDepMissing': 'Missing',
   'settings.performanceDepWarn': 'Missing: {list}',
+  // 远端缺 python 时 gateway 只回 shell fallback（0/空），这些数字不是读数：显式降级
+  'settings.performanceUnavailable': 'Unavailable',
+  'settings.performanceUnavailableHint': 'Remote host has no python3 — install it to collect these metrics',
   'settings.connection': 'Connection',
   'settings.reconnect': 'Reconnect',
   'settings.sessionContinuity': 'Session Continuity',

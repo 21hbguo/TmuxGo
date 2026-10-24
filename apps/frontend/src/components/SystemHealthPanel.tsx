@@ -182,6 +182,15 @@ function MetricCard({
     </div>
   )
 }
+/**
+ * 远端缺 python 时 gateway 只能回 shell fallback：cpu 0 / mem 0/0 / disks 空。
+ * 这些 0 不是读数而是「采集不到」，仪表区必须显式降级，不能当正常数字渲染。
+ * local 的 dependencies.python 只是「本机有没有装」，与采集无关，不参与判定。
+ */
+export function remoteMetricsUnavailable(info: SystemInfo | null | undefined) {
+  if (!info || info.hostId === 'local') return false
+  return info.dependencies?.python === false
+}
 function StatRow({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="flex items-center justify-between gap-3 py-1.5 text-sm">
@@ -263,6 +272,7 @@ export function SystemHealthPanel() {
         .map(([name]) => name)
     : []
   const disks = info ? [...(info.disks || [])].sort((a, b) => b.used - a.used) : []
+  const metricsUnavailable = remoteMetricsUnavailable(info)
   const cpuTone = info ? pctTone(info.cpu) : 'neutral'
   const memTone = info ? resourceTone(info.mem.used, info.mem.total) : 'neutral'
   const gpuTone = info?.gpu ? resourceTone(info.gpu.used, info.gpu.total) : 'neutral'
@@ -315,46 +325,65 @@ export function SystemHealthPanel() {
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <div className="text-caption uppercase tracking-[0.12em] text-text-3">CPU</div>
-                    <div className={`mt-1 font-mono text-lg font-semibold tabular-nums ${toneText[cpuTone]}`}>
-                      {info.cpu}%
-                    </div>
+                    {metricsUnavailable ? (
+                      <div className="mt-1 text-sm font-medium text-text-3">{t('settings.performanceUnavailable')}</div>
+                    ) : (
+                      <div className={`mt-1 font-mono text-lg font-semibold tabular-nums ${toneText[cpuTone]}`}>
+                        {info.cpu}%
+                      </div>
+                    )}
+                    {metricsUnavailable && (
+                      <div className="mt-1 text-caption text-text-3">{t('settings.performanceUnavailableHint')}</div>
+                    )}
                   </div>
-                  <Sparkline
-                    values={series((sample) => sample.cpu)}
-                    stroke={
-                      cpuTone === 'danger'
-                        ? 'rgb(var(--danger))'
-                        : cpuTone === 'warn'
-                          ? 'rgb(var(--warn))'
-                          : 'rgb(var(--accent))'
-                    }
-                  />
+                  {!metricsUnavailable && (
+                    <Sparkline
+                      values={series((sample) => sample.cpu)}
+                      stroke={
+                        cpuTone === 'danger'
+                          ? 'rgb(var(--danger))'
+                          : cpuTone === 'warn'
+                            ? 'rgb(var(--warn))'
+                            : 'rgb(var(--accent))'
+                      }
+                    />
+                  )}
                 </div>
-                <ProgressBar ratio={info.cpu / 100} tone={cpuTone} />
+                {!metricsUnavailable && <ProgressBar ratio={info.cpu / 100} tone={cpuTone} />}
               </div>
               <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <div className="text-caption uppercase tracking-[0.12em] text-text-3">MEM</div>
-                    <div className={`mt-1 font-mono text-lg font-semibold tabular-nums ${toneText[memTone]}`}>
-                      {gb(info.mem.used)}/{gb(info.mem.total)}G
-                    </div>
-                    <div className="mt-1 text-caption text-text-3">
-                      {info.mem.total > 0 ? `${Math.round((info.mem.used / info.mem.total) * 100)}%` : '—'}
-                    </div>
+                    {metricsUnavailable ? (
+                      <div className="mt-1 text-sm font-medium text-text-3">{t('settings.performanceUnavailable')}</div>
+                    ) : (
+                      <>
+                        <div className={`mt-1 font-mono text-lg font-semibold tabular-nums ${toneText[memTone]}`}>
+                          {gb(info.mem.used)}/{gb(info.mem.total)}G
+                        </div>
+                        <div className="mt-1 text-caption text-text-3">
+                          {info.mem.total > 0 ? `${Math.round((info.mem.used / info.mem.total) * 100)}%` : '—'}
+                        </div>
+                      </>
+                    )}
                   </div>
-                  <Sparkline
-                    values={series((sample) => sample.memPct)}
-                    stroke={
-                      memTone === 'danger'
-                        ? 'rgb(var(--danger))'
-                        : memTone === 'warn'
-                          ? 'rgb(var(--warn))'
-                          : 'rgb(var(--accent))'
-                    }
-                  />
+                  {!metricsUnavailable && (
+                    <Sparkline
+                      values={series((sample) => sample.memPct)}
+                      stroke={
+                        memTone === 'danger'
+                          ? 'rgb(var(--danger))'
+                          : memTone === 'warn'
+                            ? 'rgb(var(--warn))'
+                            : 'rgb(var(--accent))'
+                      }
+                    />
+                  )}
                 </div>
-                <ProgressBar ratio={info.mem.total > 0 ? info.mem.used / info.mem.total : 0} tone={memTone} />
+                {!metricsUnavailable && (
+                  <ProgressBar ratio={info.mem.total > 0 ? info.mem.used / info.mem.total : 0} tone={memTone} />
+                )}
               </div>
               {info.gpu && (
                 <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-3">
@@ -424,46 +453,64 @@ export function SystemHealthPanel() {
               />
               <MetricCard
                 title={t('settings.performanceNetSent')}
-                value={fmtRate(history[history.length - 1]?.netSentRate || 0)}
-                series={series((sample) => sample.netSentRate)}
-                sub={`${t('settings.performanceNetDay')}: ${fmtBytes(info?.net?.daySentBytes || 0)} · ${t('settings.performanceNet24h')}: ${fmtBytes(info?.net?.last24hSentBytes || 0)}`}
+                value={
+                  metricsUnavailable ? t('settings.performanceUnavailable') : fmtRate(history.at(-1)?.netSentRate || 0)
+                }
+                series={metricsUnavailable ? undefined : series((sample) => sample.netSentRate)}
+                sub={
+                  metricsUnavailable
+                    ? t('settings.performanceUnavailableHint')
+                    : `${t('settings.performanceNetDay')}: ${fmtBytes(info?.net?.daySentBytes || 0)} · ${t('settings.performanceNet24h')}: ${fmtBytes(info?.net?.last24hSentBytes || 0)}`
+                }
               />
               <MetricCard
                 title={t('settings.performanceNetRecv')}
-                value={fmtRate(history[history.length - 1]?.netRecvRate || 0)}
-                series={series((sample) => sample.netRecvRate)}
-                sub={`${t('settings.performanceNetDay')}: ${fmtBytes(info?.net?.dayRecvBytes || 0)} · ${t('settings.performanceNet24h')}: ${fmtBytes(info?.net?.last24hRecvBytes || 0)}`}
+                value={
+                  metricsUnavailable ? t('settings.performanceUnavailable') : fmtRate(history.at(-1)?.netRecvRate || 0)
+                }
+                series={metricsUnavailable ? undefined : series((sample) => sample.netRecvRate)}
+                sub={
+                  metricsUnavailable
+                    ? t('settings.performanceUnavailableHint')
+                    : `${t('settings.performanceNetDay')}: ${fmtBytes(info?.net?.dayRecvBytes || 0)} · ${t('settings.performanceNet24h')}: ${fmtBytes(info?.net?.last24hRecvBytes || 0)}`
+                }
               />
               <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-3 sm:col-span-2">
                 <div className="text-caption uppercase tracking-[0.12em] text-text-3">
                   {t('settings.performanceNetWindow')}
                 </div>
-                <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div>
-                    <div className="text-caption text-text-3">{t('settings.performanceNetDay')}</div>
-                    <div className="mt-1 font-mono text-sm tabular-nums text-text-1">
-                      {t('settings.performanceNetSent')} {fmtBytes(info?.net?.daySentBytes || 0)}
+                {metricsUnavailable ? (
+                  <div className="mt-2 text-sm text-text-3">{t('settings.performanceUnavailableHint')}</div>
+                ) : (
+                  <>
+                    <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <div className="text-caption text-text-3">{t('settings.performanceNetDay')}</div>
+                        <div className="mt-1 font-mono text-sm tabular-nums text-text-1">
+                          {t('settings.performanceNetSent')} {fmtBytes(info?.net?.daySentBytes || 0)}
+                        </div>
+                        <div className="mt-0.5 font-mono text-sm tabular-nums text-text-1">
+                          {t('settings.performanceNetRecv')} {fmtBytes(info?.net?.dayRecvBytes || 0)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-caption text-text-3">{t('settings.performanceNet24h')}</div>
+                        <div className="mt-1 font-mono text-sm tabular-nums text-text-1">
+                          {t('settings.performanceNetSent')} {fmtBytes(info?.net?.last24hSentBytes || 0)}
+                        </div>
+                        <div className="mt-0.5 font-mono text-sm tabular-nums text-text-1">
+                          {t('settings.performanceNetRecv')} {fmtBytes(info?.net?.last24hRecvBytes || 0)}
+                        </div>
+                      </div>
                     </div>
-                    <div className="mt-0.5 font-mono text-sm tabular-nums text-text-1">
-                      {t('settings.performanceNetRecv')} {fmtBytes(info?.net?.dayRecvBytes || 0)}
+                    <div className="mt-2 text-caption text-text-3">
+                      {t('settings.performanceNetSince', { hours: fmtTrackedHours(info?.net?.trackedMs || 0) })} ·{' '}
+                      {t('settings.performanceTotal')} {t('settings.performanceNetSent')}{' '}
+                      {fmtBytes(info?.net?.sentBytes || 0)} / {t('settings.performanceNetRecv')}{' '}
+                      {fmtBytes(info?.net?.recvBytes || 0)}
                     </div>
-                  </div>
-                  <div>
-                    <div className="text-caption text-text-3">{t('settings.performanceNet24h')}</div>
-                    <div className="mt-1 font-mono text-sm tabular-nums text-text-1">
-                      {t('settings.performanceNetSent')} {fmtBytes(info?.net?.last24hSentBytes || 0)}
-                    </div>
-                    <div className="mt-0.5 font-mono text-sm tabular-nums text-text-1">
-                      {t('settings.performanceNetRecv')} {fmtBytes(info?.net?.last24hRecvBytes || 0)}
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-2 text-caption text-text-3">
-                  {t('settings.performanceNetSince', { hours: fmtTrackedHours(info?.net?.trackedMs || 0) })} ·{' '}
-                  {t('settings.performanceTotal')} {t('settings.performanceNetSent')}{' '}
-                  {fmtBytes(info?.net?.sentBytes || 0)} / {t('settings.performanceNetRecv')}{' '}
-                  {fmtBytes(info?.net?.recvBytes || 0)}
-                </div>
+                  </>
+                )}
               </div>
               <MetricCard
                 title={t('settings.performanceSocketBuffer')}
@@ -529,6 +576,10 @@ export function SystemHealthPanel() {
             {missingDependencies.length > 0 && (
               <div className="mt-2 text-caption text-warn">
                 {t('settings.performanceDepWarn', { list: missingDependencies.join(', ') })}
+                {/* 红标保留：缺 python 直接决定了上面仪表区能不能出数，这里顺带给出恢复方式 */}
+                {metricsUnavailable && (
+                  <span className="ml-1 text-text-3">{t('settings.performanceUnavailableHint')}</span>
+                )}
               </div>
             )}
           </div>
