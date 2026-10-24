@@ -24,21 +24,43 @@ async function writeMarker(page: Page, marker: string) {
     { timeout: 15000 },
   )
 }
+// 桌面端默认 WebGL 渲染器：行画在 canvas 里，DOM 没有 .xterm-rows，文本只能从 xterm
+// buffer 读；渲染面尺寸取 .xterm-screen（DOM 渲染器下仍优先 .xterm-rows）
+async function bufferVisibleText(page: Page) {
+  return page.evaluate(() => {
+    const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
+    const buffer = t?.buffer?.active
+    if (!buffer) return ''
+    const viewport = Math.max(1, Number(t?.rows) || 1)
+    const start = Math.max(0, buffer.length - viewport)
+    const lines: string[] = []
+    for (let i = start; i < buffer.length; i += 1) lines.push(buffer.getLine(i)?.translateToString(true) || '')
+    return lines.join('\n')
+  })
+}
 async function getRenderMetrics(page: Page) {
   return page.evaluate(() => {
     const terminal = document.querySelector('[data-terminal]') as HTMLElement | null
     const xterm = terminal?.querySelector('.xterm') as HTMLElement | null
+    const screen = terminal?.querySelector('.xterm-screen') as HTMLElement | null
     const rows = terminal?.querySelector('.xterm-rows') as HTMLElement | null
     const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
     const termRect = terminal?.getBoundingClientRect()
     const xtermRect = xterm?.getBoundingClientRect()
-    const rowsRect = rows?.getBoundingClientRect()
-    const rowsStyle = rows ? getComputedStyle(rows) : null
+    const surface = rows || screen
+    const rowsRect = surface?.getBoundingClientRect()
+    const rowsStyle = surface ? getComputedStyle(surface) : null
     const events = (
       (window as typeof window & { __tmuxgoMobileDebug?: { events?: MobileDebugEvent[] } }).__tmuxgoMobileDebug
         ?.events || []
     ).filter((item) => item.event === 'terminal-recover' || item.event === 'terminal-soft-recover')
-    const visibleText = rows?.textContent || ''
+    const buffer = t?.buffer?.active
+    const viewportRows = Math.max(1, Number(t?.rows) || 1)
+    const visibleText = buffer
+      ? Array.from({ length: viewportRows }, (_, index) =>
+          buffer.getLine(Math.max(0, buffer.length - viewportRows) + index)?.translateToString(true),
+        ).join('\n')
+      : ''
     return {
       innerWidth: window.innerWidth,
       innerHeight: window.innerHeight,
@@ -124,14 +146,7 @@ test('mobile terminal remains visibly rendered after viewport and dpr switch', a
     { timeout: 15000 },
   )
   await writeMarker(page, after)
-  await page.waitForFunction(
-    (marker) => {
-      const rows = document.querySelector('[data-terminal] .xterm-rows') as HTMLElement | null
-      return !!rows?.textContent?.includes(marker)
-    },
-    after,
-    { timeout: 15000 },
-  )
+  await expect.poll(async () => (await bufferVisibleText(page)).includes(after), { timeout: 15000 }).toBe(true)
   const metrics = await getRenderMetrics(page)
   expect(metrics.cols).toBeGreaterThan(0)
   expect(metrics.rows).toBeGreaterThan(0)
@@ -195,11 +210,7 @@ test('desktop terminal resize settles without repeated resize calls', async ({ b
       [],
   )
   await writeMarker(page, marker)
-  await page.waitForFunction(
-    (value) => document.querySelector('[data-terminal] .xterm-rows')?.textContent?.includes(value),
-    marker,
-    { timeout: 15000 },
-  )
+  await expect.poll(async () => (await bufferVisibleText(page)).includes(marker), { timeout: 15000 }).toBe(true)
   const metrics = await getRenderMetrics(page)
   expect(settledCount).toBeGreaterThan(0)
   expect(finalCalls.length).toBe(settledCount)

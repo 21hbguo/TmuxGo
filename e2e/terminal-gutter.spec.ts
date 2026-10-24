@@ -24,7 +24,9 @@ test('terminal content fills container height', async ({ page, request }) => {
     const viewport = terminal?.querySelector('.xterm-viewport') as HTMLElement | null
     const screen = terminal?.querySelector('.xterm-screen') as HTMLElement | null
     const rows = terminal?.querySelector('.xterm-rows') as HTMLElement | null
-    const lastRow = rows?.lastElementChild
+    // 桌面端 WebGL 渲染器把行画进 canvas，DOM 里没有 .xterm-rows 行：末行位置由
+    // .xterm-screen 底边体现；DOM 渲染器仍走 rows.lastElementChild
+    const lastRow = rows?.lastElementChild || screen
     const canvas = screen?.querySelector('canvas') as HTMLCanvasElement | null
     const rect = (node: Element | null | undefined) =>
       node ? (node as HTMLElement).getBoundingClientRect().toJSON() : null

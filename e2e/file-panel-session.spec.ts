@@ -30,21 +30,27 @@ test('file explorer stays interactive across session switches and file opens', a
   const second = await createSession(request, secondSession)
   try {
     await openSession(page, first)
-    await page.getByRole('button', { name: /^(资源管理|Files)$/ }).click()
-    const rootSelect = page.locator('select').first()
-    const fileSearch = page.getByRole('textbox', { name: /^(搜索文件名|Search file name)$/ })
-    await expect(rootSelect).toBeVisible()
-    await rootSelect.selectOption(homeRoot.id)
-    await fileSearch.fill(dirName)
-    const directory = page.getByRole('button', { name: new RegExp(dirName) }).last()
-    await expect(directory).toBeVisible()
-    await directory.click()
-    await expect(page.getByRole('button', { name: /alpha\.txt/ }).last()).toBeVisible()
-    await expect(page.getByRole('button', { name: /nested/ }).last()).toBeVisible()
     await page
-      .getByRole('button', { name: /alpha\.txt/ })
-      .last()
+      .getByRole('button', { name: /^(资源管理|Files)$/ })
+      .first()
       .click()
+    // 根目录选择器已从原生 <select> 换成自定义 combobox：点击后从弹层里选 option
+    const rootSelect = page.getByRole('combobox').first()
+    await expect(rootSelect).toBeVisible()
+    const pickRoot = async () => {
+      await rootSelect.click()
+      await page.getByRole('option', { name: homeRoot.label, exact: true }).click()
+    }
+    await pickRoot()
+    // 不再用「文件名搜索」当定位手段：过滤只保留命中项，展开目录也看不到不匹配的子项，
+    // 而且过滤与展开状态互相重置。改用 data-row-path 定位（与 editor-navigation 一致）
+    const dirRow = page.locator(`[data-row-path="${dirName}"]`).first()
+    await expect(dirRow).toBeVisible({ timeout: 15000 })
+    const alphaRow = page.locator(`[data-row-path="${dirName}/alpha.txt"]`).first()
+    if ((await alphaRow.count()) === 0) await dirRow.click()
+    await expect(alphaRow).toBeVisible()
+    await expect(page.locator(`[data-row-path="${dirName}/nested"]`).first()).toBeVisible()
+    await alphaRow.click()
     await expect
       .poll(() =>
         page.evaluate(
@@ -63,16 +69,14 @@ test('file explorer stays interactive across session switches and file opens', a
         ),
       )
       .toBe(second.id)
-    await expect(rootSelect).toHaveValue(homeRoot.id)
-    await fileSearch.fill(dirName)
-    await page
-      .getByRole('button', { name: new RegExp(dirName) })
-      .last()
-      .click()
-    const nested = page.getByRole('button', { name: /nested/ }).last()
-    await expect(nested).toBeVisible()
-    await nested.click()
-    await expect(page.getByRole('button', { name: /gamma\.txt/ }).last()).toBeVisible()
+    await expect(rootSelect).toContainText(homeRoot.label)
+    // 切 session 回来：目录展开状态应保留，直接点 nested → gamma.txt
+    const nestedRow = page.locator(`[data-row-path="${dirName}/nested"]`).first()
+    await expect(nestedRow).toBeVisible()
+    const gammaRow = page.locator(`[data-row-path="${dirName}/nested/gamma.txt"]`).first()
+    if ((await gammaRow.count()) === 0) await nestedRow.click()
+    await expect(gammaRow).toBeVisible()
+    await gammaRow.click()
     await page
       .getByRole('button', { name: new RegExp(firstSession) })
       .last()
@@ -84,7 +88,7 @@ test('file explorer stays interactive across session switches and file opens', a
         ),
       )
       .toBe(first.id)
-    await expect(rootSelect).toHaveValue(homeRoot.id)
+    await expect(rootSelect).toContainText(homeRoot.label)
     await expect(page.locator('body')).not.toContainText('客户端异常')
   } finally {
     await rm(tempDir, { recursive: true, force: true })

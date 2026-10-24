@@ -172,10 +172,21 @@ async function waitEditorPosition(page: Page, absPath: string, pos: Pos, timeout
     )
     .toBe(true)
 }
-// 头部 Ln/Col 文案由 cursorById 渲染：等到它说明 React 状态已提交，
-// F12/Alt 快捷键读取的 getNavigationPosition 才不会拿到旧光标
+// 等光标落位提交后再触发快捷键：读 live 实例（getNavigationPosition 的第一优先源），
+// 与导航实际取值同源。这里曾断言头部「Ln x, Col y」文案，但编辑器头部收成单行时
+// 那行 meta 已删（c402f04），DOM 文案不再存在——断言模型状态，别改产品把文案加回来
 async function waitCursorCommitted(page: Page, pos: Pos) {
-  await expect(page.getByText(new RegExp(`Ln ${pos.line}, Col ${pos.column}`)).first()).toBeVisible()
+  await expect
+    .poll(
+      async () => {
+        const state = await editorState(page)
+        return !!state && state.line === pos.line && state.column === pos.column
+      },
+      { timeout: 5000 },
+    )
+    .toBe(true)
+  // 让 React 把 cursorById/预览同步这一拍提交完，避免紧接着的快捷键读到上一帧状态
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve(null))))
 }
 async function setCursor(page: Page, pos: Pos) {
   await page.evaluate((p) => {
@@ -229,6 +240,13 @@ async function openFixtureFile(page: Page, name: string) {
   await expect(dirRow).toBeVisible()
   await dirRow.click()
   const fileRow = panel.locator(`[data-row-path="${fixtureDirName}/${name}"]`).first()
+  // 面板行数超过视口两倍时窗口化渲染（FilePanel shouldVirtualize）：目录里 14 个 fixture
+  // 时末尾行根本不在 DOM。不假设行序，滚到它渲染出来为止（最多 10 次，每次 200px）
+  for (let attempt = 0; attempt < 10 && (await fileRow.count()) === 0; attempt += 1) {
+    await panel.hover()
+    await page.mouse.wheel(0, 200)
+    await page.waitForTimeout(60)
+  }
   await expect(fileRow).toBeVisible()
   await fileRow.click()
   await expect.poll(async () => (await editorState(page))?.path, { timeout: 30000 }).toBe(fileAbs(name))
