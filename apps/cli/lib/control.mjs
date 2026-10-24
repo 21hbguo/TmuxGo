@@ -41,6 +41,7 @@ Usage:
   tmuxgo-ctl agent wait (--pane-id <host:%n> | --session <name> --agent <name>)
                         [--status idle|working|blocked|done|unknown] [--phase <p>]
                         [--last-event <e>] [--host-id <h>] [--timeout-ms 250-600000]
+  tmuxgo-ctl agent explain --pane-id <host:%n>   # 判定链解释：来源/命中规则/fallback 原因
   tmuxgo-ctl push text --text <text> [--title <t>] [--open] [--dedupe-key <k>]
   tmuxgo-ctl push link --url <http(s) URL> [--title <t>] [--open] [--dedupe-key <k>]
   tmuxgo-ctl push file --path <file> [--name <n>] [--mime <m>] [--title <t>] [--open]
@@ -237,6 +238,26 @@ async function main() {
     if (flags.noEnter === true) body.enter = false
     if (flags.allowOccupied === true) body.allowOccupied = true
     finish(await post('/panes/run', body))
+  } else if (group === 'agent' && action === 'explain') {
+    requireEnv('agent explain')
+    if (typeof flags.paneId !== 'string' || !flags.paneId)
+      failUsage('agent explain: --pane-id is required (e.g. local:%0)')
+    const result = await post('/agent/explain', { paneId: flags.paneId })
+    if (result.ok === false) finish(result)
+    // 人类可读摘要只走 stderr：stdout 保持「单行 JSON」契约，脚本可直接 jq
+    const manifest = result.screen && result.screen.manifest
+    const rule = result.screen && result.screen.rule
+    const state = result.state
+    const lines = [
+      `pane     ${result.paneId} (session ${result.sessionName})`,
+      `agent    ${result.agent && result.agent.name ? result.agent.name : 'none'} via ${result.agent ? result.agent.source : '?'}`,
+      `state    ${state ? `${state.agentStatus}/${state.phase} (source ${state.source}, confidence ${state.confidence})` : 'none'}`,
+      `manifest ${manifest ? `${manifest.name} ${manifest.version} [${manifest.source}, ${manifest.ruleCount} rules]` : 'none'}`,
+      `rule     ${rule ? `${rule.id} priority ${rule.priority} → ${rule.state}` : 'none'}`,
+      `fallback ${result.fallback.used ? 'yes' : 'no'}: ${result.fallback.reason}`,
+    ]
+    writeSync(2, lines.join('\n') + '\n')
+    finish(result)
   } else if (group === 'agent' && action === 'wait') {
     requireEnv('agent wait')
     const target = flags.paneId

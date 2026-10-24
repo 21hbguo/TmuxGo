@@ -24,6 +24,7 @@ tmuxgo-ctl panes split --pane-id "local:${TMUX_PANE}" --direction horizontal
 tmuxgo-ctl panes read --pane-id local:%1 --lines 200
 tmuxgo-ctl agent wait --session dev --agent codex --status blocked --timeout-ms 60000
 tmuxgo-ctl panes send-keys local:%1 Escape C-c
+tmuxgo-ctl agent explain --pane-id local:%1   # 判定链解释：stdout 单行 JSON，摘要走 stderr
 ```
 
 ### Split a pane
