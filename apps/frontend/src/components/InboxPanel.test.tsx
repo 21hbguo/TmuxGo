@@ -56,6 +56,7 @@ vi.mock('@/i18n', () => ({
         'inbox.tasksError': 'Failed: {{message}}',
         'inbox.tasksEmpty': 'Nothing here',
         'inbox.empty': 'No messages',
+        'inbox.emptyHint': 'Pushed messages land here',
         'inbox.unreadDot': 'Unread',
         'inbox.markAllRead': 'Mark all read',
         'inbox.markRead': 'Mark read',
@@ -213,6 +214,16 @@ describe('InboxPanel', () => {
     expect(screen.getByText('Needs you')).toBeInTheDocument()
     // 消息列表让位给待办视图，不会同时存在
     expect(screen.queryByText('No messages')).not.toBeInTheDocument()
+  })
+
+  it('renders the unified empty state and header chrome', async () => {
+    render(<InboxPanel mode="mobile" onClose={vi.fn()} />)
+    await act(async () => {})
+    expect(screen.getByText('No messages')).toBeInTheDocument()
+    expect(screen.getByText('Pushed messages land here')).toBeInTheDocument()
+    // 同步状态落在 header 副标题，视图切换是分段控件
+    expect(screen.getByText('Synced')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Messages' })).toHaveAttribute('aria-selected', 'true')
   })
 
   it('keeps the Messages view untouched when the panel opens (default tab)', async () => {

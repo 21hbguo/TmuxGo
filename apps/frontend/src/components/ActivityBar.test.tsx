@@ -27,6 +27,15 @@ const items = (...ids: string[]) => ids.map((id) => ({ id }))
 const renderBar = (client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) =>
   render(React.createElement(QueryClientProvider, { client }, React.createElement(ActivityBar)))
 
+describe('ActivityBar active state', () => {
+  it('exposes the active panel on the icon column', () => {
+    useConsoleStore.setState({ sessionPanelExpanded: true, fleetPanelOpen: false })
+    renderBar()
+    expect(screen.getByRole('button', { name: 'activity.sessions' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'activity.fleet' })).toHaveAttribute('aria-pressed', 'false')
+  })
+})
+
 describe('ActivityBar browser entry', () => {
   beforeEach(() => {
     useConsoleStore.setState({ activeHostId: 'local' })
