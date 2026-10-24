@@ -448,3 +448,63 @@ test('shutdown snapshot summary is warn-level with a reason breakdown', () => {
   const many = describeShutdownSnapshots({ saved: Array.from({ length: 30 }, (_, i) => `local:s${i}`), skipped: [] })
   assert.equal((many?.payload.savedSessions as string[]).length, 10)
 })
+
+test('shutdown capture honours the exclude list as a hard veto', async () => {
+  await withConfigDir(async () => {
+    // 裸名：对所有 host 生效
+    const all: string[] = []
+    const bare = await snapshotSessionsOnShutdown({
+      hostIds: ['local'],
+      exclude: ['prod-secrets'],
+      exec: createFakeTmux({ sessions: ['work', 'prod-secrets'] }).exec,
+      capture: (async (options: { sessionId: string }) => {
+        all.push(options.sessionId)
+        return { id: 'x', panes: [], degraded: [], stats: {}, layout: {}, sessionName: 'work' } as never
+      }) as never,
+    })
+    assert.deepEqual(all, ['session-local-work'])
+    assert.deepEqual(bare.saved, ['local:work'])
+    assert.deepEqual(bare.skipped, ['local:prod-secrets:excluded'])
+
+    // host:name 只挡指定 host，别的 host 上的同名 session 照抓
+    const scoped: string[] = []
+    const byHost = await snapshotSessionsOnShutdown({
+      hostIds: ['local'],
+      exclude: ['devbox:work', 'elsewhere:work'],
+      exec: createFakeTmux({ sessions: ['work', 'ops'] }).exec,
+      capture: (async (options: { sessionId: string }) => {
+        scoped.push(options.sessionId)
+        return { id: 'x', panes: [], degraded: [], stats: {}, layout: {}, sessionName: 'work' } as never
+      }) as never,
+    })
+    assert.deepEqual(scoped, ['session-local-work', 'session-local-ops'])
+    assert.deepEqual(byHost.skipped, [])
+
+    // include 与 exclude 同时存在：exclude 赢
+    const both: string[] = []
+    const combined = await snapshotSessionsOnShutdown({
+      hostIds: ['local'],
+      include: ['work', 'prod-secrets'],
+      exclude: ['prod-secrets'],
+      exec: createFakeTmux({ sessions: ['work', 'prod-secrets', 'other'] }).exec,
+      capture: (async (options: { sessionId: string }) => {
+        both.push(options.sessionId)
+        return { id: 'x', panes: [], degraded: [], stats: {}, layout: {}, sessionName: 'work' } as never
+      }) as never,
+    })
+    assert.deepEqual(both, ['session-local-work'])
+    assert.deepEqual(combined.saved, ['local:work'])
+    assert.deepEqual(combined.skipped, ['local:prod-secrets:excluded', 'local:other:not-in-whitelist'])
+
+    // 空/未配置：行为完全不变
+    const untouched = await snapshotSessionsOnShutdown({
+      hostIds: ['local'],
+      exclude: [],
+      exec: createFakeTmux({ sessions: ['work', 'ops'] }).exec,
+      capture: (async () =>
+        ({ id: 'x', panes: [], degraded: [], stats: {}, layout: {}, sessionName: 'work' }) as never) as never,
+    })
+    assert.deepEqual(untouched.saved, ['local:work', 'local:ops'])
+    assert.deepEqual(untouched.skipped, [])
+  })
+})

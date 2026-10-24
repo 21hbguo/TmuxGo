@@ -230,6 +230,8 @@ const shutdown = createShutdownSequence({
       hostIds: ['local'],
       // 生产机常有关停时不该抓的会话（别人的实验 pane）：白名单留空则维持扫全部
       include: parseNameList(process.env.TMUXGO_SNAPSHOT_SESSIONS),
+      // 负向名单：敏感会话永不拍照（硬否决 include），裸名对所有 host 生效
+      exclude: parseNameList(process.env.TMUXGO_SNAPSHOT_EXCLUDE),
       logWarn: (message) => fastify.log.warn(message),
     }).then((result) => {
       const summary = describeShutdownSnapshots(result)

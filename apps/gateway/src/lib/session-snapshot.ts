@@ -404,6 +404,29 @@ export function describeShutdownSnapshots(result: {
   }
 }
 
+/**
+ * 负向名单拆成「裸名（对所有 host 生效）」与「host 名 → 该 host 的排除集」。
+ * 裸名与 `host:name` 用第一个冒号切：session 名里允许出现冒号（tmux 不禁止），
+ * 所以只有「冒号前那段是已知 host 形态」时才当 host 限定，其余整体当裸名。
+ */
+function parseExcludeList(entries: string[]) {
+  const bare = new Set<string>()
+  const byHost = new Map<string, Set<string>>()
+  for (const entry of entries) {
+    const idx = entry.indexOf(':')
+    if (idx > 0 && idx < entry.length - 1) {
+      const host = entry.slice(0, idx)
+      const name = entry.slice(idx + 1)
+      const set = byHost.get(host) ?? new Set<string>()
+      set.add(name)
+      byHost.set(host, set)
+    } else {
+      bare.add(entry)
+    }
+  }
+  return { bare, byHost }
+}
+
 /** 退出前自动快照：只做本机 host，远端 host 无等价 capture-pane 通道，按单降级跳过并标记 */
 export async function snapshotSessionsOnShutdown(options: {
   hostIds: string[]
@@ -413,6 +436,14 @@ export async function snapshotSessionsOnShutdown(options: {
    * 由组装根从 TMUXGO_SNAPSHOT_SESSIONS 解析后传入，lib 不直接读 env。
    */
   include?: string[]
+  /**
+   * 永不快照的 session（负向名单，硬否决 include）。敏感会话（ssh 到堡垒机、prod 操作、
+   * 含密钥输出）要靠它挡住，光有 include 不够——漏配一个名字就等于把它拍下来。
+   * 条目支持 `host:name`（只挡该 host）与裸 `name`（挡所有 host），均为精确匹配、
+   * 不做 glob：关停路径上要的是可预测，不是模式匹配的威力。
+   * 由组装根从 TMUXGO_SNAPSHOT_EXCLUDE 解析后传入，lib 不直接读 env。
+   */
+  exclude?: string[]
   deadlineMs?: number
   capture?: typeof captureSessionSnapshot
   exec?: TmuxExec
@@ -421,6 +452,7 @@ export async function snapshotSessionsOnShutdown(options: {
   const { hostIds } = options
   const include = options.include?.filter(Boolean) ?? []
   const includeSet = include.length ? new Set(include) : null
+  const { bare: excludeBare, byHost: excludeByHost } = parseExcludeList(options.exclude ?? [])
   const logWarn = options.logWarn || (() => {})
   const capture = options.capture || captureSessionSnapshot
   const exec = options.exec || execTmux
@@ -444,6 +476,11 @@ export async function snapshotSessionsOnShutdown(options: {
       // 白名单外的会话直接记原因跳过，和 remote-host/deadline/error 保持同一套 skipped 语义
       if (includeSet && !includeSet.has(name)) {
         skipped.push(`${hostId}:${name}:not-in-whitelist`)
+        continue
+      }
+      // 负向名单是硬否决：include 通过也照样挡下（安全语义上「别拍」优先于「要拍」）
+      if (excludeBare.has(name) || excludeByHost.get(hostId)?.has(name)) {
+        skipped.push(`${hostId}:${name}:excluded`)
         continue
       }
       if (Date.now() >= deadline) {
