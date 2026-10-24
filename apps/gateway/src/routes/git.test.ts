@@ -800,7 +800,7 @@ test('pull reports a diverged branch instead of throwing when git refuses withou
   assert.equal((await readFile(file(repository, 'remote-only.txt'), 'utf8')).trim(), 'remote')
 })
 
-test('pull keeps unclassified failures as errors when the branch is only behind', async (t) => {
+test('pull reports a dirty worktree as GIT_DIRTY_TREE instead of a bare 500 when the remote would overwrite it', async (t) => {
   const fixture = await createFixture(t)
   const { base, repository } = fixture
   const origin = path.join(base, 'origin.git')
@@ -815,13 +815,97 @@ test('pull keeps unclassified failures as errors when the branch is only behind'
   await writeFile(file(other, 'base.txt'), 'remote side\n')
   await runGit(other, ['commit', '-am', 'remote side'])
   await runGit(other, ['push', 'origin', 'main'])
-  // 只有 behind（ahead=0）+ 本地未提交改动：git 拒绝覆盖，但这既不是冲突也不是分叉。
-  // 分叉判定必须要求 ahead/behind 双非零，否则这类失败会被误归一成"需要选策略"
+  // 只有 behind（ahead=0）+ 本地未提交改动：git 拒绝覆盖，这既不是冲突也不是分叉。
+  // 旧实现直接 500，用户只看到一段 git 原文；现在归成 409 + code，message 仍带原文。
   await writeFile(file(repository, 'base.txt'), 'uncommitted local edit\n')
 
   const pulled = await inject(fixture, 'POST', 'pull', { path: repository })
+  assert.equal(pulled.statusCode, 409)
+  const pullBody = body<{ ok: boolean; conflicts: boolean; code: string; diverged?: boolean; message: string }>(pulled)
+  assert.equal(pullBody.ok, false)
+  assert.equal(pullBody.code, 'GIT_DIRTY_TREE')
+  assert.equal(pullBody.diverged, undefined)
+  assert.notEqual(pullBody.message.trim(), '')
+  // 只做分类，不替用户动工作区
+  assert.equal((await readFile(file(repository, 'base.txt'), 'utf8')).trim(), 'uncommitted local edit')
+})
+
+test('pull reports GIT_NO_UPSTREAM when the branch has no tracking branch', async (t) => {
+  const fixture = await createFixture(t)
+  const { repository } = fixture
+  await runGit(repository, ['checkout', '-b', 'feature'])
+
+  const pulled = await inject(fixture, 'POST', 'pull', { path: repository })
+  assert.equal(pulled.statusCode, 409)
+  const pullBody = body<{ code: string; message: string }>(pulled)
+  assert.equal(pullBody.code, 'GIT_NO_UPSTREAM')
+  assert.notEqual(pullBody.message.trim(), '')
+})
+
+test('pull reports GIT_DETACHED_HEAD when HEAD is detached', async (t) => {
+  const fixture = await createFixture(t)
+  const { repository } = fixture
+  await runGit(repository, ['checkout', '--detach', 'HEAD'])
+
+  const pulled = await inject(fixture, 'POST', 'pull', { path: repository })
+  assert.equal(pulled.statusCode, 409)
+  assert.equal(body<{ code: string }>(pulled).code, 'GIT_DETACHED_HEAD')
+})
+
+test('pull reports GIT_MERGE_IN_PROGRESS instead of offering the strategy dialog', async (t) => {
+  // 冲突已解决但没提交时 branch.ab 也是 +1 -1：按分叉返回会让用户弹窗选策略，选了照样失败
+  const fixture = await createDivergedFixture(t)
+  const { repository } = fixture
+  await runGit(repository, ['config', 'pull.rebase', 'false'])
+  // 先制造一次真正的合并冲突，再把冲突文件"解决"进索引（还没 commit）
+  await writeFile(file(repository, 'a.txt'), 'local a\n')
+  await runGit(repository, ['commit', '-am', 'local a'])
+  const other = path.join(fixture.base, 'other')
+  await writeFile(file(other, 'a.txt'), 'remote a\n')
+  await runGit(other, ['commit', '-am', 'remote a'])
+  await runGit(other, ['push', 'origin', 'main'])
+  await runGit(repository, ['fetch', 'origin'])
+  await runGitFailure(repository, ['merge', 'origin/main'])
+  await writeFile(file(repository, 'a.txt'), 'resolved a\n')
+  await runGit(repository, ['add', 'a.txt'])
+
+  const pulled = await inject(fixture, 'POST', 'pull', { path: repository })
+  assert.equal(pulled.statusCode, 409)
+  const pullBody = body<{ code: string; diverged?: boolean; conflicts: boolean }>(pulled)
+  assert.equal(pullBody.code, 'GIT_MERGE_IN_PROGRESS')
+  assert.equal(pullBody.diverged, undefined)
+  assert.equal(pullBody.conflicts, false)
+})
+
+test('pull reports GIT_REBASE_IN_PROGRESS when a rebase is mid-flight without conflicts left', async (t) => {
+  const fixture = await createDivergedFixture(t)
+  const { repository, base } = fixture
+  // 让两边改同一个文件，rebase 必然停在冲突处
+  await writeFile(file(repository, 'a.txt'), 'local a\n')
+  await runGit(repository, ['commit', '-am', 'local a'])
+  const other = path.join(base, 'other')
+  await writeFile(file(other, 'a.txt'), 'remote a\n')
+  await runGit(other, ['commit', '-am', 'remote a'])
+  await runGit(other, ['push', 'origin', 'main'])
+  await runGit(repository, ['fetch', 'origin'])
+  await runGitFailure(repository, ['rebase', 'origin/main'])
+  // 冲突解决到索引但没 --continue：REBASE_HEAD 在，未合并路径没了
+  await writeFile(file(repository, 'a.txt'), 'resolved a\n')
+  await runGit(repository, ['add', 'a.txt'])
+
+  const pulled = await inject(fixture, 'POST', 'pull', { path: repository })
+  assert.equal(pulled.statusCode, 409)
+  assert.equal(body<{ code: string }>(pulled).code, 'GIT_REBASE_IN_PROGRESS')
+  await runGitFailure(repository, ['rebase', '--abort'])
+})
+
+test('pull keeps genuine failures as 500 (unknown remote is not a user-fixable state)', async (t) => {
+  const fixture = await createFixture(t)
+  const { repository } = fixture
+  await runGit(repository, ['remote', 'add', 'origin', path.join(fixture.base, 'missing.git')])
+
+  const pulled = await inject(fixture, 'POST', 'pull', { path: repository, remote: 'origin' })
   assert.equal(pulled.statusCode, 500)
-  assert.doesNotMatch(JSON.stringify(pulled.json()), /diverged/)
 })
 
 test('pull merges a diverged branch when the user picks merge, overriding pull.rebase', async (t) => {
