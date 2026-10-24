@@ -1233,6 +1233,8 @@ export class StreamSession {
       })
       return
     }
+    // 客户端 attach 到该 host 的终端：让 agentMonitor 立刻扫一轮，别等空扫退避档到期
+    agentMonitor.noteHostActivity(hostId)
     const created = await createTerminalAttachment({ hostId, sessionName, cols, rows, exclusive })
     this.ptyProcess = created
     this.sharedHub = null

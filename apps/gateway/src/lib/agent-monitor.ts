@@ -420,8 +420,26 @@ export class AgentMonitor {
     await this.pollHost(hostId)
   }
 
+  /**
+   * 外部动作（终端 attach、agent 协议事件进站）本身就是「这个 host 上可能刚起了 agent」的信号：
+   * 立刻清掉空扫退避档位并排一轮扫描，别让用户等满 120s 的降频档。
+   * 只重置档位，不假设能扫到——agent 还没起来就还是空，从第 0 轮重新计。
+   * 未跟踪的 host 直接忽略：refreshHosts 发现新 host 时本来就会立刻扫。
+   */
+  noteHostActivity(hostId: string) {
+    const state = this.hosts.get(hostId)
+    if (!state || !this.running) return
+    state.emptyScans = 0
+    this.armHostTimer(hostId, state)
+    // 已在扫时 pollHost 自己会跳过，不用在外面判 state.scanning
+    void this.pollHost(hostId)
+  }
+
   ingestProtocolEvent(event: AgentProtocolEvent) {
     if (!event.hostId || !event.eventId) return null
+    // 事件能进来说明该 host 上确实有 agent 在跑：若上次扫描还是空集（退避档位已抬高），
+    // 这次进站就是最便宜的唤醒信号。没有退避时不必多说一句（忙 host 每拍都在扫）
+    if ((this.hosts.get(event.hostId)?.emptyScans ?? 0) > 0) this.noteHostActivity(event.hostId)
     const state = this.hosts.get(event.hostId)
     if (!state) {
       const pending = this.pendingProtocolEvents.get(event.hostId) || new Map<string, AgentProtocolEvent>()

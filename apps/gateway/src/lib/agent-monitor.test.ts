@@ -752,3 +752,89 @@ test('re-arms the host timer at the backed-off cadence after an empty scan', asy
     ;(globalThis as unknown as { clearInterval: unknown }).clearInterval = realClearInterval
   }
 })
+
+// 唤醒通道：终端 attach / agent 事件进站说明该 host 可能有 agent 刚起来，
+// 不能等 120s 的退避档到期才发现
+test('noteHostActivity clears the empty-scan tier and scans immediately', async () => {
+  let scanCount = 0
+  const monitor = new AgentMonitor({
+    getHostIds: async () => ['edge'],
+    scan: async () => {
+      scanCount += 1
+      return []
+    },
+    intervalMs: 1000,
+  })
+  const unsubscribe = monitor.subscribe(() => {})
+  await monitor.start()
+  await monitor.pollNow('edge')
+  // 两轮空已降到 15s 档，此刻仍在档位上
+  assert.equal(monitor.getPollIntervalMs('edge'), 15_000)
+  const before = scanCount
+  monitor.noteHostActivity('edge')
+  // 立即排扫：不等定时器
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(scanCount, before + 1)
+  // 档位回到满档（这一轮仍扫出空，只说明「重新从第 0 轮计」，不是保证扫到）
+  assert.equal(monitor.getPollIntervalMs('edge'), 1000)
+  unsubscribe()
+  monitor.stop()
+})
+
+test('a protocol event from a backed-off host wakes the scan and re-arms the fast tier', async () => {
+  let scanCount = 0
+  const monitor = new AgentMonitor({
+    getHostIds: async () => ['edge'],
+    scan: async () => {
+      scanCount += 1
+      return []
+    },
+    intervalMs: 1000,
+  })
+  const unsubscribe = monitor.subscribe(() => {})
+  await monitor.start()
+  await monitor.pollNow('edge')
+  assert.equal(monitor.getPollIntervalMs('edge'), 15_000)
+  const before = scanCount
+  monitor.ingestProtocolEvent({
+    hostId: 'edge',
+    eventId: 'event-1',
+    paneId: 'edge:%1',
+    tmuxPaneId: '%1',
+    sessionName: 'dev',
+    agent: 'codex',
+    kind: 'state',
+    state: 'working',
+    timestamp: new Date().toISOString(),
+  } as never)
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  // 唤醒不依赖事件能否匹配到已知 pane
+  assert.equal(scanCount, before + 1)
+  assert.equal(monitor.getPollIntervalMs('edge'), 1000)
+  unsubscribe()
+  monitor.stop()
+})
+
+test('noteHostActivity on an untracked or stopped host is a no-op', async () => {
+  let scanCount = 0
+  const monitor = new AgentMonitor({
+    getHostIds: async () => ['edge'],
+    scan: async () => {
+      scanCount += 1
+      return []
+    },
+    intervalMs: 1000,
+  })
+  const unsubscribe = monitor.subscribe(() => {})
+  await monitor.start()
+  const before = scanCount
+  monitor.noteHostActivity('ghost')
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(scanCount, before)
+  unsubscribe()
+  monitor.stop()
+  // stop 之后唤醒不能把扫描重新拉起来
+  monitor.noteHostActivity('edge')
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(scanCount, before)
+})
