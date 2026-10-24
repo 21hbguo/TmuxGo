@@ -422,8 +422,13 @@ export class BrowserInstance extends EventEmitter {
       // --remote-debugging-port=0 时真实端口落在 user-data-dir/DevToolsActivePort 首行
       'about:blank',
     ]
-    this.proc = spawn(resolved.bin, args, { stdio: 'ignore' })
-    this.proc.on('exit', (code) => {
+    const proc = spawn(resolved.bin, args, { stdio: 'ignore' })
+    this.proc = proc
+    proc.on('exit', (code) => {
+      // stop() 先置空 this.proc 再 SIGTERM，退出事件可能晚于 stop() 返回，甚至晚于下一轮
+      // 已经把 state 摆成 ready：陈旧进程的退出不能被当成当前这轮的故障，否则「主动停浏览器」
+      // 会被记成 error，还会污染之后开始的一轮（表现就是 status 偶尔读到 error）
+      if (this.proc !== proc) return
       this.proc = null
       if (this.state === 'launching' && !noSandbox) {
         // sandbox 起不来的典型现场（秒退 + 无 DevToolsActivePort）：降级重试
@@ -483,6 +488,8 @@ export class BrowserInstance extends EventEmitter {
       ws.once('error', onErr)
       ws.on('message', (raw) => this.onMessage(raw as Buffer))
       ws.on('close', () => {
+        // 同理只认当前连接：stop()/重连已把 this.ws 换掉或置空，陈旧连接的 close 不得改状态
+        if (this.ws !== ws) return
         this.teardownSocket()
         if (this.state === 'ready') this.setState('error', 'CDP socket closed')
       })

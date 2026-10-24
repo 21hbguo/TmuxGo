@@ -363,3 +363,48 @@ test('control op status/stop/navigate mirror the REST surface', async (t) => {
   assert.deepEqual(await stop.json(), { ok: true })
   assert.ok(calls.stop >= 1)
 })
+
+test(
+  'stale browser exit does not overwrite the state of a later round',
+  { timeout: 60000, skip: slowSkip },
+  async (t) => {
+    if (launchBlocker) return t.skip(launchBlocker)
+    const inst = browserManager.get('local')!
+    t.after(() => {
+      inst.state = 'idle'
+      inst.error = null
+    })
+    await inst.launch()
+    assert.equal(inst.state, 'ready')
+    // stop() 只发 SIGTERM，不 await 进程真正退出：退出事件晚于本行返回
+    await inst.stop()
+    // 模拟「下一个用例/新一轮 launch 已经把状态摆好」
+    inst.state = 'ready'
+    await new Promise((r) => setTimeout(r, 1500))
+    assert.equal(inst.state, 'ready', `陈旧进程退出事件改写了状态: ${inst.error}`)
+  },
+)
+
+test(
+  'stale CDP socket close does not overwrite the state of a later round',
+  { timeout: 60000, skip: slowSkip },
+  async (t) => {
+    if (launchBlocker) return t.skip(launchBlocker)
+    const inst = browserManager.get('local')!
+    t.after(async () => {
+      await inst.stop().catch(() => {})
+      inst.state = 'idle'
+      inst.error = null
+    })
+    await inst.launch()
+    assert.equal(inst.state, 'ready')
+    const staleWs = (inst as unknown as { ws?: { close: () => void } }).ws
+    assert.ok(staleWs, 'launch 后应持有 CDP 连接')
+    await inst.stop()
+    // 新一轮把状态摆好，但上一条连接的 close 事件可能还没落地
+    inst.state = 'ready'
+    staleWs.close()
+    await new Promise((r) => setTimeout(r, 300))
+    assert.equal(inst.state, 'ready', `陈旧连接关闭改写了状态: ${inst.error}`)
+  },
+)
