@@ -273,6 +273,73 @@ test('restore refuses to clobber an existing session unless replace is set', asy
   })
 })
 
+for (const serverError of ['no-server', 'socket'] as const)
+  test(`restore starts a fresh tmux server when none is running (${serverError})`, async () => {
+    await withConfigDir(async () => {
+      const capture = createFakeTmux({ sessions: ['work'] })
+      const snapshot = await captureSessionSnapshot({
+        hostId: 'local',
+        sessionId: 'session-local-work',
+        exec: capture.exec,
+      })
+      // 机器重启后首开网关：tmux server 根本没起来，任何子命令都是这句
+      const fresh = createFakeTmux({ sessions: [] })
+      let failedListSessions = false
+      const calls: string[][] = []
+      const exec = (async (hostId: string, args: string[]) => {
+        calls.push(args)
+        if (args[0] === 'list-sessions' && !failedListSessions) {
+          failedListSessions = true
+          // 两种真机形态：server 进程没了 vs 重启后 socket 文件都不在
+          throw new Error(
+            serverError === 'socket'
+              ? 'Command failed: tmux list-sessions\nerror connecting to /tmp/tmux-1000/default (No such file or directory)\n'
+              : 'Command failed: tmux list-sessions\nno server running on /tmp/tmux-1000/default\n',
+          )
+        }
+        return (fresh.exec as unknown as (h: string, a: string[]) => Promise<{ stdout: string; stderr: string }>)(
+          hostId,
+          args,
+        )
+      }) as never
+      const result = await restoreSnapshot({
+        hostId: 'local',
+        snapshotId: snapshot.id,
+        exec,
+        prepareAttach: async () => {},
+      })
+      assert.equal(result.sessionName, 'work')
+      // 没有既有会话可杀；new-session 直接建出 server + 会话
+      assert.equal(
+        calls.some((args) => args[0] === 'kill-session'),
+        false,
+      )
+      assert.equal(
+        calls.some((args) => args[0] === 'new-session'),
+        true,
+      )
+    })
+  })
+
+test('restore does not swallow transport failures as "no server"', async () => {
+  await withConfigDir(async () => {
+    const capture = createFakeTmux({ sessions: ['work'] })
+    const snapshot = await captureSessionSnapshot({
+      hostId: 'local',
+      sessionId: 'session-local-work',
+      exec: capture.exec,
+    })
+    const exec = (async (_hostId: string, args: string[]) => {
+      if (args[0] === 'list-sessions') throw new Error('ssh: connect to host devbox port 22: Connection refused')
+      return { stdout: '', stderr: '' }
+    }) as never
+    await assert.rejects(
+      () => restoreSnapshot({ hostId: 'local', snapshotId: snapshot.id, exec, prepareAttach: async () => {} }),
+      /Connection refused/,
+    )
+  })
+})
+
 test('restore throws for an unknown snapshot id', async () => {
   await withConfigDir(async () => {
     await assert.rejects(

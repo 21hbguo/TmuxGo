@@ -299,6 +299,31 @@ export async function getSnapshot(hostId: string, snapshotId: string) {
   return (await readSnapshots(hostId)).find((item) => item.id === snapshotId) || null
 }
 
+// tmux server 完全没起来时（机器重启后首开网关），任何 tmux 子命令都会失败：
+// 报 "no server running on <socket>" 或 "error connecting to <socket> (No such file or directory)"。
+// 这恰好是快照最该救命的场景，所以 restore 必须把这种情况当「没有会话」处理，
+// 让后面的 new-session 顺手把 server 拉起来；其余错误（SSH 掉线、权限）保持原样抛。
+// tmux 自身的错误串不随 locale 变化，但 socket 路径会变，所以只匹配稳定片段。
+function isTmuxServerUnavailable(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  return (
+    message.includes('no server running on') ||
+    message.includes('no sessions') ||
+    (message.includes('error connecting to') && message.includes('No such file or directory'))
+  )
+}
+
+/** 列会话：server 没起来视为空列表（不是失败），其余错误照抛 */
+async function listSessionNames(hostId: string, exec: TmuxExec) {
+  try {
+    const { stdout } = await exec(hostId, ['list-sessions', '-F', '#{session_name}'])
+    return stdout.trim().split('\n').filter(Boolean)
+  } catch (err) {
+    if (isTmuxServerUnavailable(err)) return []
+    throw err
+  }
+}
+
 /**
  * 一键重建：只重放结构与 cwd/命令（layout apply 同一条实现），
  * scrollbackTail 不回填，返回值里带回去做「历史回显」预览。
@@ -320,8 +345,8 @@ export async function restoreSnapshot(options: {
   if (!sessionName) throw new Error('Missing session name')
   assertSessionAllowed(sessionName)
   const layout = sessionLayoutToTemplateLayout(snapshot.layout)
-  const { stdout } = await exec(hostId, ['list-sessions', '-F', '#{session_name}'])
-  const exists = stdout.trim().split('\n').filter(Boolean).includes(sessionName)
+  const names = await listSessionNames(hostId, exec)
+  const exists = names.includes(sessionName)
   // 覆盖同名 session 必须显式 replace，避免一键恢复把正在用的会话干掉
   if (exists && !replace) throw new Error(`Session already exists: ${sessionName} (set replace=true to overwrite)`)
   if (exists) await exec(hostId, ['kill-session', '-t', `=${sessionName}`])
