@@ -420,7 +420,7 @@ export function TerminalPane({
     const style = getComputedStyle(document.documentElement)
     const getVar = (name: string) => style.getPropertyValue(name).trim()
     terminal.options.theme = {
-      background: `rgb(${getVar('--bg-1')})`,
+      background: `rgb(${getVar('--bg-0')})`,
       foreground: `rgb(${getVar('--text-1')})`,
       cursor: `rgb(${getVar('--accent')})`,
       selectionBackground: `rgb(${getVar('--accent')} / 0.2)`,
@@ -578,7 +578,7 @@ export function TerminalPane({
       ref={terminalRef}
       data-terminal
       tabIndex={0}
-      className="h-full w-full min-h-0 overflow-hidden relative bg-bg-1"
+      className="relative h-full w-full min-h-0 overflow-hidden bg-bg-0"
       // CSS 自定义属性不在 CSSProperties 键名内，断言键名类型即可
       style={{
         ['--terminal-padding' as string]: `${preferences.terminalPadding}px`,

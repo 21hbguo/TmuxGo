@@ -1085,7 +1085,7 @@ export function EditorWorkbench({
   const renderTab = (editor: FileEditorDocument, groupEditors: FileEditorDocument[], groupId: string) => (
     <div
       key={editor.id}
-      className={`group relative flex h-6 w-40 shrink-0 items-center border-r border-[rgba(255,255,255,0.04)] ${editor.id === activeEditor?.id ? 'bg-bg-0' : 'bg-bg-1/80'}`}
+      className={`group relative flex h-6 w-40 shrink-0 items-center border-r border-[var(--line-subtle)] ${editor.id === activeEditor?.id ? 'bg-bg-0 text-text-1 shadow-[inset_1px_0_0_0_var(--line),inset_-1px_0_0_0_var(--line),inset_0_1px_0_0_0_var(--line)]' : 'bg-bg-1'}`}
     >
       <button
         draggable={editor.kind !== 'compare'}
