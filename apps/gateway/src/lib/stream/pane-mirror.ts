@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module'
 import { SerializeAddon } from '@xterm/addon-serialize'
 import { RESYNC_RESET_SEQ } from './stream-config.js'
+import { MIRROR_RING_BYTES, MIRROR_RING_MIN_BYTES, MIRROR_SCROLLBACK_LINES } from '../scrollback-budget.js'
 import type { Terminal as XtermTerminal } from '@xterm/headless'
 
 // @xterm/headless 是纯 CJS（main 指向 UMD 包，无 exports 字段），ESM 具名导入在
@@ -23,8 +24,12 @@ const { Terminal } = createRequire(import.meta.url)('@xterm/headless') as {
 // 用 @xterm/headless + addon-serialize 而不是复用 stream-cell 的 TerminalGrid：
 // cell 那套只记 cells/cursor，丢 alt-screen、DEC 模式位、字符集等状态，序列化结果
 // 喂回真 xterm 会错屏；镜像的唯一用途是「喂回真终端」，保真优先。
-const RING_LIMIT_BYTES = Math.max(4096, Number(process.env.TMUXGO_MIRROR_RING_BYTES || 256 * 1024) || 256 * 1024)
-const SCROLLBACK_LINES = Math.max(0, Number(process.env.TMUXGO_MIRROR_SCROLLBACK || 1000) || 0)
+// 默认值与换算集中在 scrollback-budget.ts（全仓回看口径的唯一真值源）；这里只留环境变量覆盖
+const RING_LIMIT_BYTES = Math.max(
+  MIRROR_RING_MIN_BYTES,
+  Number(process.env.TMUXGO_MIRROR_RING_BYTES || MIRROR_RING_BYTES) || MIRROR_RING_BYTES,
+)
+const SCROLLBACK_LINES = Math.max(0, Number(process.env.TMUXGO_MIRROR_SCROLLBACK || MIRROR_SCROLLBACK_LINES) || 0)
 
 export class PaneMirror {
   readonly term: XtermTerminal
