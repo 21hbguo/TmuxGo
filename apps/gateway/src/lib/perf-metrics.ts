@@ -32,6 +32,11 @@ export const streamPerfMetrics = {
   compressBytesOut: 0,
   // gzip 线程池压缩失败回退明文的次数（不断连不丢帧，仅记账）
   compressFailures: 0,
+  // pane 镜像：attach 命中镜像快照 / 命中增量补发 / 因尺寸或冷镜像回退重绘
+  mirrorAttachSnapshots: 0,
+  mirrorAttachDeltas: 0,
+  mirrorFallbacks: 0,
+  mirrorBaselines: 0,
   cellSnapshots: 0,
   cellDiffs: 0,
   cellFallbackAnsi: 0,

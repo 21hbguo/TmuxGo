@@ -24,7 +24,7 @@ import { shareLinkStore, type ShareTicket } from '../share-links.js'
 import { scopeAllowsSession, type AccessScope } from '../access-scope.js'
 import { StreamCellEncoder } from './stream-cell.js'
 import { applyScroll, getSessionWindowSize, refreshAttachedClient, resizeSessionWindow } from './stream-tmux.js'
-import { acquireSharedTerminal, type SharedTerminal } from './shared-terminal.js'
+import { acquireSharedTerminal, getSharedTerminal, type SharedTerminal } from './shared-terminal.js'
 import {
   ATTACH_REDRAW_DELAYS,
   CLIENT_BACKPRESSURE_RESYNC_CHARS,
@@ -34,6 +34,7 @@ import {
   REQUEST_REDRAW_DELAYS,
   RESIZE_ACK_OUTPUT_WAIT_MS,
   RESYNC_HYSTERESIS_MS,
+  isMirrorEnabled,
   RESYNC_RESET_SEQ,
   SCROLL_MAX_LINES,
   SOCKET_BUFFER_EXTREME_WATERMARK,
@@ -367,7 +368,10 @@ export class StreamSession {
         if (seq !== this.attachSeq || this.socket.readyState !== 1) return false
         try {
           this.getSocketBufferedBytes()
-          this.socket.send(JSON.stringify({ type, data, sessionName, hostId }))
+          // mirrorSeq：这一帧对应的镜像输出序号，客户端记住最后一个即可在重连时
+          // 只要增量。hub 是先 feed 镜像再扇出的，所以此刻的 seq 恰好包含本帧
+          const mirrorSeq = type === 'output' ? this.sharedHub?.mirror.seq : undefined
+          this.socket.send(JSON.stringify({ type, data, sessionName, hostId, ...(mirrorSeq ? { mirrorSeq } : {}) }))
           recordStreamMetric('outputBytes', Buffer.byteLength(data || '', 'utf8'))
           this.getSocketBufferedBytes()
           return true
@@ -898,6 +902,44 @@ export class StreamSession {
     if (this.sharedHub) this.sharedHub.broadcastRedrawBoundary()
     await refreshAttachedClient(this.attachedHostId, sessionName, this.ptyProcess.pid)
   }
+  // 镜像 cold 的判定与回退都收在这里：warm + 尺寸一致才用镜像，否则交给重绘路径。
+  // 尺寸不一致时快照会错位（客户端 xterm 已按自己尺寸排版），必须回退
+  private async tryAttachFromMirror(sessionName: string, hostId: string, lastSeq?: number): Promise<boolean> {
+    if (!isMirrorEnabled()) return false
+    const mirror = (this.sharedHub ?? getSharedTerminal(hostId, sessionName))?.mirror
+    if (!mirror || !mirror.warm) {
+      recordStreamMetric('mirrorFallbacks')
+      return false
+    }
+    if (!mirror.matches(this.attachedCols, this.attachedRows)) {
+      recordStreamMetric('mirrorFallbacks')
+      return false
+    }
+    // 客户端报过 seq：环里还有这段就只补增量（正常输出帧，客户端 write 即接续）
+    if (typeof lastSeq === 'number') {
+      const delta = mirror.since(lastSeq)
+      if (delta !== null) {
+        recordStreamMetric('mirrorAttachDeltas')
+        if (delta) this.sendTerminalOutput('output', delta, sessionName, hostId)
+        return true
+      }
+    }
+    const text = await mirror.snapshot()
+    if (!text) {
+      recordStreamMetric('mirrorFallbacks')
+      return false
+    }
+    recordStreamMetric('mirrorAttachSnapshots')
+    this.sendTerminalOutput('output_resync', text, sessionName, hostId)
+    return true
+  }
+  // attach 收尾：镜像命中就不再触发 refresh-client 重绘——重绘字节会经共享 PTY
+  // 扇出给该 hub 的所有订阅者，跟镜像快照叠加就是花屏
+  private async finishAttach(sessionName: string, hostId: string, seq: number, lastSeq?: number) {
+    if (await this.tryAttachFromMirror(sessionName, hostId, lastSeq)) return
+    if (seq !== this.attachSeq) return
+    this.scheduleAttachRefresh(sessionName, seq)
+  }
   // attach 重绘合并调度：两路延时去重排序后各触发一次，全部汇入
   // runAttachRefresh 共享 dedup 状态
   scheduleAttachRefresh(sessionName: string, seq: number) {
@@ -1069,6 +1111,8 @@ export class StreamSession {
     passive?: boolean
     cols?: number
     rows?: number
+    // 客户端上次收到过的输出序号（镜像增量补发用）；不传就整快照
+    lastSeq?: number
   }) {
     recordStreamMetric('attachRequests')
     const attachStartedAt = Date.now()
@@ -1129,7 +1173,7 @@ export class StreamSession {
       })
       // 切换模式后需整帧恢复：refresh-client 重绘经共享 PTY 扇出全部订阅者
       // （单 tmux client 无法只刷一端），各端靠 output_resync 边界原子替换
-      this.scheduleAttachRefresh(sessionName, this.attachSeq)
+      void this.finishAttach(sessionName, hostId, this.attachSeq, attach.lastSeq)
       console.log('Attach completed (hub reuse)', { sessionName, elapsedMs: Date.now() - attachStartedAt })
       return
     }
@@ -1168,7 +1212,7 @@ export class StreamSession {
         exclusive,
         ...this.sizeProtocol(),
       })
-      this.scheduleAttachRefresh(sessionName, this.attachSeq)
+      void this.finishAttach(sessionName, hostId, this.attachSeq, attach.lastSeq)
       console.log('Attach completed (reuse)', { sessionName, elapsedMs: Date.now() - attachStartedAt })
       return
     }
@@ -1223,7 +1267,7 @@ export class StreamSession {
       if (exclusive) schedulePeerWindowSync(hostId, sessionName)
       // 新订者：refresh-client 补整帧。单 tmux client 的重绘字节进共享 PTY 后
       // 扇出全部订阅者——各端以 output_resync 边界原子替换（见 broadcastRedrawBoundary）
-      this.scheduleAttachRefresh(sessionName, seq)
+      void this.finishAttach(sessionName, hostId, seq, attach.lastSeq)
       console.log('Attach completed (fanout)', {
         sessionName,
         cols: this.attachedCols,
