@@ -448,21 +448,24 @@ test('temporary upload target lives under TMUXGO_TMP_DIR with its own root id', 
   assert.equal((await stat(target.absolutePath)).isDirectory(), true)
 })
 
-test('path guards reject traversal and symlink escapes on the local channel', async () => {
+test('path guards reject traversal while following symlinks on the local channel', async () => {
   await assert.rejects(host.readContentForHost('local', 'root-0', '../etc/passwd'), { message: 'Path escapes root' })
-  // 符号链接本身在根内，但解析目标在根外：只有 realpath 复查才能拦住
+  // 符号链接按文件管理器语义原地跟随：根内指向外部的链接可正常浏览
+  // （home 挂 /data 的机型上 ~/project -> /data/... 必须能点开）
   assert.equal((await lstat(path.join(workspace, 'link-out'))).isSymbolicLink(), true)
-  await assert.rejects(host.readContentForHost('local', 'root-0', 'link-out/secret.txt'), {
-    message: 'Path escapes root',
-  })
-  await assert.rejects(host.listDirectoryForHost('local', 'root-0', 'link-out'))
+  const linked = await host.readContentForHost('local', 'root-0', 'link-out/secret.txt')
+  assert.equal(linked.content, 'outside secret\n')
+  const linkedList = await host.listDirectoryForHost('local', 'root-0', 'link-out')
+  assert.equal(
+    linkedList.items.some((item) => item.name === 'secret.txt'),
+    true,
+  )
   await assert.rejects(host.readContentForHost('local', 'no-such-root', 'x'), { message: 'Invalid root' })
   // app-tmp 走的是独立的 resolveTemporaryInside 分支，逃逸守卫要单独验（变异验证时发现这里没盖住）
   await assert.rejects(host.readContentForHost('local', 'app-tmp', '../escape.txt'), { message: 'Path escapes root' })
   await symlink(outside, path.join(tmpUploadDir, 'tmp-link'))
-  await assert.rejects(host.readContentForHost('local', 'app-tmp', 'tmp-link/secret.txt'), {
-    message: 'Path escapes root',
-  })
+  const tmpLinked = await host.readContentForHost('local', 'app-tmp', 'tmp-link/secret.txt')
+  assert.equal(tmpLinked.content, 'outside secret\n')
   // git: 伪根同样要挡住越界与非法的 root id
   const gitRoot = `git:${encodeURIComponent(workspace)}`
   const insideGitRoot = await host.readContentForHost('local', gitRoot, 'docs/notes.md')
@@ -737,6 +740,12 @@ test('remote python script runs the same guards as the local implementation', as
   )
   assert.ok(escaped)
   assert.match(String(escaped.stderr), /Path escapes root/)
+
+  // 与本地通道一致：根内符号链接原地跟随（远端 home 挂 /data 的目录要能点开）
+  const linkedRemote = JSON.parse(
+    (await runRemoteScript({ op: 'content', root: 'root-0', path: 'link-out/secret.txt' })).stdout,
+  ) as { content: string }
+  assert.equal(linkedRemote.content, 'outside secret\n')
 
   const staleSave = await runRemoteScript({
     op: 'save',

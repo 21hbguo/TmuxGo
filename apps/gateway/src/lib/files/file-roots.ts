@@ -52,7 +52,9 @@ def roots():
   out.append({'id':f'root-{i}','label':label or pathlib.Path(resolved).name or resolved,'path':resolved})
  return out
 def norm_rel(value=''):
- return '/'.join([part for part in str(value).replace('\\\\','/').split('/') if part and part!='.'])
+ parts=[part for part in str(value).replace('\\\\','/').split('/') if part and part!='.']
+ if '..' in parts: raise Exception('Path escapes root')
+ return '/'.join(parts)
 def get_root(root_id):
  if isinstance(root_id,str) and root_id.startswith('git:'):
   try: p=urllib.parse.unquote(root_id[4:])
@@ -63,11 +65,13 @@ def get_root(root_id):
  for item in roots():
   if item['id']==root_id: return item
  raise Exception('Invalid root')
+# root 监禁只挡词法逃逸（'..' 已被 norm_rel 拦掉），不做 realpath 检查：
+# 目录项里的符号链接按文件管理器语义原地跟随（常见于 home 挂 /data 的机型），
+# 否则 ~/project -> /data/... 这类目录点开必报 "Path escapes root"
 def resolve_inside(root_id, rel=''):
  root=get_root(root_id)
  base=pathlib.Path(root['path']).resolve()
- target=(base / norm_rel(rel)).resolve()
- if str(target)!=str(base) and str(target)[:len(str(base))+1]!=str(base)+os.sep: raise Exception('Path escapes root')
+ target=base / norm_rel(rel)
  return root,str(target),norm_rel(os.path.relpath(str(target),str(base)))
 def is_binary(data):
  return b'\\0' in data
@@ -302,16 +306,10 @@ async function resolveTemporaryInside(relativePath = '') {
   const target = await getTemporaryUploadTarget()
   const root = { id: target.rootId, label: target.rootLabel, path: target.rootPath }
   const normalizedPath = normalizeRelativePath(relativePath)
+  // 只挡词法逃逸，不做 realpath 检查：符号链接目录按文件管理器语义原地跟随
   const requested = path.resolve(root.path, normalizedPath || '.')
   if (!isPathInside(root.path, requested)) throw new Error('Path escapes root')
-  let actual: string
-  try {
-    actual = await realpath(requested)
-  } catch {
-    actual = requested
-  }
-  if (!isPathInside(root.path, actual)) throw new Error('Path escapes root')
-  return { root, absolutePath: actual, relativePath: normalizeRelativePath(path.relative(root.path, actual)) }
+  return { root, absolutePath: requested, relativePath: normalizeRelativePath(path.relative(root.path, requested)) }
 }
 export async function cleanupExpiredTemporaryUploads(now = Date.now()) {
   const ttlMs = readPositiveIntegerEnv('TMUXGO_TMP_TTL_MS', DEFAULT_TEMP_UPLOAD_TTL_MS)
@@ -359,16 +357,10 @@ export async function resolveInside(rootId: string, relativePath = '') {
   const root = roots.find((item) => item.id === rootId)
   if (!root) throw new Error('Invalid root')
   const normalizedPath = normalizeRelativePath(relativePath)
+  // 只挡词法逃逸，不做 realpath 检查：符号链接目录按文件管理器语义原地跟随
   const requested = path.resolve(root.path, normalizedPath || '.')
   if (!isPathInside(root.path, requested)) throw new Error('Path escapes root')
-  let actual: string
-  try {
-    actual = await realpath(requested)
-  } catch {
-    actual = requested
-  }
-  if (!isPathInside(root.path, actual)) throw new Error('Path escapes root')
-  return { root, absolutePath: actual, relativePath: normalizeRelativePath(path.relative(root.path, actual)) }
+  return { root, absolutePath: requested, relativePath: normalizeRelativePath(path.relative(root.path, requested)) }
 }
 export function toRelative(rootPath: string, absolutePath: string) {
   return normalizeRelativePath(path.relative(rootPath, absolutePath))
