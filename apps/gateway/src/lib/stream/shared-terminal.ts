@@ -32,6 +32,86 @@ export function sharedTerminalKey(hostId: string, sessionName: string) {
   return `${hostId}\0${sessionName}`
 }
 
+// ---- 无订阅者虚拟视口 ------------------------------------------------------
+// 最后一个订阅者离开后 hub 仍活到宽限期结束，但 tmux window 会停在最后一端
+// fit 出来的尺寸：全屏程序按它重排，重连后再重排一次，纯抖动。herdr 的做法是
+// 「没人看就退回虚拟终端尺寸」（headless_cols/rows = 120x40），这里做等价实现。
+// 只在「本 hub 是该 session 唯一 client」时才敢钉：window 尺寸是会话级共享属性，
+// `window-size latest` 下我们一 resize，旁边真终端会被一起改小。这次 list-clients
+// 是只读查询，老 tmux 也支持；查不出来就跳过本次（保持旧行为），绝不抛错。
+// 远端 host（SSH / agent 通道）同样生效：list-clients 与 resize 都走既有 execTmux
+// 路由，本地和远端是同一条代码路径；远端 tmux 不认参数时按下面 unsupported 表降级。
+const DEFAULT_HEADLESS_COLS = 120
+const DEFAULT_HEADLESS_ROWS = 40
+function parseHeadlessDimension(raw: string | undefined, fallback: number) {
+  const value = Number(raw)
+  return Number.isFinite(value) && value >= 1 ? Math.floor(value) : fallback
+}
+function readHeadlessViewport(): { cols: number; rows: number } | null {
+  // TMUXGO_HEADLESS_COLS=0 是显式关闭开关（想完全沿用最后一端尺寸的部署用）
+  if ((process.env.TMUXGO_HEADLESS_COLS || '').trim() === '0') return null
+  return {
+    cols: parseHeadlessDimension(process.env.TMUXGO_HEADLESS_COLS, DEFAULT_HEADLESS_COLS),
+    rows: parseHeadlessDimension(process.env.TMUXGO_HEADLESS_ROWS, DEFAULT_HEADLESS_ROWS),
+  }
+}
+let headlessViewport = readHeadlessViewport()
+// 钉之前先等一小会儿：切标签/切 session 常是「断开几十毫秒再连回来」，立刻钉会把
+// window 先改成 120x40 再改回 fit，反而多两次重排（正是要消除的抖动）。等到确认
+// 真没人回来再钉；宽限期本身远长于这个延迟，不影响最终结果。
+const DEFAULT_HEADLESS_PIN_DELAY_MS = 300
+function readHeadlessPinDelayMs() {
+  const value = Number(process.env.TMUXGO_HEADLESS_PIN_DELAY_MS)
+  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_HEADLESS_PIN_DELAY_MS
+}
+let headlessPinDelayMs = readHeadlessPinDelayMs()
+export function setHeadlessPinDelayForTest(value: number | null) {
+  headlessPinDelayMs = value ?? readHeadlessPinDelayMs()
+}
+export function setHeadlessViewportForTest(value: { cols: number; rows: number } | null) {
+  headlessViewport = value ?? readHeadlessViewport()
+}
+export function peekHeadlessViewport() {
+  return headlessViewport
+}
+type AttachedClientCounter = (hostId: string, sessionName: string) => Promise<number>
+async function defaultCountAttachedClients(hostId: string, sessionName: string) {
+  const { stdout } = await execTmux(hostId, ['list-clients', '-t', sessionName, '-F', '#{client_name}'])
+  return stdout.split('\n').filter((line) => line.trim()).length
+}
+let countAttachedClientsImpl: AttachedClientCounter = defaultCountAttachedClients
+export function setCountAttachedClientsForTest(fn: AttachedClientCounter | null) {
+  countAttachedClientsImpl = fn ?? defaultCountAttachedClients
+}
+// 老 tmux 不认 `list-clients -F`（1.8 之前）时记一次 host 级标记后不再查，与
+// tmux-hooks 的 unsupportedHookEvents 同款降级：不报错、不刷日志、每次少一条命令
+const headlessPinUnsupported = new Set<string>()
+export async function pinHeadlessViewport(hub: SharedTerminal): Promise<boolean> {
+  const target = headlessViewport
+  if (!target || hub.dead || hub.subscribers.size) return false
+  // 尺寸已经等于目标：不用碰 PTY（省一次 window 重排与整屏重绘）
+  if (hub.cols === target.cols && hub.rows === target.rows) return false
+  if (headlessPinUnsupported.has(hub.hostId)) return false
+  let clients: number
+  try {
+    clients = await countAttachedClientsImpl(hub.hostId, hub.sessionName)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (/unknown (command|option)|usage:/i.test(message)) headlessPinUnsupported.add(hub.hostId)
+    recordStreamMetric('hubHeadlessPinSkipped')
+    return false
+  }
+  // 查询期间可能已有新订阅者（或 hub 被销毁/被替换）：重新确认再动 PTY
+  if (hub.dead || hub.subscribers.size || sharedTerminals.get(hub.key) !== hub) return false
+  if (clients > 1) {
+    recordStreamMetric('hubHeadlessPinSkipped')
+    return false
+  }
+  hub.resizePty(target.cols, target.rows)
+  recordStreamMetric('hubHeadlessPinned')
+  return true
+}
+
 export interface SharedTerminalSubscriber {
   onSharedOutput(filtered: string): void
   onSharedExit(exitCode: number): void
@@ -68,15 +148,37 @@ export class SharedTerminal {
   get pid() {
     return this.pty.pid
   }
+  private headlessPinTimer: ReturnType<typeof setTimeout> | null = null
   subscribe(sub: SharedTerminalSubscriber) {
     this.subscribers.add(sub)
+    // 有人回来了：取消在途的钉尺寸，连回来的人自己会 fit
+    this.cancelScheduledHeadlessPin()
   }
   unsubscribe(sub: SharedTerminalSubscriber) {
     this.subscribers.delete(sub)
     // 最后一个订阅者离开：不立刻销毁，先进宽限期——短期内重连能复用同一份
     // PTY + 镜像（配合 lastSeq 只补增量）；宽限 0 时 scheduleIdleDestroy 立即销毁，
     // 等价于旧行为
-    if (!this.subscribers.size && sharedTerminals.get(this.key) === this) scheduleIdleDestroy(this.key)
+    if (!this.subscribers.size && sharedTerminals.get(this.key) === this) {
+      scheduleIdleDestroy(this.key)
+      // 宽限期内没人看：把 window 钉回虚拟尺寸；grace=0 时 hub 立刻销毁，不必钉
+      if (hubGraceMs > 0) this.scheduleHeadlessPin()
+    }
+  }
+  scheduleHeadlessPin() {
+    if (this.dead || this.subscribers.size || !headlessViewport) return
+    this.cancelScheduledHeadlessPin()
+    const timer = setTimeout(() => {
+      this.headlessPinTimer = null
+      void pinHeadlessViewport(this)
+    }, headlessPinDelayMs)
+    timer.unref?.()
+    this.headlessPinTimer = timer
+  }
+  cancelScheduledHeadlessPin() {
+    if (!this.headlessPinTimer) return
+    clearTimeout(this.headlessPinTimer)
+    this.headlessPinTimer = null
   }
   resizePty(cols: number, rows: number) {
     if (this.dead) return
@@ -115,6 +217,7 @@ export class SharedTerminal {
     if (this.dead) return
     // PTY 自己退了：宽限不救回，定时器一并摘掉（免得到期时对已删 hub 再删一次）
     cancelGraceTimer(this.key)
+    this.cancelScheduledHeadlessPin()
     const subs = [...this.subscribers]
     this.dead = true
     this.mirror.dispose()
@@ -179,6 +282,7 @@ export function countSharedTerminals() {
 
 export function resetSharedTerminalsForTest() {
   pendingAcquires.clear()
+  headlessPinUnsupported.clear()
   clearSharedTerminalGraceTimers()
   for (const hub of [...sharedTerminals.values()]) {
     sharedTerminals.delete(hub.key)
@@ -200,6 +304,7 @@ function destroySharedTerminal(key: string) {
   if (!hub) return
   sharedTerminals.delete(key)
   updateStreamMetric('sharedTerminals', sharedTerminals.size)
+  hub.cancelScheduledHeadlessPin()
   hub.dead = true
   hub.mirror.dispose()
   try {
