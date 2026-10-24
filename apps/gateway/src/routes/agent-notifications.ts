@@ -39,12 +39,10 @@ function resolveDeviceId(request: FastifyRequest, body?: { deviceId?: unknown })
   return deviceId
 }
 function sendError(reply: { code: (status: number) => { send: (payload: unknown) => unknown } }, error: unknown) {
-  return reply
-    .code(400)
-    .send({
-      message: error instanceof Error ? error.message : 'Invalid notification request',
-      code: 'INVALID_AGENT_NOTIFICATION_REQUEST',
-    })
+  return reply.code(400).send({
+    message: error instanceof Error ? error.message : 'Invalid notification request',
+    code: 'INVALID_AGENT_NOTIFICATION_REQUEST',
+  })
 }
 export async function agentNotificationRoutes(fastify: FastifyInstance) {
   fastify.get('/agent-notifications/vapid-public-key', async (_request, reply) => {
