@@ -18,6 +18,7 @@ import { useTranslation } from '@/i18n'
 import type {
   AgentInboxMessage,
   InboxFilter,
+  InboxMessageRoute,
   InboxMessageType,
   InboxRangeFilter,
   InboxStatusFilter,
@@ -172,9 +173,12 @@ interface InboxPanelProps {
   onClose: () => void
   onPreview?: (message: AgentInboxMessage) => void
   onJump?: (message: AgentInboxMessage) => void
+  // 待办条目跳 pane：接收 route 而不是消息对象——待办本来就没有消息载荷，
+  // 硬套 onJump 得先伪造一条 AgentInboxMessage（T-239）
+  onJumpToRoute?: (route: InboxMessageRoute) => void
 }
 
-export function InboxPanel({ mode, onClose, onPreview, onJump }: InboxPanelProps) {
+export function InboxPanel({ mode, onClose, onPreview, onJump, onJumpToRoute }: InboxPanelProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   // 桌面模式是近全屏 scrim 模态：登记按键层，Esc/Enter 不穿透到终端
   useModalLayer({ open: mode === 'desktop', getEl: () => rootRef.current, onEscape: onClose })
@@ -775,7 +779,20 @@ export function InboxPanel({ mode, onClose, onPreview, onJump }: InboxPanelProps
   )
 
   // 待办视图复用同一外壳：不参与消息的选中/归档/回收站等操作，所以整体替换列表区
-  const body = view === 'tasks' ? <InboxTasksView t={t} /> : list
+  const body =
+    view === 'tasks' ? (
+      <InboxTasksView
+        t={t}
+        // 待办行只有三个定位字段：hostId/sessionName/paneId 正好是 InboxMessageRoute 的子集
+        onJumpToPane={
+          onJumpToRoute
+            ? (item) => onJumpToRoute({ hostId: item.hostId, sessionName: item.sessionName, paneId: item.paneId })
+            : undefined
+        }
+      />
+    ) : (
+      list
+    )
 
   if (mode === 'mobile') {
     return (
