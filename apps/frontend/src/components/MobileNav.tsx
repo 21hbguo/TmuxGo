@@ -91,6 +91,8 @@ export function MobileNav({
   docked = false,
 }: MobileNavProps) {
   const connection = useConsoleStore((state) => state.connection)
+  const activeHostId = useConsoleStore((state) => state.activeHostId)
+  const browserLocalOnly = !!activeHostId && activeHostId !== 'local'
   const attachLatency = useConsoleStore((state) => state.terminalPerf.attachLatency)
   const { t } = useTranslation()
 
@@ -152,6 +154,8 @@ export function MobileNav({
     open: boolean
     icon: React.ReactNode
     onClick: () => void
+    // 浏览器面板只服务 gateway 本机：远端 host 下置灰并给出理由
+    disabled?: boolean
   }[] = [
     {
       key: 'inbox',
@@ -194,6 +198,7 @@ export function MobileNav({
       open: browserOpen,
       icon: <FiCompass aria-hidden="true" size={18} />,
       onClick: () => onOpenBrowser?.(),
+      disabled: browserLocalOnly,
     },
     {
       key: 'endpoints',
@@ -244,11 +249,13 @@ export function MobileNav({
               key={entry.key}
               aria-label={entry.label}
               aria-current={entry.open ? 'page' : undefined}
+              title={entry.disabled ? t('browser.localOnly') : undefined}
+              disabled={entry.disabled}
               onClick={() => {
                 setMoreOpen(false)
                 entry.onClick()
               }}
-              className={navButtonClass(entry.open)}
+              className={`${navButtonClass(entry.open)} disabled:opacity-40 disabled:cursor-not-allowed`}
             >
               {entry.icon}
               <span className="text-caption leading-none">{entry.label}</span>
@@ -296,8 +303,10 @@ export function MobileNav({
               key={entry.key}
               aria-label={entry.label}
               aria-current={entry.open ? 'page' : undefined}
+              title={entry.disabled ? t('browser.localOnly') : undefined}
+              disabled={entry.disabled}
               onClick={entry.onClick}
-              className={navButtonClass(entry.open)}
+              className={`${navButtonClass(entry.open)} disabled:opacity-40 disabled:cursor-not-allowed`}
             >
               {entry.icon}
               {!compactIconOnly && <span className="text-caption leading-none">{entry.label}</span>}
@@ -397,8 +406,10 @@ export function MobileNav({
           <button
             aria-label={t('browser.title')}
             aria-current={browserOpen ? 'page' : undefined}
+            title={browserLocalOnly ? t('browser.localOnly') : undefined}
+            disabled={browserLocalOnly}
             onClick={() => onOpenBrowser?.()}
-            className={navButtonClass(browserOpen)}
+            className={`${navButtonClass(browserOpen)} disabled:opacity-40 disabled:cursor-not-allowed`}
           >
             <FiCompass aria-hidden="true" size={18} />
             <span className="text-caption leading-none">{t('browser.title')}</span>

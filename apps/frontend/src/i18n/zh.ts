@@ -1579,6 +1579,8 @@ export const zh = {
   'vnc.losslessHint': '剔除 JPEG/H.264 有损编码，文字逐像素无损；照片/视频类画面流量会增大',
   'vnc.showStats': '显示统计',
   'browser.title': '浏览器',
+  // 远端 host 没有浏览器能力（browser-manager 只维护本机实例）
+  'browser.localOnly': '浏览器面板仅对本机可用（运行在网关宿主机）',
   'browser.back': '后退',
   'browser.forward': '前进',
   'browser.reload': '刷新',

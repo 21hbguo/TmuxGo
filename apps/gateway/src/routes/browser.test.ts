@@ -41,6 +41,8 @@ async function setup() {
   const app = Fastify()
   await app.register(websocket)
   await app.register(browserRoutes, { prefix: '/api' })
+  // 与 index.ts 一致地再挂一份 host 作用域：远端 host 由路由内 onRequest 短路成 400
+  await app.register(browserRoutes, { prefix: '/api/hosts/:hostId' })
   await app.listen({ port: 0, host: '127.0.0.1' })
   const address = app.server.address()
   const port = typeof address === 'object' && address ? address.port : 0
@@ -57,6 +59,46 @@ test('browser launch failure classification only skips environment failures', ()
     assert.equal(UNUSABLE_BROWSER.test(env), true, `应判为环境问题: ${env}`)
   for (const real of ['net::ERR_CONNECTION_REFUSED', 'CDP socket closed', 'NO_BROWSER_BINARY'])
     assert.equal(UNUSABLE_BROWSER.test(real), false, `不应判为环境问题: ${real}`)
+})
+
+// 远端 host 没有浏览器能力：host 作用域端点必须在任何实例操作之前短路成 400，
+// 否则调用方会静默操作 gateway 本机的 chromium（审计 T-224 的①号问题）
+test('host-scoped browser endpoints reject non-local hosts with BROWSER_LOCAL_ONLY', async (t) => {
+  const { app, port } = await setup()
+  t.after(() => app.close())
+  const cases: Array<[string, string, unknown?]> = [
+    ['GET', '/api/hosts/devbox/browser/status'],
+    ['GET', '/api/hosts/devbox/browser/setup'],
+    ['POST', '/api/hosts/devbox/browser/launch'],
+    ['POST', '/api/hosts/devbox/browser/stop'],
+    ['POST', '/api/hosts/devbox/browser/navigate', { url: 'https://example.com' }],
+    ['POST', '/api/hosts/devbox/browser/pick', {}],
+    ['POST', '/api/hosts/devbox/browser/pick/cancel', {}],
+  ]
+  for (const [method, url, payload] of cases) {
+    const res = await fetch(`http://127.0.0.1:${port}${url}`, {
+      method,
+      headers: payload === undefined ? undefined : { 'content-type': 'application/json' },
+      body: payload === undefined ? undefined : JSON.stringify(payload),
+    })
+    const body = (await res.json()) as { code?: string }
+    assert.equal(res.status, 400, `${method} ${url} 应回 400`)
+    assert.equal(body.code, 'BROWSER_LOCAL_ONLY', `${method} ${url} 应回 BROWSER_LOCAL_ONLY`)
+  }
+  // 本机 hostId 走同一套实现（与 /api/browser/* 行为一致），不能被守卫误伤
+  const local = await fetch(`http://127.0.0.1:${port}/api/hosts/local/browser/status`)
+  assert.equal(local.status, 200)
+  assert.equal(((await local.json()) as { state?: string }).state !== undefined, true)
+})
+
+// host 作用域与原有 /api/browser/* 是同一份实例：不能让第二次注册改动本机行为
+test('host-scoped local endpoints share the single local instance', async (t) => {
+  const { app, port } = await setup()
+  t.after(() => app.close())
+  const viaHost = await fetch(`http://127.0.0.1:${port}/api/hosts/local/browser/setup`)
+  const viaRoot = await fetch(`http://127.0.0.1:${port}/api/browser/setup`)
+  assert.equal(viaHost.status, 200)
+  assert.deepEqual(await viaHost.json(), await viaRoot.json())
 })
 
 test('browser setup endpoint reports binary probe result', async (t) => {

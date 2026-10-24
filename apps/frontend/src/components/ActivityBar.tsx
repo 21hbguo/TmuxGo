@@ -66,6 +66,9 @@ type ActivityItem = {
   active: boolean
   unread: number
   plugin: boolean
+  // 能力缺位（如远端 host 的浏览器面板）时置灰而不是直接消失：
+  // 保留位置 + title 说明理由，用户不会以为功能被删了
+  disabled?: boolean
 }
 
 // 已存序优先、未知 id 剔除、新项（如后来启用的插件视图）按自然序补尾
@@ -107,8 +110,9 @@ function ActivityButton({ item }: { item: ActivityItem }) {
     <button
       aria-label={item.label}
       title={item.title ?? item.label}
+      disabled={item.disabled}
       onClick={item.onClick}
-      className={`tmuxgo-toolbar-icon ${item.active ? 'tmuxgo-toolbar-icon--active' : ''}`}
+      className={`tmuxgo-toolbar-icon ${item.active ? 'tmuxgo-toolbar-icon--active' : ''} disabled:opacity-40 disabled:cursor-not-allowed`}
     >
       <ActivityIconBody item={item} />
     </button>
@@ -153,6 +157,8 @@ export function ActivityBar() {
   const activeDesktop = useConsoleStore((state) => state.activeDesktop)
   const toggleDesktop = useConsoleStore((state) => state.toggleDesktop)
   const activeBrowser = useConsoleStore((state) => state.activeBrowser)
+  // 浏览器面板只服务 gateway 本机：选中远端 host 时置灰并说明理由
+  const browserLocalOnly = !!activeHostId && activeHostId !== 'local'
   const toggleBrowser = useConsoleStore((state) => state.toggleBrowser)
   const toggleGitPanel = useConsoleStore((state) => state.toggleGitPanel)
   const pickerActive = useElementPickerStore((state) => state.active)
@@ -223,11 +229,13 @@ export function ActivityBar() {
     {
       id: 'browser',
       label: t('browser.title'),
+      title: browserLocalOnly ? `${t('browser.title')} · ${t('browser.localOnly')}` : undefined,
       icon: FiCompass,
       onClick: () => toggleBrowser(activeHostId || 'local'),
       active: !!activeBrowser,
       unread: 0,
       plugin: false,
+      disabled: browserLocalOnly,
     },
     {
       id: 'inbox',

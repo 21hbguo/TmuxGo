@@ -1589,6 +1589,8 @@ export const en = {
   'vnc.losslessHint': 'Drops JPEG/H.264 encodings for pixel-perfect text; photo/video regions cost more bandwidth',
   'vnc.showStats': 'Show stats',
   'browser.title': 'Browser',
+  // 远端 host 没有浏览器能力（browser-manager 只维护本机实例）
+  'browser.localOnly': 'Browser panel is local-only (runs on the gateway host)',
   'browser.back': 'Back',
   'browser.forward': 'Forward',
   'browser.reload': 'Reload',

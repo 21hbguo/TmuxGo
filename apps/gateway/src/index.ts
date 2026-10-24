@@ -121,6 +121,9 @@ await fastify.register(windowRoutes, { prefix: '/api' })
 await fastify.register(streamRoutes, { prefix: '/api' })
 await fastify.register(vncRoutes, { prefix: '/api' })
 await fastify.register(browserRoutes, { prefix: '/api' })
+// 同时挂到 host 作用域：远端 host 由 browserRoutes 内部的 onRequest 统一回
+// 400 BROWSER_LOCAL_ONLY，本地 hostId 复用同一套实现（不复制 handler）
+await fastify.register(browserRoutes, { prefix: '/api/hosts/:hostId' })
 await fastify.register(systemRoutes, { prefix: '/api' })
 await fastify.register(paneRoutes, { prefix: '/api' })
 await fastify.register(syncPaneRoutes, { prefix: '/api' })
