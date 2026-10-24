@@ -1,11 +1,11 @@
 import './test-env.js'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, stat } from 'fs/promises'
+import { mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import test from 'node:test'
 import type { WebSocket } from 'ws'
-import { AgentManager } from './agent-manager.js'
+import { AgentManager, isSameMachineAgent } from './agent-manager.js'
 
 test('keeps a replacement agent connected when the previous socket closes', () => {
   const id = `agent-${Date.now()}-${Math.random()}`
@@ -484,4 +484,79 @@ test('rejects downloads on agents without the fileDownload capability', async ()
   manager.register(id, 'agent', '127.0.0.1', '1.0.0', socket)
   await assert.rejects(manager.downloadFile(id, '/tmp/x'), /does not support file download/)
   assert.equal(manager.unregister(id, socket), true)
+})
+
+test('marks loopback, local interface and hostname registrations as same machine', () => {
+  assert.equal(isSameMachineAgent('devbox-agent', '127.0.0.1'), true)
+  assert.equal(isSameMachineAgent('devbox-agent', '::1'), true)
+  assert.equal(isSameMachineAgent('devbox-agent', '::ffff:127.0.0.1'), true)
+  assert.equal(isSameMachineAgent('devbox-agent', '198.51.100.7'), false)
+  assert.equal(isSameMachineAgent('devbox-agent', undefined), false)
+  const lanAddress = Object.values(os.networkInterfaces())
+    .flatMap((entries) => entries || [])
+    .map((entry) => entry.address)
+    .find((address) => address && !address.includes(':') && !address.startsWith('127.'))
+  if (lanAddress) assert.equal(isSameMachineAgent('devbox-agent', lanAddress), true)
+  // 本机 tailnet 地址自连时 remoteAddress 不是 loopback，只能靠注册名判定
+  assert.equal(isSameMachineAgent(os.hostname(), '198.51.100.7'), true)
+})
+
+test('records sameMachine when a loopback agent registers and exposes it via getLocalMachineAgent', () => {
+  const manager = new AgentManager({ historyPath: null })
+  const id = `agent-local-${Date.now()}-${Math.random()}`
+  const socket = { readyState: 1, send: () => {} } as unknown as WebSocket
+  const status = manager.register(id, 'workstation-agent', '192.0.2.11', '1.0.0', socket, undefined, '127.0.0.1')
+  assert.equal(status.sameMachine, true)
+  assert.equal(manager.getLocalMachineAgent()?.id, id)
+  assert.equal(manager.unregister(id, socket), true)
+  // 掉线后仍作为历史保留，/hosts 折叠 local 时还能显示最后一次状态
+  assert.equal(manager.getLocalMachineAgent()?.id, id)
+  assert.equal(manager.getLocalMachineAgent()?.online, false)
+  manager.removeAgent(id)
+  assert.equal(manager.getLocalMachineAgent(), undefined)
+})
+
+test('keeps remote registrations as their own host', () => {
+  const manager = new AgentManager({ historyPath: null })
+  const id = `agent-remote-${Date.now()}-${Math.random()}`
+  const socket = { readyState: 1, send: () => {} } as unknown as WebSocket
+  const status = manager.register(id, 'devbox-remote', '198.51.100.7', '1.0.0', socket, undefined, '198.51.100.7')
+  assert.equal(status.sameMachine, false)
+  assert.equal(manager.getLocalMachineAgent(), undefined)
+  manager.removeAgent(id)
+})
+
+// 旧记录没有 sameMachine 字段（也没有 remoteAddress）：靠 name/address 兜底，不能重新变成独立 host
+test('infers sameMachine for legacy history records from name and address', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-agent-history-'))
+  const historyPath = path.join(dir, 'agent-history.json')
+  const record = (id: string, name: string, address: string) => ({
+    id,
+    name,
+    address,
+    version: '0.9.0',
+    online: false,
+    connectedAt: null,
+    lastSeenAt: '2026-01-01T00:00:00.000Z',
+    lastDisconnectedAt: null,
+    disconnectReason: null,
+    reconnectCount: 1,
+  })
+  await writeFile(
+    historyPath,
+    JSON.stringify({
+      agents: [
+        record('agent-old-loopback', 'devbox', '127.0.0.1'),
+        record('agent-old-hostname', os.hostname(), '192.0.2.50'),
+        record('agent-old-remote', 'devbox-remote', '192.0.2.50'),
+      ],
+    }),
+  )
+  const manager = new AgentManager({ historyPath })
+  const statuses = new Map(manager.getAllAgentStatuses().map((status) => [status.id, status]))
+  assert.equal(statuses.get('agent-old-loopback')?.sameMachine, true)
+  assert.equal(statuses.get('agent-old-hostname')?.sameMachine, true)
+  assert.equal(statuses.get('agent-old-remote')?.sameMachine, false)
+  assert.ok(['agent-old-loopback', 'agent-old-hostname'].includes(manager.getLocalMachineAgent()!.id))
+  await rm(dir, { recursive: true, force: true })
 })

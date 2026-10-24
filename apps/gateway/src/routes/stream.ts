@@ -261,6 +261,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
               register.version || 'unknown',
               agentSocket,
               register.caps,
+              // 对端 socket 地址用于同机判定（/hosts 折叠同机 agent），拿不到时按远端处理
+              request.socket.remoteAddress,
             )
             session.send({
               type: 'registered',

@@ -51,7 +51,9 @@ const sshConfigHostBodySchema = z.object({
 })
 async function hostResponse(host: HostRecord) {
   const credentials = await getHostCredentials(host.id)
-  const agent = agentManager.getAgentStatus(host.id)
+  // local 机器自身没有 agent 注册（agent 用独立 id 注册），同机 agent 折叠进这里
+  const agent =
+    agentManager.getAgentStatus(host.id) || (host.id === 'local' ? agentManager.getLocalMachineAgent() : undefined)
   const health = getHostConnectivity(host.id)
   return {
     id: host.id,
@@ -139,7 +141,8 @@ export async function hostRoutes(fastify: FastifyInstance, options: { taskManage
       ...configEntries,
       ...agentManager
         .getAllAgentStatuses()
-        .filter((agent) => !configIds.has(agent.id) && visible(agent.id))
+        // 同机 agent 已折叠进 local 条目（agent 字段），再单列就是同一台机器出两条
+        .filter((agent) => !agent.sameMachine && !configIds.has(agent.id) && visible(agent.id))
         .map((agent) => ({
           id: agent.id,
           name: agent.name,

@@ -48,3 +48,83 @@ test('configured SSH host keeps SSH status when an Agent with the same id is onl
   assert.equal(JSON.stringify(host).includes('route-secret'), false)
   assert.equal(JSON.stringify(host).includes('id_ed25519'), false)
 })
+
+// 同机 agent 折叠：loopback 注册的 agent 不再单列 host，状态挂到 local 条目的 agent 字段
+test('folds a loopback agent into the local host entry', async (t) => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-host-routes-'))
+  process.env.TMUXGO_CONFIG_DIR = configDir
+  const socket: Parameters<typeof agentManager.register>[4] = { readyState: 1, send() {}, on: () => undefined }
+  const id = 'agent-local-dedup'
+  agentManager.register(id, 'workstation-agent', '192.0.2.11', '1.0.0', socket, undefined, '127.0.0.1')
+  const app = Fastify()
+  await app.register(hostRoutes, { prefix: '/api' })
+  t.after(async () => {
+    agentManager.removeAgent(id)
+    await app.close()
+    delete process.env.TMUXGO_CONFIG_DIR
+    await rm(configDir, { recursive: true, force: true })
+  })
+  const hosts = (await app.inject({ method: 'GET', url: '/api/hosts' })).json()
+  assert.equal(
+    hosts.some((host: { id: string }) => host.id === id),
+    false,
+  )
+  const local = hosts.find((host: { id: string }) => host.id === 'local')
+  assert.equal(local.connectionMode, 'local')
+  assert.equal(local.agent.id, id)
+  assert.equal(local.agent.online, true)
+  // 按原 agent id 直查仍然可用（已有调用方依赖）
+  const direct = (await app.inject({ method: 'GET', url: `/api/hosts/${id}` })).json()
+  assert.equal(direct.id, id)
+  assert.equal(direct.connectionMode, 'agent')
+  assert.equal(direct.agent.online, true)
+})
+
+test('keeps a remote agent as its own host entry', async (t) => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-host-routes-'))
+  process.env.TMUXGO_CONFIG_DIR = configDir
+  const socket: Parameters<typeof agentManager.register>[4] = { readyState: 1, send() {}, on: () => undefined }
+  const id = 'agent-remote-dedup'
+  agentManager.register(id, 'devbox-remote', '198.51.100.7', '1.0.0', socket, undefined, '198.51.100.7')
+  const app = Fastify()
+  await app.register(hostRoutes, { prefix: '/api' })
+  t.after(async () => {
+    agentManager.removeAgent(id)
+    await app.close()
+    delete process.env.TMUXGO_CONFIG_DIR
+    await rm(configDir, { recursive: true, force: true })
+  })
+  const hosts = (await app.inject({ method: 'GET', url: '/api/hosts' })).json()
+  const remote = hosts.find((host: { id: string }) => host.id === id)
+  assert.equal(remote.connectionMode, 'agent')
+  assert.equal(remote.status, 'online')
+  const local = hosts.find((host: { id: string }) => host.id === 'local')
+  assert.notEqual(local.agent?.id, id)
+})
+
+// 离线/历史同机 agent 同样折叠：不能因为 agent 掉线就冒出第二条 host
+test('keeps folding a same-machine agent after it disconnects', async (t) => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-host-routes-'))
+  process.env.TMUXGO_CONFIG_DIR = configDir
+  const socket: Parameters<typeof agentManager.register>[4] = { readyState: 1, send() {}, on: () => undefined }
+  const id = 'agent-local-offline-dedup'
+  agentManager.register(id, 'devbox-agent', '192.0.2.12', '1.0.0', socket, undefined, '::1')
+  agentManager.unregister(id, socket, 'test disconnect')
+  const app = Fastify()
+  await app.register(hostRoutes, { prefix: '/api' })
+  t.after(async () => {
+    agentManager.removeAgent(id)
+    await app.close()
+    delete process.env.TMUXGO_CONFIG_DIR
+    await rm(configDir, { recursive: true, force: true })
+  })
+  const hosts = (await app.inject({ method: 'GET', url: '/api/hosts' })).json()
+  assert.equal(
+    hosts.some((host: { id: string }) => host.id === id),
+    false,
+  )
+  const local = hosts.find((host: { id: string }) => host.id === 'local')
+  assert.equal(local.agent.id, id)
+  assert.equal(local.agent.online, false)
+  assert.equal(local.agent.disconnectReason, 'test disconnect')
+})

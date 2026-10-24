@@ -11,6 +11,38 @@ const VNC_DEBUG = process.env.TMUXGO_VNC_DEBUG === '1'
 const vncDbg = (...args: unknown[]) => {
   if (VNC_DEBUG) console.log('[vnc]', ...args)
 }
+// 同机 agent 判定：loopback、本机网卡地址（含 tailnet 地址自连）、或注册名就是 hostname 三者任一命中。
+// hostname 必须单列一条——agent 走本机 tailnet 地址自连时 remoteAddress 既不是 loopback，
+// 也可能因 NAT/代理与 networkInterfaces() 看到的地址不同，只有注册名能兜住这种情况。
+// address 是 agent 自报的拨号地址：history 记录没有 remoteAddress，只能拿它兜底。
+function isLoopbackAddress(address: string) {
+  return address === '::1' || address === '::ffff:127.0.0.1' || address.startsWith('127.')
+}
+function localInterfaceAddresses() {
+  const addresses = new Set<string>()
+  for (const entries of Object.values(os.networkInterfaces())) {
+    for (const entry of entries || []) {
+      if (!entry.address) continue
+      addresses.add(entry.address)
+      // 双栈接口可能以 IPv4-mapped 形式出现，两种写法都要比
+      if (entry.address.startsWith('::ffff:')) addresses.add(entry.address.slice(7))
+      else if (!entry.address.includes(':')) addresses.add(`::ffff:${entry.address}`)
+    }
+  }
+  return addresses
+}
+export function isSameMachineAgent(name: string, remoteAddress?: string, address?: string) {
+  if (name === os.hostname()) return true
+  // 有对端 socket 地址就以它为准；address 只是 history 记录的兜底（记录里没有 remoteAddress），
+  // 否则远端 agent 自报 127.0.0.1 这类地址会被误判成同机
+  const candidate = remoteAddress || address
+  if (!candidate) return false
+  const interfaces = localInterfaceAddresses()
+  if (isLoopbackAddress(candidate)) return true
+  const normalized = candidate.startsWith('::ffff:') ? candidate.slice(7) : candidate
+  if (isLoopbackAddress(normalized)) return true
+  return interfaces.has(candidate) || interfaces.has(normalized)
+}
 export interface AgentSocket {
   readyState: number
   bufferedAmount?: number
@@ -24,6 +56,8 @@ export interface AgentStatus {
   name: string
   address: string
   version: string
+  // 注册来源是本机（loopback / 本机网卡地址 / 注册名=hostname）：/hosts 折叠进 local，不再单列 host
+  sameMachine?: boolean
   online: boolean
   connectedAt: string | null
   lastSeenAt: string
@@ -140,6 +174,11 @@ function readHistory(historyPath: string) {
         lastDisconnectedAt: typeof value.lastDisconnectedAt === 'string' ? value.lastDisconnectedAt : null,
         disconnectReason: typeof value.disconnectReason === 'string' ? value.disconnectReason : null,
         reconnectCount: Math.max(0, Math.floor(value.reconnectCount)),
+        // 旧记录没有 sameMachine 字段：用 name/address 兜底重算，否则历史同机 agent 会重新变成独立 host
+        sameMachine:
+          typeof value.sameMachine === 'boolean'
+            ? value.sameMachine
+            : isSameMachineAgent(value.name, undefined, value.address),
       }))
   } catch {
     return [] as AgentStatus[]
@@ -184,13 +223,24 @@ export class AgentManager {
     }
     if (changed) this.persistHistory()
   }
-  register(id: string, name: string, address: string, version: string, socket: AgentSocket, caps?: AgentCaps) {
+  register(
+    id: string,
+    name: string,
+    address: string,
+    version: string,
+    socket: AgentSocket,
+    caps?: AgentCaps,
+    remoteAddress?: string,
+  ) {
     const previous = this.agents.get(id)
+    // 每次注册重算：机器地址/主机名可能变，历史里的旧值不能复用
+    const sameMachine = isSameMachineAgent(name, remoteAddress, address)
     if (previous?.socket === socket) {
       const current = previous
       current.name = name
       current.address = address
       current.version = version
+      current.sameMachine = sameMachine
       if (caps) current.caps = caps
       current.lastSeenAt = new Date().toISOString()
       this.history.set(id, this.toStatus(current))
@@ -213,6 +263,7 @@ export class AgentManager {
       address,
       version,
       caps,
+      sameMachine,
       online: true,
       connectedAt: timestamp,
       lastSeenAt: timestamp,
@@ -315,6 +366,17 @@ export class AgentManager {
     const statuses = new Map(this.history)
     for (const agent of this.agents.values()) statuses.set(agent.id, this.getAgent(agent.id)!)
     return Array.from(statuses.values()).sort((left, right) => left.name.localeCompare(right.name))
+  }
+  /**
+   * 同机 agent：/hosts 把它折叠进 local，因此 local 条目要借这个查询拿到 agent 状态。
+   * 优先在线的那一个（可能既有在线也有离线历史），都离线时取最后活跃的。
+   */
+  getLocalMachineAgent() {
+    const sameMachine = this.getAllAgentStatuses().filter((status) => status.sameMachine)
+    return (
+      sameMachine.find((status) => status.online) ||
+      sameMachine.sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt))[0]
+    )
   }
   executeTmux(id: string, args: string[], timeoutMs = 30000) {
     const agent = this.agents.get(id)
