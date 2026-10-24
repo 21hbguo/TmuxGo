@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { chmod, copyFile, mkdir, open, readFile, rename, rm, stat, writeFile } from 'fs/promises'
+import { chmod, copyFile, mkdir, open, readFile, rename, rm, stat, utimes, writeFile } from 'fs/promises'
 import path from 'path'
 
 // 最小 JSON 持久化：原子 temp+rename、0600、进程内写队列串行化 +
@@ -18,6 +18,12 @@ export class JsonStoreLockError extends Error {
   constructor(filePath: string, timeoutMs: number) {
     super(`Timed out after ${timeoutMs}ms waiting for store lock: ${path.basename(filePath)}`)
   }
+}
+
+// 锁在持有期间易主（被误判 stale 回收、或被并发者抢占）：写前校验发现后放弃本次
+// 写入并重试，避免用自己的读到旧数据覆盖别人的新数据
+class LockLostError extends Error {
+  code = 'JSON_STORE_LOCK_LOST'
 }
 
 export interface JsonStoreOptions<T> {
@@ -146,7 +152,30 @@ export class JsonStore<T> {
   // token，防止自身锁被判定 stale 抢走后误删新持有者的锁。
   private static readonly lockPollMs = 40
 
-  private async acquireLock(): Promise<() => Promise<void>> {
+  // 持锁期间周期性刷新锁 mtime（心跳）：stale 判定靠 mtime 老化，若持锁者只是慢
+  // 而不是死，mtime 一旦超过阈值就会被别人当垃圾回收，两个进程同时持锁 → 丢写。
+  // 心跳让「活着的持有者」永远看起来新鲜，stale 只对真正停止心跳的进程生效。
+  private startLockHeartbeat(lockPath: string, token: string): () => void {
+    const interval = Math.max(50, Math.floor((this.options.lockStaleMs ?? 15_000) / 3))
+    const timer = setInterval(() => {
+      void readFile(lockPath, 'utf8')
+        .then(async (raw) => {
+          // 内容已换人：锁不归自己了，停跳并由写前校验接管
+          if (parseLockMeta(raw)?.token !== token) {
+            clearInterval(timer)
+            return
+          }
+          const now = new Date()
+          await utimes(lockPath, now, now)
+        })
+        .catch(() => clearInterval(timer))
+    }, interval)
+    // 心跳不该拖住进程退出（测试/CLI 场景）
+    timer.unref?.()
+    return () => clearInterval(timer)
+  }
+
+  private async acquireLock(): Promise<{ lockPath: string; token: string; release: () => Promise<void> }> {
     const lockPath = this.lockPath
     await mkdir(path.dirname(lockPath), { recursive: true, mode: 0o700 })
     const token = `${process.pid}:${randomUUID()}`
@@ -163,15 +192,26 @@ export class JsonStore<T> {
         } finally {
           await handle.close()
         }
-        return () => this.releaseLock(lockPath, token)
+        const stopHeartbeat = this.startLockHeartbeat(lockPath, token)
+        return {
+          lockPath,
+          token,
+          release: async () => {
+            stopHeartbeat()
+            await this.releaseLock(lockPath, token)
+          },
+        }
       } catch (error) {
         // writeFile/close 失败但 wx 已把锁文件建出来：清掉自己的残锁再抛，
         // 否则留下空锁要等 15s stale 才能被回收
         if (created) await rm(lockPath, { force: true }).catch(() => {})
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
       }
-      if (await this.lockIsStale(lockPath)) {
-        await rm(lockPath, { force: true }).catch(() => {})
+      // 三态探测：missing 只重试（绝不能 rm——判定的那一刻不存在，rm 的那一刻可能
+      // 已被别人建成新锁，无条件 unlink 会把活锁删掉，两个进程同时持锁并丢写）
+      const state = await this.probeLock(lockPath)
+      if (state === 'stale') {
+        await this.reclaimStaleLock(lockPath)
       } else if (Date.now() >= deadline) {
         throw new JsonStoreLockError(this.filePath, timeoutMs)
       } else {
@@ -181,15 +221,54 @@ export class JsonStore<T> {
     }
   }
 
-  private async lockIsStale(lockPath: string): Promise<boolean> {
+  // missing：锁不存在（持有者刚释放）→ 重试 open 即可，不做任何删除
+  // live：持有者活着且心跳新鲜 → 等
+  // stale：mtime 老化或持有 pid 已死 → 可回收
+  private async probeLock(lockPath: string): Promise<'missing' | 'live' | 'stale'> {
     const info = await stat(lockPath).catch(() => null)
-    if (!info) return true // 刚好被释放：下一轮 wx 直接重建
-    if (Date.now() - info.mtimeMs > (this.options.lockStaleMs ?? 15_000)) return true
+    if (!info) return 'missing'
+    if (Date.now() - info.mtimeMs > (this.options.lockStaleMs ?? 15_000)) return 'stale'
     const meta = await readFile(lockPath, 'utf8')
       .then(parseLockMeta)
       .catch(() => null)
-    // 持有进程已死：安全回收（同主机 pid 判定；pid 复用时 token 释放兜底不误删）
-    return meta !== null && !pidAlive(meta.pid)
+    // 内容还没写全（open 成功、meta 未落盘）：不能当 stale，否则会抢活锁
+    if (meta === null) return 'live'
+    return pidAlive(meta.pid) ? 'live' : 'stale'
+  }
+
+  // 回收前先 rename 原子摘走再复核：从判定到删除之间持有者可能刚好释放、别人立刻
+  // 建成新锁，直接 unlink 会误删。摘到的不是 stale 锁就放回去。
+  private async reclaimStaleLock(lockPath: string) {
+    const parked = `${lockPath}.stale-${process.pid}-${randomUUID()}`
+    try {
+      await rename(lockPath, parked)
+    } catch {
+      return // 已不存在：交给外层重试 open
+    }
+    const info = await stat(parked).catch(() => null)
+    const meta = await readFile(parked, 'utf8')
+      .then(parseLockMeta)
+      .catch(() => null)
+    if (
+      info &&
+      Date.now() - info.mtimeMs <= (this.options.lockStaleMs ?? 15_000) &&
+      (meta === null || pidAlive(meta.pid))
+    ) {
+      // 摘到活锁：放回。放不回说明期间已被重建，被摘方会在写前校验里发现并重试
+      await rename(parked, lockPath).catch(async () => {
+        await rm(parked, { force: true }).catch(() => {})
+      })
+      return
+    }
+    await rm(parked, { force: true }).catch(() => {})
+  }
+
+  // 写前校验：锁文件必须仍是自己那条。锁在持有期间易主时放弃本次写入
+  private async assertLockOwned(lockPath: string, token: string) {
+    const meta = await readFile(lockPath, 'utf8')
+      .then(parseLockMeta)
+      .catch(() => null)
+    if (meta?.token !== token) throw new LockLostError()
   }
 
   private async releaseLock(lockPath: string, token: string) {
@@ -201,12 +280,12 @@ export class JsonStore<T> {
     await rm(lockPath, { force: true }).catch(() => {})
   }
 
-  private async withLock<R>(job: () => Promise<R>): Promise<R> {
-    const release = await this.acquireLock()
+  private async withLock<R>(job: (verifyOwnership: () => Promise<void>) => Promise<R>): Promise<R> {
+    const lock = await this.acquireLock()
     try {
-      return await job()
+      return await job(() => this.assertLockOwned(lock.lockPath, lock.token))
     } finally {
-      await release()
+      await lock.release()
     }
   }
 
@@ -221,16 +300,35 @@ export class JsonStore<T> {
   }
 
   async write(items: T[]): Promise<void> {
-    return this.enqueue(() => this.withLock(() => this.persist(items)))
+    return this.enqueue(() =>
+      this.runLocked(async (verifyOwnership) => {
+        await verifyOwnership()
+        await this.persist(items)
+      }),
+    )
+  }
+
+  // 锁归属丢失（被误回收/被抢占）→ 重来一遍完整 read-modify-write。
+  // 重试上限 5 次：持续丢失说明锁本身有问题，宁可报错也不静默丢写
+  private async runLocked<R>(job: (verifyOwnership: () => Promise<void>) => Promise<R>): Promise<R> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.withLock(job)
+      } catch (error) {
+        if (error instanceof LockLostError && attempt < 5) continue
+        throw error
+      }
+    }
   }
 
   // 串行区内持锁 re-read：进程内队列 + 跨进程锁双重互斥；mutate 抛错即
   // 放弃写入并传播错误，finally 保证锁一定归还
   async update<R>(mutate: (items: T[]) => { items: T[]; result: R }): Promise<R> {
     return this.enqueue(() =>
-      this.withLock(async () => {
+      this.runLocked(async (verifyOwnership) => {
         const current = await this.read()
         const { items, result } = mutate(current)
+        await verifyOwnership()
         await this.persist(items)
         return result
       }),
