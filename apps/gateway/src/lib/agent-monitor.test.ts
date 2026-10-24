@@ -40,6 +40,58 @@ function pane(
   }
 }
 
+test('a start racing a stop never leaves an orphan host-refresh interval behind', { timeout: 5000 }, async () => {
+  // 回归：stop() 之后第一轮 start 的收尾仍可能挂上 hostRefreshTimer，再被下一轮
+  // start 覆盖成无人引用的孤儿定时器 —— 进程于是永远退不掉（T-213 stream 文件级超时）
+  const created: unknown[] = []
+  const cleared = new Set<unknown>()
+  const realSetInterval = globalThis.setInterval
+  const realClearInterval = globalThis.clearInterval
+  ;(globalThis as unknown as { setInterval: unknown }).setInterval = ((
+    fn: (...args: unknown[]) => void,
+    ms?: number,
+    ...rest: unknown[]
+  ) => {
+    const id = (realSetInterval as unknown as (...a: unknown[]) => unknown)(fn, ms, ...rest)
+    created.push(id)
+    return id
+  }) as unknown as typeof setInterval
+  ;(globalThis as unknown as { clearInterval: unknown }).clearInterval = ((id: unknown) => {
+    cleared.add(id)
+    return (realClearInterval as unknown as (i: unknown) => void)(id)
+  }) as unknown as typeof clearInterval
+  try {
+    // 第一轮扫描故意慢（60ms）、第二轮快（10ms）：于是第二轮先挂上 hostRefreshTimer，
+    // 第一轮的收尾随后再挂一次把它覆盖成孤儿 —— 交错方向固定，断言才是确定的
+    let scanCalls = 0
+    const monitor = new AgentMonitor({
+      scan: async () => {
+        scanCalls += 1
+        await new Promise((r) => setTimeout(r, scanCalls === 1 ? 60 : 10))
+        return [pane('local:%1')]
+      },
+      getHostIds: async () => ['local'],
+      hostRefreshMs: 20,
+      intervalMs: 20,
+      idleMs: 20,
+    })
+    const first = monitor.start()
+    await new Promise((r) => setTimeout(r, 3))
+    monitor.stop() // 打断第一轮
+    const second = monitor.start()
+    await Promise.allSettled([first, second])
+    monitor.stop()
+    // 已建但从未被 clear 的定时器 = 孤儿：正是它让进程退不掉
+    assert.deepEqual(
+      created.filter((id) => !cleared.has(id)),
+      [],
+    )
+  } finally {
+    ;(globalThis as unknown as { setInterval: unknown }).setInterval = realSetInterval
+    ;(globalThis as unknown as { clearInterval: unknown }).clearInterval = realClearInterval
+  }
+})
+
 test('uses one host scan for multiple subscribers and separates snapshots from notifications', async () => {
   let scanCount = 0
   let states = [pane('local:%1'), pane('local:%2')]

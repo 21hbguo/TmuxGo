@@ -244,6 +244,18 @@ test('normalizes an unavailable SSH host for tmux and shell execution', async (t
   )
 })
 
+test('execHostShell aborts a running child when the scan AbortSignal fires', async () => {
+  // agentMonitor.stop() 会 abort 在跑的扫描：ssh/sh 子进程必须立刻被杀，
+  // 否则测试文件在用例全绿后还要等子进程自然超时才退（T-213）
+  const controller = new AbortController()
+  const started = Date.now()
+  const running = execHostShell('local', 'sleep 5', { signal: controller.signal })
+  setTimeout(() => controller.abort(), 50)
+  await assert.rejects(running)
+  const elapsed = Date.now() - started
+  assert.ok(elapsed < 2000, `aborted exec should return quickly, took ${elapsed}ms`)
+})
+
 test('pickFreeLoopbackPort skips occupied ports', async () => {
   const busy = await pickFreeLoopbackPort()
   assert.ok(busy)

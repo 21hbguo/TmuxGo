@@ -620,9 +620,17 @@ async function captureAgentStates(
 }
 // SSH 远端：单次 exec 内带回 hooks/事件队列/pane 列表/进程子树；任一关键段缺失按失败处理，
 // 与旧路径「list-panes 失败 → 整轮 disconnected」语义一致
-async function scanRemoteAgentPanes(host: HostRecord, sessionName?: string, allowedSessionNames?: string[]) {
+async function scanRemoteAgentPanes(
+  host: HostRecord,
+  sessionName?: string,
+  allowedSessionNames?: string[],
+  signal?: AbortSignal,
+) {
   const hostId = host.id
-  const { stdout } = await execHostShell(hostId, buildRemoteScanScript(host, sessionName), { timeoutMs: 15000 })
+  const { stdout } = await execHostShell(hostId, buildRemoteScanScript(host, sessionName), {
+    timeoutMs: 15000,
+    signal,
+  })
   const sections = splitScanSections(stdout)
   const panesRaw = sections.get('PANES')
   // list-panes 失败（无 tmux server / 目标 session 不存在）须维持旧语义：scan 失败 → disconnected
@@ -640,31 +648,36 @@ async function scanRemoteAgentPanes(host: HostRecord, sessionName?: string, allo
     psRaw === undefined ? null : findChildProcessAgents(psRaw, [...new Set(panePids)], detectProcessAgent)
   return captureAgentStates(hostId, candidates, processAgents)
 }
-async function scanAgentPanes(hostId: string, sessionName?: string, allowedSessionNames?: string[]) {
+async function scanAgentPanes(
+  hostId: string,
+  sessionName?: string,
+  allowedSessionNames?: string[],
+  signal?: AbortSignal,
+) {
   const host = await getHostById(hostId).catch(() => null)
-  if (host && host.id !== 'local') return scanRemoteAgentPanes(host, sessionName, allowedSessionNames)
+  if (host && host.id !== 'local') return scanRemoteAgentPanes(host, sessionName, allowedSessionNames, signal)
   await installTmuxAgentHooks(hostId).catch(() => {})
   const tmuxHookEvents = await consumeTmuxAgentHookEvents(hostId)
   const args = sessionName ? ['list-panes', '-s', '-t', sessionName] : ['list-panes', '-a']
   args.push('-F', paneListFormat)
-  const { stdout } = await execTmux(hostId, args)
+  const { stdout } = await execTmux(hostId, args, signal ? { signal } : {})
   const candidates = parsePaneCandidates(hostId, stdout, allowedSessionNames, tmuxHookEvents)
   const processAgents = await getProcessAgents(hostId, candidates)
   return captureAgentStates(hostId, candidates, processAgents)
 }
-function getAgentPanes(hostId: string, sessionName?: string, allowedSessionNames?: string[]) {
+function getAgentPanes(hostId: string, sessionName?: string, allowedSessionNames?: string[], signal?: AbortSignal) {
   const key = `${hostId}:${sessionName || '*'}:${allowedSessionNames?.slice().sort().join(',') || '*'}`
   const cached = scans.get(key)
   if (cached && cached.expiresAt > Date.now()) return cached.promise
-  const promise = scanAgentPanes(hostId, sessionName, allowedSessionNames).finally(() => {
+  const promise = scanAgentPanes(hostId, sessionName, allowedSessionNames, signal).finally(() => {
     const current = scans.get(key)
     if (current?.promise === promise && current.expiresAt <= Date.now()) scans.delete(key)
   })
   scans.set(key, { expiresAt: Date.now() + 750, promise })
   return promise
 }
-export function getHostAgentPanes(hostId: string, allowedSessionNames?: string[]) {
-  return getAgentPanes(hostId, undefined, allowedSessionNames)
+export function getHostAgentPanes(hostId: string, allowedSessionNames?: string[], signal?: AbortSignal) {
+  return getAgentPanes(hostId, undefined, allowedSessionNames, signal)
 }
 export function getSessionAgentPanes(hostId: string, sessionName: string) {
   return getAgentPanes(hostId, sessionName)
