@@ -1329,6 +1329,7 @@ export const zh = {
   'inbox.tasksEmpty': '暂无',
   'inbox.title': '收件箱',
   'inbox.empty': '暂无消息',
+  'inbox.emptyHint': 'agent 推送的消息、文件和链接会留在这里',
   'inbox.unreadDot': '未读',
   'inbox.markAllRead': '全部已读',
   'inbox.markRead': '标为已读',

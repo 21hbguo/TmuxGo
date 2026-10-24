@@ -287,11 +287,12 @@ export function InboxPanel({ mode, onClose, onPreview, onJump, onJumpToRoute }: 
       : connectionStatus === 'connected'
         ? 'synced'
         : 'reconnecting'
+  // 颜色只用主题 token：warning 不是 tailwind 里注册过的颜色名，写 text-warning 等于无色
   const SYNC_TONE = {
     synced: 'text-accent-2',
     syncing: 'text-accent',
-    pending: 'text-warning',
-    reconnecting: 'text-warning',
+    pending: 'text-warn',
+    reconnecting: 'text-warn',
     error: 'text-danger',
   } as const
   const SYNC_LABEL_KEYS = {
@@ -319,10 +320,14 @@ export function InboxPanel({ mode, onClose, onPreview, onJump, onJumpToRoute }: 
 
   const list = (
     <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto p-1">
+      {/* 空态与 Fleet/Endpoints 同一套：图标块 + 一行结论 + 一条 caption 说明 */}
       {listLoaded && !filtered.length && (
-        <div className="flex flex-col items-center gap-2 px-2 py-8 text-sm text-text-3">
-          <FiInbox aria-hidden="true" size={22} />
-          {messages.length ? t('inbox.noMatch') : t('inbox.empty')}
+        <div className="flex flex-col items-center gap-1.5 px-3 py-8 text-center">
+          <span className="flex h-9 w-9 items-center justify-center rounded-apple bg-bg-2 text-text-3">
+            <FiInbox aria-hidden="true" size={16} />
+          </span>
+          <div className="text-xs text-text-2">{messages.length ? t('inbox.noMatch') : t('inbox.empty')}</div>
+          {!messages.length && <div className="max-w-56 text-caption text-text-3">{t('inbox.emptyHint')}</div>}
         </div>
       )}
       {filtered.map((message) => {
@@ -343,11 +348,14 @@ export function InboxPanel({ mode, onClose, onPreview, onJump, onJumpToRoute }: 
         return (
           <div
             key={message.id}
-            className={`group flex items-center gap-1 rounded-apple border px-1.5 py-1 ${
-              unread ? 'border-accent/40 bg-accent/5' : 'border-transparent'
-            } ${activeTabId === message.id && mode === 'desktop' ? 'bg-accent/10' : 'hover:bg-bg-2'} ${
-              selected.has(message.id) ? 'border-accent/60' : ''
-            } ${mode === 'mobile' ? 'mb-0.5 min-h-11' : 'mb-0.5'}`}
+            // 行态走共享的 tmuxgo-list-row：hover/active 的过渡与强调色跟其它面板同源
+            className={`tmuxgo-list-row group mb-0.5 flex items-center gap-1 rounded-apple border px-2 py-1 ${
+              selected.has(message.id) || (activeTabId === message.id && mode === 'desktop')
+                ? 'tmuxgo-list-row--active border-accent/45'
+                : unread
+                  ? 'border-accent/25 bg-accent/5 hover:bg-accent/10'
+                  : 'border-transparent hover:bg-bg-2/55'
+            } ${mode === 'mobile' ? 'min-h-11' : ''}`}
           >
             <input
               type="checkbox"
@@ -442,15 +450,32 @@ export function InboxPanel({ mode, onClose, onPreview, onJump, onJumpToRoute }: 
 
   const header = (
     <div className="shrink-0 border-b border-[var(--line)]">
-      <div className="flex h-10 items-center gap-2 px-3">
+      <div className="relative flex h-11 items-center gap-2 px-3">
         {mode === 'mobile' && (
           <span className="absolute left-1/2 top-2 h-1 w-10 -translate-x-1/2 rounded-full bg-text-3/30" />
         )}
-        <h2 className="text-sm font-medium text-text-1">
-          {t('inbox.title')}
-          {unreadCount > 0 && <span className="ml-1.5 text-caption text-accent">{unreadCount}</span>}
-        </h2>
-        <div role="tablist" aria-label={t('inbox.viewSwitch')} className="flex shrink-0 items-center gap-0.5">
+        {/* header 语言与 Fleet/Endpoints 一致：24px 图标块 + 标题/副标题 + 右侧动作 */}
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-apple bg-bg-2 text-accent">
+          <FiInbox aria-hidden="true" size={13} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <h2 className="truncate text-xs font-medium text-text-1">{t('inbox.title')}</h2>
+            {unreadCount > 0 && (
+              <span className="shrink-0 rounded-full bg-accent/15 px-1.5 text-caption leading-4 text-accent tabular-nums">
+                {unreadCount}
+              </span>
+            )}
+          </div>
+          {/* 同步状态挪到副标题：把 header 右半边让给视图切换和批量动作，不再挤一行 */}
+          <div className={`flex items-center gap-1 truncate text-caption ${SYNC_TONE[syncState]}`}>
+            <span
+              className={`h-1.5 w-1.5 shrink-0 rounded-full bg-current ${syncState === 'syncing' ? 'animate-pulse' : ''}`}
+            />
+            {t(SYNC_LABEL_KEYS[syncState])}
+          </div>
+        </div>
+        <div role="tablist" aria-label={t('inbox.viewSwitch')} className="tmuxgo-segment shrink-0">
           {(['messages', 'tasks'] as const).map((key) => (
             <button
               key={key}
@@ -458,20 +483,13 @@ export function InboxPanel({ mode, onClose, onPreview, onJump, onJumpToRoute }: 
               role="tab"
               aria-selected={view === key}
               onClick={() => setView(key)}
-              className={`rounded-apple px-1.5 py-0.5 text-caption ${
-                view === key ? 'bg-bg-2 text-text-1' : 'text-text-3 hover:text-text-1'
-              }`}
+              className={`tmuxgo-segment__item ${view === key ? 'tmuxgo-segment__item--active' : ''}`}
             >
               {t(key === 'messages' ? 'inbox.viewMessages' : 'inbox.viewTasks')}
             </button>
           ))}
         </div>
-        {/* 同步状态：乐观写/对账在途、断线、失败都显式提示，不假装已同步 */}
-        <span className={`flex shrink-0 items-center gap-1 text-caption ${SYNC_TONE[syncState]}`}>
-          <span className={`h-1.5 w-1.5 rounded-full bg-current ${syncState === 'syncing' ? 'animate-pulse' : ''}`} />
-          {t(SYNC_LABEL_KEYS[syncState])}
-        </span>
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           {filter.view === 'active' && unreadCount > 0 && (
             <Button variant="ghost" size="sm" onClick={markAllRead}>
               {t('inbox.markAllRead')}
@@ -499,7 +517,7 @@ export function InboxPanel({ mode, onClose, onPreview, onJump, onJumpToRoute }: 
           </button>
         </div>
       </div>
-      <div className="flex h-9 flex-wrap items-center gap-1.5 px-2 pb-1.5">
+      <div className="flex h-9 flex-wrap items-center gap-1.5 px-3 pb-1.5">
         <input
           type="checkbox"
           aria-label={t('inbox.selectAll')}
@@ -568,7 +586,7 @@ export function InboxPanel({ mode, onClose, onPreview, onJump, onJumpToRoute }: 
       </div>
       {/* 选中态批量条：操作随视图切换；全选范围=当前筛选结果 */}
       {selectedIds.length > 0 && (
-        <div className="flex h-8 items-center gap-1.5 border-t border-[var(--line)] px-2 text-xs text-text-3">
+        <div className="flex h-8 items-center gap-1.5 border-t border-[var(--line)] px-3 text-xs text-text-3">
           <span className="text-accent">{t('inbox.selected', { n: selectedIds.length })}</span>
           <div className="ml-auto flex items-center gap-1">
             {filter.view === 'trash' ? (
@@ -669,14 +687,14 @@ export function InboxPanel({ mode, onClose, onPreview, onJump, onJumpToRoute }: 
 
   // 左栏底部状态条：计数/容量挪出筛选行，避免与下拉挤在同一 flex-wrap 里折行
   const footer = (
-    <div className="flex h-6 shrink-0 items-center justify-between gap-2 border-t border-[var(--line)] px-2 text-caption text-text-3/70">
+    <div className="flex h-6 shrink-0 items-center justify-between gap-2 border-t border-[var(--line)] px-3 text-caption text-text-3">
       <span>{t('inbox.count', { shown: filtered.length, total: messages.length })}</span>
       {/* 容量口径来自服务端 stats：消息数按非回收站计，asset 含回收站引用 */}
       {stats && (
         <span
           className={
             stats.messages >= stats.maxMessages * 0.85 || stats.assetBytes >= stats.maxAssetBytes * 0.85
-              ? 'text-warning'
+              ? 'text-warn'
               : undefined
           }
           title={t('inbox.capacityHint')}
@@ -881,9 +899,11 @@ export function InboxPanel({ mode, onClose, onPreview, onJump, onJumpToRoute }: 
             {activeTab ? (
               <InboxPreview messageId={activeTab.messageId} onJump={onJump} />
             ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-2 text-text-3">
-                <FiInbox aria-hidden="true" size={28} />
-                <span className="text-sm">{t('inbox.noPreview')}</span>
+              <div className="flex h-full flex-col items-center justify-center gap-1.5 text-text-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-apple bg-bg-2 text-text-3">
+                  <FiInbox aria-hidden="true" size={18} />
+                </span>
+                <span className="text-xs text-text-2">{t('inbox.noPreview')}</span>
               </div>
             )}
           </div>

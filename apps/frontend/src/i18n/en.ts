@@ -1340,6 +1340,7 @@ export const en = {
   'inbox.tasksEmpty': 'Nothing here',
   'inbox.title': 'Inbox',
   'inbox.empty': 'No messages',
+  'inbox.emptyHint': 'Messages, files and links pushed by agents land here',
   'inbox.unreadDot': 'Unread',
   'inbox.markAllRead': 'Mark all read',
   'inbox.markRead': 'Mark read',
