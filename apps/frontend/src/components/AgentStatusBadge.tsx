@@ -30,11 +30,14 @@ export function AgentStatusBadge({
   status,
   summary,
   compact = false,
+  withLabel = false,
   onStatusClick,
 }: {
   status?: AgentStatus | null
   summary?: AgentSummary | null
   compact?: boolean
+  /** 单状态且需要让颜色之外也有语义时打开（fleet 行用）：徽标右侧补一行状态文案 */
+  withLabel?: boolean
   onStatusClick?: (status: AgentStatus) => void
 }) {
   const { t } = useTranslation()
@@ -67,10 +70,11 @@ export function AgentStatusBadge({
     <span
       title={label}
       aria-label={label}
-      className={`inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full border ${compact ? 'w-5 justify-center px-0' : 'px-2'} text-caption font-medium ${TONE_SURFACE[resolved]}`}
+      className={`inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full border ${compact ? 'w-5 justify-center px-0' : withLabel ? 'px-1.5' : 'px-2'} text-caption font-medium tabular-nums transition-colors ${TONE_SURFACE[resolved]}`}
     >
       <Dot status={resolved} />
       {!compact && count > 0 && <span>{count}</span>}
+      {!compact && withLabel && count === 0 && <span className="whitespace-nowrap">{label}</span>}
     </span>
   )
 }
