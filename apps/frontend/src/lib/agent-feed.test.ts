@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { AgentFeedClient, AGENT_FEED_RESYNC_MAX, AGENT_PROTO_VERSION, isAgentStateFrame } from './agent-feed'
+import {
+  AgentFeedClient,
+  AGENT_FEED_RESYNC_MAX,
+  AGENT_PROTO_VERSION,
+  isAgentFeedFresh,
+  isAgentStateFrame,
+  resetAgentFeedFreshness,
+} from './agent-feed'
 import type { AgentFeedUpdate, AgentStateFrame } from './agent-feed'
 import type { AgentPaneState } from '@/types'
 
@@ -164,6 +171,52 @@ describe('agent feed client', () => {
     client.handleFrame(frame({ mode: 'delta', seq: 2 }))
     expect(sent.at(-1)).toEqual({ type: 'agent_unsubscribe', subId: 'as_1' })
     expect(client.hosts()).toEqual([])
+  })
+})
+
+describe('agent feed freshness (REST 侧是否还需要自带 agents)', () => {
+  // 这组状态直接决定 useSessions 会不会带 agents=0，写错会让界面停在旧状态
+  it('marks a host fresh only after the subscribe frame actually went out', () => {
+    resetAgentFeedFreshness()
+    const { client, setSendOk } = createClient({ sendOk: false })
+    client.subscribe('local')
+    expect(isAgentFeedFresh('local')).toBe(false)
+    setSendOk(true)
+    client.subscribe('local')
+    expect(isAgentFeedFresh('local')).toBe(true)
+  })
+
+  it('drops freshness on unsubscribe, reset and degrade', () => {
+    resetAgentFeedFreshness()
+    const { client } = createClient()
+    client.subscribe('local')
+    expect(isAgentFeedFresh('local')).toBe(true)
+    client.unsubscribe('local')
+    expect(isAgentFeedFresh('local')).toBe(false)
+
+    client.subscribe('local')
+    client.reset()
+    expect(isAgentFeedFresh('local')).toBe(false)
+
+    // 断号重同步耗尽 → 降级：必须立刻回落带 agents 的 REST
+    const { client: client2 } = createClient()
+    client2.subscribe('local')
+    client2.handleFrame(frame({ seq: 5 }))
+    client2.handleFrame(frame({ mode: 'delta', seq: 9, stateSeq: 4 }))
+    for (let i = 0; i < AGENT_FEED_RESYNC_MAX; i += 1)
+      client2.handleFrame(frame({ mode: 'delta', seq: 20 + i, stateSeq: 4 }))
+    expect(isAgentFeedFresh('local')).toBe(false)
+  })
+
+  it('restores freshness once an accepted frame lands again', () => {
+    resetAgentFeedFreshness()
+    const { client } = createClient()
+    client.subscribe('local')
+    client.unsubscribe('local')
+    expect(isAgentFeedFresh('local')).toBe(false)
+    client.subscribe('local')
+    client.handleFrame(frame({ seq: 3 }))
+    expect(isAgentFeedFresh('local')).toBe(true)
   })
 })
 

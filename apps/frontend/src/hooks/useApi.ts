@@ -1,5 +1,6 @@
 import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, type CredentialStoreFile, type HostStoreFile, type SystemTaskResponse } from '@/lib/api'
+import { isAgentFeedFresh } from '@/lib/agent-feed'
 import type { PluginPermission, Session, SessionLayout, SessionMutationResult, SessionTemplate } from '@/types'
 import type { GitRepositoryInfo } from '@/types'
 
@@ -311,10 +312,31 @@ export function useRotatePluginToken() {
   })
 }
 
+// 推送已覆盖该 host 时，REST 不再带 agents（省 payload 与 summarize），
+// 但整帧替换会冲掉推送写进缓存的 agent 字段——所以把上一份缓存里的
+// agents/agentSummary 按 session id 搬回来。降级期间 isAgentFeedFresh=false，
+// 照旧走带 agents 的 REST，无需在这里兜底。
+function withCarriedAgents(next: Session[], previous: Session[] | undefined): Session[] {
+  if (!previous?.length) return next
+  const previousById = new Map(previous.map((session) => [session.id, session]))
+  return next.map((session) => {
+    const prior = previousById.get(session.id)
+    if (!prior || (prior.agents === undefined && prior.agentSummary === undefined)) return session
+    return { ...session, agents: prior.agents, agentSummary: prior.agentSummary }
+  })
+}
+
 export function useSessions(hostId: string) {
+  const queryClient = useQueryClient()
   return useQuery({
     queryKey: ['sessions', hostId],
-    queryFn: () => api.sessions.list(hostId),
+    queryFn: async () => {
+      const skipAgents = isAgentFeedFresh(hostId)
+      const sessions = await api.sessions.list(hostId, { includeAgents: !skipAgents })
+      return skipAgents
+        ? withCarriedAgents(sessions, queryClient.getQueryData<Session[]>(['sessions', hostId]))
+        : sessions
+    },
     enabled: !!hostId,
     staleTime: 4000,
     refetchInterval: 10000,
