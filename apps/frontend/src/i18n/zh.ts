@@ -680,6 +680,7 @@ export const zh = {
   // TerminalSearch
   'terminalSearch.placeholder': '搜索...',
   'terminalSearch.noResults': '无匹配',
+  'terminalSearch.wholeWord': '整词匹配',
   'terminalSearch.caseSensitive': '区分大小写',
   'terminalSearch.previous': '上一个',
   'terminalSearch.next': '下一个',

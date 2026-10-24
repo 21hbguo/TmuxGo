@@ -80,6 +80,53 @@ describe('TerminalSearch', () => {
     expect(terminal.clearSelection).toHaveBeenCalled()
   })
 
+  it('toggles wholeWord and keeps it independent from case sensitivity', async () => {
+    const { fake } = setup()
+    const input = screen.getByRole('searchbox')
+    fireEvent.change(input, { target: { value: 'foo' } })
+    const wordToggle = screen.getByRole('button', { name: '整词匹配' })
+    const caseToggle = screen.getByRole('button', { name: '区分大小写' })
+    expect(wordToggle).toHaveAttribute('aria-pressed', 'false')
+
+    // 打开整词：立刻按 wholeWord:true 重搜，且大小写仍是默认的 false
+    fireEvent.click(wordToggle)
+    expect(wordToggle).toHaveAttribute('aria-pressed', 'true')
+    expect(fake.findNext).toHaveBeenLastCalledWith(
+      'foo',
+      expect.objectContaining({ wholeWord: true, caseSensitive: false }),
+    )
+
+    // 叠加大小写：两个开关互不覆盖
+    fireEvent.click(caseToggle)
+    expect(fake.findNext).toHaveBeenLastCalledWith(
+      'foo',
+      expect.objectContaining({ wholeWord: true, caseSensitive: true }),
+    )
+
+    // 关掉整词、保留大小写
+    fireEvent.click(wordToggle)
+    expect(fake.findNext).toHaveBeenLastCalledWith(
+      'foo',
+      expect.objectContaining({ wholeWord: false, caseSensitive: true }),
+    )
+
+    // 关掉大小写后回落到两个 false，四种组合都走过一遍
+    fireEvent.click(caseToggle)
+    expect(fake.findNext).toHaveBeenLastCalledWith(
+      'foo',
+      expect.objectContaining({ wholeWord: false, caseSensitive: false }),
+    )
+
+    // 导航（Enter / 上下按钮）沿用同一套组合，不会退回默认值
+    fireEvent.click(wordToggle)
+    fake.findNext.mockClear()
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(fake.findNext).toHaveBeenLastCalledWith(
+      'foo',
+      expect.objectContaining({ wholeWord: true, caseSensitive: false, incremental: true }),
+    )
+  })
+
   it('clears the highlight without issuing a search when the query is emptied', async () => {
     const { fake, terminal } = setup()
     const input = screen.getByRole('searchbox')

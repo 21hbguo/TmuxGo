@@ -15,6 +15,7 @@ interface TerminalSearchProps {
 export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
   const [query, setQuery] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
+  const [wholeWord, setWholeWord] = useState(false)
   // resultIndex === -1 表示命中数超过 highlightLimit，addon 不再给精确下标
   const [results, setResults] = useState<{ index: number; count: number }>({ index: -1, count: 0 })
   const inputRef = useRef<HTMLInputElement>(null)
@@ -41,6 +42,15 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
 
   useEffect(() => dispose, [dispose])
 
+  // 大小写/整词都走 addon 原生选项，组件只负责把当前开关组合传下去。
+  // overrides 用于「刚点了开关、state 还没重渲染」时按新值立刻重搜
+  const searchOptions = (overrides: { caseSensitive?: boolean; wholeWord?: boolean } = {}) => ({
+    caseSensitive: overrides.caseSensitive ?? caseSensitive,
+    wholeWord: overrides.wholeWord ?? wholeWord,
+    decorations: SEARCH_DECORATIONS,
+    incremental: true,
+  })
+
   const search = (term: string, direction: 1 | -1 = 1) => {
     if (!addon) return
     if (!term) {
@@ -48,7 +58,7 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
       setResults({ index: -1, count: 0 })
       return
     }
-    const options = { caseSensitive, decorations: SEARCH_DECORATIONS, incremental: direction > 0 }
+    const options = { ...searchOptions(), incremental: direction > 0 }
     if (direction > 0) addon.findNext(term, options)
     else addon.findPrevious(term, options)
   }
@@ -122,16 +132,27 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
         onClick={() => {
           const next = !caseSensitive
           setCaseSensitive(next)
-          if (addon && query) {
-            const options = { caseSensitive: next, decorations: SEARCH_DECORATIONS, incremental: true }
-            addon.findNext(query, options)
-          }
+          if (addon && query) addon.findNext(query, searchOptions({ caseSensitive: next }))
         }}
         aria-pressed={caseSensitive}
         aria-label={t('terminalSearch.caseSensitive')}
         title={t('terminalSearch.caseSensitive')}
       >
         Aa
+      </Button>
+      <Button
+        variant={wholeWord ? 'accent' : 'ghost'}
+        size="icon-sm"
+        onClick={() => {
+          const next = !wholeWord
+          setWholeWord(next)
+          if (addon && query) addon.findNext(query, searchOptions({ wholeWord: next }))
+        }}
+        aria-pressed={wholeWord}
+        aria-label={t('terminalSearch.wholeWord')}
+        title={t('terminalSearch.wholeWord')}
+      >
+        W
       </Button>
       <div className="flex items-center gap-1">
         <Button
