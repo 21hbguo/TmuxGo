@@ -765,6 +765,11 @@ export const zh = {
   'shortcut.save': '保存',
 
   // PaneActions
+  'pane.taskPrompt': '任务号（留空解除绑定）',
+  'pane.taskAdd': '标记任务',
+  'pane.taskSaved': '已绑定 {task}',
+  'pane.taskCleared': '已解除任务绑定',
+  'pane.taskFailed': '任务号设置失败',
   'pane.taskTitle': '当前任务：{task}',
   'pane.splitH': '横向分割',
   'pane.splitV': '纵向分割',

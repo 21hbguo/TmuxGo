@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PaneGrid } from './PaneGrid'
 import { api } from '@/lib/api'
@@ -44,6 +44,17 @@ vi.mock('./TerminalPane', () => ({
     terminalProps.current = props
     return <button onClick={props.onReady}>{props.sessionName || 'empty-session'}</button>
   },
+}))
+const promptResult = vi.hoisted(() => ({ value: null as string | null }))
+const promptMock = vi.hoisted(() => vi.fn())
+vi.mock('@/hooks/usePrompt', () => ({
+  usePrompt: () => ({
+    prompt: (...args: unknown[]) => {
+      promptMock(...args)
+      return Promise.resolve(promptResult.value)
+    },
+    PromptElement: null,
+  }),
 }))
 vi.mock('@/hooks/useWebSocket', () => ({
   useWebSocket: () => ({
@@ -197,6 +208,66 @@ describe('PaneGrid switch HUD', () => {
     const chip = await screen.findByTestId('pane-task-chip')
     expect(chip.textContent).toBe('T-234')
     expect(chip.getAttribute('title')).toBe('当前任务：T-234')
+  })
+
+  it('edits the task through the badge and refreshes the snapshot afterwards', async () => {
+    windowsData.push({ id: 'local:@1', sessionId: 'session-dev1', active: true, name: 'dev' })
+    snapshotMockData.value = {
+      windows: [{ id: 'local:@1', zoomed: false }],
+      panes: [{ id: 'local:%1', windowId: 'local:@1', index: 0, title: 'left', task: 'T-234' }],
+      activeWindowId: 'local:@1',
+      activePaneId: 'local:%1',
+    }
+    const taskSpy = vi.spyOn(api.panes, 'task').mockResolvedValue({ ok: true, task: 'T-238' })
+    // 写后刷新走 api.snapshot.get（refreshSnapshot 的实现）
+    const snapshotSpy = vi
+      .spyOn(api.snapshot, 'get')
+      .mockResolvedValue({ windows: [], panes: [], activeWindowId: null, activePaneId: null } as never)
+    promptMock.mockClear()
+    promptResult.value = '  T-238  '
+
+    render(<PaneGrid />)
+    await waitFor(() => expect(terminalProps.current?.onSwipeLeft).toBeTruthy())
+    // 已有任务：点角标本身即入口，弹窗预填当前值
+    fireEvent.click(await screen.findByTestId('pane-task-chip'))
+    await waitFor(() => expect(promptMock).toHaveBeenCalled())
+    expect(promptMock.mock.calls[0][1]).toBe('T-234')
+    // 首尾空白在后端裁，前端也裁一遍再发，避免把空格写进 tmux option
+    await waitFor(() => expect(taskSpy).toHaveBeenCalledWith('local:%1', 'T-238'))
+    // 写完必须重取 snapshot，否则角标不会更新
+    expect(snapshotSpy).toHaveBeenCalled()
+  })
+
+  it('offers a task entry for panes without one and clears it with an empty value', async () => {
+    windowsData.push({ id: 'local:@1', sessionId: 'session-dev1', active: true, name: 'dev' })
+    snapshotMockData.value = {
+      windows: [{ id: 'local:@1', zoomed: false }],
+      panes: [{ id: 'local:%1', windowId: 'local:@1', index: 0, title: 'left' }],
+      activeWindowId: 'local:@1',
+      activePaneId: 'local:%1',
+    }
+    const taskSpy = vi.spyOn(api.panes, 'task').mockResolvedValue({ ok: true, task: null })
+    vi.spyOn(api.snapshot, 'get').mockResolvedValue({
+      windows: [],
+      panes: [],
+      activeWindowId: null,
+      activePaneId: null,
+    } as never)
+    promptResult.value = 'T-999'
+
+    render(<PaneGrid />)
+    await waitFor(() => expect(terminalProps.current?.onSwipeLeft).toBeTruthy())
+    // 无任务时也有入口（ghost 按钮，触屏常显见 [@media(hover:none)]），否则新 pane
+    // 永远没有第一次绑定的机会
+    fireEvent.click(await screen.findByTestId('pane-task-add'))
+    await waitFor(() => expect(taskSpy).toHaveBeenCalledWith('local:%1', 'T-999'))
+    expect(promptMock.mock.calls.at(-1)?.[1]).toBe('')
+
+    // 清除路径：提交空串（后端走 set-option -u）
+    taskSpy.mockResolvedValue({ ok: true, task: null })
+    promptResult.value = ''
+    fireEvent.click(screen.getByTestId('pane-task-add'))
+    await waitFor(() => expect(taskSpy).toHaveBeenLastCalledWith('local:%1', ''))
   })
 
   it('omits the task badge when the active pane has no task', async () => {

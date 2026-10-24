@@ -18,6 +18,7 @@ import { parseSessionName } from '@/lib/session-id'
 import { pickRecentSessionId } from '@/lib/recent-session'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
+import { usePrompt } from '@/hooks/usePrompt'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
 import { emitStreamEvent, subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { createTerminalSizeState, type TerminalSizeState } from '@/lib/terminal-size-state'
@@ -94,7 +95,8 @@ export function PaneGrid({
   const { sessionContinuity, upsertResumePoint } = useSessionContinuity()
   const isMobile = isMobileDevice()
   const queryClient = useOptionalQueryClient()
-  const { syncAfterWindowChange } = useSessionSnapshotSync()
+  const { syncAfterWindowChange, refreshSnapshot } = useSessionSnapshotSync()
+  const { prompt, PromptElement } = usePrompt()
   const pushToast = useConsoleStore((s) => s.pushToast)
   const setActiveSession = useConsoleStore((s) => s.setActiveSession)
   const setActivePane = useConsoleStore((s) => s.setActivePane)
@@ -117,6 +119,25 @@ export function PaneGrid({
     const panes = Array.isArray(snapshotData?.panes) ? snapshotData.panes : []
     return panes.find((pane) => pane.id === currentPaneId)?.task || ''
   }, [snapshotData, currentPaneId])
+  // 任务号只有当前 pane 能改：PaneGrid 就是当前 pane 的视图，跨 pane 改没有落点。
+  // 写后必须 refreshSnapshot——task 随 snapshot 下发，不重取角标不会变
+  const handleEditTask = async () => {
+    if (!currentPaneId) return
+    const value = await prompt(t('pane.taskPrompt'), currentPaneTask)
+    if (value === null) return
+    const trimmed = value.trim()
+    try {
+      const result = await api.panes.task(currentPaneId, trimmed)
+      if (!result.ok) throw new Error(result.error || t('pane.taskFailed'))
+      await refreshSnapshot()
+      pushToast({
+        type: 'success',
+        message: trimmed ? t('pane.taskSaved', { task: trimmed }) : t('pane.taskCleared'),
+      })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('pane.taskFailed') })
+    }
+  }
   const currentPaneIdRef = useRef('')
   currentPaneIdRef.current = currentPaneId
   // 所有 input 帧都带当前 pane：网关靠它决定这次击键要不要广播给组内其他成员
@@ -1481,18 +1502,41 @@ export function PaneGrid({
           </>
         )}
       </div>
-      {currentPaneTask && (
-        // 左上角小角标：HUD 在顶部居中且就绪态会收起，任务号得常驻可见，
-        // 所以单独定位；pointer-events-none 不挡终端首行输入
+      {/* 左上角小角标：HUD 在顶部居中且就绪态会收起，任务号得常驻可见，所以单独定位。
+          有任务时点角标即改；没任务时给一个极淡的小旗子入口——桌面和触屏都常显，
+          移动端因此也有一条可达路径（不依赖 hover） */}
+      {currentPaneId && (
         <div
-          data-testid="pane-task-chip"
-          title={t('pane.taskTitle', { task: currentPaneTask })}
           style={{ top: 'calc(0.25rem + env(safe-area-inset-top, 0px))' }}
-          className="pointer-events-none absolute left-1.5 z-20 max-w-[calc(100%-0.75rem)] truncate rounded border border-[var(--line)] bg-bg-2/90 px-1.5 py-0.5 text-caption text-text-3"
+          className="absolute left-1.5 z-20 max-w-[calc(100%-0.75rem)]"
         >
-          {currentPaneTask}
+          {currentPaneTask ? (
+            <button
+              type="button"
+              data-testid="pane-task-chip"
+              onClick={() => void handleEditTask()}
+              title={t('pane.taskTitle', { task: currentPaneTask })}
+              className="max-w-full truncate rounded border border-[var(--line)] bg-bg-2/90 px-1.5 py-0.5 text-caption text-text-3 transition-opacity hover:opacity-80"
+            >
+              {currentPaneTask}
+            </button>
+          ) : (
+            <button
+              type="button"
+              data-testid="pane-task-add"
+              onClick={() => void handleEditTask()}
+              aria-label={t('pane.taskAdd')}
+              title={t('pane.taskAdd')}
+              // 不做 opacity-0 隐形入口：看不见却拦截点击会让人以为终端左上角坏了，
+              // 改成极淡但可见的小旗子（hover 变亮），触屏同样可见
+              className="rounded px-1 py-0.5 text-caption text-text-3/40 transition-colors hover:bg-bg-2/90 hover:text-text-3 focus:text-text-3"
+            >
+              ⚑
+            </button>
+          )}
         </div>
       )}
+      {PromptElement}
       {displayPanes.active && <PaneNumberOverlay mode={displayPanes.mode} targets={displayPanes.targets} />}
       {isMobile && <SwitchHud payload={switchHud} />}
       <TerminalPane

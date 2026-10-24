@@ -772,6 +772,11 @@ export const en = {
   'shortcut.save': 'Save',
 
   // PaneActions
+  'pane.taskPrompt': 'Task id (empty clears the binding)',
+  'pane.taskAdd': 'Set task',
+  'pane.taskSaved': 'Bound {task}',
+  'pane.taskCleared': 'Task binding cleared',
+  'pane.taskFailed': 'Failed to set task',
   'pane.taskTitle': 'Current task: {task}',
   'pane.splitH': 'Split Horizontal',
   'pane.splitV': 'Split Vertical',
