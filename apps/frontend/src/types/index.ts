@@ -126,6 +126,8 @@ export interface Pane {
   agent?: string
   agentSessionId?: string
   agentStatus?: AgentStatus
+  // 用户在 pane 上绑定的任务号（tmux user-option @tmuxgo_task）；未绑定则无此字段
+  task?: string
   phase?: AgentPhase
   lastEvent?: AgentEvent
   source?: AgentSource

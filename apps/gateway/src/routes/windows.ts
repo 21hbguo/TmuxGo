@@ -106,7 +106,7 @@ async function getTmuxPanes(hostId: string, sessionName: string, windowIndex: nu
       '-t',
       `${sessionName}:${windowIndex}`,
       '-F',
-      '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}',
+      '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}|#{@tmuxgo_task}',
     ]),
     Promise.resolve(agentMonitor.getSessionStates(hostId, sessionName) || getSessionAgentPanes(hostId, sessionName)),
   ])
@@ -116,7 +116,7 @@ async function getTmuxPanes(hostId: string, sessionName: string, windowIndex: nu
     .split('\n')
     .filter(Boolean)
     .map((line) => {
-      const [id, windowId, index, title, active, width, height, left, top] = line.split('|')
+      const [id, windowId, index, title, active, width, height, left, top, task] = line.split('|')
       const paneId = `${hostId}:${id}`
       const agentState = agentByPane.get(paneId)
       return {
@@ -132,6 +132,8 @@ async function getTmuxPanes(hostId: string, sessionName: string, windowIndex: nu
           cols: parseInt(width, 10) || 80,
           rows: parseInt(height, 10) || 24,
         },
+        // 任务号是冷元数据（用户/工具写进 pane user-option），空即未绑定
+        ...(task ? { task } : {}),
         ...(agentState
           ? {
               agent: agentState.agent,
@@ -160,7 +162,7 @@ async function getTmuxSessionPanes(hostId: string, sessionName: string) {
       '-t',
       sessionName,
       '-F',
-      '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}|#{window_name}',
+      '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}|#{window_name}|#{@tmuxgo_task}',
     ]),
     Promise.resolve(agentMonitor.getSessionStates(hostId, sessionName) || getSessionAgentPanes(hostId, sessionName)),
   ])
@@ -170,7 +172,7 @@ async function getTmuxSessionPanes(hostId: string, sessionName: string) {
     .split('\n')
     .filter(Boolean)
     .map((line) => line.split('|'))
-    .map(([id, windowId, index, title, active, width, height, left, top, windowName]) => {
+    .map(([id, windowId, index, title, active, width, height, left, top, windowName, task]) => {
       const paneId = `${hostId}:${id}`
       const agentState = agentByPane.get(paneId)
       return {
@@ -184,6 +186,7 @@ async function getTmuxSessionPanes(hostId: string, sessionName: string) {
         top: parseInt(top, 10) || 0,
         size: { cols: parseInt(width, 10) || 80, rows: parseInt(height, 10) || 24 },
         windowName,
+        ...(task ? { task } : {}),
         ...(agentState
           ? {
               agent: agentState.agent,

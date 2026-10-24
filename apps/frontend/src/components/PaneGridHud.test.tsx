@@ -180,6 +180,42 @@ describe('PaneGrid switch HUD', () => {
     expect(screen.getByTestId('switch-hud-position').textContent).toContain('窗口 1/1')
   })
 
+  it('shows the task badge only for panes carrying a task binding', async () => {
+    windowsData.push({ id: 'local:@1', sessionId: 'session-dev1', active: true, name: 'dev' })
+    snapshotMockData.value = {
+      windows: [{ id: 'local:@1', zoomed: false }],
+      panes: [
+        { id: 'local:%1', windowId: 'local:@1', index: 0, title: 'left', task: 'T-234' },
+        { id: 'local:%2', windowId: 'local:@1', index: 1, title: 'mid' },
+      ],
+      activeWindowId: 'local:@1',
+      activePaneId: 'local:%1',
+    }
+    render(<PaneGrid />)
+    await waitFor(() => expect(terminalProps.current?.onSwipeLeft).toBeTruthy())
+    // 当前 pane 有绑定 → 角标显示任务号本身，title 带上完整文案
+    const chip = await screen.findByTestId('pane-task-chip')
+    expect(chip.textContent).toBe('T-234')
+    expect(chip.getAttribute('title')).toBe('当前任务：T-234')
+  })
+
+  it('omits the task badge when the active pane has no task', async () => {
+    windowsData.push({ id: 'local:@1', sessionId: 'session-dev1', active: true, name: 'dev' })
+    snapshotMockData.value = {
+      windows: [{ id: 'local:@1', zoomed: false }],
+      panes: [
+        { id: 'local:%1', windowId: 'local:@1', index: 0, title: 'left', task: 'T-234' },
+        { id: 'local:%2', windowId: 'local:@1', index: 1, title: 'mid' },
+      ],
+      activeWindowId: 'local:@1',
+      activePaneId: 'local:%2',
+    }
+    render(<PaneGrid />)
+    await waitFor(() => expect(terminalProps.current?.onSwipeLeft).toBeTruthy())
+    // 另一个 pane 有任务也不影响：角标只跟随当前 pane
+    expect(screen.queryByTestId('pane-task-chip')).toBeNull()
+  })
+
   it('renders no HUD on desktop swipes', async () => {
     const selectSpy = vi.spyOn(api.windows, 'select').mockResolvedValue({ ok: true, windows: [] })
     windowsData.push(

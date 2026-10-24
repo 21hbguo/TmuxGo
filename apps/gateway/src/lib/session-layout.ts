@@ -42,6 +42,8 @@ export interface SessionLayoutPaneRow {
   height?: number
   left?: number
   top?: number
+  // pane user-option 里的任务号；未绑定则不带
+  task?: string
 }
 export interface SessionLayoutWindowRows {
   name: string

@@ -765,6 +765,7 @@ export const zh = {
   'shortcut.save': '保存',
 
   // PaneActions
+  'pane.taskTitle': '当前任务：{task}',
   'pane.splitH': '横向分割',
   'pane.splitV': '纵向分割',
   'pane.fullscreen': '全屏',

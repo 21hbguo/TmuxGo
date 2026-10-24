@@ -969,6 +969,12 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ paneId }),
       }),
+    // 空 task = 解绑（后端走 set-option -u）
+    task: (paneId: string, task: string) =>
+      fetchApi<{ ok: boolean; paneId?: string; task?: string | null; error?: string }>('/api/panes/task', {
+        method: 'POST',
+        body: JSON.stringify({ paneId, task }),
+      }),
     selectionState: (paneId: string) =>
       fetchApi<{
         ok: boolean

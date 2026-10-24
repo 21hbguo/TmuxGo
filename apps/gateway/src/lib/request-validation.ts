@@ -55,6 +55,9 @@ export const paneCopySelectionBodySchema = paneIdBodySchema.extend({
   peek: z.boolean().optional(),
 })
 export const paneSplitBodySchema = paneIdBodySchema.extend({ direction: z.enum(['horizontal', 'vertical']) })
+// 任务号写进 pane 的 user-option：空串表示清除（走 set-option -u）。
+// 长度与字符集按「任务号 + 可能的前缀」留余量，不做格式校验——任务号体系由写方决定
+export const paneTaskBodySchema = paneIdBodySchema.extend({ task: z.string().max(120) })
 export const paneResizeBodySchema = paneIdBodySchema.extend({
   cols: z.number().finite().optional(),
   rows: z.number().finite().optional(),

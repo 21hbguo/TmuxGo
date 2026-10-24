@@ -112,6 +112,11 @@ export function PaneGrid({
   // 输入帧要带 paneId：网关靠它认出这一帧来自哪个成员 pane，缺省不广播。
   // 用 ref 取最新值，避免 handleInput 的依赖链随活动 pane 变化而重建
   const currentPaneId = String(snapshotData?.activePaneId || '')
+  // 任务号是冷元数据（pane user-option @tmuxgo_task 带出来的），随 snapshot 一起来
+  const currentPaneTask = useMemo(() => {
+    const panes = Array.isArray(snapshotData?.panes) ? snapshotData.panes : []
+    return panes.find((pane) => pane.id === currentPaneId)?.task || ''
+  }, [snapshotData, currentPaneId])
   const currentPaneIdRef = useRef('')
   currentPaneIdRef.current = currentPaneId
   // 所有 input 帧都带当前 pane：网关靠它决定这次击键要不要广播给组内其他成员
@@ -1476,6 +1481,18 @@ export function PaneGrid({
           </>
         )}
       </div>
+      {currentPaneTask && (
+        // 左上角小角标：HUD 在顶部居中且就绪态会收起，任务号得常驻可见，
+        // 所以单独定位；pointer-events-none 不挡终端首行输入
+        <div
+          data-testid="pane-task-chip"
+          title={t('pane.taskTitle', { task: currentPaneTask })}
+          style={{ top: 'calc(0.25rem + env(safe-area-inset-top, 0px))' }}
+          className="pointer-events-none absolute left-1.5 z-20 max-w-[calc(100%-0.75rem)] truncate rounded border border-[var(--line)] bg-bg-2/90 px-1.5 py-0.5 text-caption text-text-3"
+        >
+          {currentPaneTask}
+        </div>
+      )}
       {displayPanes.active && <PaneNumberOverlay mode={displayPanes.mode} targets={displayPanes.targets} />}
       {isMobile && <SwitchHud payload={switchHud} />}
       <TerminalPane

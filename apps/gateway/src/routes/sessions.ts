@@ -93,6 +93,8 @@ interface SessionThumbnailPane {
   top: number
   size: { cols: number; rows: number }
   data: string
+  // pane user-option 里的任务号；未绑定则不带该字段
+  task?: string
 }
 interface SessionThumbnail {
   id: string
@@ -192,7 +194,7 @@ async function getSessionThumbnails(hostId: string): Promise<SessionThumbnail[]>
     'list-panes',
     '-a',
     '-F',
-    '#{session_name}|#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{window_zoomed_flag}|#{pane_id}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}',
+    '#{session_name}|#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{window_zoomed_flag}|#{pane_id}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}|#{@tmuxgo_task}',
   ])
   const thumbnails = new Map<string, SessionThumbnail>()
   for (const session of sessions)
@@ -213,6 +215,7 @@ async function getSessionThumbnails(hostId: string): Promise<SessionThumbnail[]>
       height,
       left,
       top,
+      task,
     ] = line.split('|')
     if (windowActive !== '1' || !sessionByName.has(sessionName)) continue
     const thumbnail = thumbnails.get(sessionName)
@@ -232,6 +235,7 @@ async function getSessionThumbnails(hostId: string): Promise<SessionThumbnail[]>
       top: parseInt(top, 10) || 0,
       size: { cols: parseInt(width, 10) || 80, rows: parseInt(height, 10) || 24 },
       data: '',
+      ...(task ? { task } : {}),
     }
     thumbnail.panes.push(pane)
     captures.push({ pane, target: paneId })
@@ -558,11 +562,11 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       '-t',
       sessionName,
       '-F',
-      '#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}',
+      '#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}|#{@tmuxgo_task}',
     ])
     const panesByWindow = new Map<string, SessionLayoutPaneRow[]>()
     for (const line of panesOut.trim().split('\n').filter(Boolean)) {
-      const [windowIndex, paneIndex, cwd, command, width, height, left, top] = line.split('|')
+      const [windowIndex, paneIndex, cwd, command, width, height, left, top, task] = line.split('|')
       const rows = panesByWindow.get(windowIndex) || []
       rows.push({
         index: parseInt(paneIndex, 10) || 0,
@@ -572,6 +576,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
         height: parseInt(height, 10) || 0,
         left: parseInt(left, 10) || 0,
         top: parseInt(top, 10) || 0,
+        ...(task ? { task } : {}),
       })
       panesByWindow.set(windowIndex, rows)
     }
