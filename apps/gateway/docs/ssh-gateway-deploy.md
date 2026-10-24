@@ -92,7 +92,17 @@ TMUXGO_SSH_USER_MAP=admin=tmuxgo,alice=research
 每次 SSH attach 连接写入 `~/.tmuxgo/audit.ndjson`：
 
 ```json
-{"id":"...-ssh","action":"ssh-attach","user":"tmuxgo","target":"devbox/dev","result":"success","method":"SSH","statusCode":200,"hostId":"devbox","message":"mode=shared"}
+{
+  "id": "...-ssh",
+  "action": "ssh-attach",
+  "user": "tmuxgo",
+  "target": "devbox/dev",
+  "result": "success",
+  "method": "SSH",
+  "statusCode": 200,
+  "hostId": "devbox",
+  "message": "mode=shared"
+}
 ```
 
 校验或 attachment 失败会记录 `result: "failure"` 及错误信息。
