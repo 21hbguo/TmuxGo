@@ -8,6 +8,7 @@ import path from 'node:path'
 import test from 'node:test'
 import Fastify from 'fastify'
 import websocket from '@fastify/websocket'
+import { flushAuditWrites } from '../lib/audit-log.js'
 import { PASTE_BINARY_MAX_BYTES } from '../lib/stream/paste-binary.js'
 
 // src/ws.d.ts 只声明了 ws 的 WebSocket 接口（类型层），运行时类要显式取，
@@ -158,17 +159,20 @@ function readAudit(file: string): Frame[] {
   }
 }
 
-// appendAuditEvent 是 fire-and-forget：等到预期条数再断言。
-// 必须按条数等，不能"命中一条就返回"——合批并行跑时后到的行还写在路上，
-// 提前返回会让条数断言随机少一行（全量套里复现过）
+// appendAuditEvent 是 fire-and-forget：每次读盘前先 flush 在飞写入，再判断条数。
+// 只靠轮询是在赌磁盘延迟（慢盘/并行负载下会读到空文件）；flush 让等待有确定终点。
+// 仍按条数等而非"命中一条就返回"：服务端可能还没处理完后续消息。
 async function waitAudit(file: string, match: (event: Frame) => boolean, expected = 1, timeoutMs = 5000) {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
+  // 超时只衡量「没有在飞写入、行却还是不全」= 真有问题；慢盘（写入在飞）只延长等待
+  let idleSince = Date.now()
+  for (;;) {
+    const flushed = await flushAuditWrites()
     const hit = readAudit(file).filter(match)
     if (hit.length >= expected) return hit
+    if (flushed > 0) idleSince = Date.now()
+    else if (Date.now() - idleSince > timeoutMs) return hit
     await delay(15)
   }
-  return readAudit(file).filter(match)
 }
 
 function pasteFrame(header: string, payload: string | Buffer) {

@@ -6,6 +6,7 @@ import path from 'path'
 import Fastify from 'fastify'
 import test from 'node:test'
 import type { AgentSocket } from '../agent-manager.js'
+import { flushAuditWrites } from '../lib/audit-log.js'
 
 test('creates, exchanges, and revokes scoped share links without exposing tokens', async () => {
   const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-share-route-'))
@@ -50,6 +51,8 @@ test('creates, exchanges, and revokes scoped share links without exposing tokens
     assert.equal(exchanged.statusCode, 200)
     const exchange = exchanged.json() as Record<string, unknown>
     assert.deepEqual(Object.keys(exchange).sort(), ['expiresAt', 'expiresIn', 'hostId', 'sessionName', 'ticket'])
+    // 审计落盘是 fire-and-forget：先等在飞写入落地再读，别赌磁盘延迟
+    await flushAuditWrites()
     const audit = await readFile(auditPath, 'utf8')
     assert.equal(audit.includes(link.token), false)
     assert.equal(audit.includes('share.use'), true)

@@ -5,7 +5,7 @@ import os from 'os'
 import path from 'path'
 import Fastify from 'fastify'
 import test from 'node:test'
-import { readAuditEvents, recordAuditRequest } from '../lib/audit-log.js'
+import { flushAuditWrites, readAuditEvents, recordAuditRequest } from '../lib/audit-log.js'
 
 test('rejects anonymous session revocation and records authentication audit events', async (t) => {
   const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-auth-route-'))
@@ -102,6 +102,8 @@ test('rejects anonymous session revocation and records authentication audit even
     payload: { currentPassword: 'test-password', newPassword: 'changed-password' },
   })
   assert.equal(changed.statusCode, 200)
+  // 审计落盘是 fire-and-forget：先等在飞写入落地再读，别赌磁盘延迟
+  await flushAuditWrites()
   const events = await readAuditEvents()
   assert.equal(
     events.some((event) => event.action === 'post-auth-login' && event.result === 'failure'),
