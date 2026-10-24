@@ -856,6 +856,7 @@ export const zh = {
   'file.removeFavorite': '删收藏',
   'file.clearExpanded': '全部收起',
   'file.upToParent': '返回上一级',
+  'file.symlink': '符号链接',
   'file.clearSearch': '清空搜索',
   'editor.dropOpen': '松开打开文件',
   'editor.emptyArea': '暂无打开的文件，从文件区拖入或双击打开',

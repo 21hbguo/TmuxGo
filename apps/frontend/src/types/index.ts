@@ -260,6 +260,8 @@ export interface FileItem {
   size: number
   modifiedAt: string
   mode?: number
+  /** 目录项本身是符号链接（type/size 仍按目标给出）：界面只加角标，不改变点击/跟随语义 */
+  link?: boolean
 }
 export interface TrashEntry {
   id: string

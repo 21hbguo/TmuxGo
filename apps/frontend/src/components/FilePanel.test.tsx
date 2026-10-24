@@ -794,7 +794,8 @@ describe('FilePanel', () => {
     const back = { handled: false }
     window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-back', { detail: back }))
     expect(back.handled).toBe(true)
-    expect(await screen.findByText('docs')).toBeInTheDocument()
+    // 面包屑同样会渲染 'docs' 路径段：按行 tooltip（绝对路径 + 明细）定位列表行，避免与头部撞名字
+    expect(await screen.findByTitle(/^\/workspace\/docs /)).toHaveTextContent('docs')
   })
   it('keeps search query after switching root', async () => {
     localStorage.setItem(
@@ -1494,6 +1495,34 @@ describe('FilePanel', () => {
     ).toHaveLength(1)
     delayedSrcResolvers.splice(0).forEach((resolve) => resolve())
     await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+  })
+  it('marks symlinked entries with a link badge and explains it in the tooltip', async () => {
+    if (!roots.some((root) => root.id === 'root-large'))
+      roots.push({ id: 'root-large', label: 'Large', path: '/large' })
+    largeDirectoryItems = [
+      { name: 'data', path: 'data', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z', link: true },
+      { name: 'plain.txt', path: 'plain.txt', type: 'file', size: 4, modifiedAt: '2026-05-26T00:00:00.000Z' },
+    ]
+    render(React.createElement(FilePanel))
+    await chooseRoot('root-large')
+    // 链接项：行内一枚 ↗ 角标 + tooltip 说明；普通项不带角标
+    const linkedRow = await screen.findByTitle(/^\/large\/data /)
+    expect(within(linkedRow).getByRole('img', { name: 'file.symlink' })).toHaveTextContent('↗')
+    expect(linkedRow.getAttribute('title')).toContain('file.symlink')
+    const plainRow = screen.getByTitle(/^\/large\/plain\.txt /)
+    expect(within(plainRow).queryByRole('img', { name: 'file.symlink' })).toBeNull()
+  })
+  it('navigates with the header breadcrumbs instead of a separate parent row', async () => {
+    // 移动端列表点目录 = 进入目录（桌面树是原地展开），面包屑才有末段
+    render(React.createElement(FilePanel, { mode: 'mobile' }))
+    fireEvent.click(await screen.findByText('src'))
+    await waitFor(() => expect(document.querySelector('[aria-current="location"]')?.textContent).toBe('src'))
+    fireEvent.click(await screen.findByText('nested'))
+    await waitFor(() => expect(document.querySelector('[aria-current="location"]')?.textContent).toBe('nested'))
+    // 点中间段回上级目录：末段换成 src，列表回到 src 的条目
+    fireEvent.click(screen.getByRole('button', { name: 'src' }))
+    await waitFor(() => expect(document.querySelector('[aria-current="location"]')?.textContent).toBe('src'))
+    expect(await screen.findByText('index.ts')).toBeInTheDocument()
   })
   it('renders all large directory entries', async () => {
     roots.push({ id: 'root-large', label: 'Large', path: '/large' })

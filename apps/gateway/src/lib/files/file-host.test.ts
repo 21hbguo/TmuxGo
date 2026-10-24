@@ -38,6 +38,7 @@ interface FileItem {
   size: number
   modifiedAt: string
   mode?: number
+  link?: boolean
 }
 interface Listing {
   root: { id: string; label: string; path: string }
@@ -175,6 +176,13 @@ test('listDirectoryForHost lists real directories first with a 50-entry floor', 
   assert.equal(paged.items.length, 50)
   assert.equal(paged.totalCount, 55)
   assert.equal(paged.truncated, true)
+  // 链接标记：stat 跟随目标（link-out 仍是 directory），link 单独标出目录项本身是链接
+  const linkedEntry = rootListing.items.find((item) => item.name === 'link-out')
+  assert.ok(linkedEntry)
+  assert.equal(linkedEntry.type, 'directory')
+  assert.equal(linkedEntry.link, true)
+  assert.equal(docs.link, false)
+
   const nested = await host.listDirectoryForHost('local', 'root-0', 'docs')
   assert.deepEqual(
     nested.breadcrumbs.map((crumb) => crumb.path),
@@ -740,6 +748,16 @@ test('remote python script runs the same guards as the local implementation', as
   )
   assert.ok(escaped)
   assert.match(String(escaped.stderr), /Path escapes root/)
+
+  // 远端脚本同样标记链接项（file_item 用 os.path.islink，和本地 lstat 判定口径一致）
+  const remoteRoot = JSON.parse((await runRemoteScript({ op: 'list', root: 'root-0', path: '' })).stdout) as {
+    items: Array<{ name: string; type: string; link?: boolean }>
+  }
+  const remoteLink = remoteRoot.items.find((entry) => entry.name === 'link-out')
+  assert.ok(remoteLink)
+  assert.equal(remoteLink.type, 'directory')
+  assert.equal(remoteLink.link, true)
+  assert.equal(remoteRoot.items.find((entry) => entry.name === 'docs')?.link, false)
 
   // 与本地通道一致：根内符号链接原地跟随（远端 home 挂 /data 的目录要能点开）
   const linkedRemote = JSON.parse(
