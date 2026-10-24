@@ -48,6 +48,7 @@ npm run verify            # 全量：test + frontend test + e2e + build
 - **给共享模块加 export 时查 mock 陈旧**：别的测试文件的 `vi.mock('@/hooks/useApi')` 之类是手工枚举的，新增 hook/方法后那些 mock 会缺定义。改完跑 `grep -rl "vi.mock('被改模块'"` 确认无漏。
 - **超时是签名不是答案**：测试恰好卡在某个 poll 超时整数倍，先查等待条件再考虑加超时；run-tests.ts 有 per-file 超时兜底，别用更大超时掩盖「用例结束后进程不退出」（残留 interval/WS/子进程是清理 bug，要修实现）。
 - **环境依赖测试按错误形态分类，不一刀切 skip**：如浏览器「二进制在但起不来」（缺共享库）应识别错误内容后 skip 并打原因，其它错误照旧 fail——blanket skip 会掩盖真 bug。
+- **改 UI 前先看 e2e 与 UI 契约**：哪些 DOM/交互是断言锚点、改了要同步改哪个 spec，见 [`docs/e2e-ui-contract.md`](docs/e2e-ui-contract.md)；e2e 红了先按该页分类，别把「断言跟 UI 走」当成产品 bug 修。
 - **tmux 操作只碰 `test` session + 显式 socket**：`tmux -S <sock>` 且 `env -u TMUX`（`TMUX` 会让 CLI 忽略 TMUX_TMPDIR），禁止批量 kill-server。
 
 ## 不进仓库的内容
