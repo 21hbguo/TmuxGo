@@ -1,5 +1,5 @@
 'use client'
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { FiCpu, FiPlay, FiRefreshCw, FiSearch, FiX } from 'react-icons/fi'
 import { useTranslation } from '@/i18n'
@@ -12,6 +12,10 @@ import { FLEET_ATTENTION_MAX_RANK, fleetRank, type FleetGroup, type FleetRow as 
 import { AgentStatusBadge } from './AgentStatusBadge'
 import { AgentRecoveryBadge } from './AgentRecovery'
 import { Button } from './Button'
+import { EmptyState } from './EmptyState'
+import { FilterToggle } from './FilterToggle'
+import { PanelHeader } from './PanelHeader'
+import { StatusDot } from './StatusDot'
 
 // fleet 总览：跨 host 的扁平 agent 列表，一屏回答「谁在跑、谁卡住、卡了多久、我要不要介入」。
 // 数据全来自已存在的接口（docs/architecture/agent-observability-v2.md §3.2）：状态走
@@ -37,35 +41,6 @@ function rowTone(row: FleetRowData): keyof typeof ROW_TONE {
   if (row.status === 'done') return 'done'
   if (row.status === 'working') return 'working'
   return 'muted'
-}
-
-// 工具栏筛选钮：形状/尺寸/按下态语义统一由这里出，颜色只区分语义（需处理=danger，有任务=accent）
-function FilterToggle({
-  pressed,
-  tone,
-  onClick,
-  children,
-}: {
-  pressed: boolean
-  tone: 'danger' | 'accent'
-  onClick: () => void
-  children: ReactNode
-}) {
-  const pressedTone =
-    tone === 'danger' ? 'border-danger/40 bg-danger/10 text-danger' : 'border-accent/40 bg-accent/12 text-accent'
-  return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      onClick={onClick}
-      className={cn(
-        'h-7 shrink-0 rounded-apple border px-2 text-caption font-medium transition-colors',
-        pressed ? pressedTone : 'border-[var(--line)] bg-bg-2/45 text-text-3 hover:border-text-3/30 hover:text-text-1',
-      )}
-    >
-      {children}
-    </button>
-  )
 }
 
 function FleetToolbar({
@@ -193,10 +168,7 @@ function FleetGroupHeader({ group }: { group: FleetGroup }) {
   const online = group.status === 'online'
   return (
     <header className="sticky top-0 z-[1] flex h-8 items-center gap-2 border-b border-[var(--line)] bg-bg-0/85 px-3 backdrop-blur-md">
-      <span
-        aria-hidden="true"
-        className={cn('h-1.5 w-1.5 shrink-0 rounded-full', online ? 'bg-accent-2' : 'bg-text-3/50')}
-      />
+      <StatusDot tone={online ? 'success' : 'muted'} />
       <span className="min-w-0 truncate text-caption font-semibold tracking-wide text-text-1" title={group.hostName}>
         {group.hostName}
       </span>
@@ -312,20 +284,8 @@ function FleetRow({
   )
 }
 
-// 空态统一走「图标 + 主文案 + 副文案」：机队本来没 agent（装 hook 引导）与筛选后为空是两种意思，
-// 文案分开是刻意的（见 FleetPanel empty/degraded 测试）。
-function FleetEmptyState({ icon, title, hint }: { icon: ReactNode; title: string; hint?: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center px-6 py-10 text-center">
-      <span className="flex h-9 w-9 items-center justify-center rounded-apple border border-[var(--line)] bg-bg-2/50 text-text-3">
-        {icon}
-      </span>
-      <div className="mt-2.5 text-xs text-text-2">{title}</div>
-      {hint && <div className="mt-1 max-w-[36ch] text-caption leading-relaxed text-text-3">{hint}</div>}
-    </div>
-  )
-}
-
+// 空态：机队本来没 agent（装 hook 引导）与筛选后为空是两种意思，文案分开是刻意的
+//（见 FleetPanel empty/degraded 测试）。
 // 加载态用骨架行（固定 4 行）而不是一个「…」：首屏就有行的轮廓，数据到达时不跳版
 function FleetSkeleton() {
   const { t } = useTranslation()
@@ -424,9 +384,9 @@ export function FleetPanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobi
         fleet.total === 0 &&
         // 机器上根本没有 agent → 安装引导；有 agent 只是被筛掉 → 提示放宽条件
         (fleet.available === 0 ? (
-          <FleetEmptyState icon={<FiCpu size={15} />} title={t('fleet.empty')} hint={t('fleet.emptyHint')} />
+          <EmptyState icon={<FiCpu size={15} />} title={t('fleet.empty')} description={t('fleet.emptyHint')} />
         ) : (
-          <FleetEmptyState icon={<FiSearch size={15} />} title={t('fleet.noMatch')} hint={t('fleet.noMatchHint')} />
+          <EmptyState icon={<FiSearch size={15} />} title={t('fleet.noMatch')} description={t('fleet.noMatchHint')} />
         ))}
       {fleet.groups.map((group) => (
         <section key={group.hostId} aria-label={group.hostName}>
@@ -447,28 +407,13 @@ export function FleetPanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobi
     </div>
   )
   const header = (
-    <div className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--line)] px-3">
-      <span className="flex h-6 w-6 items-center justify-center rounded-apple bg-bg-2 text-accent">
-        <FiCpu size={13} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-xs font-medium text-text-1">{t('fleet.title')}</div>
-        {!compact && (
-          <div className="truncate text-caption text-text-3">{t('fleet.subtitle', { count: fleet.total })}</div>
-        )}
-      </div>
-      {onClose && (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onClose}
-          aria-label={t('common.close')}
-          title={t('common.close')}
-        >
-          <FiX size={15} />
-        </Button>
-      )}
-    </div>
+    <PanelHeader
+      icon={<FiCpu size={13} />}
+      title={t('fleet.title')}
+      subtitle={compact ? undefined : t('fleet.subtitle', { count: fleet.total })}
+      onClose={onClose}
+      closeLabel={t('common.close')}
+    />
   )
   const content = (
     <>

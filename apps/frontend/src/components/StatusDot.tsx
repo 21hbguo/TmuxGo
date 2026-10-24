@@ -37,6 +37,7 @@ export function StatusDot({ tone = 'muted', size = 'sm', pulse = false, label, c
       role={label ? 'status' : undefined}
       aria-label={label}
       aria-hidden={label ? undefined : 'true'}
+      title={label}
     />
   )
 }

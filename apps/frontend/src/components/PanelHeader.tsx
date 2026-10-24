@@ -14,10 +14,11 @@ interface PanelHeaderBase {
   className?: string
 }
 
-/** 有 onClose 必须给 closeLabel：原语不带文案表，i18n 只在面板侧 */
-type PanelHeaderClose = { onClose: () => void; closeLabel: string } | { onClose?: undefined; closeLabel?: undefined }
-
-export type PanelHeaderProps = PanelHeaderBase & PanelHeaderClose
+export interface PanelHeaderProps extends PanelHeaderBase {
+  /** 传了才渲染关闭钮；此时必须同时给 closeLabel（原语不带文案表，i18n 只在面板侧） */
+  onClose?: () => void
+  closeLabel?: string
+}
 
 /**
  * 面板标题栏：默认 h-11 px-3 gap-2，24px 图标块 + text-xs 主标题 + caption 副标题 + 右侧动作/关闭。

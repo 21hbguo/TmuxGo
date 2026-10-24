@@ -37,7 +37,9 @@ import { useModalLayer } from '@/hooks/useModalLayer'
 import { Button } from './Button'
 import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
+import { PanelHeader } from './PanelHeader'
 import { Select } from './Select'
+import { StatusDot } from './StatusDot'
 
 // sshconfig 来源主机带 gateway 透传的解析字段，共享 Host 类型未声明
 interface SshConfigHostFields {
@@ -52,8 +54,9 @@ function isHostOnline(host: Host) {
   return host.agent ? host.agent.online === true : host.status === 'online'
 }
 
-// 状态点走主题 token（accent-2/warn/danger）：原来写死 green/yellow 在浅色主题下发灰
-function StatusDot({ host }: { host: Host }) {
+// 状态点走主题 token（accent-2/warn/danger）：原来写死 green/yellow 在浅色主题下发灰。
+// host → tone/label 的映射留在消费点（StatusDot 原语不读业务类型）；online 补一圈弱光
+function HostStatusDot({ host }: { host: Host }) {
   const { t } = useTranslation()
   const isLocal = host.id === 'local'
   const online = isHostOnline(host)
@@ -64,13 +67,10 @@ function StatusDot({ host }: { host: Host }) {
       ? t('sshPanel.status.unknown')
       : t('sshPanel.status.offline')
   return (
-    <span
-      role="img"
-      aria-label={label}
-      title={label}
-      className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-        online ? 'bg-accent-2 shadow-[0_0_6px_rgb(var(--accent-2)/0.5)]' : unknown ? 'bg-warn' : 'bg-danger'
-      }`}
+    <StatusDot
+      tone={online ? 'success' : unknown ? 'warning' : 'danger'}
+      label={label}
+      className={online ? 'shadow-[0_0_6px_rgb(var(--accent-2)/0.5)]' : undefined}
     />
   )
 }
@@ -452,7 +452,7 @@ export function SshPanel() {
                           : 'border-transparent hover:bg-bg-2/55'
                       }`}
                     >
-                      <StatusDot host={host} />
+                      <HostStatusDot host={host} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1 truncate text-xs text-text-1">
                           <span className="truncate">{host.name || host.id}</span>
@@ -600,51 +600,46 @@ export function SshPanel() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-bg-1">
       <div className="shrink-0 border-b border-[var(--line)]">
-        {/* 统一 header：h-11 + 图标块 + 标题/副标题 + 右侧动作 */}
-        <div className="flex h-11 items-center gap-2 px-3">
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-apple bg-bg-2 text-accent">
-            <FiGlobe aria-hidden="true" size={13} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-xs font-medium text-text-1">{t('sshPanel.title')}</div>
-            <div className="truncate text-caption text-text-3">
-              {t('sshPanel.subtitle', { hosts: hosts.length, online: onlineHosts })}
+        <PanelHeader
+          icon={<FiGlobe aria-hidden="true" size={13} />}
+          title={t('sshPanel.title')}
+          subtitle={t('sshPanel.subtitle', { hosts: hosts.length, online: onlineHosts })}
+          actions={
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t('sshPanel.refresh')}
+                title={t('sshPanel.refresh')}
+                onClick={() => void refetchHosts()}
+              >
+                <FiRefreshCw aria-hidden="true" size={13} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t('sshPanel.openConfig')}
+                title={t('sshPanel.openConfig')}
+                onClick={openSshConfig}
+              >
+                <FiFileText aria-hidden="true" size={13} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t('sshPanel.jsonConfig')}
+                title={t('sshPanel.jsonConfig')}
+                onClick={openJsonConfig}
+              >
+                <FiCode aria-hidden="true" size={13} />
+              </Button>
+              <Button variant="accent" size="sm" onClick={openCreateHostDialog}>
+                <FiPlus aria-hidden="true" size={13} />
+                {t('sshPanel.newHost')}
+              </Button>
             </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={t('sshPanel.refresh')}
-              title={t('sshPanel.refresh')}
-              onClick={() => void refetchHosts()}
-            >
-              <FiRefreshCw aria-hidden="true" size={13} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={t('sshPanel.openConfig')}
-              title={t('sshPanel.openConfig')}
-              onClick={openSshConfig}
-            >
-              <FiFileText aria-hidden="true" size={13} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={t('sshPanel.jsonConfig')}
-              title={t('sshPanel.jsonConfig')}
-              onClick={openJsonConfig}
-            >
-              <FiCode aria-hidden="true" size={13} />
-            </Button>
-            <Button variant="accent" size="sm" onClick={openCreateHostDialog}>
-              <FiPlus aria-hidden="true" size={13} />
-              {t('sshPanel.newHost')}
-            </Button>
-          </div>
-        </div>
+          }
+        />
         {/* 快速添加收成 toolbar 行：与 Fleet/Inbox 的搜索行同高同边距 */}
         <div className="flex items-center gap-1.5 px-3 pb-2">
           <input

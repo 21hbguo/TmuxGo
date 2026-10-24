@@ -44,6 +44,7 @@ import {
   FiX,
 } from 'react-icons/fi'
 import { Button } from './Button'
+import { IconTile } from './IconTile'
 import { Select } from './Select'
 import { ConfirmDialog } from './ConfirmDialog'
 import { InboxPreview } from './InboxPreview'
@@ -455,9 +456,9 @@ export function InboxPanel({ mode, onClose, onPreview, onJump, onJumpToRoute }: 
           <span className="absolute left-1/2 top-2 h-1 w-10 -translate-x-1/2 rounded-full bg-text-3/30" />
         )}
         {/* header 语言与 Fleet/Endpoints 一致：24px 图标块 + 标题/副标题 + 右侧动作 */}
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-apple bg-bg-2 text-accent">
+        <IconTile>
           <FiInbox aria-hidden="true" size={13} />
-        </span>
+        </IconTile>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <h2 className="truncate text-xs font-medium text-text-1">{t('inbox.title')}</h2>
