@@ -34,6 +34,10 @@ Usage:
   tmuxgo-ctl panes wait-output --pane-id <host:%n> [--match <s>] [--regex]
                                 [--lines 1-200] [--timeout-ms 250-600000]
   tmuxgo-ctl panes run --pane-id <host:%n> --text <t> [--no-enter] [--allow-occupied]
+  tmuxgo-ctl panes send-keys <host:%n> <key>... [--allow-occupied]
+                                # 逻辑键名（Enter/Escape/BSpace/Tab/Space/Up/Down/
+                                #   Left/Right/Home/End/PPage/NPage/DC/IC/F1-F12/C-x/M-x/S-x）
+                                # 整组校验，任一非法则一个键都不发
   tmuxgo-ctl agent wait (--pane-id <host:%n> | --session <name> --agent <name>)
                         [--status idle|working|blocked|done|unknown] [--phase <p>]
                         [--last-event <e>] [--host-id <h>] [--timeout-ms 250-600000]
@@ -169,6 +173,20 @@ async function main() {
     if (doc.ok === false) finish(doc)
     writeSync(1, JSON.stringify(doc) + '\n')
     process.exit(0)
+  }
+  // send-keys 走位置参数（pane 在前、键名逐个在后）：键名是动作而不是文本，
+  // 用 --key 复数拼接既啰嗦又容易出现分隔符歧义；这是唯一不经过 parseFlags 的命令
+  if ((group === 'panes' || group === 'pane') && action === 'send-keys') {
+    requireEnv('panes send-keys')
+    const [paneArg, ...keyArgs] = argv
+    const keys = keyArgs.filter((key) => key !== '--allow-occupied')
+    const allowOccupied = keyArgs.includes('--allow-occupied')
+    if (typeof paneArg !== 'string' || !paneArg || paneArg.startsWith('--'))
+      failUsage('panes send-keys: usage is <pane-id> <key>... (e.g. local:%0 Escape C-c)')
+    if (!keys.length) failUsage('panes send-keys: at least one key name is required')
+    const body = { paneId: paneArg, keys }
+    if (allowOccupied) body.allowOccupied = true
+    finish(await post('/panes/send-keys', body))
   }
   const flags = parseFlags(argv)
   if (group === 'panes' && (action === 'split' || action === 'read' || action === 'snapshot')) {

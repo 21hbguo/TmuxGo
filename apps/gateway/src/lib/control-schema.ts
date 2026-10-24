@@ -14,6 +14,7 @@ import {
   controlInitializeBodySchema,
   controlReadBodySchema,
   controlRunBodySchema,
+  controlSendKeysBodySchema,
   controlSnapshotBodySchema,
   controlSplitBodySchema,
   controlWaitBodySchema,
@@ -113,6 +114,15 @@ const RESULT_SCHEMAS: Record<string, JsonSchema> = {
   'panes.run': {
     type: 'object',
     properties: { paneId: { type: 'string' }, target: { type: 'string' } },
+  },
+  'panes.send-keys': {
+    type: 'object',
+    properties: {
+      paneId: { type: 'string' },
+      target: { type: 'string' },
+      keys: { type: 'array', items: { type: 'string' }, description: 'Canonical tmux key names actually sent' },
+    },
+    required: ['paneId', 'target', 'keys'],
   },
   'agent.wait': {
     type: 'object',
@@ -231,6 +241,21 @@ export const CONTROL_METHODS: Record<string, ControlMethodDef> = {
     errors: [
       'AGENT_CONTROL_RUN_FAILED',
       'INVALID_INPUT',
+      'PANE_MISSING',
+      'PANE_DEAD',
+      'PANE_IN_MODE',
+      'PANE_OCCUPIED',
+      'PANE_UNKNOWN',
+      'INVALID_TARGET',
+    ],
+  },
+  'panes.send-keys': {
+    http: 'POST',
+    path: '/panes/send-keys',
+    params: controlSendKeysBodySchema,
+    errors: [
+      'AGENT_CONTROL_SEND_KEYS_FAILED',
+      'INVALID_KEY',
       'PANE_MISSING',
       'PANE_DEAD',
       'PANE_IN_MODE',

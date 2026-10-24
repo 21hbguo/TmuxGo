@@ -323,6 +323,35 @@ const TOOLS = [
       required: ['paneId', 'text'],
     },
   },
+  {
+    name: 'tmuxgo_pane_send_keys',
+    description:
+      'Send logical key presses (not text) to a validated pane: Enter/Escape/BSpace/Tab/Space/Up/Down/Left/Right/Home/End/PPage/NPage/DC/IC/F1-F12 plus C-x / M-x / S-x. Key names are canonicalized server-side against a closed allowlist and the whole list is validated before any byte is written, so an invalid name fails the request with INVALID_KEY and nothing is sent. Non-shell occupants require allowOccupied:true. Use tmuxgo_pane_run for literal text.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        paneId: {
+          type: 'string',
+          minLength: 3,
+          maxLength: 256,
+          description: 'Host-scoped pane id like local:%3 (required)',
+        },
+        keys: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 16,
+          items: { type: 'string', minLength: 1, maxLength: 32 },
+          description: 'Key names 1-16, e.g. ["Escape"] or ["C-c","Up","Enter"]',
+        },
+        allowOccupied: {
+          type: 'boolean',
+          default: false,
+          description: 'Confirm sending keys into a non-shell occupant',
+        },
+      },
+      required: ['paneId', 'keys'],
+    },
+  },
   // agent 编排三件套：body 形状与 control-protocol.ts 的 controlAgent{Start,Prompt}BodySchema /
   // controlWaitBodySchema 一一对应（tests/control-schema-contract.test.ts 断言约束值相等）
   {
@@ -720,6 +749,14 @@ async function handleToolCall(id, params) {
       paneId: args.paneId,
       text: args.text,
       enter: args.enter !== false,
+      allowOccupied: args.allowOccupied === true ? true : undefined,
+    })
+  } else if (name === 'tmuxgo_pane_send_keys') {
+    if (typeof args.paneId !== 'string' || !args.paneId) return toolResult(id, 'paneId is required', true)
+    if (!Array.isArray(args.keys) || !args.keys.length) return toolResult(id, 'keys must be a non-empty array', true)
+    result = await callGateway('/v1/control/panes/send-keys', {
+      paneId: args.paneId,
+      keys: args.keys,
       allowOccupied: args.allowOccupied === true ? true : undefined,
     })
   } else if (name === 'tmuxgo_agent_start' || name === 'tmuxgo_agent_prompt') {

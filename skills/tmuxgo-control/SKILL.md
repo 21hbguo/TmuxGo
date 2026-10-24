@@ -23,6 +23,7 @@ Base: `${GATEWAY_URL%/}/api/v1/control`
 tmuxgo-ctl panes split --pane-id "local:${TMUX_PANE}" --direction horizontal
 tmuxgo-ctl panes read --pane-id local:%1 --lines 200
 tmuxgo-ctl agent wait --session dev --agent codex --status blocked --timeout-ms 60000
+tmuxgo-ctl panes send-keys local:%1 Escape C-c
 ```
 
 ### Split a pane
@@ -43,6 +44,17 @@ curl -s -X POST "$BASE/panes/read" \
   -H "x-tmuxgo-agent-token: $TMUXGO_AGENT_EVENT_TOKEN" -H "x-tmuxgo-env: 1" \
   -H "Content-Type: application/json" \
   -d '{"paneId":"local:%1","lines":200}'
+```
+
+### Send keys to a pane
+
+Key names are actions, not text: `Enter` / `Escape` / `BSpace` / `Tab` / `Space` / `Up` / `Down` / `Left` / `Right` / `Home` / `End` / `PPage` / `NPage` / `DC` / `IC` / `F1`-`F12` plus `C-x` / `M-x` / `S-x` (single letter or digit). The whole list is validated before any byte is written, so one bad name fails the request with `INVALID_KEY` and nothing is sent. Use `panes/run` for literal text.
+
+```bash
+curl -s -X POST "$BASE/panes/send-keys" \
+  -H "x-tmuxgo-agent-token: $TMUXGO_AGENT_EVENT_TOKEN" -H "x-tmuxgo-env: 1" \
+  -H "Content-Type: application/json" \
+  -d '{"paneId":"local:%1","keys":["Escape"]}'
 ```
 
 ### Wait for an agent

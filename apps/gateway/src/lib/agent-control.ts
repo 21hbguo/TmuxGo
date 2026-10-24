@@ -4,6 +4,7 @@ import { agentMonitor, type AgentMonitorEvent } from './agent-monitor.js'
 import { inspectRecoveryPane, type RecoveryPaneInspection } from './agent-recovery.js'
 import { getHostAgentPanes, type AgentPaneState } from './agent-state.js'
 import { execTmux } from './tmux-executor.js'
+import { canonicalKeyList } from './tmux-keys.js'
 
 export type AgentWaitTarget = { paneId: string } | { sessionName: string; agent: string }
 export interface AgentWaitCondition {
@@ -37,10 +38,15 @@ export class AgentWaitError extends Error {
     | 'PANE_OCCUPIED'
     | 'INVALID_INPUT'
     | 'INVALID_PATTERN'
+    | 'INVALID_KEY'
     | 'CLIENT_DISCONNECTED'
-  constructor(code: AgentWaitError['code'], message: string) {
+  // invalid：结构化失败明细（目前只有 send-keys 的非法键名用），路由直接透给调用方，
+  // 免得从 message 里回解析
+  readonly invalid?: string[]
+  constructor(code: AgentWaitError['code'], message: string, invalid?: string[]) {
     super(message)
     this.code = code
+    this.invalid = invalid
     this.name = 'AgentWaitError'
   }
 }
@@ -492,19 +498,15 @@ export interface RunAgentPaneInputOptions {
   exec?: TmuxExecFn
   inspect?: PaneInspectFn
 }
-// 最小安全语义：复用 recovery 的 pane 占用检查（同一份 occupant 语义），
-// 只向非 dead/非 mode 的 pane 送字面按键；非 shell occupant 需显式 allowOccupied。
-// 输入经 send-keys -l 字面模式 + 独立 Enter 分两次下发（recovery 同款：
-// %0 pane-id 解析 bug 用坐标 target 规避）
-export async function runAgentPaneInput(
+// 送输入前的统一门禁（run 与 send-keys 共用，避免两条通路对同一 pane 给出不同判定）：
+// 复用 recovery 的 pane 占用检查（同一份 occupant 语义），只向非 dead/非 mode 的 pane
+// 写字节；非 shell occupant 需显式 allowOccupied。返回可直接下发的 tmux target
+// （recovery 同款：%0 pane-id 解析 bug 用坐标 target 规避）。
+async function resolvePaneInputTarget(
   hostId: string,
   tmuxPaneId: string,
-  options: RunAgentPaneInputOptions,
-): Promise<{ ok: true; paneId: string; target: string }> {
-  const text = options.text || ''
-  if (!text || text.length > 4096 || hasUnsafeRunChar(text))
-    throw new AgentWaitError('INVALID_INPUT', 'run text must be 1-4096 printable characters without control codes')
-  const exec = options.exec || ((h, a, o) => execTmux(h, a, o).then((r) => ({ stdout: r.stdout })))
+  options: { allowOccupied?: boolean; inspect?: PaneInspectFn },
+): Promise<string> {
   const inspect = options.inspect || ((h, p) => inspectRecoveryPane(h, p))
   const inspection = await inspect(hostId, tmuxPaneId)
   if (inspection.state === 'missing') throw new AgentWaitError('PANE_MISSING', `Pane ${tmuxPaneId} does not exist`)
@@ -517,8 +519,49 @@ export async function runAgentPaneInput(
       'PANE_OCCUPIED',
       `Pane ${tmuxPaneId} is occupied by ${inspection.command || 'another process'}; set allowOccupied to confirm`,
     )
-  const target = inspection.target || tmuxPaneId
+  return inspection.target || tmuxPaneId
+}
+export async function runAgentPaneInput(
+  hostId: string,
+  tmuxPaneId: string,
+  options: RunAgentPaneInputOptions,
+): Promise<{ ok: true; paneId: string; target: string }> {
+  const text = options.text || ''
+  if (!text || text.length > 4096 || hasUnsafeRunChar(text))
+    throw new AgentWaitError('INVALID_INPUT', 'run text must be 1-4096 printable characters without control codes')
+  const exec = options.exec || ((h, a, o) => execTmux(h, a, o).then((r) => ({ stdout: r.stdout })))
+  const target = await resolvePaneInputTarget(hostId, tmuxPaneId, options)
   await exec(hostId, ['send-keys', '-l', '-t', target, text], { timeoutMs: 8000 })
   if (options.enter !== false) await exec(hostId, ['send-keys', '-t', target, 'Enter'], { timeoutMs: 8000 })
   return { ok: true as const, paneId: `${hostId}:${tmuxPaneId}`, target }
+}
+
+export interface SendKeysToPaneOptions {
+  keys: string[]
+  allowOccupied?: boolean
+  exec?: TmuxExecFn
+  inspect?: PaneInspectFn
+}
+// 逻辑键名下发：与 run 的区别是这组参数按 tmux key-name 解析（不是字面文本），
+// 所以必须走白名单规范化的键；一次 send-keys 带全部键，键间不做 shell 拼接。
+export async function sendKeysToPane(
+  hostId: string,
+  tmuxPaneId: string,
+  options: SendKeysToPaneOptions,
+): Promise<{ ok: true; paneId: string; target: string; keys: string[] }> {
+  // 先校验键名再碰 pane：非法键不该因为 pane 恰好不存在而被报成 PANE_MISSING，
+  // 调用方要能一眼看出是自己拼错了键名。
+  const validated = canonicalKeyList(options.keys)
+  if (!validated.ok)
+    throw new AgentWaitError(
+      'INVALID_KEY',
+      validated.invalid.length
+        ? `Unsupported key name(s): ${validated.invalid.join(', ')}`
+        : 'keys must be a non-empty array of key names',
+      validated.invalid,
+    )
+  const exec = options.exec || ((h, a, o) => execTmux(h, a, o).then((r) => ({ stdout: r.stdout })))
+  const target = await resolvePaneInputTarget(hostId, tmuxPaneId, options)
+  await exec(hostId, ['send-keys', '-t', target, ...validated.keys], { timeoutMs: 8000 })
+  return { ok: true as const, paneId: `${hostId}:${tmuxPaneId}`, target, keys: validated.keys }
 }
