@@ -30,6 +30,7 @@ export const CONTROL_CAPABILITIES = [
   'panes.wait-output',
   'panes.run',
   'agent.wait',
+  'agent.explain',
   'agent.start',
   'agent.prompt',
   'agent.cancel',
@@ -55,6 +56,12 @@ export const controlReadBodySchema = z.object({
 export const controlSnapshotBodySchema = z.object({
   paneId: paneIdSchema,
   lines: z.number().int().min(1).max(100).optional(),
+})
+
+// agent explain：只读解释一次判定链（来源/命中的 rule/fallback 原因），
+// 不读写 pane 状态、不参与 monitor 轮询，因此没有超时/信号字段
+export const controlExplainBodySchema = z.object({
+  paneId: paneIdSchema,
 })
 
 // wait-output：服务端持有轮询 tail。match 缺省 = 等任意输出变化；
@@ -253,6 +260,7 @@ export const CONTROL_ERROR_CODES = [
   'AGENT_CONTROL_SNAPSHOT_FAILED',
   'AGENT_CONTROL_WAIT_OUTPUT_FAILED',
   'AGENT_CONTROL_RUN_FAILED',
+  'AGENT_CONTROL_EXPLAIN_FAILED',
   'INVALID_INPUT',
   'INVALID_PATTERN',
   'AGENT_CONTROL_START_FAILED',

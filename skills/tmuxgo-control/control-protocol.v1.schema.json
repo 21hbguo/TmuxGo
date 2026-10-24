@@ -3,7 +3,9 @@
   "$id": "tmuxgo-agent-control/v1",
   "title": "TmuxGo Agent Control Protocol",
   "protocolVersion": "v1",
-  "supportedVersions": ["v1"],
+  "supportedVersions": [
+    "v1"
+  ],
   "basePath": "/api/v1/control",
   "transport": {
     "method": "POST",
@@ -43,6 +45,7 @@
     "panes.wait-output",
     "panes.run",
     "agent.wait",
+    "agent.explain",
     "agent.start",
     "agent.prompt",
     "agent.cancel",
@@ -75,7 +78,9 @@
           },
           "protocolVersion": {
             "type": "string",
-            "enum": ["v1"]
+            "enum": [
+              "v1"
+            ]
           },
           "supportedVersions": {
             "type": "array",
@@ -96,6 +101,7 @@
                 "panes.wait-output",
                 "panes.run",
                 "agent.wait",
+                "agent.explain",
                 "agent.start",
                 "agent.prompt",
                 "agent.cancel",
@@ -107,7 +113,12 @@
             }
           }
         },
-        "required": ["ok", "protocolVersion", "supportedVersions", "capabilities"]
+        "required": [
+          "ok",
+          "protocolVersion",
+          "supportedVersions",
+          "capabilities"
+        ]
       },
       "errors": [
         "AGENT_CONTROL_INITIALIZE_FAILED",
@@ -127,9 +138,14 @@
             "const": true
           }
         },
-        "required": ["ok"]
+        "required": [
+          "ok"
+        ]
       },
-      "errors": ["AGENT_CONTROL_AUTH_REQUIRED", "TMUXGO_ENV_GUARD"]
+      "errors": [
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
     },
     "panes.split": {
       "http": "POST",
@@ -145,14 +161,19 @@
           "direction": {
             "default": "horizontal",
             "type": "string",
-            "enum": ["horizontal", "vertical"]
+            "enum": [
+              "horizontal",
+              "vertical"
+            ]
           },
           "cwd": {
             "type": "string",
             "maxLength": 4096
           }
         },
-        "required": ["paneId"],
+        "required": [
+          "paneId"
+        ],
         "additionalProperties": true
       },
       "result": {
@@ -164,10 +185,14 @@
           },
           "paneId": {
             "type": "string",
-            "examples": ["local:%0"]
+            "examples": [
+              "local:%0"
+            ]
           }
         },
-        "required": ["ok"]
+        "required": [
+          "ok"
+        ]
       },
       "errors": [
         "AGENT_CONTROL_SPLIT_FAILED",
@@ -195,7 +220,9 @@
             "maximum": 2000
           }
         },
-        "required": ["paneId"],
+        "required": [
+          "paneId"
+        ],
         "additionalProperties": true
       },
       "result": {
@@ -212,7 +239,11 @@
             "type": "string"
           }
         },
-        "required": ["ok", "paneId", "output"]
+        "required": [
+          "ok",
+          "paneId",
+          "output"
+        ]
       },
       "errors": [
         "AGENT_CONTROL_READ_FAILED",
@@ -240,7 +271,9 @@
             "maximum": 100
           }
         },
-        "required": ["paneId"],
+        "required": [
+          "paneId"
+        ],
         "additionalProperties": true
       },
       "result": {
@@ -258,7 +291,11 @@
             "description": "Non-sensitive pane state: command/title/cwd/dead/inMode/active/size plus a bounded tail. No env vars, tokens or unbounded history."
           }
         },
-        "required": ["ok", "paneId", "snapshot"]
+        "required": [
+          "ok",
+          "paneId",
+          "snapshot"
+        ]
       },
       "errors": [
         "AGENT_CONTROL_SNAPSHOT_FAILED",
@@ -302,7 +339,9 @@
             "maximum": 600000
           }
         },
-        "required": ["paneId"],
+        "required": [
+          "paneId"
+        ],
         "additionalProperties": true
       },
       "result": {
@@ -329,7 +368,9 @@
             "description": "Capped recent tail"
           }
         },
-        "required": ["ok"]
+        "required": [
+          "ok"
+        ]
       },
       "errors": [
         "AGENT_CONTROL_WAIT_OUTPUT_FAILED",
@@ -370,7 +411,10 @@
             "type": "boolean"
           }
         },
-        "required": ["paneId", "text"],
+        "required": [
+          "paneId",
+          "text"
+        ],
         "additionalProperties": true
       },
       "result": {
@@ -387,7 +431,9 @@
             "type": "string"
           }
         },
-        "required": ["ok"]
+        "required": [
+          "ok"
+        ]
       },
       "errors": [
         "AGENT_CONTROL_RUN_FAILED",
@@ -424,7 +470,9 @@
                     "maxLength": 256
                   }
                 },
-                "required": ["paneId"],
+                "required": [
+                  "paneId"
+                ],
                 "additionalProperties": true
               },
               {
@@ -441,7 +489,10 @@
                     "maxLength": 64
                   }
                 },
-                "required": ["sessionName", "agent"],
+                "required": [
+                  "sessionName",
+                  "agent"
+                ],
                 "additionalProperties": true
               }
             ]
@@ -451,7 +502,13 @@
             "properties": {
               "status": {
                 "type": "string",
-                "enum": ["idle", "working", "blocked", "done", "unknown"]
+                "enum": [
+                  "idle",
+                  "working",
+                  "blocked",
+                  "done",
+                  "unknown"
+                ]
               },
               "phase": {
                 "type": "string",
@@ -485,13 +542,19 @@
             "additionalProperties": true,
             "anyOf": [
               {
-                "required": ["status"]
+                "required": [
+                  "status"
+                ]
               },
               {
-                "required": ["phase"]
+                "required": [
+                  "phase"
+                ]
               },
               {
-                "required": ["lastEvent"]
+                "required": [
+                  "lastEvent"
+                ]
               }
             ]
           },
@@ -501,7 +564,10 @@
             "maximum": 600000
           }
         },
-        "required": ["target", "condition"],
+        "required": [
+          "target",
+          "condition"
+        ],
         "additionalProperties": true
       },
       "result": {
@@ -522,13 +588,237 @@
             "description": "AgentPaneState at the moment the condition was met"
           }
         },
-        "required": ["ok"]
+        "required": [
+          "ok"
+        ]
       },
       "errors": [
         "AGENT_CONTROL_WAIT_FAILED",
         "OCCUPANT_CHANGED",
         "PANE_REMOVED",
         "TIMEOUT",
+        "INVALID_TARGET",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
+    },
+    "agent.explain": {
+      "http": "POST",
+      "path": "/agent/explain",
+      "params": {
+        "type": "object",
+        "properties": {
+          "paneId": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "paneId"
+        ],
+        "additionalProperties": true
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "paneId": {
+            "type": "string"
+          },
+          "tmuxPaneId": {
+            "type": "string"
+          },
+          "sessionName": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "object",
+            "description": "Detected agent plus which link of the chain produced it",
+            "properties": {
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "process",
+                  "command",
+                  "screen",
+                  "none"
+                ]
+              },
+              "evidence": {
+                "type": "string",
+                "description": "Static label, never terminal content"
+              }
+            }
+          },
+          "state": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Null when no agent evidence was found",
+            "properties": {
+              "agentStatus": {
+                "type": "string",
+                "enum": [
+                  "idle",
+                  "working",
+                  "blocked",
+                  "done",
+                  "unknown"
+                ]
+              },
+              "phase": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "confidence": {
+                "type": "string",
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          },
+          "screen": {
+            "type": "object",
+            "properties": {
+              "manifest": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "bundled",
+                      "override"
+                    ]
+                  },
+                  "version": {
+                    "type": "string"
+                  },
+                  "file": {
+                    "type": "string"
+                  },
+                  "ruleCount": {
+                    "type": "integer"
+                  }
+                }
+              },
+              "rule": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "priority": {
+                    "type": "integer"
+                  },
+                  "state": {
+                    "type": "string"
+                  },
+                  "phase": {
+                    "type": "string"
+                  },
+                  "region": {
+                    "type": "string"
+                  }
+                }
+              },
+              "miss": {
+                "type": "string",
+                "description": "Why no manifest rule matched"
+              }
+            }
+          },
+          "fallback": {
+            "type": "object",
+            "properties": {
+              "used": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "used",
+              "reason"
+            ]
+          },
+          "process": {
+            "type": "object",
+            "properties": {
+              "scanned": {
+                "type": "boolean"
+              },
+              "agent": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "command": {
+                "type": "string"
+              }
+            }
+          },
+          "capture": {
+            "type": "object",
+            "properties": {
+              "lines": {
+                "type": "integer"
+              },
+              "commandRunning": {
+                "type": "boolean"
+              },
+              "paneDead": {
+                "type": "boolean"
+              },
+              "osc133": {
+                "type": "string"
+              }
+            }
+          },
+          "capturedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok",
+          "paneId",
+          "agent",
+          "fallback",
+          "capturedAt"
+        ]
+      },
+      "errors": [
+        "AGENT_CONTROL_EXPLAIN_FAILED",
+        "PANE_MISSING",
         "INVALID_TARGET",
         "AGENT_CONTROL_AUTH_REQUIRED",
         "TMUXGO_ENV_GUARD"
@@ -547,7 +837,10 @@
           },
           "provider": {
             "type": "string",
-            "enum": ["claude", "codex"]
+            "enum": [
+              "claude",
+              "codex"
+            ]
           },
           "args": {
             "maxItems": 8,
@@ -567,7 +860,10 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
           }
         },
-        "required": ["paneId", "provider"],
+        "required": [
+          "paneId",
+          "provider"
+        ],
         "additionalProperties": true
       },
       "result": {
@@ -588,7 +884,11 @@
             "description": "AgentPaneState when acked=true"
           }
         },
-        "required": ["ok", "opId", "acked"]
+        "required": [
+          "ok",
+          "opId",
+          "acked"
+        ]
       },
       "errors": [
         "AGENT_CONTROL_START_FAILED",
@@ -634,7 +934,10 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
           }
         },
-        "required": ["paneId", "prompt"],
+        "required": [
+          "paneId",
+          "prompt"
+        ],
         "additionalProperties": true
       },
       "result": {
@@ -651,7 +954,11 @@
             "type": "boolean"
           }
         },
-        "required": ["ok", "opId", "acked"]
+        "required": [
+          "ok",
+          "opId",
+          "acked"
+        ]
       },
       "errors": [
         "AGENT_CONTROL_PROMPT_FAILED",
@@ -682,7 +989,9 @@
             "maxLength": 128
           }
         },
-        "required": ["opId"],
+        "required": [
+          "opId"
+        ],
         "additionalProperties": true
       },
       "result": {
@@ -697,12 +1006,24 @@
           },
           "state": {
             "type": "string",
-            "enum": ["cancelled", "already_settled", "not_found"]
+            "enum": [
+              "cancelled",
+              "already_settled",
+              "not_found"
+            ]
           }
         },
-        "required": ["ok", "opId", "state"]
+        "required": [
+          "ok",
+          "opId",
+          "state"
+        ]
       },
-      "errors": ["AGENT_CONTROL_CANCEL_FAILED", "AGENT_CONTROL_AUTH_REQUIRED", "TMUXGO_ENV_GUARD"]
+      "errors": [
+        "AGENT_CONTROL_CANCEL_FAILED",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
     },
     "push": {
       "http": "POST",
@@ -712,7 +1033,13 @@
         "properties": {
           "type": {
             "type": "string",
-            "enum": ["text", "image", "video", "file", "link"]
+            "enum": [
+              "text",
+              "image",
+              "video",
+              "file",
+              "link"
+            ]
           },
           "title": {
             "type": "string",
@@ -795,7 +1122,9 @@
             "maximum": 2592000000
           }
         },
-        "required": ["type"],
+        "required": [
+          "type"
+        ],
         "additionalProperties": true
       },
       "result": {
@@ -819,7 +1148,13 @@
           },
           "type": {
             "type": "string",
-            "enum": ["text", "image", "video", "file", "link"]
+            "enum": [
+              "text",
+              "image",
+              "video",
+              "file",
+              "link"
+            ]
           },
           "name": {
             "type": "string"
@@ -840,9 +1175,20 @@
             "type": "integer"
           }
         },
-        "required": ["ok", "messageId", "createdAt", "type", "revision"]
+        "required": [
+          "ok",
+          "messageId",
+          "createdAt",
+          "type",
+          "revision"
+        ]
       },
-      "errors": ["AGENT_PUSH_FAILED", "INVALID_TARGET", "AGENT_CONTROL_AUTH_REQUIRED", "TMUXGO_ENV_GUARD"]
+      "errors": [
+        "AGENT_PUSH_FAILED",
+        "INVALID_TARGET",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
     },
     "open-target": {
       "http": "POST",
@@ -887,9 +1233,16 @@
             "const": true
           }
         },
-        "required": ["ok"]
+        "required": [
+          "ok"
+        ]
       },
-      "errors": ["AGENT_OPEN_TARGET_FAILED", "INVALID_TARGET", "AGENT_CONTROL_AUTH_REQUIRED", "TMUXGO_ENV_GUARD"]
+      "errors": [
+        "AGENT_OPEN_TARGET_FAILED",
+        "INVALID_TARGET",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
     },
     "inbox": {
       "http": "POST",
@@ -929,7 +1282,9 @@
             "const": true
           }
         },
-        "required": ["ok"]
+        "required": [
+          "ok"
+        ]
       },
       "errors": [
         "AGENT_INBOX_QUERY_FAILED",
@@ -951,7 +1306,9 @@
                 "const": "status"
               }
             },
-            "required": ["op"],
+            "required": [
+              "op"
+            ],
             "additionalProperties": true
           },
           {
@@ -962,7 +1319,9 @@
                 "const": "launch"
               }
             },
-            "required": ["op"],
+            "required": [
+              "op"
+            ],
             "additionalProperties": true
           },
           {
@@ -973,7 +1332,9 @@
                 "const": "stop"
               }
             },
-            "required": ["op"],
+            "required": [
+              "op"
+            ],
             "additionalProperties": true
           },
           {
@@ -993,7 +1354,10 @@
                 "maxLength": 256
               }
             },
-            "required": ["op", "url"],
+            "required": [
+              "op",
+              "url"
+            ],
             "additionalProperties": true
           },
           {
@@ -1008,7 +1372,9 @@
                 "maxLength": 256
               }
             },
-            "required": ["op"],
+            "required": [
+              "op"
+            ],
             "additionalProperties": true
           },
           {
@@ -1023,7 +1389,9 @@
                 "maxLength": 256
               }
             },
-            "required": ["op"],
+            "required": [
+              "op"
+            ],
             "additionalProperties": true
           },
           {
@@ -1038,7 +1406,9 @@
                 "maxLength": 256
               }
             },
-            "required": ["op"],
+            "required": [
+              "op"
+            ],
             "additionalProperties": true
           },
           {
@@ -1053,7 +1423,9 @@
                 "maxLength": 256
               }
             },
-            "required": ["op"],
+            "required": [
+              "op"
+            ],
             "additionalProperties": true
           },
           {
@@ -1072,7 +1444,10 @@
                 "maxLength": 256
               }
             },
-            "required": ["op", "ref"],
+            "required": [
+              "op",
+              "ref"
+            ],
             "additionalProperties": true
           },
           {
@@ -1095,7 +1470,11 @@
                 "maxLength": 256
               }
             },
-            "required": ["op", "ref", "text"],
+            "required": [
+              "op",
+              "ref",
+              "text"
+            ],
             "additionalProperties": true
           },
           {
@@ -1114,7 +1493,10 @@
                 "maxLength": 256
               }
             },
-            "required": ["op", "key"],
+            "required": [
+              "op",
+              "key"
+            ],
             "additionalProperties": true
           },
           {
@@ -1137,7 +1519,9 @@
                 "maxLength": 256
               }
             },
-            "required": ["op"],
+            "required": [
+              "op"
+            ],
             "additionalProperties": true
           },
           {
@@ -1152,7 +1536,9 @@
                 "maxLength": 256
               }
             },
-            "required": ["op"],
+            "required": [
+              "op"
+            ],
             "additionalProperties": true
           },
           {
@@ -1172,7 +1558,10 @@
                 "maxLength": 256
               }
             },
-            "required": ["op", "expression"],
+            "required": [
+              "op",
+              "expression"
+            ],
             "additionalProperties": true
           },
           {
@@ -1192,7 +1581,9 @@
                 "maximum": 120000
               }
             },
-            "required": ["op"],
+            "required": [
+              "op"
+            ],
             "additionalProperties": true
           },
           {
@@ -1207,7 +1598,9 @@
                 "maxLength": 256
               }
             },
-            "required": ["op"],
+            "required": [
+              "op"
+            ],
             "additionalProperties": true
           },
           {
@@ -1218,7 +1611,9 @@
                 "const": "tabs"
               }
             },
-            "required": ["op"],
+            "required": [
+              "op"
+            ],
             "additionalProperties": true
           },
           {
@@ -1234,7 +1629,10 @@
                 "maxLength": 4096
               }
             },
-            "required": ["op", "url"],
+            "required": [
+              "op",
+              "url"
+            ],
             "additionalProperties": true
           },
           {
@@ -1250,7 +1648,10 @@
                 "maxLength": 256
               }
             },
-            "required": ["op", "targetId"],
+            "required": [
+              "op",
+              "targetId"
+            ],
             "additionalProperties": true
           },
           {
@@ -1266,7 +1667,10 @@
                 "maxLength": 256
               }
             },
-            "required": ["op", "targetId"],
+            "required": [
+              "op",
+              "targetId"
+            ],
             "additionalProperties": true
           }
         ]
@@ -1279,9 +1683,16 @@
             "const": true
           }
         },
-        "required": ["ok"]
+        "required": [
+          "ok"
+        ]
       },
-      "errors": ["BROWSER_BAD_OP", "BROWSER_OP_FAILED", "AGENT_CONTROL_AUTH_REQUIRED", "TMUXGO_ENV_GUARD"]
+      "errors": [
+        "BROWSER_BAD_OP",
+        "BROWSER_OP_FAILED",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
     }
   },
   "errorCodes": [
@@ -1293,6 +1704,7 @@
     "AGENT_CONTROL_SNAPSHOT_FAILED",
     "AGENT_CONTROL_WAIT_OUTPUT_FAILED",
     "AGENT_CONTROL_RUN_FAILED",
+    "AGENT_CONTROL_EXPLAIN_FAILED",
     "INVALID_INPUT",
     "INVALID_PATTERN",
     "AGENT_CONTROL_START_FAILED",
@@ -1341,6 +1753,7 @@
           "AGENT_CONTROL_SNAPSHOT_FAILED",
           "AGENT_CONTROL_WAIT_OUTPUT_FAILED",
           "AGENT_CONTROL_RUN_FAILED",
+          "AGENT_CONTROL_EXPLAIN_FAILED",
           "INVALID_INPUT",
           "INVALID_PATTERN",
           "AGENT_CONTROL_START_FAILED",
@@ -1377,6 +1790,9 @@
         "description": "Human-readable only; not part of the contract"
       }
     },
-    "required": ["code", "message"]
+    "required": [
+      "code",
+      "message"
+    ]
   }
 }

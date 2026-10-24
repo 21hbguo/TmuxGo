@@ -11,7 +11,7 @@ import {
   type TmuxAgentHookName,
 } from './tmux-hooks.js'
 import { getHostById, type HostRecord } from './hosts.js'
-import { matchAgentScreenRule, type ScreenRule } from './agent-screen-rules.js'
+import { matchAgentScreenRule, type ScreenRule, type ScreenRuleTrace } from './agent-screen-rules.js'
 
 export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown'
 export type AgentPhase =
@@ -122,6 +122,14 @@ interface AgentDetection {
   confidence: AgentConfidence
   message?: string
 }
+// explain 轨迹：热路径（updateRecord/scan）不传，判定函数在缺省时零分配。
+// agent.evidence / *Reason 都是固定标签，绝不回显终端内容（explain 是对外可观测输出）
+export interface AgentExplainTrace {
+  agent?: { name: string | null; source: 'process' | 'command' | 'screen' | 'none'; evidence?: string }
+  screen?: ScreenRuleTrace
+  statusReason?: string
+  phaseReason?: string
+}
 const records = new Map<string, AgentRecord>()
 const scans = new Map<string, { expiresAt: number; promise: Promise<AgentPaneState[]> }>()
 let nextRevision = Date.now()
@@ -169,31 +177,48 @@ export function detectProcessAgent(command: string) {
   if (indirectCommands.has(executable) && script && directAgents[script]) return directAgents[script]
   return null
 }
-function detectAgent(currentCommand: string, title: string, output: string, processAgent?: string | null) {
-  if (processAgent !== undefined) return processAgent
+function detectAgent(
+  currentCommand: string,
+  title: string,
+  output: string,
+  processAgent?: string | null,
+  trace?: AgentExplainTrace,
+) {
+  // 命中即记来源：process（进程树）> command（pane_current_command）> screen（词面启发式）
+  const hit = (name: string | null, evidence: string, source: 'process' | 'command' | 'screen') => {
+    if (trace) trace.agent = { name, source: name ? source : 'none', evidence }
+    return name
+  }
+  if (processAgent !== undefined) return hit(processAgent, 'process tree under pane pid', 'process')
   const command = normalizeCommand(currentCommand)
-  if (directAgents[command]) return directAgents[command]
+  if (directAgents[command]) return hit(directAgents[command], `pane_current_command=${command}`, 'command')
   const text = `${title}\n${output}`
   if (/gpt-[\w.-]+\s+(?:low|medium|high|xhigh)\s+·/i.test(text) || /Use \/skills to list available skills/i.test(text))
-    return 'codex'
+    return hit('codex', 'codex statusline / skills hint', 'screen')
   if (
     indirectCommands.has(command) &&
     ((spinnerPattern.test(title) && workingPattern.test(output)) || blockedPattern.test(text))
   )
-    return 'codex'
-  if (/Claude Code|Bypassing Permissions|shift\+tab to cycle mode/i.test(text)) return 'claude'
-  if (/OpenCode/i.test(text)) return 'opencode'
-  if (/Gemini CLI/i.test(text)) return 'gemini'
-  if (/Aider v?[\d.]+|aider chat/i.test(text)) return 'aider'
-  if (/Kimi Code/i.test(text)) return 'kimi'
-  return null
+    return hit('codex', 'interpreter + spinner/blocked prompt', 'screen')
+  if (/Claude Code|Bypassing Permissions|shift\+tab to cycle mode/i.test(text))
+    return hit('claude', 'claude chrome text', 'screen')
+  if (/OpenCode/i.test(text)) return hit('opencode', 'opencode chrome text', 'screen')
+  if (/Gemini CLI/i.test(text)) return hit('gemini', 'gemini chrome text', 'screen')
+  if (/Aider v?[\d.]+|aider chat/i.test(text)) return hit('aider', 'aider banner', 'screen')
+  if (/Kimi Code/i.test(text)) return hit('kimi', 'kimi banner', 'screen')
+  return hit(null, 'no process/command/screen evidence', 'screen')
 }
-function detectRawStatus(title: string, output: string): AgentStatus {
+function detectRawStatus(title: string, output: string, trace?: AgentExplainTrace): AgentStatus {
   const recent = getVisibleTerminalLines(output).slice(-16).join('\n')
   const visible = `${title}\n${recent}`
-  if (blockedPattern.test(visible)) return 'blocked'
-  if (spinnerPattern.test(title) || spinnerPattern.test(recent) || workingPattern.test(recent)) return 'working'
-  return 'idle'
+  const result = (value: AgentStatus, reason: string) => {
+    if (trace) trace.statusReason = reason
+    return value
+  }
+  if (blockedPattern.test(visible)) return result('blocked', 'generic:blocked-pattern')
+  if (spinnerPattern.test(title) || spinnerPattern.test(recent) || workingPattern.test(recent))
+    return result('working', 'generic:working-signals')
+  return result('idle', 'default:idle')
 }
 function detectRawPhase(
   candidate: PaneCandidate,
@@ -201,7 +226,12 @@ function detectRawPhase(
   output: string,
   processAgent?: string | null,
   ruleHit?: ScreenRule | null,
+  trace?: AgentExplainTrace,
 ) {
+  // 分支理由只写标签：explain 要回答「为什么是这个相位」，不能把屏幕内容带出去
+  const note = (reason: string) => {
+    if (trace) trace.phaseReason = reason
+  }
   const recent = getVisibleTerminalLines(output).slice(-16).join('\n')
   const visible = title + '\n' + recent
   const command = normalizeCommand(candidate.currentCommand)
@@ -218,49 +248,67 @@ function detectRawPhase(
           : 'pane_output'
   const confidence: AgentConfidence =
     hook || osc133 || processAgent !== undefined || directAgents[command] ? 'medium' : 'low'
-  if (candidate.paneDead)
+  if (candidate.paneDead) {
+    note('pane-dead')
     return {
       phase: 'ended' as const,
       source: 'tmux' as const,
       confidence: 'high' as const,
       message: 'Agent process ended',
     }
-  if (hook?.event === 'pane-exited' || hook?.event === 'pane-died')
+  }
+  if (hook?.event === 'pane-exited' || hook?.event === 'pane-died') {
+    note(`hook:${hook.event}`)
     return {
       phase: 'ended' as const,
       source: 'hook' as const,
       confidence: 'high' as const,
       message: 'Agent process ended',
     }
+  }
   // per-agent 屏幕规则（herdr manifest 移植）优先于通用词面：词面按各家 TUI 抠过
-  if (ruleHit)
+  if (ruleHit) {
+    note(`screen-rule:${ruleHit.id}`)
     return {
       phase: ruleHit.state === 'blocked' ? (ruleHit.phase ?? 'permission_required') : ruleHit.state,
       source,
       confidence: 'medium' as const,
       message: ruleHit.state === 'blocked' ? 'Agent is waiting for input' : undefined,
     }
-  if (permissionPattern.test(visible))
+  }
+  if (permissionPattern.test(visible)) {
+    note('generic:permission-pattern')
     return { phase: 'permission_required' as const, source, confidence, message: 'Agent is waiting for permission' }
-  if (questionPattern.test(visible))
+  }
+  if (questionPattern.test(visible)) {
+    note('generic:question-pattern')
     return { phase: 'needs_input' as const, source, confidence, message: 'Agent is waiting for input' }
-  if (retryPattern.test(visible))
+  }
+  if (retryPattern.test(visible)) {
+    note('generic:retry-pattern')
     return { phase: 'retrying' as const, source, confidence, message: 'Agent is retrying' }
+  }
   if (hook?.event === 'pane-command-finished' || osc133?.type === 'command_finished') {
     const status = Number(hook?.commandStatus || osc133?.status || 0)
-    if (status > 0) return { phase: 'failed' as const, source, confidence, message: 'Agent reported a failure' }
+    if (status > 0) {
+      note('command-finished:non-zero')
+      return { phase: 'failed' as const, source, confidence, message: 'Agent reported a failure' }
+    }
+    note('command-finished:zero')
     return { phase: 'idle' as const, source, confidence }
   }
   if (
     failurePattern.test(visible) ||
     (!candidate.commandRunning && /^\d+$/.test(candidate.commandStatus) && Number(candidate.commandStatus) > 0)
-  )
+  ) {
+    note(candidate.commandStatus ? 'tmux:command-status' : 'generic:failure-pattern')
     return {
       phase: 'failed' as const,
       source: candidate.commandStatus ? ('tmux' as const) : source,
       confidence: candidate.commandStatus ? ('medium' as const) : confidence,
       message: 'Agent reported a failure',
     }
+  }
   if (
     hook?.event === 'pane-command-started' ||
     osc133?.type === 'command_started' ||
@@ -269,8 +317,11 @@ function detectRawPhase(
     spinnerPattern.test(recent) ||
     workingPattern.test(recent) ||
     candidate.commandRunning
-  )
+  ) {
+    note('generic:working-signals')
     return { phase: 'working' as const, source, confidence }
+  }
+  note('default:idle')
   return { phase: 'idle' as const, source, confidence }
 }
 function toLegacyStatus(phase: AgentPhase, completed: boolean): AgentStatus {
@@ -304,10 +355,14 @@ function detectAgentObservation(
   candidate: PaneCandidate,
   output: string,
   processAgent?: string | null,
+  trace?: AgentExplainTrace,
 ): AgentDetection | null {
-  const agent = detectAgent(candidate.currentCommand, candidate.title, output, processAgent)
+  const agent = detectAgent(candidate.currentCommand, candidate.title, output, processAgent, trace)
   if (!agent) return null
-  const ruleHit = matchAgentScreenRule(agent, candidate.title, output)
+  if (trace) {
+    trace.screen = { manifest: null, rule: null }
+  }
+  const ruleHit = matchAgentScreenRule(agent, candidate.title, output, trace?.screen)
   // 规则命中时 status 与 phase 同源（都出自 manifest 词面）；未命中回退通用正则
   const agentStatus = ruleHit
     ? ruleHit.state === 'idle'
@@ -315,17 +370,13 @@ function detectAgentObservation(
       : ruleHit.state === 'working'
         ? ('working' as const)
         : ('blocked' as const)
-    : detectRawStatus(candidate.title, output)
-  const raw = detectRawPhase(candidate, candidate.title, output, processAgent, ruleHit)
+    : detectRawStatus(candidate.title, output, trace)
+  const raw = detectRawPhase(candidate, candidate.title, output, processAgent, ruleHit, trace)
   return { agent, agentStatus, ...raw }
 }
-export function detectAgentEvidence(
-  currentCommand: string,
-  title: string,
-  output: string,
-  processAgent?: string | null,
-) {
-  const candidate: PaneCandidate = {
+// 单测/调试用的假 candidate：只喂判定相关字段，tmux 元数据留空
+function evidenceCandidate(currentCommand: string, title: string): PaneCandidate {
+  return {
     paneId: 'test:%0',
     tmuxPaneId: '%0',
     panePid: '',
@@ -340,7 +391,26 @@ export function detectAgentEvidence(
     commandStatus: '',
     commandDuration: '',
   }
-  return detectAgentObservation(candidate, output, processAgent)
+}
+export function detectAgentEvidence(
+  currentCommand: string,
+  title: string,
+  output: string,
+  processAgent?: string | null,
+) {
+  return detectAgentObservation(evidenceCandidate(currentCommand, title), output, processAgent)
+}
+// 与 detectAgentEvidence 同构，额外回传判定轨迹：explain 的单元测试与本地排查都用它，
+// 免得为了看 trace 去起 tmux
+export function explainAgentEvidence(
+  currentCommand: string,
+  title: string,
+  output: string,
+  processAgent?: string | null,
+) {
+  const trace: AgentExplainTrace = {}
+  const detected = detectAgentObservation(evidenceCandidate(currentCommand, title), output, processAgent, trace)
+  return { detected, trace }
 }
 export function detectAgentPaneState(
   currentCommand: string,
@@ -711,6 +781,103 @@ export function _setAgentPaneRecordForTest(state: AgentPaneState) {
     lastOutputTime: '',
     paneDead: false,
   })
+}
+// ---------------------------------------------------------------------------
+// agent explain：按需重算的判定解释（herdr `agent explain` 对位实现）。
+// 刻意不进 detect/monitor 热路径——explain 自己抓一次屏、跑一遍带 trace 的判定，
+// 因此不会给每轮轮询加任何序列化成本；反过来，解释结果反映的是调用时刻的屏幕，
+// 与记录里的状态可能不同（记录是增量捕获 + done 粘性），report 里如实标注即可。
+// ---------------------------------------------------------------------------
+export type AgentExplainErrorCode = 'PANE_MISSING' | 'PANE_CAPTURE_FAILED'
+export class AgentExplainError extends Error {
+  readonly code: AgentExplainErrorCode
+  constructor(code: AgentExplainErrorCode, message: string) {
+    super(message)
+    this.code = code
+    this.name = 'AgentExplainError'
+  }
+}
+export interface AgentExplainResult {
+  paneId: string
+  tmuxPaneId: string
+  sessionName: string
+  // 判定来源链：进程树 > pane_current_command > 屏幕词面
+  agent: { name: string | null; source: 'process' | 'command' | 'screen' | 'none'; evidence?: string }
+  state: {
+    agentStatus: AgentStatus
+    phase: AgentPhase
+    source: AgentSource
+    confidence: AgentConfidence
+    message?: string
+  } | null
+  // 命中的 manifest（bundled 带版本，override 带文件路径）与规则；未命中时 miss 给出原因
+  screen: ScreenRuleTrace
+  // fallback=true 表示状态不是由 manifest 规则定出来的，而是通用词面/进程信号
+  fallback: { used: boolean; reason: string }
+  process: { scanned: boolean; agent: string | null; command: string }
+  capture: { lines: number; commandRunning: boolean; paneDead: boolean; osc133?: string }
+  capturedAt: string
+}
+async function readPaneCandidate(hostId: string, tmuxPaneId: string): Promise<PaneCandidate> {
+  const { stdout } = await execTmux(hostId, ['list-panes', '-a', '-F', paneListFormat])
+  const candidate = parsePaneCandidates(hostId, stdout, undefined, []).find((item) => item.tmuxPaneId === tmuxPaneId)
+  if (!candidate) throw new AgentExplainError('PANE_MISSING', `Pane ${tmuxPaneId} is not listed on host ${hostId}`)
+  return candidate
+}
+export async function explainAgentPane(hostId: string, tmuxPaneId: string): Promise<AgentExplainResult> {
+  const candidate = await readPaneCandidate(hostId, tmuxPaneId)
+  let output: string
+  try {
+    const result = await execTmux(hostId, ['capture-pane', '-e', '-p', '-t', tmuxPaneId, '-S', '-80'], {
+      timeoutMs: 2000,
+    })
+    output = result.stdout
+  } catch (error) {
+    throw new AgentExplainError(
+      'PANE_CAPTURE_FAILED',
+      `Unable to capture pane ${tmuxPaneId}: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+  candidate.osc133Event = parseOsc133Events(output).at(-1)
+  // 进程扫描失败（ps 报错）与「扫了但没有 agent」语义不同：前者 fallback 原因如实写出来
+  const processAgents = await getProcessAgents(hostId, [candidate])
+  const processAgent = processAgents ? processAgents.get(candidate.panePid) : undefined
+  const trace: AgentExplainTrace = {}
+  const detected = detectAgentObservation(candidate, output, processAgent, trace)
+  const rule = trace.screen?.rule ?? null
+  const reason =
+    (rule ? `manifest rule ${rule.id} (priority ${rule.priority})` : trace.screen?.miss) ||
+    (processAgents === null ? 'process scan failed; screen heuristics only' : trace.phaseReason) ||
+    'no evidence'
+  return {
+    paneId: candidate.paneId,
+    tmuxPaneId: candidate.tmuxPaneId,
+    sessionName: candidate.sessionName,
+    agent: trace.agent ?? { name: null, source: 'none' },
+    state: detected
+      ? {
+          agentStatus: detected.agentStatus,
+          phase: detected.phase,
+          source: detected.source,
+          confidence: detected.confidence,
+          message: detected.message,
+        }
+      : null,
+    screen: trace.screen ?? { manifest: null, rule: null },
+    fallback: { used: !rule, reason },
+    process: {
+      scanned: processAgents !== null,
+      agent: processAgent ?? null,
+      command: candidate.currentCommand,
+    },
+    capture: {
+      lines: getVisibleTerminalLines(output).length,
+      commandRunning: candidate.commandRunning,
+      paneDead: candidate.paneDead,
+      osc133: candidate.osc133Event?.type,
+    },
+    capturedAt: new Date().toISOString(),
+  }
 }
 export function summarizeAgentPanes(states: AgentPaneState[]) {
   return states.reduce(

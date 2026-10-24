@@ -7,6 +7,23 @@ import { getVisibleTerminalLines } from './terminal-output.js'
 // 只看 pane 底部可见区域（live bottom），命中即定状态；比全局正则精度高且可逐家补充。
 // 词面来源：herdr distribution/agent-detection/*.toml（kimi/devin/opencode）。
 export type ScreenRuleState = 'idle' | 'working' | 'blocked'
+// explain 用的判定轨迹：只在显式传入 trace 时填充，热路径（detect/monitor）不实例化。
+// manifest 版本分两段：bundled 词面源自 herdr distribution 的版本号，本地追加规则时递增 tmuxgo 段
+export const BUNDLED_MANIFEST_VERSION = 'herdr-0.9.5+tmuxgo.1'
+export interface ScreenRuleManifestInfo {
+  name: string
+  source: 'bundled' | 'override'
+  version: string
+  // override 才有：用户的 agent-detection/<name>.toml
+  file?: string
+  ruleCount: number
+}
+export interface ScreenRuleTrace {
+  manifest: ScreenRuleManifestInfo | null
+  rule: { id: string; priority: number; state: ScreenRuleState; phase?: string; region?: string } | null
+  // 未命中原因（无 manifest / manifest 有规则但全不匹配），fallback 分支的解释来源
+  miss?: string
+}
 interface RawClause {
   contains?: string[]
   any?: RawClause[]
@@ -430,17 +447,44 @@ function overrideManifests() {
   }
   return next
 }
-export function matchAgentScreenRule(agent: string, title: string, output: string): ScreenRule | null {
+export function matchAgentScreenRule(
+  agent: string,
+  title: string,
+  output: string,
+  trace?: ScreenRuleTrace,
+): ScreenRule | null {
   const id = ruleAliases[agent] ?? agent
   const overrides = overrideManifests()
   // 查找序：本名 override > 别名 override > 本名 bundled > 别名 bundled
-  const rules = overrides.get(agent) ?? overrides.get(id) ?? manifests[agent] ?? manifests[id]
+  const overrideName = overrides.has(agent) ? agent : overrides.has(id) ? id : null
+  const bundledName = manifests[agent] ? agent : manifests[id] ? id : null
+  const rules = overrideName ? overrides.get(overrideName) : bundledName ? manifests[bundledName] : undefined
+  if (trace) {
+    trace.rule = null
+    trace.manifest = rules
+      ? {
+          name: (overrideName ?? bundledName) as string,
+          source: overrideName ? 'override' : 'bundled',
+          // override 文件没有版本字段：本地改动以文件为权威来源，版本位只标明「非 bundled」
+          version: overrideName ? 'custom' : BUNDLED_MANIFEST_VERSION,
+          ...(overrideName ? { file: path.join(agentDetectionDir(), `${overrideName}.toml`) } : {}),
+          ruleCount: rules.length,
+        }
+      : null
+    if (!rules) trace.miss = `no detection manifest for agent "${agent}"`
+  }
   if (!rules) return null
   const visible = getVisibleTerminalLines(output)
   const nonEmpty = visible.filter((line) => line.trim())
   for (const rule of rules) {
     const { text, lines } = resolveRegion(rule.region, title, visible, nonEmpty)
-    if (clauseMatches(rule, text, lines)) return rule
+    if (clauseMatches(rule, text, lines)) {
+      if (trace)
+        trace.rule = { id: rule.id, priority: rule.priority, state: rule.state, phase: rule.phase, region: rule.region }
+      return rule
+    }
   }
+  if (trace && trace.manifest)
+    trace.miss = `no rule matched in ${trace.manifest.source} manifest "${trace.manifest.name}"`
   return null
 }

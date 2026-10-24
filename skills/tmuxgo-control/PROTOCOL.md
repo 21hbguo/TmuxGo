@@ -61,6 +61,7 @@ capability = 方法名（`initialize`/`schema`/`panes.*`/`agent.*`/`push`/`open-
 | 400  | `PROVIDER_NOT_SUPPORTED`                                                                                                                                                                     | `provider` 不在 allowlist（仅 `claude`/`codex`）                                                                     |
 | 400  | `AGENT_CONTROL_SEND_FAILED`                                                                                                                                                                  | `send-keys` 下发失败（tmux 错误透传于 message）                                                                      |
 | 400  | `AGENT_CONTROL_START_FAILED` / `AGENT_CONTROL_PROMPT_FAILED` / `AGENT_CONTROL_CANCEL_FAILED`                                                                                                 | 对应端点 body zod 校验失败或未归类下游失败                                                                           |
+| 400  | `AGENT_CONTROL_EXPLAIN_FAILED`                                                                                                                                                               | `agent/explain` body 校验失败或抓屏失败（pane 不存在另走 409 `PANE_MISSING`）                                        |
 | 400  | `AGENT_CONTROL_INITIALIZE_FAILED`                                                                                                                                                            | `initialize` body zod 校验失败（如 protocolVersion 非字符串）                                                        |
 | 400  | `UNSUPPORTED_PROTOCOL_VERSION`                                                                                                                                                               | `initialize` 声明了不在支持列表的协议版本（响应附 `supportedVersions`）                                              |
 
@@ -199,6 +200,48 @@ Semantics:
 Response on success: `{ "ok": true, "waitId": "...", "elapsedMs": 123, "pane": { ...AgentPaneState } }`
 
 Errors: HTTP 409 with `code` in `OCCUPANT_CHANGED | PANE_REMOVED | TIMEOUT | INVALID_TARGET`.
+
+### POST /agent/explain
+
+一次性的判定链解释（herdr `agent explain` 对位）：抓当前屏幕、按判定顺序重算一遍，回答「这条 pane 为什么是这个状态」。只读，不写 pane 记录、不订阅 monitor。
+
+```json
+{ "paneId": "local:%1" }
+```
+
+Response:
+
+```json
+{
+  "ok": true,
+  "paneId": "local:%1",
+  "tmuxPaneId": "%1",
+  "sessionName": "dev",
+  "agent": { "name": "claude", "source": "process", "evidence": "process tree under pane pid" },
+  "state": { "agentStatus": "blocked", "phase": "permission_required", "source": "process", "confidence": "medium" },
+  "screen": {
+    "manifest": { "name": "claude", "source": "bundled", "version": "herdr-0.9.5+tmuxgo.1", "ruleCount": 6 },
+    "rule": {
+      "id": "approval_dialog",
+      "priority": 400,
+      "state": "blocked",
+      "phase": "permission_required",
+      "region": "whole_recent"
+    }
+  },
+  "fallback": { "used": false, "reason": "manifest rule approval_dialog (priority 400)" },
+  "process": { "scanned": true, "agent": "claude", "command": "claude" },
+  "capture": { "lines": 24, "commandRunning": true, "paneDead": false, "osc133": "command_started" },
+  "capturedAt": "2026-10-25T02:00:00.000Z"
+}
+```
+
+- `agent.source`：`process`（进程树）> `command`（`pane_current_command`）> `screen`（词面启发式）> `none`。
+- `screen.manifest`：命中的判定清单。`bundled` 带版本号，`override` 带 `file`（`$TMUXGO_CONFIG_DIR/agent-detection/<agent>.toml`）且 `version` 为 `custom`。
+- `screen.rule`：命中的规则（id/priority/state/phase/region）；未命中为 `null`，此时 `screen.miss` 给原因。
+- `fallback.used=true` 表示状态由通用词面/进程信号（而非 manifest 规则）定出，`reason` 写明依据标签。
+- 输出**不含屏幕内容**：`evidence`/`reason` 都是固定标签，可用于日志与截图。
+- 错误：pane 不存在 → 409 `PANE_MISSING`（控制面既有语义码；对应 REST 端点 `GET /api/hosts/:hostId/panes/:paneId/agent-explain` 同码走 404）；抓屏失败 → 400 `AGENT_CONTROL_EXPLAIN_FAILED`。
 
 ### POST /agent/start
 

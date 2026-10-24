@@ -19,6 +19,7 @@ import {
   controlAgentCancelBodySchema,
   controlAgentPromptBodySchema,
   controlAgentStartBodySchema,
+  controlExplainBodySchema,
   controlInitializeBodySchema,
   controlReadBodySchema,
   controlRunBodySchema,
@@ -30,6 +31,7 @@ import {
 import { buildControlProtocolSchema } from '../lib/control-schema.js'
 import { AgentActionError, cancelAgentOperation, promptAgentInPane, startAgentInPane } from '../lib/agent-actions.js'
 import { assertTargetAllowed } from '../lib/tmux-policy.js'
+import { AgentExplainError, explainAgentPane } from '../lib/agent-state.js'
 import { getHostById } from '../lib/hosts.js'
 import { agentManager } from '../agent-manager.js'
 import { appendAuditEvent } from '../lib/audit-log.js'
@@ -301,6 +303,24 @@ export async function agentControlRoutes(fastify: FastifyInstance) {
     return true
   }
 
+  // agent explain：只读解释判定链，不订阅 monitor、不写记录（与 agent/wait 相反，
+  // 它不等任何状态、也不产生事件），因此没有 abort/timeout 处理
+  fastify.post('/v1/control/agent/explain', { bodyLimit: 64 * 1024 }, async (request, reply) => {
+    if (!guardControlRequest(request, reply)) return
+    try {
+      const body = controlExplainBodySchema.parse(request.body)
+      const { hostId, tmuxPaneId } = await parsePaneTarget(body.paneId)
+      const result = await explainAgentPane(hostId, tmuxPaneId)
+      reply.header('cache-control', 'no-store')
+      return { ok: true, ...result }
+    } catch (error) {
+      // 控制面沿用既有语义码：PANE_MISSING 走 409；抓屏失败不是客户端的错，
+      // 但仍按协议收敛为一个契约码（message 透传原因）
+      if (error instanceof AgentExplainError && error.code === 'PANE_CAPTURE_FAILED')
+        return reply.code(400).send({ ok: false, message: error.message, code: 'AGENT_CONTROL_EXPLAIN_FAILED' })
+      return controlError(reply, error, 'AGENT_CONTROL_EXPLAIN_FAILED')
+    }
+  })
   fastify.post('/v1/control/agent/start', { bodyLimit: 64 * 1024 }, async (request, reply) => {
     if (!guardControlAction(request, reply)) return
     try {

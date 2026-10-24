@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { assertTargetAllowed } from '../lib/tmux-policy.js'
 import { execTmux } from '../lib/tmux-executor.js'
-import { markAgentPaneSeen } from '../lib/agent-state.js'
+import { AgentExplainError, explainAgentPane, markAgentPaneSeen } from '../lib/agent-state.js'
 import { appendAuditEvent } from '../lib/audit-log.js'
 import { getRequestPrincipal } from '../lib/principal.js'
 import { agentMonitor } from '../lib/agent-monitor.js'
@@ -29,6 +29,41 @@ function parsePaneId(paneId: string) {
   return { hostId, tmuxPaneId }
 }
 export async function paneRoutes(fastify: FastifyInstance) {
+  // agent 判定解释（按需重算，不进 monitor 热路径）：给「这条 pane 为什么被判成这个状态」
+  // 一个可核对的答案——判定来源、命中的 manifest/规则、fallback 原因。
+  // 只读且不触碰 pane，故用 GET；输出不含屏幕内容，只有标签与规则元数据。
+  // paneId 走 query 而不是 path 段：tmux pane id 自带 `%`，裸 `%1` 在路径里是非法 URL
+  // 组件（要求客户端编码成 %251 属于坑），query 值按普通查询参数解码，curl 直用
+  fastify.get('/hosts/:hostId/panes/agent-explain', async (request, reply) => {
+    const { hostId } = request.params as { hostId: string }
+    const paneId = String((request.query as { paneId?: string }).paneId ?? '')
+    const [paneHost, tmuxPaneId] = paneId.split(':')
+    const target = paneHost === hostId ? tmuxPaneId || '' : ''
+    if (!/^%[0-9]+$/.test(target))
+      return reply.code(400).send({ ok: false, code: 'INVALID_PANE_ID', message: 'paneId must be <host>:%n' })
+    try {
+      await assertTargetAllowed(hostId, target)
+    } catch (error) {
+      const message = errorMessage(error)
+      const forbidden = /not allowed/i.test(message)
+      return reply
+        .code(forbidden ? 403 : 404)
+        .send({ ok: false, code: forbidden ? 'SESSION_NOT_ALLOWED' : 'PANE_MISSING', message })
+    }
+    try {
+      const result = await explainAgentPane(hostId, target)
+      reply.header('cache-control', 'no-store')
+      return { ok: true, ...result }
+    } catch (error) {
+      if (error instanceof AgentExplainError)
+        return reply.code(error.code === 'PANE_MISSING' ? 404 : 502).send({
+          ok: false,
+          code: error.code,
+          message: error.message,
+        })
+      return reply.code(502).send({ ok: false, code: 'PANE_CAPTURE_FAILED', message: errorMessage(error) })
+    }
+  })
   fastify.post('/panes/select', async (request) => {
     const { paneId, keepZoom } = paneSelectBodySchema.parse(request.body)
     try {

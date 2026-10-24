@@ -8,6 +8,7 @@ import {
   controlAgentPromptBodySchema,
   controlAgentStartBodySchema,
   controlBrowserBodySchema,
+  controlExplainBodySchema,
   controlInboxBodySchema,
   controlOpenTargetBodySchema,
   controlPushBodySchema,
@@ -121,6 +122,84 @@ const RESULT_SCHEMAS: Record<string, JsonSchema> = {
       elapsedMs: { type: 'integer' },
       pane: { type: 'object', description: 'AgentPaneState at the moment the condition was met' },
     },
+  },
+  'agent.explain': {
+    type: 'object',
+    properties: {
+      paneId: { type: 'string' },
+      tmuxPaneId: { type: 'string' },
+      sessionName: { type: 'string' },
+      agent: {
+        type: 'object',
+        description: 'Detected agent plus which link of the chain produced it',
+        properties: {
+          name: { type: ['string', 'null'] },
+          source: { type: 'string', enum: ['process', 'command', 'screen', 'none'] },
+          evidence: { type: 'string', description: 'Static label, never terminal content' },
+        },
+      },
+      state: {
+        type: ['object', 'null'],
+        description: 'Null when no agent evidence was found',
+        properties: {
+          agentStatus: { type: 'string', enum: ['idle', 'working', 'blocked', 'done', 'unknown'] },
+          phase: { type: 'string' },
+          source: { type: 'string' },
+          confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+          message: { type: 'string' },
+        },
+      },
+      screen: {
+        type: 'object',
+        properties: {
+          manifest: {
+            type: ['object', 'null'],
+            properties: {
+              name: { type: 'string' },
+              source: { type: 'string', enum: ['bundled', 'override'] },
+              version: { type: 'string' },
+              file: { type: 'string' },
+              ruleCount: { type: 'integer' },
+            },
+          },
+          rule: {
+            type: ['object', 'null'],
+            properties: {
+              id: { type: 'string' },
+              priority: { type: 'integer' },
+              state: { type: 'string' },
+              phase: { type: 'string' },
+              region: { type: 'string' },
+            },
+          },
+          miss: { type: 'string', description: 'Why no manifest rule matched' },
+        },
+      },
+      fallback: {
+        type: 'object',
+        properties: { used: { type: 'boolean' }, reason: { type: 'string' } },
+        required: ['used', 'reason'],
+      },
+      process: {
+        type: 'object',
+        properties: {
+          scanned: { type: 'boolean' },
+          agent: { type: ['string', 'null'] },
+          command: { type: 'string' },
+        },
+      },
+      capture: {
+        type: 'object',
+        properties: {
+          lines: { type: 'integer' },
+          commandRunning: { type: 'boolean' },
+          paneDead: { type: 'boolean' },
+          osc133: { type: 'string' },
+        },
+      },
+      capturedAt: { type: 'string' },
+    },
+    required: ['paneId', 'agent', 'fallback', 'capturedAt'],
   },
   'agent.start': {
     type: 'object',
@@ -252,6 +331,12 @@ export const CONTROL_METHODS: Record<string, ControlMethodDef> = {
       },
     },
     errors: ['AGENT_CONTROL_WAIT_FAILED', 'OCCUPANT_CHANGED', 'PANE_REMOVED', 'TIMEOUT', 'INVALID_TARGET'],
+  },
+  'agent.explain': {
+    http: 'POST',
+    path: '/agent/explain',
+    params: controlExplainBodySchema,
+    errors: ['AGENT_CONTROL_EXPLAIN_FAILED', 'PANE_MISSING', 'INVALID_TARGET'],
   },
   'agent.start': {
     http: 'POST',
