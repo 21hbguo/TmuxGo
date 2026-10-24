@@ -5,7 +5,7 @@ import { subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { useHosts } from '@/hooks/useApi'
 import { sessionsQueryOptions } from '@/hooks/useApi'
 import { buildFleet, formatFleetDuration, type FleetFilters } from '@/lib/fleet'
-import type { AgentRecoveryCandidate, Pane, Session } from '@/types'
+import type { Pane, Session } from '@/types'
 
 // 面板不可见 / 没有 agent pane 时一律不建任何观察者：
 // - sessions 查询只在本面板可见时挂载（关掉面板 → 观察者卸载，不再有请求）
@@ -78,42 +78,20 @@ export function useFleetData(options: { visible: boolean; filters?: FleetFilters
     })
     return map
   }, [activeSessions, paneQueries])
-  // 恢复候选是低频冷数据（agent 退出时才产生），可见时取一次、30s 陈旧才重取；
-  // 没候选的 host 也只需一次空请求，别为它开轮询
-  const recoveryQueries = useQueries({
-    queries: hostIds.map((hostId) => ({
-      queryKey: ['fleet-recovery', hostId],
-      queryFn: () => api.agentRecovery.list(hostId),
-      enabled: visible,
-      staleTime: FLEET_PANE_LIST_STALE_MS,
-    })),
-  })
-  const recoveryByHost = useMemo(() => {
-    const map: Record<string, AgentRecoveryCandidate[] | undefined> = {}
-    hostIds.forEach((hostId, index) => {
-      const data = recoveryQueries[index]?.data as { candidates?: AgentRecoveryCandidate[] } | undefined
-      map[hostId] = Array.isArray(data?.candidates) ? data.candidates : undefined
-    })
-    return map
-  }, [hostIds, recoveryQueries])
   const fleet = useMemo(
-    () => buildFleet({ hosts, sessionsByHost, panesBySession, recoveryByHost, filters }),
-    [hosts, sessionsByHost, panesBySession, recoveryByHost, filters],
+    () => buildFleet({ hosts, sessionsByHost, panesBySession, filters }),
+    [hosts, sessionsByHost, panesBySession, filters],
   )
   const refetchAll = useCallback(() => {
     for (const query of sessionQueries) void query.refetch()
     for (const query of paneQueries) void query.refetch()
   }, [sessionQueries, paneQueries])
-  const refetchRecovery = useCallback(() => {
-    for (const query of recoveryQueries) void query.refetch()
-  }, [recoveryQueries])
   useFleetAlign({ enabled: visible, refetch: refetchAll })
   return {
     hosts,
     fleet,
     loading: visible && hostIds.length > 0 && sessionQueries.some((query) => query.isLoading),
     refetch: refetchAll,
-    refetchRecovery,
   }
 }
 

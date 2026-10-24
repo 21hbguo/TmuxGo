@@ -1,10 +1,9 @@
 'use client'
 import { Fragment, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { FiCpu, FiPlay, FiRefreshCw, FiSearch, FiX } from 'react-icons/fi'
+import { FiCpu, FiRefreshCw, FiSearch, FiX } from 'react-icons/fi'
 import { useTranslation } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useFleetClock, useFleetData, useFleetDurationFormatter } from '@/hooks/useFleet'
 import { navigateInboxRoute } from '@/lib/inbox-navigation'
@@ -18,7 +17,6 @@ import {
   type FleetWindowNode,
 } from '@/lib/fleet'
 import { AgentStatusBadge } from './AgentStatusBadge'
-import { AgentRecoveryBadge } from './AgentRecovery'
 import { Button } from './Button'
 import { EmptyState } from './EmptyState'
 import { FilterToggle } from './FilterToggle'
@@ -32,8 +30,6 @@ import { StatusDot } from './StatusDot'
 //
 // 结构：面板壳（标题条 + chips + toolbar + body）只负责布局，行/分组头/工具栏/空态各自成组件。
 // 共享原语（PanelHeader/FilterToggle/StatusDot）合并进 master 后，这里按同名组件就地替换即可。
-
-type BatchResult = 'ok' | 'error' | 'skipped'
 
 // 行的状态锚点：左侧 2px 色条 + 极淡底色。blocked/failed 共用 danger——一屏扫下来先看到红色，
 // done（等你验收）用 accent-2，working 用 accent，其余保持中性不抢注意力。
@@ -58,10 +54,6 @@ function FleetToolbar({
   hasTaskOnly,
   onToggleAttention,
   onToggleTask,
-  recoveryCount,
-  resumableCount,
-  resumeRunning,
-  onResumeAll,
   onRefresh,
 }: {
   query: string
@@ -70,10 +62,6 @@ function FleetToolbar({
   hasTaskOnly: boolean
   onToggleAttention: () => void
   onToggleTask: () => void
-  recoveryCount: number
-  resumableCount: number
-  resumeRunning: boolean
-  onResumeAll: () => void
   onRefresh: () => void
 }) {
   const { t } = useTranslation()
@@ -111,18 +99,6 @@ function FleetToolbar({
       <FilterToggle pressed={hasTaskOnly} tone="accent" onClick={onToggleTask}>
         {t('fleet.onlyTask')}
       </FilterToggle>
-      {recoveryCount > 0 && (
-        <button
-          type="button"
-          onClick={onResumeAll}
-          disabled={resumeRunning || !resumableCount}
-          title={resumableCount ? t('fleet.batchResumeHint') : t('fleet.batchResumeNone')}
-          className="flex h-7 shrink-0 items-center gap-1 rounded-apple border border-accent-2/35 bg-accent-2/10 px-2 text-caption font-medium text-accent-2 transition-colors hover:bg-accent-2/15 disabled:opacity-45"
-        >
-          <FiPlay aria-hidden="true" size={11} />
-          {resumeRunning ? t('fleet.batchResumeRunning') : t('fleet.batchResume', { count: resumableCount })}
-        </button>
-      )}
       <Button
         variant="ghost"
         size="icon-sm"
@@ -230,7 +206,7 @@ function FleetSessionHeader({ node }: { node: FleetSessionNode }) {
   return (
     <div
       data-fleet-session={node.key}
-      className="flex h-9 items-center gap-2 border-b border-[var(--line-subtle)] pl-3 pr-3"
+      className="flex h-9 items-center gap-2 pl-3 pr-3"
       style={{ paddingLeft: TREE_CONTENT_BASE }}
     >
       <span className="min-w-0 truncate text-xs font-medium text-text-1" title={node.sessionName}>
@@ -248,7 +224,7 @@ function FleetWindowHeader({ node }: { node: FleetWindowNode }) {
   return (
     <div
       data-fleet-window={node.key}
-      className="relative flex h-8 items-center gap-2 border-b border-[var(--line-subtle)] pr-3"
+      className="relative flex h-8 items-center gap-2 pr-3"
       style={{ paddingLeft: TREE_CONTENT_BASE + TREE_INDENT }}
     >
       <TreeGuides depth={1} last={false} />
@@ -262,23 +238,19 @@ function FleetWindowHeader({ node }: { node: FleetWindowNode }) {
 
 function FleetRow({
   row,
-  batchResult,
   duration,
   depth,
   last,
   compact,
   onJump,
-  onResumed,
 }: {
   row: FleetRowData
-  batchResult?: BatchResult
   duration: string
   /** 树层级：1 = 单 window session 的直接子行，2 = window 下的 pane */
   depth: number
   last: boolean
   compact: boolean
   onJump: (row: FleetRowData) => void
-  onResumed: () => void
 }) {
   const { t } = useTranslation()
   const tone = ROW_TONE[rowTone(row)]
@@ -291,7 +263,8 @@ function FleetRow({
     <div
       data-fleet-row={row.key}
       className={cn(
-        'tmuxgo-list-row relative flex h-9 items-center gap-2 border-b border-[var(--line-subtle)] pr-3 last:border-b-0',
+        // 树内不画行分隔线：引导线 + 状态锚点已经表达层级，再叠 border 像栅栏
+        'tmuxgo-list-row relative flex h-9 items-center gap-2 pr-3',
         tone.row,
         tone.hover,
       )}
@@ -343,25 +316,6 @@ function FleetRow({
       <span className="w-10 shrink-0 text-right font-mono text-caption tabular-nums text-text-3">
         {duration || '—'}
       </span>
-      {batchResult === 'ok' && (
-        <span
-          aria-label={t('fleet.batchResumeOk')}
-          title={t('fleet.batchResumeOk')}
-          className="shrink-0 text-caption text-accent-2"
-        >
-          ✓
-        </span>
-      )}
-      {batchResult === 'error' && (
-        <span
-          aria-label={t('fleet.batchResumeFailed')}
-          title={t('fleet.batchResumeFailed')}
-          className="shrink-0 text-caption text-danger"
-        >
-          !
-        </span>
-      )}
-      {row.recovery && <AgentRecoveryBadge hostId={row.hostId} candidates={[row.recovery]} onResumed={onResumed} />}
     </div>
   )
 }
@@ -374,7 +328,7 @@ function FleetSkeleton() {
   return (
     <div role="status" aria-busy="true" aria-label={t('fleet.loading')} className="animate-pulse">
       {[0, 1, 2, 3].map((index) => (
-        <div key={index} className="flex h-9 items-center gap-2 border-b border-[var(--line-subtle)] px-3">
+        <div key={index} className="flex h-9 items-center gap-2 px-3">
           <span className="h-2.5 w-24 rounded-full bg-bg-2/80" />
           <span className="h-2.5 w-8 rounded-full bg-bg-2/60" />
           <span className="h-2.5 w-16 rounded-full bg-bg-2/60" />
@@ -398,54 +352,9 @@ export function FleetPanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobi
     () => ({ needsAttention, hasTaskOnly, query, hostIds: hostFilter }),
     [needsAttention, hasTaskOnly, query, hostFilter],
   )
-  const { hosts, fleet, loading, refetch, refetchRecovery } = useFleetData({ visible: true, filters })
+  const { hosts, fleet, loading, refetch } = useFleetData({ visible: true, filters })
   const now = useFleetClock(true)
   const formatDuration = useFleetDurationFormatter(now)
-  // 批量 resume：逐行结果留在行上（成功/失败/需手动），汇总进 toast。
-  // 只打「当前可见且 resumable」的候选：看不见的行不能因为你点了按钮就动手，
-  // 而 resumable=false 的（原 pane 已没、只支持激活 pane 恢复）必须人来选目标。
-  const [batch, setBatch] = useState<{ running: boolean; results: Record<string, BatchResult> }>({
-    running: false,
-    results: {},
-  })
-  const resumableRows = useMemo(() => fleet.rows.filter((row) => row.recovery && row.recovery.resumable), [fleet.rows])
-  const resumeAll = async () => {
-    if (batch.running || !resumableRows.length) return
-    const skipped = Object.fromEntries(
-      fleet.rows.filter((row) => row.recovery && !row.recovery.resumable).map((row) => [row.key, 'skipped' as const]),
-    )
-    setBatch({ running: true, results: skipped })
-    // allSettled 而不是 all：一个失败不能把其余的成功结果一起吞掉
-    const settled = await Promise.allSettled(
-      resumableRows.map((row) =>
-        api.agentRecovery.resume(row.hostId, row.recovery!.id, {
-          paneId: row.recovery!.paneId,
-          agentSessionId: row.recovery!.agentSessionId || '',
-        }),
-      ),
-    )
-    const results: Record<string, BatchResult> = { ...skipped }
-    let ok = 0
-    let failed = 0
-    settled.forEach((outcome, index) => {
-      const key = resumableRows[index].key
-      if (outcome.status === 'fulfilled') {
-        results[key] = 'ok'
-        ok += 1
-      } else {
-        results[key] = 'error'
-        failed += 1
-      }
-    })
-    setBatch({ running: false, results })
-    // 成功的候选会在服务端转成 resumed，refetch 后行上的恢复入口自然消失；
-    // 失败的行保持原样，行内 badge 还能重试
-    refetchRecovery()
-    pushToast({
-      type: failed ? 'error' : 'success',
-      message: t('fleet.batchResumeSummary', { ok, failed }),
-    })
-  }
 
   const jumpToPane = async (row: FleetRowData) => {
     const result = await navigateInboxRoute(
@@ -493,11 +402,9 @@ export function FleetPanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobi
                             row={row}
                             depth={2}
                             last={index === window.rows.length - 1}
-                            batchResult={batch.results[row.key]}
                             duration={formatDuration(row.since)}
                             compact={compact}
                             onJump={jumpToPane}
-                            onResumed={refetchRecovery}
                           />
                         ))}
                       </Fragment>
@@ -508,11 +415,9 @@ export function FleetPanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobi
                         row={row}
                         depth={1}
                         last={index === session.rows.length - 1}
-                        batchResult={batch.results[row.key]}
                         duration={formatDuration(row.since)}
                         compact={compact}
                         onJump={jumpToPane}
-                        onResumed={refetchRecovery}
                       />
                     ))}
               </div>
@@ -541,10 +446,6 @@ export function FleetPanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobi
         hasTaskOnly={hasTaskOnly}
         onToggleAttention={() => setNeedsAttention((value) => !value)}
         onToggleTask={() => setHasTaskOnly((value) => !value)}
-        recoveryCount={fleet.withRecovery}
-        resumableCount={resumableRows.length}
-        resumeRunning={batch.running}
-        onResumeAll={() => void resumeAll()}
         onRefresh={refetch}
       />
       {body}

@@ -3,7 +3,6 @@ import React, { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionPanel } from './SessionPanel'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { api } from '@/lib/api'
 import type { AgentSummary, Session, SessionWorkspaceEntry, WorkspaceEntry } from '@/types'
 import type { CreateSessionDialogResult } from './CreateSessionDialog'
 
@@ -255,100 +254,6 @@ describe('SessionPanel session actions', () => {
     expect(screen.getAllByTitle('工作中').some((el) => el.textContent === '1')).toBe(true)
     expect(screen.queryByText('0 等待处理')).not.toBeInTheDocument()
   })
-  it('badges sessions with pending agent-recovery candidates and resumes through the badge', async () => {
-    const candidates = [
-      {
-        id: 'c1',
-        hostId: 'local',
-        sessionName: 'dev',
-        paneId: '%1',
-        tmuxPaneId: '%1',
-        agent: 'claude',
-        lastSeenAt: '2026-10-24T00:00:00Z',
-        reason: 'pane_exited',
-        status: 'pending',
-        createdAt: '2026-10-24T00:00:00Z',
-        resumable: true,
-        occupant: '',
-      },
-      {
-        id: 'c2',
-        hostId: 'local',
-        sessionName: 'dev',
-        paneId: '%2',
-        tmuxPaneId: '%2',
-        agent: 'codex',
-        lastSeenAt: '2026-10-24T00:00:00Z',
-        reason: 'pane_exited',
-        status: 'pending',
-        createdAt: '2026-10-24T00:00:00Z',
-        resumable: true,
-        occupant: '',
-      },
-      {
-        // 已恢复的候选不再计数：徽标只代表「还能恢复」的那批
-        id: 'c3',
-        hostId: 'local',
-        sessionName: 'dev',
-        paneId: '%3',
-        tmuxPaneId: '%3',
-        agent: 'grok',
-        lastSeenAt: '2026-10-24T00:00:00Z',
-        reason: 'pane_exited',
-        status: 'resumed',
-        createdAt: '2026-10-24T00:00:00Z',
-        resumable: true,
-        occupant: '',
-      },
-    ]
-    const listSpy = vi.spyOn(api.agentRecovery, 'list').mockResolvedValue({ candidates } as never)
-    const resumeSpy = vi.spyOn(api.agentRecovery, 'resume').mockResolvedValue({ ok: true } as never)
-
-    render(<SessionPanel />)
-
-    // dev 有 2 条 pending → 一个徽标、数字 2；next 无候选 → 不出徽标（全局只有这一个）
-    const badge = await screen.findByRole('button', { name: 'agent.recovery.badgeTitle' })
-    expect(badge).toHaveTextContent('2')
-    expect(screen.getAllByRole('button', { name: 'agent.recovery.badgeTitle' })).toHaveLength(1)
-    expect(listSpy).toHaveBeenCalledWith('local')
-
-    // 点开弹窗：列候选，恢复走确认
-    fireEvent.click(badge)
-    const dialog = await screen.findByRole('dialog', { name: 'agent.recovery.title' })
-    expect(within(dialog).getByText('claude · %1')).toBeInTheDocument()
-    expect(within(dialog).getByText('codex · %2')).toBeInTheDocument()
-    fireEvent.click(within(dialog).getAllByRole('button', { name: 'agent.recovery.resume' })[0])
-    await act(async () => {
-      await confirmHandlers.get('agent.recovery.confirmTitle')?.()
-    })
-    expect(resumeSpy).toHaveBeenCalledWith('local', 'c1', {
-      paneId: '%1',
-      agentSessionId: '',
-      targetMode: undefined,
-    })
-    // resume 成功后 session 列表与候选列表都会重取
-    expect(refetchSessionsMock).toHaveBeenCalled()
-    await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThan(1))
-  })
-
-  it('refreshes recovery candidates together with the session list', async () => {
-    const listSpy = vi.spyOn(api.agentRecovery, 'list').mockResolvedValue({ candidates: [] } as never)
-    // spyOn 复用同一个 spy（beforeEach 只 mockReset 各依赖、不 restore），调用记录会跨用例累积
-    listSpy.mockClear()
-
-    // 加载失败态的「重试」按钮就是现有 session 刷新触发点之一
-    orderedSessionQueryState.data = []
-    orderedSessionQueryState.isError = true
-    orderedSessionQueryState.error = new Error('SSH connection timed out')
-    render(<SessionPanel />)
-    await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(1))
-
-    fireEvent.click(screen.getByText('common.retry'))
-    // 同车：一次点击同时重取 session 与候选，agent 后台死掉的徽标因此能立刻出现
-    expect(refetchSessionsMock).toHaveBeenCalledTimes(1)
-    await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(2))
-  })
-
   it('shows session loading errors and retries', () => {
     orderedSessionQueryState.data = []
     orderedSessionQueryState.isError = true

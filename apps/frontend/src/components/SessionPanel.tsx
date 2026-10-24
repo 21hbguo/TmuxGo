@@ -54,7 +54,6 @@ import {
 } from './SessionSortableList'
 import { HostSwitcher } from './HostSwitcher'
 import { AgentStatusBadge } from './AgentStatusBadge'
-import { AgentRecoveryBadge, useAgentRecoveryList } from './AgentRecovery'
 import { getAgentAttentionRank, mergeAgentSummaries } from '@/lib/agent-status'
 import type { AgentStatus, AgentSummary, Pane, Session, SessionSnapshot, WorkspaceEntry } from '@/types'
 import { ModalPortal } from './ModalPortal'
@@ -87,10 +86,6 @@ export function SessionPanel() {
   const pushToast = useConsoleStore((state) => state.pushToast)
   const queryClient = useOptionalQueryClient()
   const { data: sessions = [], moveSession, isError, error, refetch } = useOrderedSessions(activeHostId || '')
-  // agent 恢复候选：hook 自管取数（hostId 变化取一次），不在这里加定时器——
-  // 候选只在 agent 退出/pane 消失时产生，15s 空轮询是纯浪费（见 AgentRecovery 的注释）。
-  // 刷新时机：resume 成功后 refetch，以及下面 session 列表自身的刷新点。
-  const { bySession: recoveryBySession, refetch: refetchRecovery } = useAgentRecoveryList(activeHostId || null)
   const createSession = useCreateSession()
   const deleteSession = useDeleteSession()
   const batchDeleteSessions = useBatchDeleteSessions()
@@ -154,12 +149,8 @@ export function SessionPanel() {
     setTemplateWorkspace(null)
     setCreateDialogOpen(true)
   }
-  // session 刷新与恢复候选同车：agent 在后台死掉不会自己冒出来，用户点刷新、恢复快照、
-  // 导入布局这些「已经有动作在刷 session」的时机顺手把候选也重取一次，徽标就能立刻出现。
-  // 刻意不在这里加定时器——候选是低频事件，空轮询是纯浪费（见 useAgentRecoveryList 注释）。
   const refreshSessions = () => {
     void refetch()
-    refetchRecovery()
   }
   const handleLayoutApplied = (session: Session) => {
     setShowLayoutImport(false)
@@ -607,11 +598,6 @@ export function SessionPanel() {
           <AgentStatusBadge
             summary={session.agentSummary}
             onStatusClick={(status) => handleAgentStatusClick(session, status)}
-          />
-          <AgentRecoveryBadge
-            hostId={activeHostId || 'local'}
-            candidates={recoveryBySession.get(session.name)}
-            onResumed={refreshSessions}
           />
         </div>
       </button>
