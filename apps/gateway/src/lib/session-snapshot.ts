@@ -371,6 +371,39 @@ export async function restoreSnapshot(options: {
   }
 }
 
+/** skipped 条目形如 `host:name:reason` 或 `host:remote-host`：按最后一段聚合原因计数 */
+export function summarizeSkipReasons(skipped: string[]): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const entry of skipped) {
+    const reason = entry.slice(entry.lastIndexOf(':') + 1)
+    counts[reason] = (counts[reason] ?? 0) + 1
+  }
+  return counts
+}
+
+/**
+ * 关停快照摘要的日志级别与载荷：生产默认 level=warn，走 info 等于白名单/跳过效果对运维
+ * 不可见，所以有 saved 或有 skipped 就提到 warn，并带上原因分布（reason 计数，不铺明细）。
+ * 全 0（没有 session 可抓）是正常退出路径，不打日志以免每次关停都刷一行。
+ */
+export function describeShutdownSnapshots(result: {
+  saved: string[]
+  skipped: string[]
+}): { level: 'warn'; payload: Record<string, unknown>; message: string } | null {
+  if (!result.saved.length && !result.skipped.length) return null
+  return {
+    level: 'warn',
+    payload: {
+      saved: result.saved.length,
+      skipped: result.skipped.length,
+      reasons: summarizeSkipReasons(result.skipped),
+      // 明细限长：关停路径不铺全量列表，排查时按 reasons + 日志里的单条失败信息定位
+      savedSessions: result.saved.slice(0, 10),
+    },
+    message: 'session snapshots on shutdown',
+  }
+}
+
 /** 退出前自动快照：只做本机 host，远端 host 无等价 capture-pane 通道，按单降级跳过并标记 */
 export async function snapshotSessionsOnShutdown(options: {
   hostIds: string[]
