@@ -24,6 +24,13 @@ export const SNAPSHOT_TTL_DAYS = 7
 export const SNAPSHOT_MAX_COUNT = 100
 // 退出前自动快照的整体预算：关停序列本身有 5s 兜底，快照必须更快，超了就当没有
 export const SNAPSHOT_DEADLINE_MS = 3000
+// 远端 host 的独立预算（防饿设计）：ssh 建连本身就要几百毫秒，真机实测 2 pane 采集约
+// 86ms（含连接），预算给小了会把本来抓得到的远端会话一起砍掉；给大了则一个不可达的
+// host 就能吃光全局 3s，把排在后面的本机会话饿死。1500 够握手 + 两次元信息查询 + 若干 tail
+export const SNAPSHOT_REMOTE_HOST_BUDGET_MS = 1500
+// 单次远端调用的硬上限：execTmux 默认 30s、ssh 连不上时 connect 超时约 5s，都远大于快照
+// 总预算。不逐调用封顶的话，一个挂住的连接就能把「本该 1.5s 放弃」的 host 拖成分钟级
+export const SNAPSHOT_REMOTE_CALL_CAP_MS = 600
 
 export interface SessionSnapshotPane {
   tmuxPaneId: string
@@ -371,7 +378,21 @@ export async function restoreSnapshot(options: {
   }
 }
 
-/** skipped 条目形如 `host:name:reason` 或 `host:remote-host`：按最后一段聚合原因计数 */
+/**
+ * 远端 exec 包装：每次调用把 timeoutMs 截到 min(host 剩余预算, 单次上限)。
+ * 只在远端 host 上套（本地 tmux 没有连接握手，维持既有超时语义不变）。
+ */
+function capRemoteExec(exec: TmuxExec, hostDeadline: number): TmuxExec {
+  return (hostId, args, execOptions) =>
+    exec(hostId, args, {
+      ...execOptions,
+      // 每次调用重新算：剩余预算可能已被上一个调用吃掉大半，再叠 cap 上限，
+      // 保证单次调用不会越过 host 截止点太多（也不会早于它）
+      timeoutMs: Math.max(1, Math.min(hostDeadline - Date.now(), SNAPSHOT_REMOTE_CALL_CAP_MS)),
+    })
+}
+
+/** skipped 条目形如 `host:name:reason`；host 级失败（拿不到会话名）记 `host:*:reason` */
 export function summarizeSkipReasons(skipped: string[]): Record<string, number> {
   const counts: Record<string, number> = {}
   for (const entry of skipped) {
@@ -404,7 +425,11 @@ export function describeShutdownSnapshots(result: {
   }
 }
 
-/** 退出前自动快照：只做本机 host，远端 host 无等价 capture-pane 通道，按单降级跳过并标记 */
+/**
+ * 退出前自动快照：远端 host 与本机走同一条采集路径（execTmux over ssh 已支持 capture-pane）。
+ * 防饿是这里的关键：远端不可达时 ssh 连接超时（~5s）大于整体预算，所以每个远端 host 有
+ * 独立预算 + 逐调用超时封顶，一个 host 卡住不影响排在后面的 host。
+ */
 export async function snapshotSessionsOnShutdown(options: {
   hostIds: string[]
   /**
@@ -428,25 +453,30 @@ export async function snapshotSessionsOnShutdown(options: {
   const saved: string[] = []
   const skipped: string[] = []
   for (const hostId of hostIds) {
-    if (hostId !== 'local') {
-      skipped.push(`${hostId}:remote-host`)
-      continue
-    }
+    const remoteHost = hostId !== 'local'
+    // 一个远端 host 一个截止点：min(全局剩余, per-host 预算)。本地不设 per-host 预算、
+    // 也不包装 exec，行为与之前完全一致
+    const hostDeadline = remoteHost ? Math.min(deadline, Date.now() + SNAPSHOT_REMOTE_HOST_BUDGET_MS) : deadline
+    const hostExec = remoteHost ? capRemoteExec(exec, hostDeadline) : exec
     let names: string[]
     try {
-      const { stdout } = await exec(hostId, ['list-sessions', '-F', '#{session_name}'])
-      names = stdout.trim().split('\n').filter(Boolean)
-    } catch {
-      // 没有 tmux server / 无 session 都算正常退出路径
+      names = await listSessionNames(hostId, hostExec)
+    } catch (err) {
+      // 远端连不上不是「没有会话」：留一条 host 级痕迹（* = 连会话名都没拿到）。
+      // 本地沿用原语义——除 server 未起之外的错误也只是跳过，不刷日志
+      if (remoteHost) {
+        skipped.push(`${hostId}:*:error`)
+        logWarn(`session snapshot skipped host ${hostId}: ${err instanceof Error ? err.message : String(err)}`)
+      }
       continue
     }
     for (const name of names) {
-      // 白名单外的会话直接记原因跳过，和 remote-host/deadline/error 保持同一套 skipped 语义
+      // 白名单外的会话直接记原因跳过，和 deadline/error 保持同一套 skipped 语义
       if (includeSet && !includeSet.has(name)) {
         skipped.push(`${hostId}:${name}:not-in-whitelist`)
         continue
       }
-      if (Date.now() >= deadline) {
+      if (Date.now() >= hostDeadline) {
         skipped.push(`${hostId}:${name}:deadline`)
         continue
       }
@@ -455,7 +485,10 @@ export async function snapshotSessionsOnShutdown(options: {
         await capture({
           hostId,
           sessionId: buildSessionId(hostId, name),
-          deadlineMs: Math.max(1, deadline - Date.now()),
+          deadlineMs: Math.max(1, hostDeadline - Date.now()),
+          // 远端把封顶后的 exec 一起传下去：capture 内部每 pane 一次 capture-pane，
+          // 不封顶时 N 个 pane 能各自等满一次 ssh 超时
+          exec: hostExec,
         })
         saved.push(`${hostId}:${name}`)
       } catch (err) {

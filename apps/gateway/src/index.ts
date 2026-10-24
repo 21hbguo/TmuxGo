@@ -8,6 +8,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { applyTmuxGoEnv, cleanupMultiplexSockets } from './lib/tmux-executor.js'
 import { hostRoutes } from './routes/hosts.js'
+import { listAllHosts } from './lib/hosts.js'
 import { sessionRoutes } from './routes/sessions.js'
 import { windowRoutes } from './routes/windows.js'
 import { streamRoutes } from './routes/stream.js'
@@ -224,17 +225,26 @@ const shutdown = createShutdownSequence({
   terminateWebSockets: () =>
     fastify.websocketServer.clients.forEach((socket: { terminate: () => void }) => socket.terminate()),
   shutdownPlugins: () => pluginManager.shutdown(),
-  // 退出前自动快照：只做本机，远端 host 按单降级跳过；自带 deadline，超时就不再拖退出
-  snapshotSessions: () =>
-    snapshotSessionsOnShutdown({
-      hostIds: ['local'],
+  // 退出前自动快照：本地 + hosts 配置里的远端（与 agent 巡检同一份列表）；每个 host 都有
+  // 预算与逐调用封顶（见 session-snapshot.ts 的防饿设计），整体自带 deadline 不拖退出
+  snapshotSessions: async () => {
+    // local 排在最前：本机先花预算，远端再多也饿不着它
+    let hostIds: string[] = ['local']
+    try {
+      hostIds = [...new Set((await listAllHosts()).map((host) => host.id))]
+    } catch (err) {
+      // hosts 配置读不出来（ssh config 解析异常等）不能让关停路径挂掉：退回只做本机
+      fastify.log.warn(`session snapshot host list unavailable, falling back to local: ${String(err)}`)
+    }
+    const result = await snapshotSessionsOnShutdown({
+      hostIds,
       // 生产机常有关停时不该抓的会话（别人的实验 pane）：白名单留空则维持扫全部
       include: parseNameList(process.env.TMUXGO_SNAPSHOT_SESSIONS),
       logWarn: (message) => fastify.log.warn(message),
-    }).then((result) => {
-      const summary = describeShutdownSnapshots(result)
-      if (summary) fastify.log[summary.level](summary.payload, summary.message)
-    }),
+    })
+    const summary = describeShutdownSnapshots(result)
+    if (summary) fastify.log[summary.level](summary.payload, summary.message)
+  },
   cleanupSockets: () => cleanupMultiplexSockets(),
   closeServer: () => fastify.close(),
   exit: (code) => process.exit(code),
