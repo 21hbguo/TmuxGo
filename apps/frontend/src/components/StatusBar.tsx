@@ -23,7 +23,7 @@ const chipTone: Record<Tone, string> = {
   success: 'bg-accent-2/10 text-accent-2',
   warn: 'bg-warn/10 text-warn',
   danger: 'bg-danger/10 text-danger',
-  neutral: 'bg-bg-2/40 text-text-2',
+  neutral: 'text-text-2',
 }
 const resourceTone = (used: number, total: number): Tone => {
   const ratio = total > 0 ? used / total : 0
@@ -36,16 +36,18 @@ function ResourceChip({
   value,
   tone = 'neutral',
   title,
+  className = '',
 }: {
   label: string
   value: string
   tone?: Tone
   title?: string
+  className?: string
 }) {
   return (
     <span
       title={title}
-      className={`inline-flex h-5 items-center gap-1.5 rounded-md px-2 font-mono tabular-nums ${chipTone[tone]}`}
+      className={`inline-flex h-5 items-center gap-1.5 rounded-apple px-1.5 font-mono tabular-nums ${chipTone[tone]} ${className}`}
     >
       <span className="text-caption font-medium uppercase tracking-[0.16em] text-text-3">{label}</span>
       <span className="text-caption font-semibold">{value}</span>
@@ -175,13 +177,7 @@ export function StatusBar() {
   const sessionSyncAge =
     sessionSyncSeconds === null ? t('status.syncPending') : t('status.syncAge', { seconds: sessionSyncSeconds })
   const sessionSyncDelayed = sessionSyncSeconds !== null && sessionSyncSeconds * 1000 >= SESSION_SYNC_DELAY_MS
-  const sessionSyncTone: Tone = sessionsQuery.isError
-    ? 'danger'
-    : sessionSyncDelayed
-      ? 'warn'
-      : sessionSyncSeconds === null
-        ? 'neutral'
-        : 'success'
+  const sessionSyncTone: Tone = sessionsQuery.isError ? 'danger' : sessionSyncDelayed ? 'warn' : 'neutral'
   const sessionSyncTitle = sessionsQuery.isError
     ? t('status.syncFailedTitle', { age: sessionSyncAge })
     : sessionSyncDelayed
@@ -194,12 +190,12 @@ export function StatusBar() {
 
   const statusStyle = (
     {
-      connected: { dot: 'bg-accent-2', text: 'text-accent-2', shell: 'bg-accent-2/10' },
+      connected: { dot: 'bg-accent-2', text: 'text-text-2', shell: '' },
       attaching: { dot: 'bg-warn animate-pulse', text: 'text-warn', shell: 'bg-warn/10' },
       reconnecting: { dot: 'bg-warn animate-pulse', text: 'text-warn', shell: 'bg-warn/10' },
       disconnected: { dot: 'bg-danger', text: 'text-danger', shell: 'bg-danger/10' },
     } as Record<string, { dot: string; text: string; shell: string }>
-  )[connection.status] || { dot: 'bg-text-3', text: 'text-text-3', shell: 'bg-bg-2/40' }
+  )[connection.status] || { dot: 'bg-text-3', text: 'text-text-3', shell: '' }
 
   return (
     <footer
@@ -223,7 +219,7 @@ export function StatusBar() {
         {vis('context') && (
           <section aria-label="Workspace context" className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
             {activePane && (
-              <span className="inline-flex h-5 items-center rounded-md bg-bg-2/40 px-2 font-mono text-caption tabular-nums text-text-2">
+              <span className="inline-flex h-5 items-center font-mono text-caption tabular-nums text-text-3">
                 {activePane.size.cols}×{activePane.size.rows}
               </span>
             )}
@@ -248,14 +244,15 @@ export function StatusBar() {
                 </span>
               )}
             {activeHost && (
-              <span className="min-w-0 truncate rounded-md bg-bg-2/40 px-2 py-0.5 text-caption text-text-2">
+              <span className="min-w-0 truncate border-l border-[var(--line)] pl-2 text-caption text-text-2">
                 {activeHost.name}
               </span>
             )}
           </section>
         )}
         {sys && (
-          <section aria-label="System resources" className="flex min-w-0 items-center gap-1.5 overflow-visible">
+          // 资源数字不可压缩：宁可让左侧上下文截断，也不让两段文字叠在一起（1024 宽曾重叠）
+          <section aria-label="System resources" className="flex shrink-0 items-center gap-1.5">
             {vis('net') && (
               <div
                 className="relative shrink-0"
@@ -335,6 +332,8 @@ export function StatusBar() {
                 label="GPU"
                 value={`${gb(sys.gpu.used)}/${gb(sys.gpu.total)}G`}
                 tone={resourceTone(sys.gpu.used, sys.gpu.total)}
+                // 窄屏先让位：GPU 是三项里最可省的，1024 宽保留 CPU/MEM/磁盘与连接状态
+                className="hidden min-[1200px]:inline-flex"
               />
             )}
             {missingDependencies.length > 0 && (
@@ -360,12 +359,13 @@ export function StatusBar() {
               />
             )}
             {vis('disks') &&
-              visibleDisks.map((d) => (
+              visibleDisks.map((d, index) => (
                 <ResourceChip
                   key={d.mount}
                   label={d.mount}
                   value={`${gb(d.used)}/${gb(d.total)}G`}
                   tone={resourceTone(d.used, d.total)}
+                  className={index > 0 ? 'hidden min-[1200px]:inline-flex' : ''}
                 />
               ))}
             {vis('disks') && disks.length > 3 && (
@@ -444,7 +444,7 @@ export function StatusBar() {
             </span>
           )}
           {vis('pkt') && (
-            <span aria-label={t('status.netStats')}>
+            <span aria-label={t('status.netStats')} className="hidden min-[1100px]:inline-flex">
               <ResourceChip
                 label={t('status.packets')}
                 value={t('status.netStatsValue', {
@@ -452,7 +452,7 @@ export function StatusBar() {
                   rx: formatCount(netStats.rx),
                   loss: formatLoss(netStats.lossPct),
                 })}
-                tone="success"
+                tone={netStats.lossPct >= 5 ? 'warn' : 'neutral'}
                 title={t('status.netStatsTitle', {
                   tx: netStats.tx,
                   rx: netStats.rx,
@@ -463,7 +463,7 @@ export function StatusBar() {
           )}
           {vis('conn') && (
             <span
-              className={`inline-flex h-5 items-center gap-1.5 rounded-md px-2 font-medium ${statusStyle.shell}`}
+              className={`inline-flex h-5 items-center gap-1.5 rounded-apple border-l border-[var(--line)] pl-2 font-medium ${statusStyle.shell}`}
               style={{ minWidth: '180px' }}
             >
               <span className={`h-1.5 w-1.5 rounded-full ${statusStyle.dot}`} />

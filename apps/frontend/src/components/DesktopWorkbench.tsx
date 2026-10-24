@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { isPersistableEditorMeta, TERMINAL_DOCK_POSITIONS, useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
@@ -45,11 +45,13 @@ type SidePanelKind = 'file' | 'git' | 'ssh' | 'fleet'
 function SidePanelShell({
   clip,
   width,
+  resizing,
   onStartResize,
   children,
 }: {
   clip?: boolean
   width: number
+  resizing?: boolean
   onStartResize: () => void
   children: ReactNode
 }) {
@@ -60,8 +62,11 @@ function SidePanelShell({
       style={{ width }}
     >
       <div className={`h-full min-h-0${clipCls}`}>{children}</div>
+      {/* 命中区 4px 铺在面板右缘，默认只靠面板自身的 border-r 当分隔线，hover/拖拽才给 accent 反馈 */}
       <div
-        className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40"
+        data-resize-handle="side-panel"
+        aria-hidden="true"
+        className={`absolute right-0 top-0 h-full w-1 cursor-col-resize transition-colors ${resizing ? 'bg-accent/70' : 'hover:bg-accent/40'}`}
         onMouseDown={onStartResize}
       />
     </div>
@@ -121,20 +126,33 @@ export function DesktopWorkbench() {
   )
   const compactSessionWidth = clampValue(Math.floor(viewportWidth * 0.1), 70, SESSION_RAIL_WIDTH)
   const leftWidth = ACTIVITY_BAR_WIDTH + (sessionPanelExpanded ? renderedSessionPanelWidth : compactSessionWidth)
+  // 侧面板 DOM 顺序即宽度堆叠顺序：拖拽手柄按各面板在此数组里的下标换算已占宽度。
+  // fleet/endpoints/plugin 都必须计入，漏一个就会让 workspaceWidth 偏大、拖拽越界压垮主工作区
+  const openSidePanels = useMemo(
+    () =>
+      [
+        filePanelOpen && 'file',
+        fleetPanelOpen && 'fleet',
+        gitPanelOpen && 'git',
+        sshPanelOpen && 'ssh',
+        endpointsPanelOpen && 'endpoints',
+        activePluginView && 'plugin',
+      ].filter((kind): kind is SidePanelKind | 'endpoints' | 'plugin' => Boolean(kind)),
+    [activePluginView, endpointsPanelOpen, filePanelOpen, fleetPanelOpen, gitPanelOpen, sshPanelOpen],
+  )
   // files/git/ssh/endpoints 共用同一渲染宽度，切 tab 不跳；拖拽任一手柄改的都是这个值
   const sidePanelMin = clampValue(Math.floor(viewportWidth * 0.16), 200, 320)
-  const sidePanelMax = Math.max(sidePanelMin, Math.min(920, viewportWidth - leftWidth - minWorkspaceWidth))
+  // 每块侧面板同宽：留出主工作区最小宽度后按已开面板数均分上限，避免多开时把主体挤没
+  const sidePanelCount = Math.max(1, openSidePanels.length)
+  const sidePanelMax = Math.max(
+    sidePanelMin,
+    Math.min(920, Math.floor((viewportWidth - leftWidth - minWorkspaceWidth) / sidePanelCount)),
+  )
   const renderedSidePanelWidth = clampValue(previewSideWidth ?? sidePanelWidth, sidePanelMin, sidePanelMax)
   const terminalMinHeight = clampValue(Math.floor(viewportHeight * 0.22), 150, 220)
   const terminalInlineMaxHeight = clampValue(Math.floor(viewportHeight * 0.58), terminalMinHeight, 760)
   const terminalMaxHeight = clampValue(viewportHeight - 12, terminalInlineMaxHeight, 2000)
-  const workspaceWidth = Math.max(
-    320,
-    viewportWidth -
-      leftWidth -
-      ((filePanelOpen ? 1 : 0) + (gitPanelOpen ? 1 : 0) + (sshPanelOpen ? 1 : 0) + (endpointsPanelOpen ? 1 : 0)) *
-        renderedSidePanelWidth,
-  )
+  const workspaceWidth = Math.max(320, viewportWidth - leftWidth - openSidePanels.length * renderedSidePanelWidth)
   const terminalMinWidth = clampValue(Math.floor(viewportWidth * 0.18), 260, 440)
   // 侧向停靠时给编辑区保留 ≥160px 即可，终端可以拉到接近全宽
   const terminalMaxWidth = clampValue(workspaceWidth - 160, terminalMinWidth, 2000)
@@ -200,17 +218,13 @@ export function DesktopWorkbench() {
         resizingRef.current === 'ssh' ||
         resizingRef.current === 'fleet'
       ) {
-        // 四个面板同宽，手柄按各自面板左缘（排在其前的同宽面板数）换算回栏宽
+        // 四个面板同宽，手柄按各自面板左缘（排在其前的同宽面板数，见 openSidePanels）换算回栏宽
         const sessionOffset =
           ACTIVITY_BAR_WIDTH +
           (sessionPanelExpanded
             ? (previewSessionWidth ?? pendingSessionWidthRef.current ?? renderedSessionPanelWidth)
             : compactSessionWidth)
-        // fleet 与 files 排在 git/ssh 之前，且与其它侧栏互斥，所以它前面同宽面板数为 0
-        const panelsBefore =
-          resizingRef.current === 'file' || resizingRef.current === 'fleet'
-            ? 0
-            : (filePanelOpen ? 1 : 0) + (resizingRef.current === 'ssh' && gitPanelOpen ? 1 : 0)
+        const panelsBefore = Math.max(0, openSidePanels.indexOf(resizingRef.current))
         const panelOffset = sessionOffset + panelsBefore * renderedSidePanelWidth
         pendingSideWidthRef.current = clampValue(event.clientX - panelOffset, sidePanelMin, sidePanelMax)
         if (frameRef.current) return
@@ -258,8 +272,7 @@ export function DesktopWorkbench() {
     }
   }, [
     compactSessionWidth,
-    filePanelOpen,
-    gitPanelOpen,
+    openSidePanels,
     previewSessionWidth,
     renderedSessionPanelWidth,
     renderedSidePanelWidth,
@@ -451,22 +464,40 @@ export function DesktopWorkbench() {
           </div>
         )}
         {filePanelOpen && (
-          <SidePanelShell clip width={renderedSidePanelWidth} onStartResize={() => beginSideResize('file')}>
+          <SidePanelShell
+            clip
+            width={renderedSidePanelWidth}
+            resizing={previewSideWidth !== null}
+            onStartResize={() => beginSideResize('file')}
+          >
             <FilePanel mode="explorer" onOpenFile={handleOpenFile} />
           </SidePanelShell>
         )}
         {fleetPanelOpen && (
-          <SidePanelShell clip width={renderedSidePanelWidth} onStartResize={() => beginSideResize('fleet')}>
+          <SidePanelShell
+            clip
+            width={renderedSidePanelWidth}
+            resizing={previewSideWidth !== null}
+            onStartResize={() => beginSideResize('fleet')}
+          >
             <FleetPanel onClose={() => useConsoleStore.getState().setFleetPanelOpen(false)} />
           </SidePanelShell>
         )}
         {gitPanelOpen && (
-          <SidePanelShell width={renderedSidePanelWidth} onStartResize={() => beginSideResize('git')}>
+          <SidePanelShell
+            width={renderedSidePanelWidth}
+            resizing={previewSideWidth !== null}
+            onStartResize={() => beginSideResize('git')}
+          >
             <GitPanel />
           </SidePanelShell>
         )}
         {sshPanelOpen && (
-          <SidePanelShell width={renderedSidePanelWidth} onStartResize={() => beginSideResize('ssh')}>
+          <SidePanelShell
+            width={renderedSidePanelWidth}
+            resizing={previewSideWidth !== null}
+            onStartResize={() => beginSideResize('ssh')}
+          >
             <SshPanel />
           </SidePanelShell>
         )}
