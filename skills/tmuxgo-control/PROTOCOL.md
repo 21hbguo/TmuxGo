@@ -47,6 +47,7 @@ capability = 方法名（`initialize`/`schema`/`panes.*`/`agent.*`/`push`/`open-
 | 400  | `AGENT_CONTROL_SPLIT_FAILED` / `AGENT_CONTROL_READ_FAILED` / `AGENT_CONTROL_WAIT_FAILED` / `AGENT_CONTROL_SNAPSHOT_FAILED` / `AGENT_CONTROL_WAIT_OUTPUT_FAILED` / `AGENT_CONTROL_RUN_FAILED` | body zod 校验失败或下游执行失败（message 含原因）                                                                    |
 | 400  | `INVALID_INPUT`                                                                                                                                                                              | `panes/run` 文本含控制字符/换行或超 4096 字符                                                                        |
 | 400  | `INVALID_PATTERN`                                                                                                                                                                            | `panes/wait-output` 的 `regex:true` 正则不合法                                                                       |
+| 400  | `INVALID_KEY`                                                                                                                                                                                | `panes/send-keys` 键名不在白名单（整组拒绝，一个键都不发；响应 `invalid` 列出全部非法项）                            |
 | 409  | `OCCUPANT_CHANGED`                                                                                                                                                                           | wait 钉住的 pane 占用者（agent+agentSessionId 或 pane_current_command）在条件满足前变更——替换进程不得满足等待        |
 | 409  | `PANE_REMOVED`                                                                                                                                                                               | 目标 pane 在等待期间被移除                                                                                           |
 | 409  | `TIMEOUT`                                                                                                                                                                                    | `timeoutMs` 到期（默认 60s，范围 250ms–600s）                                                                        |
@@ -174,6 +175,22 @@ Type literal text into a pane. Body:
 - 文本经 `send-keys -l` 字面模式 + 坐标 target 下发（杜绝 key-name 解析与 shell 注入）；**gateway 侧零 shell 拼接，无 kill-server/kill-session/任意 host shell**。
 - occupant 非 shell（运行中程序）→ 409 `PANE_OCCUPIED`，需 `allowOccupied:true` 显式确认（往运行中程序打字=知情操作）；`PANE_MISSING`/`PANE_DEAD`/`PANE_IN_MODE` 同理 409。
 - Response: `{ "ok": true, "paneId": "local:%0", "target": "dev:0.1" }`
+
+### POST /panes/send-keys
+
+Send logical key presses (actions, not text). Body:
+
+```json
+{ "paneId": "local:%0", "keys": ["Escape", "C-c"], "allowOccupied": false }
+```
+
+- `keys`: 1-16 项，每项是 tmux 键名白名单里的逻辑键名——`Enter`/`Escape`/`BSpace`/`Tab`/`Space`/`Up`/`Down`/`Left`/`Right`/`Home`/`End`/`PPage`/`NPage`/`DC`/`IC`/`F1`-`F12`，加 `C-x`/`M-x`/`S-x`（单字母或数字）。
+- 别名归一：`esc`→`Escape`、`return`→`Enter`、`bs`/`backspace`→`BSpace`、`pageup`/`pgup`→`PPage`、`delete`→`DC`、`insert`→`IC`；大小写不敏感（`c-a`→`C-a`）。响应里的 `keys` 是实际下发的官方拼写。
+- **全量校验**：任一键名非法 → 400 `INVALID_KEY`，响应带 `invalid` 数组列出全部非法项，**一个键都不写**（不做「能发几个发几个」）。
+- 键名一律经白名单规范化后才进 `send-keys`，调用方的字符串不会原样透传给 tmux（键名是动作参数，未规范化等于行为漂移面）。
+- 裸字符不是键名（`"a"`、`"1"` 都不收）——文本走 `panes/run`。
+- 一次 `send-keys` 带全部键，键间无 shell 拼接；`allowOccupied` / `PANE_MISSING` / `PANE_DEAD` / `PANE_IN_MODE` / `PANE_OCCUPIED` 门禁与 `panes/run` 完全一致。
+- Response: `{ "ok": true, "paneId": "local:%0", "target": "dev:0.1", "keys": ["Escape", "C-c"] }`
 
 ### POST /agent/wait
 

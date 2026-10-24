@@ -42,6 +42,7 @@
     "panes.snapshot",
     "panes.wait-output",
     "panes.run",
+    "panes.send-keys",
     "agent.wait",
     "agent.start",
     "agent.prompt",
@@ -95,6 +96,7 @@
                 "panes.snapshot",
                 "panes.wait-output",
                 "panes.run",
+                "panes.send-keys",
                 "agent.wait",
                 "agent.start",
                 "agent.prompt",
@@ -392,6 +394,71 @@
       "errors": [
         "AGENT_CONTROL_RUN_FAILED",
         "INVALID_INPUT",
+        "PANE_MISSING",
+        "PANE_DEAD",
+        "PANE_IN_MODE",
+        "PANE_OCCUPIED",
+        "PANE_UNKNOWN",
+        "INVALID_TARGET",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
+    },
+    "panes.send-keys": {
+      "http": "POST",
+      "path": "/panes/send-keys",
+      "params": {
+        "type": "object",
+        "properties": {
+          "paneId": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 256
+          },
+          "keys": {
+            "minItems": 1,
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            }
+          },
+          "allowOccupied": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": ["paneId", "keys"],
+        "additionalProperties": true
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "paneId": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Canonical tmux key names actually sent"
+          }
+        },
+        "required": ["ok", "paneId", "target", "keys"]
+      },
+      "errors": [
+        "AGENT_CONTROL_SEND_KEYS_FAILED",
+        "INVALID_KEY",
         "PANE_MISSING",
         "PANE_DEAD",
         "PANE_IN_MODE",
@@ -1293,7 +1360,9 @@
     "AGENT_CONTROL_SNAPSHOT_FAILED",
     "AGENT_CONTROL_WAIT_OUTPUT_FAILED",
     "AGENT_CONTROL_RUN_FAILED",
+    "AGENT_CONTROL_SEND_KEYS_FAILED",
     "INVALID_INPUT",
+    "INVALID_KEY",
     "INVALID_PATTERN",
     "AGENT_CONTROL_START_FAILED",
     "AGENT_CONTROL_PROMPT_FAILED",
@@ -1341,7 +1410,9 @@
           "AGENT_CONTROL_SNAPSHOT_FAILED",
           "AGENT_CONTROL_WAIT_OUTPUT_FAILED",
           "AGENT_CONTROL_RUN_FAILED",
+          "AGENT_CONTROL_SEND_KEYS_FAILED",
           "INVALID_INPUT",
+          "INVALID_KEY",
           "INVALID_PATTERN",
           "AGENT_CONTROL_START_FAILED",
           "AGENT_CONTROL_PROMPT_FAILED",

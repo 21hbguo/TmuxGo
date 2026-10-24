@@ -29,6 +29,7 @@ export const CONTROL_CAPABILITIES = [
   'panes.snapshot',
   'panes.wait-output',
   'panes.run',
+  'panes.send-keys',
   'agent.wait',
   'agent.start',
   'agent.prompt',
@@ -161,6 +162,15 @@ export const controlRunBodySchema = z.object({
   allowOccupied: z.boolean().default(false),
 })
 
+// send-keys：逻辑键名通道。键名走 tmux 官方键名白名单（lib/tmux-keys.ts），
+// 整组全量校验通过才写字节——任一非法 → 400 INVALID_KEY，一个键都不发。
+// 上限 16 键：够按 Esc/C-c/方向键，又不适合当批量文本通道（那是 panes/run 的事）
+export const controlSendKeysBodySchema = z.object({
+  paneId: paneIdSchema,
+  keys: z.array(z.string().min(1).max(32)).min(1).max(16),
+  allowOccupied: z.boolean().default(false),
+})
+
 export const controlWaitBodySchema = z.object({
   hostId: z.string().min(1).max(128).optional(),
   target: z.union([
@@ -233,10 +243,12 @@ export const controlAgentCancelBodySchema = z.object({
 // 403 TMUXGO_ENV_GUARD             缺少 x-tmuxgo-env: 1 守卫头
 // 400 AGENT_CONTROL_SPLIT_FAILED / AGENT_CONTROL_READ_FAILED / AGENT_CONTROL_WAIT_FAILED /
 //     AGENT_CONTROL_SNAPSHOT_FAILED / AGENT_CONTROL_WAIT_OUTPUT_FAILED / AGENT_CONTROL_RUN_FAILED /
+//     AGENT_CONTROL_SEND_KEYS_FAILED /
 //     AGENT_CONTROL_START_FAILED / AGENT_CONTROL_PROMPT_FAILED / AGENT_CONTROL_CANCEL_FAILED
 //     AGENT_CONTROL_SEND_FAILED / INVALID_ARGUMENT / PROVIDER_NOT_SUPPORTED
 //     请求体校验失败或下游执行失败（message 携带原因）
 // 400 INVALID_INPUT / INVALID_PATTERN  run 文本含控制字符 / wait-output 正则不合法
+// 400 INVALID_KEY                      send-keys 键名不在白名单（整组拒绝，一个键都不发）
 // 409 OCCUPANT_CHANGED / PANE_REMOVED / TIMEOUT / INVALID_TARGET  agent/wait 语义错误
 // 409 PANE_MISSING / PANE_DEAD / PANE_IN_MODE / PANE_OCCUPIED
 //     pane 请求时状态不可执行（snapshot/run/wait-output/start/prompt 共用）
@@ -253,7 +265,9 @@ export const CONTROL_ERROR_CODES = [
   'AGENT_CONTROL_SNAPSHOT_FAILED',
   'AGENT_CONTROL_WAIT_OUTPUT_FAILED',
   'AGENT_CONTROL_RUN_FAILED',
+  'AGENT_CONTROL_SEND_KEYS_FAILED',
   'INVALID_INPUT',
+  'INVALID_KEY',
   'INVALID_PATTERN',
   'AGENT_CONTROL_START_FAILED',
   'AGENT_CONTROL_PROMPT_FAILED',

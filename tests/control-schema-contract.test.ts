@@ -44,6 +44,7 @@ test('every control method (Task9/Task12 included) is present in the schema doc'
     'panes.snapshot',
     'panes.wait-output',
     'panes.run',
+    'panes.send-keys',
     // Task12 agent actions
     'agent.start',
     'agent.prompt',
@@ -122,6 +123,7 @@ test('mcp pane tools mirror the protocol params constraints', async (t) => {
     tmuxgo_pane_snapshot: 'panes.snapshot',
     tmuxgo_pane_wait_output: 'panes.wait-output',
     tmuxgo_pane_run: 'panes.run',
+    tmuxgo_pane_send_keys: 'panes.send-keys',
     tmuxgo_agent_start: 'agent.start',
     tmuxgo_agent_prompt: 'agent.prompt',
     tmuxgo_agent_wait: 'agent.wait',

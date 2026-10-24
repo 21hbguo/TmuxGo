@@ -6,6 +6,7 @@ import {
   readAgentPane,
   resolveAgentWaitTarget,
   runAgentPaneInput,
+  sendKeysToPane,
   snapshotAgentPane,
   splitAgentPane,
   waitAgentPaneOutput,
@@ -22,6 +23,7 @@ import {
   controlInitializeBodySchema,
   controlReadBodySchema,
   controlRunBodySchema,
+  controlSendKeysBodySchema,
   controlSnapshotBodySchema,
   controlSplitBodySchema,
   controlWaitBodySchema,
@@ -63,13 +65,20 @@ const waitSemanticCodes = new Set([
   'INVALID_TARGET',
   'CLIENT_DISCONNECTED',
 ])
-const inputCodes = new Set(['INVALID_INPUT', 'INVALID_PATTERN'])
+const inputCodes = new Set(['INVALID_INPUT', 'INVALID_PATTERN', 'INVALID_KEY'])
+// 语义码 → HTTP status 只有两档：pane 状态/等待语义 409，其余（输入校验、zod、下游失败）400。
+// controlError 与「需要先审计再应答」的路由共用这份映射，避免同一套码在两条路径上分叉。
+function controlErrorStatus(error: unknown) {
+  const code = error instanceof Error && 'code' in error ? (error as { code: string }).code : ''
+  return paneStateCodes.has(code) || waitSemanticCodes.has(code) ? 409 : 400
+}
 function controlError(reply: FastifyReply, error: unknown, failedCode: string) {
   const code = error instanceof Error && 'code' in error ? (error as { code: string }).code : ''
   const message = error instanceof Error ? error.message : 'Control request failed'
-  if (paneStateCodes.has(code) || waitSemanticCodes.has(code)) return reply.code(409).send({ ok: false, message, code })
-  if (inputCodes.has(code)) return reply.code(400).send({ ok: false, message, code })
-  return reply.code(400).send({ message, code: failedCode })
+  const semantic = paneStateCodes.has(code) || waitSemanticCodes.has(code) || inputCodes.has(code)
+  return reply
+    .code(controlErrorStatus(error))
+    .send(semantic ? { ok: false, message, code } : { message, code: failedCode })
 }
 async function parsePaneTarget(paneId: string) {
   const { hostId, tmuxPaneId } = parseHostPaneId(paneId)
@@ -300,6 +309,44 @@ export async function agentControlRoutes(fastify: FastifyInstance) {
     }
     return true
   }
+
+  // 逻辑键名通道：与 panes/run 的分工是「按键名动作」vs「字面文本」。键名先全量
+  // 校验再落字节（lib/tmux-keys.ts），任一非法整组拒绝——审计只记键名列表与结果码。
+  fastify.post('/v1/control/panes/send-keys', { bodyLimit: 64 * 1024 }, async (request, reply) => {
+    if (!guardControlAction(request, reply)) return
+    const body = (request.body ?? {}) as { paneId?: unknown; keys?: unknown }
+    const paneId = typeof body.paneId === 'string' ? body.paneId : request.url.split('?')[0]
+    const auditKeys = (): string => {
+      const keys = body.keys
+      if (!Array.isArray(keys)) return ''
+      return keys.filter((key): key is string => typeof key === 'string').join(' ')
+    }
+    try {
+      const parsed = controlSendKeysBodySchema.parse(request.body)
+      const { hostId, tmuxPaneId } = await parsePaneTarget(parsed.paneId)
+      const result = await sendKeysToPane(hostId, tmuxPaneId, {
+        keys: parsed.keys,
+        allowOccupied: parsed.allowOccupied,
+      })
+      reply.header('cache-control', 'no-store')
+      auditAction(request, 'pane.send_keys', parsed.paneId, 'success', 200, result.keys.join(' '), hostId)
+      return result
+    } catch (error) {
+      const status = controlErrorStatus(error)
+      const code =
+        error instanceof Error && 'code' in error ? (error as { code: string }).code : 'AGENT_CONTROL_SEND_KEYS_FAILED'
+      // 失败时记键名 + 结果码：keys 是本端点唯一有诊断价值的入参，且不含文本正文
+      auditAction(request, 'pane.send_keys', paneId, 'failure', status, auditKeys() ? `${code} ${auditKeys()}` : code)
+      const invalid = error instanceof AgentWaitError ? error.invalid : undefined
+      return reply.code(status).send({
+        ok: false,
+        message: error instanceof Error ? error.message : 'Send keys failed',
+        code,
+        // 非法键明细随响应返回（一次修完），与 herdr 的 invalid_key 语义一致
+        ...(invalid && invalid.length ? { invalid } : {}),
+      })
+    }
+  })
 
   fastify.post('/v1/control/agent/start', { bodyLimit: 64 * 1024 }, async (request, reply) => {
     if (!guardControlAction(request, reply)) return
