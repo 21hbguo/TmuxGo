@@ -1,21 +1,22 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
-import { AgentRecoveryBadge } from './AgentRecovery'
+import { AgentRecoveryBadge, useAgentRecoveryList } from './AgentRecovery'
 import { I18nProvider } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { AgentRecoveryCandidate } from '@/types'
 
-const resumeMock = vi.fn()
+const apiMocks = vi.hoisted(() => ({ list: vi.fn(), resume: vi.fn() }))
 vi.mock('@/lib/api', () => ({
   api: {
     agentRecovery: {
-      list: vi.fn(async () => ({ version: 1, candidates: [] })),
-      resume: (...args: unknown[]) => resumeMock(...args),
+      list: apiMocks.list,
+      resume: apiMocks.resume,
     },
   },
 }))
+const resumeMock = apiMocks.resume
 
 const candidate = (overrides: Partial<AgentRecoveryCandidate> = {}): AgentRecoveryCandidate => ({
   id: 'c1',
@@ -50,6 +51,8 @@ const lastResumeButton = async () => {
 
 beforeEach(() => {
   resumeMock.mockReset()
+  apiMocks.list.mockReset()
+  apiMocks.list.mockResolvedValue({ version: 1, candidates: [] })
 })
 afterEach(cleanup)
 
@@ -126,5 +129,64 @@ describe('AgentRecoveryBadge', () => {
       expect(pushToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'error', message: 'pane occupied' })),
     )
     expect(resumeMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useAgentRecoveryList', () => {
+  const listMock = apiMocks.list
+
+  beforeEach(() => {
+    listMock.mockReset()
+    listMock.mockResolvedValue({ version: 1, candidates: [candidate()] })
+  })
+
+  // 曾经的 15s 常驻轮询是死代码：徽标没挂载、候选又是低频事件，
+  // 这个用例就是防止它被"顺手"加回来
+  it('fetches once on mount and never polls on a timer', async () => {
+    // 假定时器推进 60s 断言只请求了挂载那一次：原来的 15s 常驻轮询会在这里多出 4 次。
+    // 不用 spy window.setInterval —— RTL 的 waitFor 自己也用 setInterval。
+    vi.useFakeTimers()
+    try {
+      const { result } = renderHook(() => useAgentRecoveryList('local'))
+      await act(async () => {
+        await Promise.resolve()
+      })
+      expect(listMock).toHaveBeenCalledTimes(1)
+      expect(result.current.candidates).toHaveLength(1)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000)
+      })
+      expect(listMock).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('refetches only when asked', async () => {
+    const { result } = renderHook(() => useAgentRecoveryList('local'))
+    await waitFor(() => expect(result.current.candidates).toHaveLength(1))
+    listMock.mockResolvedValue({ version: 1, candidates: [] })
+    await act(async () => {
+      result.current.refetch()
+    })
+    await waitFor(() => expect(result.current.candidates).toHaveLength(0))
+    expect(listMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('clears candidates for a null host and groups pending ones by session', async () => {
+    listMock.mockResolvedValue({
+      version: 1,
+      candidates: [
+        candidate(),
+        candidate({ id: 'c2', sessionName: 'ops' }),
+        candidate({ id: 'c3', status: 'resumed' }),
+      ],
+    })
+    const { result } = renderHook(() => useAgentRecoveryList('local'))
+    await waitFor(() => expect(result.current.candidates).toHaveLength(3))
+    expect([...result.current.bySession.keys()].sort()).toEqual(['dev', 'ops'])
+    expect(result.current.bySession.get('dev')).toHaveLength(1)
+    const { result: empty } = renderHook(() => useAgentRecoveryList(null))
+    expect(empty.current.candidates).toHaveLength(0)
   })
 })
