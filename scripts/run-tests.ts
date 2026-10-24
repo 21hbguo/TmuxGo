@@ -38,6 +38,16 @@ const TEST_SERVER_BOOTSTRAP_SESSION = '__tmuxgo_test_bootstrap__'
 // 分层开关：`pnpm test --fast`（或 TMUXGO_TEST_FAST=1）只跑快层——跳过用 slowSkip
 // 标记的等待型用例（单次 >2s 的心跳/TTL/真子进程）和整组真 tmux 串行文件；
 // 不带参数/CI 一律全量，行为与分层前完全一致
+// 卡死兜底：CI 上出现过 pnpm test 无输出挂 25 分钟以上的情况（单个用例永久
+// 等待 promise，node --test 不会自己结束）。两层防线：
+//   1) --test-timeout：让 node 自己取消超时的用例并打印 not ok <名字>，
+//      这样 CI 日志直接暴露是哪个用例挂住，而不是一片空白
+//   2) spawnSync timeout：兜住 node 层都卡住的情况（残留子进程、退出钩子挂死）
+// 阈值给得比实测最慢用例宽一个量级，正常跑不受影响；可用环境变量覆盖。
+const TEST_CASE_TIMEOUT_MS = Number(process.env.TMUXGO_TEST_CASE_TIMEOUT_MS || 120_000)
+const PARALLEL_BATCH_TIMEOUT_MS = Number(process.env.TMUXGO_TEST_BATCH_TIMEOUT_MS || 900_000)
+const SERIAL_FILE_TIMEOUT_MS = Number(process.env.TMUXGO_TEST_FILE_TIMEOUT_MS || 300_000)
+
 const args = process.argv.slice(2)
 const fastMode = args.includes('--fast') || process.env.TMUXGO_TEST_FAST === '1'
 const patterns = args.filter((arg) => arg !== '--fast')
@@ -165,20 +175,46 @@ process.once('SIGTERM', () => {
   process.exit(143)
 })
 
+function buildTestArgs(files: string[]) {
+  // --test-timeout 在 node 20.19+ / 22.x 都受支持；超时的用例以 not ok 收场，
+  // 名字留在日志里，正是我们要的定位信息
+  return ['--import', 'tsx', '--test', `--test-timeout=${TEST_CASE_TIMEOUT_MS}`, ...files]
+}
+
 let status = 0
 try {
   if (parallelFiles.length) {
-    const result = spawnSync(process.execPath, ['--import', 'tsx', '--test', ...parallelFiles], {
+    const result = spawnSync(process.execPath, buildTestArgs(parallelFiles), {
       stdio: 'inherit',
       env: process.env,
+      timeout: PARALLEL_BATCH_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
     })
-    status = result.status ?? 1
+    if (result.error) {
+      console.error(
+        `[run-tests] parallel batch killed after ${PARALLEL_BATCH_TIMEOUT_MS}ms ` +
+          `(${parallelFiles.length} files); raise TMUXGO_TEST_BATCH_TIMEOUT_MS if this is genuine work`,
+      )
+      status = 1
+    } else {
+      status = result.status ?? 1
+    }
   }
   for (const file of serialFiles) {
-    const result = spawnSync(process.execPath, ['--import', 'tsx', '--test', file], {
+    const result = spawnSync(process.execPath, buildTestArgs([file]), {
       stdio: 'inherit',
       env: process.env,
+      timeout: SERIAL_FILE_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
     })
+    if (result.error) {
+      console.error(
+        `[run-tests] serial file killed after ${SERIAL_FILE_TIMEOUT_MS}ms: ${file} ` +
+          `(raise TMUXGO_TEST_FILE_TIMEOUT_MS if this is genuine work)`,
+      )
+      if (status === 0) status = 1
+      continue
+    }
     if (status === 0) status = result.status ?? 1
   }
 } finally {
