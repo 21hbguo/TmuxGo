@@ -7,6 +7,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { cn } from '@/lib/cn'
 import { useFleetClock, useFleetData, useFleetDurationFormatter } from '@/hooks/useFleet'
 import { navigateInboxRoute } from '@/lib/inbox-navigation'
+import { requestTerminalFocus } from '@/lib/terminal-focus-request'
 import {
   FLEET_ATTENTION_MAX_RANK,
   buildFleetTree,
@@ -260,11 +261,24 @@ function FleetRow({
   // blocked 已经靠自己的红色徽标表达了「要处理」，这里只补「最近事件失败」这一类隐性失败
   const failedEvent = row.status !== 'blocked' && fleetRank(row) === FLEET_ATTENTION_MAX_RANK
   return (
+    // 整行都是跳转热区：点徽标/时长也该激活 pane——只有中间 grid 是 button 时
+    // 点右侧什么都不发生，用户以为「点了没反应」
     <div
       data-fleet-row={row.key}
+      role="button"
+      tabIndex={0}
+      onClick={() => onJump(row)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onJump(row)
+        }
+      }}
+      title={`${row.sessionName} · ${paneLabel}`}
+      aria-label={`${t('fleet.jump')} ${row.sessionName} ${paneLabel}`}
       className={cn(
         // 树内不画行分隔线：引导线 + 状态锚点已经表达层级，再叠 border 像栅栏
-        'tmuxgo-list-row relative flex h-9 items-center gap-2 pr-3',
+        'tmuxgo-list-row relative flex h-9 cursor-pointer items-center gap-2 pr-3 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/25',
         tone.row,
         tone.hover,
       )}
@@ -277,13 +291,9 @@ function FleetRow({
         aria-hidden="true"
         className={cn('absolute inset-y-0 left-0 w-[2px]', tone.bar)}
       />
-      <button
-        type="button"
-        onClick={() => onJump(row)}
-        title={`${row.sessionName} · ${paneLabel}`}
-        aria-label={`${t('fleet.jump')} ${row.sessionName} ${paneLabel}`}
+      <div
         className={cn(
-          'grid min-w-0 flex-1 items-center gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/25',
+          'grid min-w-0 flex-1 items-center gap-2 text-left',
           // session 名已在父节点上，叶子不再重复；省下来的宽度给「简要内容」列
           compact
             ? 'grid-cols-[1.5rem_minmax(0,4rem)_minmax(0,1fr)]'
@@ -304,7 +314,7 @@ function FleetRow({
             {brief || '—'}
           </span>
         )}
-      </button>
+      </div>
       {failedEvent ? (
         // 状态还是 working/idle 但最近一次事件 failed：徽标不会显示 failed，用细环+title 补上这条语义
         <span title={t('fleet.eventFailed')} className="shrink-0 rounded-full ring-1 ring-danger/40">
@@ -362,7 +372,13 @@ export function FleetPanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobi
       queryClient,
     )
     // 只上报失败：成功时界面上就是「选中了那个 pane」，再弹 toast 反而吵
-    if (result !== 'pane' && result !== 'session') pushToast({ type: 'error', message: t('inbox.targetMissing') })
+    if (result !== 'pane' && result !== 'session') {
+      pushToast({ type: 'error', message: t('inbox.targetMissing') })
+      return
+    }
+    // 选中只是数据态——点 fleet 行用户预期「接着就能敲键盘」，和 SessionPanel
+    // 选中 session 后聚焦终端同链（tmuxgo-focus-terminal，已挂载/未挂载双通道）
+    requestTerminalFocus(row.hostId, row.sessionName)
   }
   const toggleHost = (hostId: string) =>
     setHostFilter((prev) => (prev.includes(hostId) ? prev.filter((id) => id !== hostId) : [...prev, hostId]))
