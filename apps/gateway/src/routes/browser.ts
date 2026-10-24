@@ -165,7 +165,7 @@ export async function browserRoutes(fastify: FastifyInstance) {
     // 消息级审计：input/navigate/tab 等是用户操作要记 action/target；
     // url、击键内容等正文字段不落盘（wsMessageTarget 只取标识字段）
     const auditMsg = (type: unknown, data: unknown, result: 'success' | 'failure', error?: WsMessageErrorKind) =>
-      appendWsMessageAudit({ actor: wsActor, source: 'ws', channel: 'browser', type, data, result, error })
+      void appendWsMessageAudit({ actor: wsActor, source: 'ws', channel: 'browser', type, data, result, error })
     const inst = instance()
     let client: Awaited<ReturnType<typeof inst.addClient>> | null = null
     // addClient 是异步绑页：其完成前到达的 pause/resume 若只看 client 会被丢，

@@ -64,11 +64,28 @@ async function rotateAuditFile(filePath: string) {
     await rename(filePath, `${filePath}.1`)
   } catch {}
 }
-export async function appendAuditEvent(event: AuditEvent) {
+// 在飞的落盘任务：审计写入对调用方仍是 fire-and-forget（不阻塞请求/消息处理），
+// 但落盘本身是异步的，读取方（测试、审计导出）无法凭「调用已返回」判断写完了。
+// 这里只做登记，不改写入顺序与语义，供 flushAuditWrites() 等待。
+const inFlightAuditWrites = new Set<Promise<void>>()
+function trackAuditWrite(task: Promise<void>) {
+  inFlightAuditWrites.add(task)
+  void task.finally(() => inFlightAuditWrites.delete(task)).catch(() => {})
+  return task
+}
+export function appendAuditEvent(event: AuditEvent): Promise<void> {
   const filePath = getAuditPath()
-  await mkdir(path.dirname(filePath), { recursive: true })
-  await rotateAuditFile(filePath)
-  await appendFile(filePath, `${JSON.stringify(event)}\n`, { encoding: 'utf8', mode: 0o600 })
+  return trackAuditWrite(
+    (async () => {
+      await mkdir(path.dirname(filePath), { recursive: true })
+      await rotateAuditFile(filePath)
+      await appendFile(filePath, `${JSON.stringify(event)}\n`, { encoding: 'utf8', mode: 0o600 })
+    })(),
+  )
+}
+// 测试缝：等所有在飞审计落盘。生产侧不需要它——写入失败/延迟不该阻塞请求。
+export async function flushAuditWrites() {
+  while (inFlightAuditWrites.size > 0) await Promise.allSettled([...inFlightAuditWrites])
 }
 export async function recordAuditRequest(request: FastifyRequest, reply: FastifyReply) {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return

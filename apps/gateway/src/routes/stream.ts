@@ -122,7 +122,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     // 消息级审计：只记 action/标识 target/result/错误类别，正文/击键/payload 不落盘。
     // input/resize 等无 sessionName 字段的消息回退到当前 attach 会话作 target
     const auditMsg = (type: unknown, data: unknown, result: 'success' | 'failure', error?: WsMessageErrorKind) =>
-      appendWsMessageAudit({
+      void appendWsMessageAudit({
         actor: wsActor,
         source: shareTicket ? 'share' : 'ws',
         channel: 'stream',

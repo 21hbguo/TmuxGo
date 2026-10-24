@@ -41,7 +41,7 @@ export function appendWsMessageAudit(params: {
   result: 'success' | 'failure'
   error?: WsMessageErrorKind
   hostId?: string
-}) {
+}): Promise<void> {
   const type = typeof params.type === 'string' && params.type.trim() ? params.type.trim().slice(0, 64) : 'message'
   const event: AuditEvent = {
     id: `${Date.now().toString(36)}-wsm`,
@@ -60,5 +60,7 @@ export function appendWsMessageAudit(params: {
   }
   if (params.result === 'failure') event.message = params.error || 'error'
   if (params.hostId) event.hostId = safeField(params.hostId)
-  void appendAuditEvent(event).catch(() => {})
+  // 调用方依旧 fire-and-forget（路由侧不 await）；返回 promise 是给测试与
+  // 审计导出用的可等待句柄，写盘失败照旧吞掉，不影响消息处理
+  return appendAuditEvent(event).catch(() => {})
 }

@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { flushAuditWrites } from './audit-log.js'
 import { appendWsMessageAudit, wsMessageTarget } from './ws-audit.js'
 
 // 隔离审计文件：TMUXGO_AUDIT_LOG 指向临时目录，不碰真实 ~/.tmuxgo
@@ -20,26 +21,23 @@ function useAuditFile(t: test.TestContext) {
   return file
 }
 
-async function readEvents(file: string, expected = 1) {
-  // appendAuditEvent 是 fire-and-forget：轮询到期望条数再返回。固定等一拍在并发
-  // 负载下会读到空文件（合批复现过一次 0 !== 4）
-  const parse = () => {
-    try {
-      return readFileSync(file, 'utf8')
-        .trim()
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => JSON.parse(line))
-    } catch {
-      return []
-    }
+function parseAudit(file: string) {
+  try {
+    return readFileSync(file, 'utf8')
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+  } catch {
+    return []
   }
-  const deadline = Date.now() + 2000
-  for (;;) {
-    const events = parse()
-    if (events.length >= expected || Date.now() > deadline) return events
-    await new Promise((resolve) => setTimeout(resolve, 10))
-  }
+}
+
+// 落盘是异步的：调用返回只代表「已排进写入队列」。旧写法靠轮询/固定等待，在慢盘或
+// CPU 抢不到时仍会读到空文件（CI 上 0 !== 4）。现在等实现侧的 flush 钩子，无时间假设。
+async function readEvents(file: string) {
+  await flushAuditWrites()
+  return parseAudit(file)
 }
 
 test('ws message audit records success/denied/invalid/error with stable envelope', async (t) => {
@@ -81,7 +79,7 @@ test('ws message audit records success/denied/invalid/error with stable envelope
     hostId: 'local',
   })
 
-  const events = await readEvents(file, 4)
+  const events = await readEvents(file)
   assert.equal(events.length, 4)
 
   // appendAuditEvent 是 fire-and-forget，落盘顺序不保证——按字段查找而非按下标
@@ -147,7 +145,7 @@ test('ws message audit never persists message bodies, tokens or terminal output'
     hostId: 'h1',
   })
 
-  await readEvents(file, 2) // 等待 fire-and-forget 落盘
+  await readEvents(file) // 等待 fire-and-forget 落盘
   const raw = readFileSync(file, 'utf8')
   for (const secret of [
     'SECRET-KEYSTROKE',
@@ -165,6 +163,35 @@ test('ws message audit never persists message bodies, tokens or terminal output'
   // 标识字段仍可审计
   assert.ok(raw.includes('dev · local:%3'))
   assert.ok(raw.includes('ws-stream-agent-event'))
+})
+
+test('audit writes are awaitable and flush covers every queued row', async (t) => {
+  const file = useAuditFile(t)
+  // 直接 await 单条：promise 落地时该行必须已可读，这是新的可等待契约
+  await appendWsMessageAudit({
+    actor: 'alice',
+    source: 'ws',
+    channel: 'stream',
+    type: 'await-me',
+    result: 'success',
+  })
+  assert.equal(parseAudit(file).length, 1)
+
+  // 批量排队后立刻断言总量：flush 必须等到「全部登记在案的写入」落盘。
+  // 若 flush 被改成空实现，这里几乎必然少于 200（写入是异步的，读盘赶不上）
+  const batch = 200
+  const pending = Array.from({ length: batch }, (_unused, index) =>
+    appendWsMessageAudit({
+      actor: 'batch',
+      source: 'ws',
+      channel: 'stream',
+      type: `batch-${index}`,
+      result: 'success',
+    }),
+  )
+  await flushAuditWrites()
+  assert.equal(parseAudit(file).length, batch + 1)
+  await Promise.all(pending)
 })
 
 test('wsMessageTarget only extracts routing identifiers', () => {

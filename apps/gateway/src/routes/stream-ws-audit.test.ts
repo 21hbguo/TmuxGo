@@ -7,6 +7,7 @@ import test from 'node:test'
 import Fastify from 'fastify'
 import websocket from '@fastify/websocket'
 import { WebSocket } from 'ws'
+import { flushAuditWrites } from '../lib/audit-log.js'
 
 // auth 开关在模块加载时读取环境变量，先置空密码再走免 ticket 路径
 process.env.TMUXGO_AUTH_PASSWORD = ''
@@ -50,15 +51,24 @@ function readAudit(file: string) {
   }
 }
 
-// appendAuditEvent 是 fire-and-forget：等审计行出现再断言（含 keepalive 不产生行的反向断言靠定长等待）
+// appendAuditEvent 是 fire-and-forget：每次读盘前先 flush 掉在飞的写入，再判断条数。
+// 旧写法单纯轮询，慢盘/CPU 抢占下会在写入还没落盘时就读到空文件（CI 上 0 !== 4）。
 async function waitAuditCount(file: string, count: number, timeoutMs = 2000) {
   const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
+  for (;;) {
+    await flushAuditWrites()
     const events = readAudit(file)
-    if (events.length >= count) return events
-    await new Promise((resolve) => setTimeout(resolve, 15))
+    if (events.length >= count || Date.now() > deadline) return events
+    await new Promise((resolve) => setTimeout(resolve, 10))
   }
-  return readAudit(file)
+}
+
+// 等客户端确实收到某类回执：说明服务端处理完了该消息（审计调用已发出），
+// 避免用固定 sleep 猜服务端进度
+async function waitReplies(replies: Record<string, unknown>[], done: () => boolean, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs
+  while (!done() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10))
+  return replies
 }
 
 test('stream ws audits connect, control messages and protocol errors without bodies', async (t) => {
@@ -78,7 +88,11 @@ test('stream ws audits connect, control messages and protocol errors without bod
   // 非 JSON：协议错误
   ws.send('not-json-at-all')
 
-  await new Promise((resolve) => setTimeout(resolve, 300))
+  // ping/input/bogus/非 JSON 四条都已回执 → 服务端处理完毕，再去等在飞的审计写入
+  await waitReplies(
+    replies,
+    () => replies.some((r) => r.type === 'pong') && replies.filter((r) => r.type === 'error').length >= 2,
+  )
   const events = await waitAuditCount(file, 4)
   const raw = readFileSync(file, 'utf8')
 
