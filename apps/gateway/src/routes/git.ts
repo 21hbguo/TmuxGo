@@ -310,7 +310,7 @@ export async function gitRoutes(fastify: FastifyInstance, options: { taskManager
         if (!paneId.startsWith(`${hostId}:`)) throw new Error('Pane does not belong to host')
         const tmuxPaneId = paneId.slice(hostId.length + 1)
         if (!tmuxPaneId.startsWith('%')) throw new Error('Invalid pane id')
-        if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
+        await assertTargetAllowed(hostId, tmuxPaneId)
         const { stdout } = await execTmux(hostId, ['display-message', '-p', '-t', tmuxPaneId, '#{pane_current_path}'])
         candidatePath = stdout.trim()
       }
