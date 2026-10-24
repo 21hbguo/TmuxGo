@@ -1,3 +1,4 @@
+import { TMUX_HISTORY_LIMIT_LINES } from './scrollback-budget.js'
 import { execTmux } from './tmux-executor.js'
 
 const allowedSessions = new Set(
@@ -23,9 +24,9 @@ export async function assertTargetAllowed(hostId: string, target: string, expect
 }
 // 我们创建的 session 显式钉住回看深度。history-limit 是 session option，tmux 默认只有
 // 2000 行，而宿主的 ~/.tmux.conf 可能设成任意值（实测见过 50000）——同一份「跨 pane 搜索 /
-// 会话快照」在不同主机上能搜到多深就变成了看运气。
-// 20000 行按 80 列估约 1.6MB/pane 上限，8 pane 会话仍在可控范围。
-export const TMUXGO_HISTORY_LIMIT = 20000
+// 会话快照」在不同主机上能搜到多深就变成了看运气。数字与换算见 scrollback-budget.ts
+// （全仓回看口径的唯一真值源，改值只改那里）。
+export const TMUXGO_HISTORY_LIMIT = TMUX_HISTORY_LIMIT_LINES
 const parseHistoryLimit = (stdout: string) => {
   const value = Number(stdout.trim().split(/\s+/)[1] || 0)
   return Number.isFinite(value) ? value : 0

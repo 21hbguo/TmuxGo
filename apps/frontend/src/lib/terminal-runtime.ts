@@ -24,6 +24,7 @@ import type { FileDocumentHandle, FileRoot, TerminalPerfState } from '@/types'
 import type { Terminal, IDisposable } from '@xterm/xterm'
 import type { QueryClient } from '@tanstack/react-query'
 import type { Preferences } from '@/hooks/usePreferences'
+import { TERMINAL_SCROLLBACK_LINES } from '@/lib/scrollback-budget'
 
 // stream 事件 detail：各事件共用 hostId/sessionName 路由字段，尺寸/版本字段按事件取用
 interface StreamEventDetail {
@@ -41,7 +42,8 @@ type SelectionSync = ReturnType<typeof import('@/hooks/useTerminalSelectionSync'
 type PasteBridge = ReturnType<typeof import('@/hooks/useTerminalPasteBridge').useTerminalPasteBridge>
 type DropState = ReturnType<typeof import('@/hooks/useTerminalDrop').useTerminalDrop>
 type TouchScroll = ReturnType<typeof import('@/hooks/useTerminalTouchScroll').useTerminalTouchScroll>
-const SCROLLBACK_LIMIT = 600
+// 回看行数的默认值在 scrollback-budget.ts（含与其他层的换算），这里只做别名
+const SCROLLBACK_LIMIT = TERMINAL_SCROLLBACK_LINES
 // 切换攒流的静默窗口：attached 后每条输出重置该计时，静默 40ms 视为本批齐了——
 // 能把 gateway attach 后 48ms 的 refresh-client 重绘（ATTACH_REDRAW_DELAYS）并进同一笔 write。
 const SWITCH_FLUSH_QUIET_MS = 40

@@ -37,6 +37,7 @@ import { InboxNotifications } from './InboxNotifications'
 import { InboxPanel } from './InboxPanel'
 import { InboxPreview } from './InboxPreview'
 import { useDeleteSession, useHosts, useRenameSession, useSessionSnapshot } from '@/hooks/useApi'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { usePreferences } from '@/hooks/usePreferences'
 import { usePrompt } from '@/hooks/usePrompt'
@@ -124,6 +125,9 @@ function recordMobileDebug(event: string, data?: Record<string, unknown>) {
 export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: boolean }) {
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
+  // 标签标题跟随当前 attach（{host} - {session}: {window}），数据复用本组件已有的
+  // session-snapshot 查询，不新增请求
+  useDocumentTitle()
   const setActivePane = useConsoleStore((s) => s.setActivePane)
   const showCommandPalette = useConsoleStore((s) => s.showCommandPalette)
   const showPaneSearch = useConsoleStore((s) => s.showPaneSearch)
