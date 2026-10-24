@@ -288,6 +288,20 @@ export interface AgentNotificationRecord {
   message: string
   timestamp: string
   readBy?: string[]
+  // 待办队列（agent v2 P2）：缺失即老数据，前端按 status 自行兜底
+  kind?: 'todo' | 'info'
+  todoState?: 'pending' | 'blocked' | 'done'
+  task?: string
+}
+export interface AgentTodoItem extends AgentNotificationRecord {
+  kind: 'todo'
+  todoState: 'pending' | 'blocked' | 'done'
+}
+export interface AgentTodoQueue {
+  blocked: AgentTodoItem[]
+  pending: AgentTodoItem[]
+  done: AgentTodoItem[]
+  counts: { blocked: number; pending: number; done: number }
 }
 async function readResponseBody(response: Response) {
   if (typeof response.text === 'function') {
@@ -694,9 +708,11 @@ export const api = {
         { method: 'DELETE' },
       ),
     unread: (deviceId: string, limit = 100) =>
-      fetchApi<{ notifications: AgentNotificationRecord[] }>(
+      fetchApi<{ notifications: AgentNotificationRecord[]; messagesUnread?: number; tasksBlocked?: number }>(
         `/api/agent-notifications/unread?deviceId=${encodeURIComponent(deviceId)}&limit=${limit}`,
       ),
+    // 待办三段视图：与 unread 分开，未读语义不变
+    tasks: (doneLimit = 50) => fetchApi<AgentTodoQueue>(`/api/agent-notifications/tasks?doneLimit=${doneLimit}`),
     read: (deviceId: string, ids: string[] = []) =>
       fetchApi<{ changed: number }>('/api/agent-notifications/read', {
         method: 'POST',
