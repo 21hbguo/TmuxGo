@@ -149,3 +149,45 @@ test('successful window lifecycle keeps the 200 {ok:true,windows} contract', asy
     await killTestTmuxSession()
   }
 })
+
+test('session pane list carries windowIndex so the client can rebuild the window tree', async (t) => {
+  const app = await buildApp(t)
+  try {
+    // 前一个用例可能留下同名 session；显式清干净，别让残留 window 混进断言
+    await killTestTmuxSession()
+    await execTmuxFile('tmux', ['new-session', '-d', '-s', TEST_TMUX_SESSION, '-n', 'first'])
+    await execTmuxFile('tmux', ['new-window', '-t', `${TEST_TMUX_SESSION}:`, '-n', 'second'])
+    await execTmuxFile('tmux', ['split-window', '-t', `${TEST_TMUX_SESSION}:second`, '-h'])
+    const response = await app.inject({
+      method: 'GET',
+      url: `/hosts/local/sessions/session-local-${TEST_TMUX_SESSION}/panes`,
+    })
+    assert.equal(response.statusCode, 200)
+    const panes = response.json() as Array<{ windowName: string; windowIndex: number; index: number }>
+    assert.equal(panes.length, 3)
+    assert.equal(
+      panes.every((pane) => typeof pane.windowIndex === 'number' && Number.isFinite(pane.windowIndex)),
+      true,
+    )
+    // 输出顺序 = tmux list-panes -s 的 window → pane 顺序；前端靠 windowIndex 在合并冷数据后还原它
+    const order = panes.map((pane) => pane.windowIndex * 100 + pane.index)
+    assert.deepEqual(
+      order,
+      [...order].sort((left, right) => left - right),
+    )
+    const second = panes.filter((pane) => pane.windowName === 'second')
+    assert.equal(second.length, 2)
+    // 不断言从 0 起：宿主 base-pane-index/base-index 可能是 1，只要求窗口内递增且连续
+    assert.deepEqual(
+      second.map((pane) => pane.index),
+      [...second.map((pane) => pane.index)].sort((left, right) => left - right),
+    )
+    assert.equal(second[1].index, second[0].index + 1)
+    assert.equal(new Set(second.map((pane) => pane.windowIndex)).size, 1)
+    const first = panes.filter((pane) => pane.windowName === 'first')
+    assert.equal(first.length, 1)
+    assert.notEqual(first[0].windowIndex, second[0].windowIndex)
+  } finally {
+    await killTestTmuxSession()
+  }
+})

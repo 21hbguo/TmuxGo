@@ -162,7 +162,9 @@ async function getTmuxSessionPanes(hostId: string, sessionName: string) {
       '-t',
       sessionName,
       '-F',
-      '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}|#{window_name}|#{@tmuxgo_task}',
+      // window_index 给前端做 window → pane 的稳定排序：list-panes -s 本身按 window 顺序输出，
+      // 但没有编号，前端无法在合并多份冷数据后还原树形层级
+      '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}|#{window_name}|#{window_index}|#{@tmuxgo_task}',
     ]),
     Promise.resolve(agentMonitor.getSessionStates(hostId, sessionName) || getSessionAgentPanes(hostId, sessionName)),
   ])
@@ -172,7 +174,7 @@ async function getTmuxSessionPanes(hostId: string, sessionName: string) {
     .split('\n')
     .filter(Boolean)
     .map((line) => line.split('|'))
-    .map(([id, windowId, index, title, active, width, height, left, top, windowName, task]) => {
+    .map(([id, windowId, index, title, active, width, height, left, top, windowName, windowIndexText, task]) => {
       const paneId = `${hostId}:${id}`
       const agentState = agentByPane.get(paneId)
       return {
@@ -186,6 +188,7 @@ async function getTmuxSessionPanes(hostId: string, sessionName: string) {
         top: parseInt(top, 10) || 0,
         size: { cols: parseInt(width, 10) || 80, rows: parseInt(height, 10) || 24 },
         windowName,
+        windowIndex: parseInt(windowIndexText, 10),
         ...(task ? { task } : {}),
         ...(agentState
           ? {
