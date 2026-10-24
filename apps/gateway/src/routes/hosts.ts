@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { agentManager } from '../agent-manager.js'
+import { agentManager, isSameMachineFoldEnabled } from '../agent-manager.js'
 import { getHostConnectivity, removeHostConnectivity, setHostConnectivity } from '../lib/host-connectivity.js'
 import {
   getCredentialsPath,
@@ -51,9 +51,11 @@ const sshConfigHostBodySchema = z.object({
 })
 async function hostResponse(host: HostRecord) {
   const credentials = await getHostCredentials(host.id)
-  // local 机器自身没有 agent 注册（agent 用独立 id 注册），同机 agent 折叠进这里
+  // local 机器自身没有 agent 注册（agent 用独立 id 注册），同机 agent 折叠进这里。
+  // env 关闭折叠（e2e 隔离场景）时旧 history 里的 sameMachine 标记也不能再折叠
   const agent =
-    agentManager.getAgentStatus(host.id) || (host.id === 'local' ? agentManager.getLocalMachineAgent() : undefined)
+    agentManager.getAgentStatus(host.id) ||
+    (host.id === 'local' && isSameMachineFoldEnabled() ? agentManager.getLocalMachineAgent() : undefined)
   const health = getHostConnectivity(host.id)
   return {
     id: host.id,
@@ -142,7 +144,10 @@ export async function hostRoutes(fastify: FastifyInstance, options: { taskManage
       ...agentManager
         .getAllAgentStatuses()
         // 同机 agent 已折叠进 local 条目（agent 字段），再单列就是同一台机器出两条
-        .filter((agent) => !agent.sameMachine && !configIds.has(agent.id) && visible(agent.id))
+        .filter(
+          (agent) =>
+            (!agent.sameMachine || !isSameMachineFoldEnabled()) && !configIds.has(agent.id) && visible(agent.id),
+        )
         .map((agent) => ({
           id: agent.id,
           name: agent.name,

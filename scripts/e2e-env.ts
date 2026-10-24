@@ -160,6 +160,8 @@ export async function bootstrapE2E(root: string): Promise<E2EEnvironment> {
         TMUXGO_HOST: '127.0.0.1',
         TMUXGO_AUTH_USERNAME: '',
         TMUXGO_AUTH_PASSWORD: '',
+        // e2e 的测试 agent 同机注册但 tmux 视图隔离（独立 TMUX_TMPDIR），折叠会把被测 host 藏掉
+        TMUXGO_FOLD_SAME_MACHINE_AGENT: '0',
         TMUXGO_FRONTEND_DIST: frontendDist,
       },
     })

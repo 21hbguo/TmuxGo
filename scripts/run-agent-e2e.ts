@@ -128,6 +128,8 @@ function startGateway(tsxBin: string, apiPort: number, tmuxEnv: NodeJS.ProcessEn
       TMUXGO_TMP_DIR: join(configDir, 'tmp'),
       TMUXGO_AUTH_USERNAME: username,
       TMUXGO_AUTH_PASSWORD: password,
+      // 测试 agent 与 gateway 同机但 tmux 视图隔离（独立 TMUX_TMPDIR），折叠会把被测 host 藏掉
+      TMUXGO_FOLD_SAME_MACHINE_AGENT: '0',
     },
   })
 }

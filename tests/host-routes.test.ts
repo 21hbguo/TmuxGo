@@ -128,3 +128,28 @@ test('keeps folding a same-machine agent after it disconnects', async (t) => {
   assert.equal(local.agent.online, false)
   assert.equal(local.agent.disconnectReason, 'test disconnect')
 })
+
+// TMUXGO_FOLD_SAME_MACHINE_AGENT=0 关闭折叠：e2e 测试 agent 同机但 tmux 视图隔离，必须单列
+test('lists a same-machine agent as its own host when folding is disabled', async (t) => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-host-routes-'))
+  process.env.TMUXGO_CONFIG_DIR = configDir
+  process.env.TMUXGO_FOLD_SAME_MACHINE_AGENT = '0'
+  const socket: Parameters<typeof agentManager.register>[4] = { readyState: 1, send() {}, on: () => undefined }
+  const id = 'agent-local-nofold'
+  agentManager.register(id, 'workstation-agent', '192.0.2.13', '1.0.0', socket, undefined, '127.0.0.1')
+  const app = Fastify()
+  await app.register(hostRoutes, { prefix: '/api' })
+  t.after(async () => {
+    agentManager.removeAgent(id)
+    await app.close()
+    delete process.env.TMUXGO_CONFIG_DIR
+    delete process.env.TMUXGO_FOLD_SAME_MACHINE_AGENT
+    await rm(configDir, { recursive: true, force: true })
+  })
+  const hosts = (await app.inject({ method: 'GET', url: '/api/hosts' })).json()
+  const standalone = hosts.find((host: { id: string }) => host.id === id)
+  assert.equal(standalone.connectionMode, 'agent')
+  assert.equal(standalone.agent.sameMachine, false)
+  const local = hosts.find((host: { id: string }) => host.id === 'local')
+  assert.notEqual(local.agent?.id, id)
+})

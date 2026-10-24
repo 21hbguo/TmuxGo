@@ -31,7 +31,13 @@ function localInterfaceAddresses() {
   }
   return addresses
 }
+// 折叠可用 TMUXGO_FOLD_SAME_MACHINE_AGENT=0 关掉：e2e 的测试 agent 同机但 tmux 视图隔离
+//（独立 TMUX_TMPDIR），折叠会把被测 host 从 /hosts 里藏掉。每次调用都读 env，测试可切。
+export function isSameMachineFoldEnabled() {
+  return process.env.TMUXGO_FOLD_SAME_MACHINE_AGENT !== '0'
+}
 export function isSameMachineAgent(name: string, remoteAddress?: string, address?: string) {
+  if (!isSameMachineFoldEnabled()) return false
   if (name === os.hostname()) return true
   // 有对端 socket 地址就以它为准；address 只是 history 记录的兜底（记录里没有 remoteAddress），
   // 否则远端 agent 自报 127.0.0.1 这类地址会被误判成同机
