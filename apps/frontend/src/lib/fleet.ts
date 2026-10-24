@@ -46,7 +46,7 @@ export interface FleetGroup {
 }
 
 export interface FleetFilters {
-  /** 只看需要我处理的（blocked + failed），默认开 */
+  /** 只看需要我处理的（blocked + failed），默认关——先看到全貌再收敛 */
   needsAttention?: boolean
   /** 只看绑了任务号的 */
   hasTaskOnly?: boolean

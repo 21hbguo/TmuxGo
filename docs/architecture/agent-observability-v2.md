@@ -173,7 +173,7 @@ body { paneId: "host:%N", task: "T-234" }      // task 为空串 => 清除
 ### 3.4 排序与过滤
 
 - 默认排序：`blocked/permission`（需我处理）→ `failed` → `working` → `idle` → `unknown`，同状态内按 `since` 升序（卡最久的在前）。
-- 过滤：host 多选、只看「需要我处理」开关（默认开）、只看有任务的。
+- 过滤：host 多选、只看「需要我处理」开关（默认关，先看到全部再收敛）、只看有任务的。
 - 搜索：任务号 / session 名 / agent 名，纯前端。
 
 ### 3.5 刷新策略

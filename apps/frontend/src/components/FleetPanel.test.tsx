@@ -123,8 +123,8 @@ describe('FleetPanel', () => {
   it('renders rows grouped by host with the blocked row first and the task column filled', async () => {
     vi.mocked((await import('@/lib/api')).api.hosts.list).mockResolvedValue([host()])
     wrap(makeClient(), React.createElement(FleetPanel))
-    // 默认「只看需处理」开着：只剩 blocked 那行，working 那行被过滤掉
-    await waitFor(() => expect(document.querySelectorAll('[data-fleet-row]')).toHaveLength(1))
+    // 默认全量显示（两个筛选钮都关）：两行都在，blocked 仍排最前
+    await waitFor(() => expect(document.querySelectorAll('[data-fleet-row]')).toHaveLength(2))
     expect(document.querySelector('[data-fleet-row]')?.getAttribute('data-fleet-row')).toBe('local:local:%2')
     expect(screen.getByLabelText('等待处理')).toBeTruthy()
     expect(screen.getByText('T-236')).toBeTruthy()
@@ -134,7 +134,7 @@ describe('FleetPanel', () => {
     vi.mocked((await import('@/lib/api')).api.hosts.list).mockResolvedValue([host()])
     panes['local:local:dev'] = [{ id: 'local:%2', tmuxPaneId: '%2', index: 1, task: 'T-236' }]
     wrap(makeClient(), React.createElement(FleetPanel))
-    const jump = await screen.findByRole('button', { name: /跳到 pane/ })
+    const jump = await screen.findByRole('button', { name: '跳到 pane dev %2' })
     act(() => jump.click())
     await waitFor(() =>
       expect(navigateMock).toHaveBeenCalledWith(
@@ -151,13 +151,13 @@ describe('FleetPanel', () => {
       candidates: [candidate({ paneId: 'local:%1' })],
     }))
     wrap(makeClient(), React.createElement(FleetPanel))
-    await waitFor(() => expect(document.querySelectorAll('[data-fleet-row]')).toHaveLength(1))
-    // 候选挂在 %1（working 行），默认过滤下不可见；关掉「只看需处理」后应出现且只出现一次
-    expect(screen.queryAllByRole('button', { name: '可恢复的 Agent' })).toHaveLength(0)
-    const toggle = screen.getByRole('button', { name: '只看需处理' })
-    act(() => toggle.click())
+    // 候选挂在 %1（working 行）：默认全量可见；打开「只看需处理」后该行连同恢复入口一起消失
     await waitFor(() => expect(document.querySelectorAll('[data-fleet-row]')).toHaveLength(2))
     expect(screen.getAllByRole('button', { name: '可恢复的 Agent' })).toHaveLength(1)
+    const toggle = screen.getByRole('button', { name: '只看需处理' })
+    act(() => toggle.click())
+    await waitFor(() => expect(document.querySelectorAll('[data-fleet-row]')).toHaveLength(1))
+    expect(screen.queryAllByRole('button', { name: '可恢复的 Agent' })).toHaveLength(0)
   })
 })
 
@@ -235,7 +235,7 @@ describe('FleetPanel empty and degraded states', () => {
     vi.mocked((await import('@/lib/api')).api.hosts.list).mockResolvedValue([host()])
     apiMocks.list.mockImplementation(async () => [session('dev', [])])
     wrap(makeClient(), React.createElement(FleetPanel))
-    // 「只看需处理」开着也不该把空态变成「没匹配」：机队本来就没有 agent
+    // 开着「只看需处理」也不该把空态变成「没匹配」：机队本来就没有 agent（与过滤无关）
     expect(await screen.findByText('本机还没有 agent pane')).toBeTruthy()
     expect(screen.getByText(/agent-push/)).toBeTruthy()
   })
@@ -246,10 +246,11 @@ describe('FleetPanel empty and degraded states', () => {
       session('ops', [pane({ paneId: 'devbox:%1', agentStatus: 'unknown', phase: 'disconnected' })], 'devbox'),
     ])
     wrap(makeClient(), React.createElement(FleetPanel))
-    // unknown/disconnected 不算「需要我处理」，默认过滤下先放宽才看得到
-    act(() => screen.getByRole('button', { name: '只看需处理' }).click())
+    // unknown/disconnected 不算「需要我处理」：默认全量下直接可见，打开过滤后被藏掉
     expect(await screen.findByText('disconnected')).toBeTruthy()
     expect(document.querySelectorAll('[data-fleet-row]')).toHaveLength(1)
+    act(() => screen.getByRole('button', { name: '只看需处理' }).click())
+    await waitFor(() => expect(document.querySelectorAll('[data-fleet-row]')).toHaveLength(0))
   })
 })
 
@@ -258,7 +259,7 @@ describe('FleetPanel transport discipline', () => {
     vi.mocked((await import('@/lib/api')).api.hosts.list).mockResolvedValue([host()])
     sendMock.mockClear()
     wrap(makeClient(), React.createElement(FleetPanel))
-    await waitFor(() => expect(document.querySelectorAll('[data-fleet-row]')).toHaveLength(1))
+    await waitFor(() => expect(document.querySelectorAll('[data-fleet-row]')).toHaveLength(2))
     expect(sendMock.mock.calls.filter((call) => JSON.stringify(call[0]).includes('agent_subscribe'))).toEqual([])
   })
 })

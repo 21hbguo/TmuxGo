@@ -20,7 +20,7 @@ export function FleetPanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobi
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const pushToast = useConsoleStore((state) => state.pushToast)
-  const [needsAttention, setNeedsAttention] = useState(true)
+  const [needsAttention, setNeedsAttention] = useState(false)
   const [hasTaskOnly, setHasTaskOnly] = useState(false)
   const [query, setQuery] = useState('')
   const [hostFilter, setHostFilter] = useState<string[]>([])
