@@ -1,7 +1,7 @@
 import '../test-env.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { AgentMonitor, type AgentMonitorEvent } from './agent-monitor.js'
+import { AgentMonitor, emptyScanBackoffMs, type AgentMonitorEvent } from './agent-monitor.js'
 import type { AgentPaneState } from './agent-state.js'
 import type { RecoveryCandidateInput } from './agent-recovery.js'
 
@@ -642,4 +642,113 @@ test('markSeen clears stale completed protocol overlay so done does not reapply'
   assert.equal(current()?.agentStatus, 'working')
   monitor.stop()
   unsubscribe()
+})
+
+// 空扫退避：远端纯 ssh 主机永远扫出空集，不该每拍都白开一条 ssh；扫到东西要立刻回满档
+test('backs off scan cadence on empty remote hosts and restores it on the first pane', async () => {
+  let states: AgentPaneState[] = []
+  const monitor = new AgentMonitor({
+    getHostIds: async () => ['edge'],
+    scan: async () => states,
+    intervalMs: 1000,
+  })
+  const unsubscribe = monitor.subscribe(() => {})
+  await monitor.start()
+  // 首扫为空：还没到阶梯（2 轮），间隔仍是满档
+  assert.equal(monitor.getPollIntervalMs('edge'), 1000)
+  await monitor.pollNow('edge')
+  // 第 2 轮仍空 → 降到 15s 档
+  assert.equal(monitor.getPollIntervalMs('edge'), 15_000)
+  await monitor.pollNow('edge')
+  states = [pane('edge:%1')]
+  await monitor.pollNow('edge')
+  // 扫到 pane → 立刻回满档
+  assert.equal(monitor.getPollIntervalMs('edge'), 1000)
+  unsubscribe()
+  monitor.stop()
+})
+
+test('does not count a scan failure as an empty round', async () => {
+  let fail = false
+  const monitor = new AgentMonitor({
+    getHostIds: async () => ['edge'],
+    scan: async () => {
+      if (fail) throw new Error('ssh failed')
+      return []
+    },
+    intervalMs: 1000,
+  })
+  // 订阅后才是满档（1000）；无监听者时基线本来就是 30s 怠速档，退避无从叠加
+  const unsubscribe = monitor.subscribe(() => {})
+  await monitor.start()
+  await monitor.pollNow('edge')
+  // 两轮空已经降到 15s 档
+  assert.equal(monitor.getPollIntervalMs('edge'), 15_000)
+  fail = true
+  await monitor.pollNow('edge')
+  // 出错要按满频重试，不能借退避把故障主机藏起来
+  assert.equal(monitor.getPollIntervalMs('edge'), 1000)
+  fail = false
+  await monitor.pollNow('edge')
+  // 出错已把计数清零：这一轮只是「第 1 轮空」，还没到阶梯
+  assert.equal(monitor.getPollIntervalMs('edge'), 1000)
+  unsubscribe()
+  monitor.stop()
+})
+
+test('never backs off the local host even after many empty scans', async () => {
+  const monitor = new AgentMonitor({
+    getHostIds: async () => ['local'],
+    scan: async () => [],
+    intervalMs: 1000,
+  })
+  const unsubscribe = monitor.subscribe(() => {})
+  await monitor.start()
+  for (let i = 0; i < 6; i += 1) await monitor.pollNow('local')
+  // local 的扫描只是一次 tmux execFile，退避没有收益还会拖慢本机可观测性
+  assert.equal(monitor.getPollIntervalMs('local'), 1000)
+  unsubscribe()
+  monitor.stop()
+})
+
+test('empty scan backoff ladder is ordered from slowest tier down', () => {
+  assert.equal(emptyScanBackoffMs(0), 0)
+  assert.equal(emptyScanBackoffMs(1), 0)
+  assert.equal(emptyScanBackoffMs(2), 15_000)
+  assert.equal(emptyScanBackoffMs(4), 15_000)
+  assert.equal(emptyScanBackoffMs(5), 60_000)
+  assert.equal(emptyScanBackoffMs(8), 120_000)
+  assert.equal(emptyScanBackoffMs(99), 120_000)
+})
+
+// 只看 getPollIntervalMs 不够：退避必须真的挂到定时器上，否则空扫降压只是账面数字
+test('re-arms the host timer at the backed-off cadence after an empty scan', async () => {
+  const armed: number[] = []
+  const realSetInterval = globalThis.setInterval
+  const realClearInterval = globalThis.clearInterval
+  ;(globalThis as unknown as { setInterval: unknown }).setInterval = ((
+    fn: (...args: unknown[]) => void,
+    ms?: number,
+    ...rest: unknown[]
+  ) => {
+    armed.push(ms ?? 0)
+    return (realSetInterval as unknown as (...a: unknown[]) => unknown)(fn, ms, ...rest)
+  }) as unknown as typeof setInterval
+  const monitor = new AgentMonitor({
+    getHostIds: async () => ['edge'],
+    scan: async () => [],
+    intervalMs: 1000,
+  })
+  const unsubscribe = monitor.subscribe(() => {})
+  try {
+    await monitor.start()
+    await monitor.pollNow('edge')
+    // 第 2 轮空扫后必须出现一条 15s 档的定时器（而不是继续用旧的 1s 表）
+    assert.equal(armed.includes(15_000), true, `实际挂表档位: ${armed.join(',')}`)
+  } finally {
+    unsubscribe()
+    monitor.stop()
+    ;(globalThis as unknown as { setInterval: unknown }).setInterval = realSetInterval
+    ;(globalThis as unknown as { clearInterval: unknown }).clearInterval = realClearInterval
+  }
 })
