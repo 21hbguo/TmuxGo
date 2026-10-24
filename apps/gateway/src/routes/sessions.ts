@@ -21,6 +21,7 @@ import {
   runSendKeys,
 } from '../lib/session-layout-apply.js'
 import { getHostAgentPanes, summarizeAgentPanes } from '../lib/agent-state.js'
+import { probeWithCooldown } from '../lib/host-probe-cooldown.js'
 import { agentMonitor } from '../lib/agent-monitor.js'
 import { emitPluginEvent } from '../lib/plugin-manager.js'
 import {
@@ -133,7 +134,12 @@ function toBatchDeleteTarget(session: HostTmuxSession): BatchDeleteTarget {
     attached: session.attached,
   }
 }
+// listHostTmuxSessions 内部已把「空 socket/无 session」归一成返回 []，
+// 能抛出的都是真失败，全部进冷却（含 Host not found 这类配置级错误）
 async function getHostTmuxSessions(hostId: string): Promise<HostTmuxSession[]> {
+  return probeWithCooldown(hostId, () => listHostTmuxSessions(hostId))
+}
+async function listHostTmuxSessions(hostId: string): Promise<HostTmuxSession[]> {
   try {
     const { stdout } = await execTmux(hostId, [
       'list-sessions',
