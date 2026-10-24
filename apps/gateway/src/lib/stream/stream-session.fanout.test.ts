@@ -15,6 +15,7 @@ import {
 import { resetSharedTerminalsForTest, countSharedTerminals } from './shared-terminal.js'
 import { streamPerfMetrics } from '../perf-metrics.js'
 import { STREAM_FANOUT_ENABLED, RESYNC_RESET_SEQ, setMirrorEnabledForTest } from './stream-config.js'
+import { STREAM_BINARY_VERSION_COMPACT, STREAM_BINARY_VERSION_COMPACT_SEQ } from '../stream-binary.js'
 
 type FakePty = IPty & {
   emitData: (data: string) => void
@@ -647,6 +648,66 @@ test('mirror attach: cold mirror falls back to the redraw path', async () => {
     assert.ok((streamPerfMetrics.mirrorFallbacks as number) >= 1, '回退要记账')
     sa.cleanup()
     sb.cleanup()
+  } finally {
+    setMirrorEnabledForTest(null)
+    teardownEnv()
+  }
+})
+
+test('binary output frames carry the mirror sequence once the client opts in', async () => {
+  setupEnv()
+  setMirrorEnabledForTest(true)
+  const spawns = setupPtySpawn()
+  setupRefreshExec()
+  resetExclusiveOwnershipForTest()
+  resetSharedTerminalsForTest()
+  try {
+    const a = createSocket()
+    const sa = new StreamSession(a.socket, null)
+    // 声明能解 v3 compact 头
+    sa.applyCaps({ binaryOutput: true, cellOutput: false, compactHeader: true, mirrorSeq: true })
+    await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
+    a.sent.length = 0
+    spawns[0].emitData('FIRST')
+    await sleep(30)
+    spawns[0].emitData('SECOND')
+    await sleep(30)
+
+    const frames = a.sent.filter((m) => m.__binary && m.buf)
+    assert.ok(frames.length >= 2, `至少要收到两帧输出（实际 ${frames.length}）`)
+    const seqs = frames.map((m) => ({ version: m.buf![2], seq: m.buf!.readUInt32LE(12) }))
+    for (const item of seqs) assert.equal(item.version, STREAM_BINARY_VERSION_COMPACT_SEQ, '声明了就走 v3 头')
+    // 序号单调递增，且最后一帧的 seq 就是镜像当前位置：hub 是先 feed 后扇出
+    assert.ok(seqs[0].seq >= 1, '第一帧就该带真实序号')
+    assert.ok(seqs[seqs.length - 1].seq > seqs[0].seq, '后续帧序号递增')
+    sa.cleanup()
+  } finally {
+    setMirrorEnabledForTest(null)
+    teardownEnv()
+  }
+})
+
+test('binary output keeps the v2 header for clients that did not declare mirrorSeq', async () => {
+  setupEnv()
+  setMirrorEnabledForTest(true)
+  const spawns = setupPtySpawn()
+  setupRefreshExec()
+  resetExclusiveOwnershipForTest()
+  resetSharedTerminalsForTest()
+  try {
+    const a = createSocket()
+    const sa = new StreamSession(a.socket, null)
+    // 老前端：只声明 compactHeader
+    sa.applyCaps({ binaryOutput: true, cellOutput: false, compactHeader: true })
+    await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
+    a.sent.length = 0
+    spawns[0].emitData('FIRST')
+    await sleep(30)
+    const frames = a.sent.filter((m) => m.__binary && m.buf)
+    assert.ok(frames.length >= 1, '老客户端照样收到输出帧')
+    // 绝不能给它不认的 v3 头：老解码器会按 12B 头切 payload 得到乱码
+    for (const frame of frames) assert.equal(frame.buf![2], STREAM_BINARY_VERSION_COMPACT, '未声明就维持 v2 头')
+    sa.cleanup()
   } finally {
     setMirrorEnabledForTest(null)
     teardownEnv()

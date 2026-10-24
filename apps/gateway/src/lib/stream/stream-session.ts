@@ -15,6 +15,7 @@ import {
   encodeStreamCellBinaryCompactAsync,
   encodeStreamOutputBinary,
   encodeStreamOutputBinaryAsync,
+  STREAM_BINARY_VERSION_COMPACT_SEQ,
   encodeStreamOutputBinaryCompact,
   encodeStreamOutputBinaryCompactAsync,
   shouldMaybeGzip,
@@ -237,6 +238,8 @@ export class StreamSession {
   compressOutputEnabled = false
   cellOutputEnabled = false
   compactHeaderEnabled = false
+  // 客户端声明能解 v3 compact 头（头里带 mirrorSeq）
+  mirrorSeqOutputEnabled = false
   routes = new StreamRouteDictionary()
   private announcedRoutes = new Set<number>()
   cell = new StreamCellEncoder()
@@ -393,6 +396,7 @@ export class StreamSession {
           const encodeOpts = {
             compress: this.compressOutputEnabled,
             threshold: STREAM_COMPRESS_THRESHOLD,
+            mirrorSeq: this.frameMirrorSeq(routeIdx),
           }
           const frame =
             routeIdx != null
@@ -415,6 +419,7 @@ export class StreamSession {
         const encodeOpts = {
           compress: this.compressOutputEnabled,
           threshold: STREAM_COMPRESS_THRESHOLD,
+          mirrorSeq: this.frameMirrorSeq(routeIdx),
         }
         const { frame, gzipFailed } =
           routeIdx != null
@@ -426,7 +431,11 @@ export class StreamSession {
         if (typeCode === 3 || typeCode === 4) {
           recordStreamMetric('compressFrames')
           recordStreamMetric('compressBytesIn', rawLen)
-          recordStreamMetric('compressBytesOut', frame.length - 12)
+          // v3 compact 头是 16B（多 4B 镜像序号），别把多出来的头字节算进压缩收益
+          recordStreamMetric(
+            'compressBytesOut',
+            frame.length - (frame[2] === STREAM_BINARY_VERSION_COMPACT_SEQ ? 16 : 12),
+          )
         }
         // 压缩期间连接可能已关闭：写前复查，避免向关闭的 socket 写入
         if (this.socket.readyState !== 1) return false
@@ -518,6 +527,12 @@ export class StreamSession {
     recordStreamMetric(result.metric)
     this.cell.markSent()
     return sent
+  }
+  // 本帧对应的镜像序号：hub 的 handleData 是先 feed 镜像、再扇出订阅者，
+  // 所以这里读到的 seq 已经包含本帧。没有 hub（非 fanout）就不带
+  private frameMirrorSeq(routeIdx: number | null): number | undefined {
+    if (!this.mirrorSeqOutputEnabled || routeIdx == null) return undefined
+    return this.sharedHub?.mirror.seq
   }
   requestLatestFrameResync() {
     if (this.outputResyncPending) {
@@ -1574,11 +1589,20 @@ export class StreamSession {
     }
     return routeIdx
   }
-  applyCaps(data: { binaryOutput?: boolean; compressOutput?: string; cellOutput?: boolean; compactHeader?: boolean }) {
+  applyCaps(data: {
+    binaryOutput?: boolean
+    compressOutput?: string
+    cellOutput?: boolean
+    compactHeader?: boolean
+    mirrorSeq?: boolean
+  }) {
     this.binaryOutputEnabled = data.binaryOutput === true
     this.compressOutputEnabled = STREAM_COMPRESS_ENABLED && this.binaryOutputEnabled && data.compressOutput === 'gzip'
     this.cellOutputEnabled = STREAM_CELL_ENABLED && this.binaryOutputEnabled && data.cellOutput === true
     this.compactHeaderEnabled = STREAM_COMPACT_ENABLED && this.binaryOutputEnabled && data.compactHeader === true
+    // 带镜像序号的 v3 compact 头（16B）：只在客户端明确声明时才发，
+    // 老前端不认识 v3 头会整帧丢弃
+    this.mirrorSeqOutputEnabled = this.compactHeaderEnabled && data.mirrorSeq === true
     if (!this.compactHeaderEnabled) {
       this.routes.clear()
       this.announcedRoutes.clear()
@@ -1596,6 +1620,7 @@ export class StreamSession {
       compressOutput: this.compressOutputEnabled ? 'gzip' : false,
       cellOutput: this.cellOutputEnabled,
       compactHeader: this.compactHeaderEnabled,
+      mirrorSeq: this.mirrorSeqOutputEnabled,
       // 服务端声明的 agent 推式订阅协议版本：旧前端忽略该字段即可，
       // 新前端据此决定是否发 agent_subscribe（不必等撞 Unknown message type 再降级）
       agentPush: AGENT_PROTO_VERSION,

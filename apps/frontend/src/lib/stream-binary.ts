@@ -1,6 +1,9 @@
 import { inflate } from 'pako/browser/inflate'
 export const STREAM_BINARY_VERSION = 1
 export const STREAM_BINARY_VERSION_COMPACT = 2
+// v3 = compact + 头带 mirrorSeq(u32)；服务端只会对声明了 mirrorSeq caps 的
+// 连接发这个版本，老前端不会收到
+export const STREAM_BINARY_VERSION_COMPACT_SEQ = 3
 export const STREAM_BINARY_TYPE_OUTPUT = 1
 export const STREAM_BINARY_TYPE_RESYNC = 2
 export const STREAM_BINARY_TYPE_OUTPUT_GZIP = 3
@@ -20,6 +23,8 @@ export type DecodedStreamOutput = {
   sessionName: string
   data: string
   cellPayload?: Uint8Array
+  // 服务端 pane 镜像的输出序号（仅 v3 compact 头携带），客户端据此上报增量起点
+  mirrorSeq?: number
 }
 
 function typeFromCode(typeCode: number): DecodedStreamOutput['type'] | null {
@@ -82,17 +87,22 @@ export function decodeStreamOutputBinary(buffer: ArrayBuffer, routes?: StreamRou
   const typeCode = view.getUint8(3)
   const kind = typeFromCode(typeCode)
   if (!kind) return null
-  if (version === STREAM_BINARY_VERSION_COMPACT) {
+  if (version === STREAM_BINARY_VERSION_COMPACT || version === STREAM_BINARY_VERSION_COMPACT_SEQ) {
     const routeIdx = view.getUint16(4, true)
     const dataLen = view.getUint32(8, true)
-    const total = 12 + dataLen
+    // v3 在 payloadLen 之后多 4B 镜像序号
+    const headerLen = version === STREAM_BINARY_VERSION_COMPACT_SEQ ? 16 : 12
+    const total = headerLen + dataLen
     if (view.byteLength < total) return null
     const route = routes?.get(routeIdx)
     // 未知索引：丢弃该帧（不抛错、不断连），见 PROTOCOL.extend.md B.5
     if (!route) return null
     const bytes = new Uint8Array(buffer)
-    const payload = bytes.subarray(12, 12 + dataLen)
-    return finalizePayload(kind, typeCode, route.hostId, route.sessionName, payload)
+    const payload = bytes.subarray(headerLen, headerLen + dataLen)
+    const frame = finalizePayload(kind, typeCode, route.hostId, route.sessionName, payload)
+    if (!frame) return null
+    if (headerLen === 16) frame.mirrorSeq = view.getUint32(12, true)
+    return frame
   }
   if (version !== STREAM_BINARY_VERSION) return null
   const hostLen = view.getUint16(4, true)
