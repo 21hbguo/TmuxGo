@@ -13,6 +13,7 @@ import { ImmersiveBackOrb } from './ImmersiveBackOrb'
 import { ShortcutBar } from './ShortcutBar'
 import { ToastViewport } from './ToastViewport'
 import { PaneNotifications } from './PaneNotifications'
+import { FleetPanel } from './FleetPanel'
 import { TaskNotifications } from './TaskNotifications'
 import dynamic, { LazyOverlayLoading } from '@/lib/dynamic'
 import { UploadConfirmDialog } from './UploadConfirmDialog'
@@ -133,6 +134,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   const toggleSessionPanel = useConsoleStore((s) => s.toggleSessionPanel)
   const toggleFilePanel = useConsoleStore((s) => s.toggleFilePanel)
   const mobileFileSheetOpen = useConsoleStore((s) => s.mobileFileSheetOpen)
+  const [mobileFleetSheetOpen, setMobileFleetSheetOpen] = useState(false)
   const setMobileFileSheetOpen = useConsoleStore((s) => s.setMobileFileSheetOpen)
   const pushToast = useConsoleStore((s) => s.pushToast)
   const { preferences } = usePreferences()
@@ -295,6 +297,11 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
     setMobileEndpointsSheetOpen(true)
     pushOverlay('mobile-endpoints')
   }, [mobileEndpointsSheetOpen, pushOverlay])
+  const openMobileFleet = useCallback(() => {
+    if (mobileFleetSheetOpen) return
+    setMobileFleetSheetOpen(true)
+    pushOverlay('mobile-fleet')
+  }, [mobileFleetSheetOpen, pushOverlay])
   // 上传页：flag 与 history 配对——closeOverlay 可能在 palette 竞态下无对应栈项，
   // 因此 closeUpload 兜底清 flag；openUpload 幂等
   const uploadPanelOpen = useConsoleStore((s) => s.uploadPanelOpen)
@@ -718,6 +725,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         window.dispatchEvent(new CustomEvent('tmuxgo-mobile-git-back', { detail: { handled: false } }))
       } else if (top === 'mobile-git') setMobileGitSheetOpen(false)
       else if (top === 'mobile-endpoints') setMobileEndpointsSheetOpen(false)
+      else if (top === 'mobile-fleet') setMobileFleetSheetOpen(false)
       else if (top === 'inbox-preview') setInboxPreviewOpen(false)
       else if (top === 'inbox') {
         useInboxStore.getState().setPanelOpen(false)
@@ -947,6 +955,8 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
               onOpenDesktop={() => useConsoleStore.getState().toggleDesktop(activeHostId || 'local')}
               onOpenBrowser={() => useConsoleStore.getState().toggleBrowser(activeHostId || 'local')}
               onOpenEndpoints={openMobileEndpoints}
+              fleetOpen={mobileFleetSheetOpen}
+              onOpenFleet={openMobileFleet}
               endpointsOpen={mobileEndpointsSheetOpen}
             />
           </div>
@@ -1088,6 +1098,15 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         <div className="min-h-0 flex-1">
           <EndpointsPanel mode="mobile" />
         </div>
+      </MobileBottomSheet>
+      <MobileBottomSheet
+        open={mobileFleetSheetOpen}
+        onClose={() => closeOverlay('mobile-fleet')}
+        zClass="z-[78]"
+        heightClass="flex h-[80%] flex-col"
+        ariaLabel={t('fleet.title')}
+      >
+        <FleetPanel mode="mobile" onClose={() => closeOverlay('mobile-fleet')} />
       </MobileBottomSheet>
       <MobileBottomSheet
         open={isMobile && inboxPanelOpen}

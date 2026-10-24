@@ -42,6 +42,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { Fragment, useState } from 'react'
 import { usePlugins } from '@/hooks/useApi'
+import { useFleetCounts } from '@/hooks/useFleetCounts'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useElementPickerStore } from '@/stores/useElementPickerStore'
 import { ModalPortal } from './ModalPortal'
@@ -145,6 +146,10 @@ function SortableActivityItem({ item }: { item: ActivityItem }) {
 export function ActivityBar() {
   const sessionPanelExpanded = useConsoleStore((state) => state.sessionPanelExpanded)
   const toggleSessionPanel = useConsoleStore((state) => state.toggleSessionPanel)
+  const fleetPanelOpen = useConsoleStore((state) => state.fleetPanelOpen)
+  const toggleFleetPanel = useConsoleStore((state) => state.toggleFleetPanel)
+  // 角标只报 blocked（等我处理的），不报总数：数字越大越该被点开
+  const fleetBlocked = useFleetCounts().blocked
   const filePanelOpen = useConsoleStore((state) => state.filePanelOpen)
   const toggleFilePanel = useConsoleStore((state) => state.toggleFilePanel)
   const gitPanelOpen = useConsoleStore((state) => state.gitPanelOpen)
@@ -183,6 +188,15 @@ export function ActivityBar() {
       onClick: toggleSessionPanel,
       active: sessionPanelExpanded,
       unread: 0,
+      plugin: false,
+    },
+    {
+      id: 'fleet',
+      label: t('activity.fleet'),
+      icon: FiCpu,
+      onClick: toggleFleetPanel,
+      active: fleetPanelOpen,
+      unread: fleetBlocked,
       plugin: false,
     },
     {

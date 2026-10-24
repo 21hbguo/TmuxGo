@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { NAV_BAR_ITEMS_EVENT, readNavBarItems, type NavBarItemKey } from '@/lib/mobile-nav-items'
 import { useTranslation } from '@/i18n'
-import { FiCompass, FiGitBranch, FiInbox, FiMonitor, FiMoreHorizontal, FiShare2, FiUpload } from 'react-icons/fi'
+import { FiCompass, FiCpu, FiGitBranch, FiInbox, FiMonitor, FiMoreHorizontal, FiShare2, FiUpload } from 'react-icons/fi'
 
 const NAV_COMPACT_KEY = 'tmuxgo-mobile-nav-compact'
 function readNavCompact() {
@@ -24,6 +24,7 @@ interface MobileNavProps {
   onOpenInbox: () => void
   onOpenBrowser?: () => void
   onOpenEndpoints?: () => void
+  onOpenFleet?: () => void
   onOpenUpload?: () => void
   gitOpen?: boolean
   sessionsOpen?: boolean
@@ -33,6 +34,7 @@ interface MobileNavProps {
   desktopOpen?: boolean
   browserOpen?: boolean
   endpointsOpen?: boolean
+  fleetOpen?: boolean
   settingsOpen?: boolean
   inboxOpen?: boolean
   inboxUnread?: number
@@ -74,6 +76,7 @@ export function MobileNav({
   onOpenDesktop,
   onOpenBrowser,
   onOpenEndpoints,
+  onOpenFleet,
   onOpenInbox,
   onOpenUpload,
   gitOpen = false,
@@ -84,6 +87,7 @@ export function MobileNav({
   desktopOpen = false,
   browserOpen = false,
   endpointsOpen = false,
+  fleetOpen = false,
   settingsOpen = false,
   inboxOpen = false,
   inboxUnread = 0,
@@ -206,6 +210,13 @@ export function MobileNav({
       open: endpointsOpen,
       icon: <FiShare2 aria-hidden="true" size={18} />,
       onClick: () => onOpenEndpoints?.(),
+    },
+    {
+      key: 'fleet',
+      label: t('activity.fleet'),
+      open: fleetOpen,
+      icon: <FiCpu aria-hidden="true" size={18} />,
+      onClick: () => onOpenFleet?.(),
     },
     {
       key: 'settings',
