@@ -22,6 +22,7 @@ vi.mock('@/i18n', () => ({
         'nav.inbox': 'Inbox',
         'vnc.title': 'Desktop',
         'browser.title': 'Browser',
+        'browser.localOnly': 'Browser panel is local-only',
         'uploadTab.title': 'Upload',
       }
       return map[key] || key
@@ -50,6 +51,25 @@ describe('MobileNav', () => {
       // 只喂 attachLatency，其余性能指标沿用默认（stub 形状按实际注入值声明）
       terminalPerf: { attachLatency: 30 } as unknown as TerminalPerfState,
     })
+  })
+
+  it('disables the browser entry when a remote host is active', () => {
+    // 浏览器面板只服务 gateway 本机（browser-manager 单实例）：远端 host 下必须点不动，
+    // 并用 title 说明理由，否则用户以为在操作远端
+    useConsoleStore.setState({ activeHostId: 'devbox' })
+    const { container } = renderNav()
+    expect(screen.getByRole('button', { name: 'Browser' })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: 'Browser' }).getAttribute('title')).toBe('Browser panel is local-only')
+    // 桌面(VNC)走 agent 中继/ssh 隧道，远端可用，不能被一起误伤
+    expect(screen.getByRole('button', { name: 'Desktop' })).toHaveProperty('disabled', false)
+    useConsoleStore.setState({ activeHostId: null })
+    expect(container).toBeTruthy()
+  })
+
+  it('keeps the browser entry enabled for the local host', () => {
+    useConsoleStore.setState({ activeHostId: 'local' })
+    renderNav()
+    expect(screen.getByRole('button', { name: 'Browser' })).toHaveProperty('disabled', false)
   })
 
   it('renders nine nav buttons including inbox, desktop and browser', () => {

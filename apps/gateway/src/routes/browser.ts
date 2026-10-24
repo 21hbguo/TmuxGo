@@ -62,10 +62,25 @@ const controlSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('status') }),
 ])
 
+// 远端 host 没有浏览器能力：browser-manager 只维护 gateway 本机实例，
+// 操作远端会静默作用到本机 chromium。host 作用域端点（/api/hosts/:hostId/browser/*）
+// 在这里统一短路成 400，直接调 API 的调用方也能拿到明确错误码而不是被误导。
+const BROWSER_LOCAL_ONLY = { code: 'BROWSER_LOCAL_ONLY', error: '浏览器面板仅对本机可用' }
+
 export async function browserRoutes(fastify: FastifyInstance) {
   const dbg = (request: FastifyRequest, msg: string, extra?: Record<string, unknown>) => {
     if (BROWSER_DEBUG) request.log.info({ browser: true, ...extra }, msg)
   }
+  // 只在 host 作用域注册（prefix 带 :hostId）时生效：/api/browser/* 没有该参数，
+  // 行为与迁移前完全一致
+  fastify.addHook('onRequest', (request, reply, done) => {
+    const hostId = (request.params as { hostId?: string } | undefined)?.hostId
+    if (hostId !== undefined && hostId !== 'local') {
+      reply.code(400).send(BROWSER_LOCAL_ONLY)
+      return
+    }
+    done()
+  })
 
   const instance = () => browserManager.get('local')!
 
