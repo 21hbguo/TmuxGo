@@ -853,7 +853,7 @@ export function SessionPanel() {
             )}
           </div>
           <div className="mt-2 flex items-center justify-between">
-            <div className="text-sm font-semibold text-text-1">
+            <div className="min-w-0 truncate text-xs font-medium text-text-1">
               {batchMode
                 ? t('sidebar.batchSelectedCount', { count: selectedSessionIds.length })
                 : t('sidebar.sessions')}
@@ -908,7 +908,7 @@ export function SessionPanel() {
                   </Chip>
                   <Chip
                     onClick={toggleBatchMode}
-                    className="px-2 py-1.5"
+                    className="px-2 py-1"
                     title={t('sidebar.batchDeleteAction')}
                     aria-label={t('sidebar.batchDeleteAction')}
                   >
