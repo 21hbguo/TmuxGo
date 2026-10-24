@@ -82,4 +82,33 @@ describe('terminal-search-addon', () => {
     expect(terminal.getSelection()).toBe('')
     terminal.dispose()
   })
+
+  it('honours wholeWord through the native addon option', async () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const terminal = new Terminal({ cols: 80, rows: 10, allowProposedApi: true })
+    const addon = createSearchAddon(terminal)
+    terminal.open(host)
+    // 「foo」独立出现两次，另有两处嵌在别词里（foobar / barfoo）
+    await new Promise<void>((resolve) => terminal.write('foo\r\nfoobar\r\nbarfoo\r\nfoo bar\r\n', resolve))
+    const events: { resultIndex: number; resultCount: number }[] = []
+    addon.onDidChangeResults((event) => events.push(event))
+    const options = { decorations: SEARCH_DECORATIONS, incremental: true }
+
+    // 整词：只认独立出现的那两个
+    expect(addon.findNext('foo', { ...options, wholeWord: true })).toBe(true)
+    expect(events.at(-1)).toEqual({ resultIndex: 0, resultCount: 2 })
+    expect(terminal.getSelection()).toBe('foo')
+
+    // 反证开关确实透传到 addon：'oob' 只存在于 foobar 内部，整词开时无命中、关时有命中
+    expect(addon.findNext('oob', { ...options, wholeWord: true })).toBe(false)
+    expect(addon.findNext('oob', { ...options, wholeWord: false })).toBe(true)
+    expect(terminal.getSelection()).toBe('oob')
+
+    // 与大小写组合：整词 + 区分大小写时大写不命中
+    expect(addon.findNext('FOO', { ...options, wholeWord: true, caseSensitive: true })).toBe(false)
+    expect(addon.findNext('FOO', { ...options, wholeWord: true, caseSensitive: false })).toBe(true)
+    terminal.dispose()
+    host.remove()
+  })
 })
