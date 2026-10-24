@@ -71,14 +71,18 @@ test('imports a layout JSON and creates the session through the dialog', async (
       },
     ],
   })
-  // 导入成功 → CreateSessionDialog 以 layout 名预填 session 名
-  await expect(page.getByPlaceholder(/Session name|会话名/)).toHaveValue(name)
+  // 导入成功 → CreateSessionDialog 以 layout 名预填 session 名。
+  // 对话框会把名字规范成 tmux 安全名（session- 前缀 / -N 去重后缀），
+  // 所以只断言"含布局名"，真正的会话名以输入框当前值为准
+  const nameInput = page.getByPlaceholder(/Session name|会话名/)
+  await expect(nameInput).toHaveValue(new RegExp(name))
+  const createdName = await nameInput.inputValue()
   await page.getByRole('button', { name: /^(Create|创建)$/ }).click()
   await expect(page.getByRole('status').filter({ hasText: /created|已创建/ })).toBeVisible()
-  await expect(page.locator('.tmuxgo-list-row', { hasText: name }).first()).toBeVisible()
+  await expect(page.locator('.tmuxgo-list-row', { hasText: createdName }).first()).toBeVisible()
   // gateway 侧落盘核对：窗口/分栏真实建立
   const sessions = (await (await request.get(`${apiUrl}/api/hosts/local/sessions`)).json()) as SessionSummary[]
-  const created = sessions.find((item) => item.name === name)
+  const created = sessions.find((item) => item.name === createdName)
   expect(created).toBeTruthy()
   const layout = (await (
     await request.get(`${apiUrl}/api/hosts/local/sessions/${encodeURIComponent(created!.id)}/layout`)

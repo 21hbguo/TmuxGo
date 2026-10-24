@@ -27,7 +27,10 @@ function paneInMode(sessionName: string) {
 async function termState(page: Page) {
   return page.evaluate(() => {
     const t = (window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal
-    const rows = document.querySelector('[data-terminal] .xterm-rows') as HTMLElement | null
+    // 桌面端 WebGL 渲染器把行画进 canvas，DOM 里没有 .xterm-rows：渲染面宽由 .xterm-screen 承担
+    const rows =
+      (document.querySelector('[data-terminal] .xterm-rows') as HTMLElement | null) ||
+      (document.querySelector('[data-terminal] .xterm-screen') as HTMLElement | null)
     return {
       cols: t?.cols || 0,
       rows: t?.rows || 0,
@@ -104,9 +107,11 @@ test('background tmuxgo pages cannot disturb the active page', async ({ browser,
     document.dispatchEvent(new Event('visibilitychange'))
     window.dispatchEvent(new Event('blur'))
   })
-  // 250ms blur 防抖 + attach 往返；B 开窗会抢走焦点，显式把 A 拉回激活
+  // 250ms blur 防抖 + attach 往返；B 开窗会抢走焦点，显式把 A 拉回激活。
+  // 后台态到 passive 重附着是异步的，全量并发跑时这段会拉长：不要用"本地 resize 是否被
+  // 采纳"做探针（resize 会反过来触发重新 attach，把 B 又变回 active），给足窗口即可
   await pageA.bringToFront()
-  await pageA.waitForTimeout(1200)
+  await pageA.waitForTimeout(2500)
   await expectSizeSync(pageA, nameA)
 
   // B 在后台改视口：共享附着 ignore-size，不得推动 tmux window

@@ -115,41 +115,42 @@ async function typeInPane(tmuxPaneId: string, text: string) {
   throw lastError
 }
 
-// 徽标 aria-label 与 dialog 标题同文案：锚定精确名 + role=button 区分
-const badgeName = /^(Recoverable agents|可恢复的 Agent)$/
-const recoveryDialogName = /Recoverable agents|可恢复的 Agent/i
-const resumeName = /^(Resume|恢复)$/
+// 注意：页面上「可恢复的 Agent」徽标当前没有挂载（SessionPanel 里保留但未接线，
+// 见 T-211 结论），所以这组用例只断言 API 层语义：候选可见、显式 resume 生效、
+// 受阻候选不被执行、失败后仍保持 pending。UI 呈现（徽标计数、弹窗、确认二次点击）
+// 在徽标重新挂载前无法 e2e 断言，不在这里假装覆盖。
+const hostIdPath = `/api/hosts/${hostId}/agent-recovery`
 
-test('candidate shows up and resumes only after explicit confirmation', async ({ page, request }) => {
-  const { session, pane } = await newTestPane(request, `rec-ok-${Date.now().toString(36)}`)
+async function resumeViaApi(request: APIRequestContext, target: RecoveryCandidate) {
+  const res = await request.post(`${apiUrl}${hostIdPath}/${encodeURIComponent(target.id)}/resume`, {
+    data: { paneId: target.paneId, agentSessionId: target.agentSessionId || '' },
+  })
+  return { status: res.status(), body: (await res.json()) as { code?: string; message?: string } }
+}
+
+test('candidate shows up and resumes only after an explicit resume call', async ({ request }) => {
+  const { pane } = await newTestPane(request, `rec-ok-${Date.now().toString(36)}`)
   seedCandidates([
     candidate({ paneId: pane.id, tmuxPaneId: pane.tmuxPaneId, agent: 'claude', agentSessionId: 'e2e-resume-1' }),
   ])
-  await openSession(page, session)
-  const badge = page.getByRole('button', { name: badgeName })
-  await expect(badge).toBeVisible()
-  // 默认加载只展示候选：未确认前不得向 pane 注入任何 resume 命令
+  // 只读列表：候选可见、可恢复，但不得有任何命令注入
+  const listed = await listCandidates(request)
+  const pending = listed.filter((item) => item.status === 'pending')
+  expect(pending).toHaveLength(1)
+  expect(pending[0].resumable).toBe(true)
   expect(await paneOutput(request, pane.id)).not.toContain('claude --resume')
-  expect((await listCandidates(request)).filter((item) => item.status === 'pending')).toHaveLength(1)
 
-  await badge.click()
-  const dialog = page.getByRole('dialog', { name: recoveryDialogName })
-  const row = dialog.locator('div.border-b', { hasText: `claude · ${pane.tmuxPaneId}` })
-  await row.getByRole('button', { name: resumeName }).click()
-  const confirm = page.getByRole('dialog', { name: /Resume agent|恢复 Agent/i })
-  await confirm.getByRole('button', { name: resumeName }).click()
-  await expect(page.getByRole('status').filter({ hasText: /resumed|已恢复/ })).toBeVisible()
-  // 恢复命令真实落进 pane
-  await expect.poll(() => paneOutput(request, pane.id)).toContain('claude --resume e2e-resume-1')
-  // 候选标记 resumed 后徽标消失
-  await expect(badge).toHaveCount(0)
+  const result = await resumeViaApi(request, pending[0])
+  expect(result.status).toBe(200)
+  // 恢复命令真实落进 pane，候选转 resumed 后不再出现在待确认列表
+  await expect.poll(() => paneOutput(request, pane.id), { timeout: 15000 }).toContain('claude --resume e2e-resume-1')
+  expect((await listCandidates(request)).filter((item) => item.status === 'pending')).toHaveLength(0)
 })
 
-test('occupied, missing and unsupported-provider candidates are blocked in the UI', async ({ page, request }) => {
+test('occupied, missing and unsupported-provider candidates are all refused', async ({ page, request }) => {
   const { session, pane } = await newTestPane(request, `rec-block-${Date.now().toString(36)}`)
   const { pane: idlePane } = await newTestPane(request, `rec-block2-${Date.now().toString(36)}`)
-  // 先 attach 再占 pane（文本 send-keys 依赖 gateway 的 control client），
-  // 占用成立后落 manifest，挂载拉取即见 blocked 终态，不等 15s 轮询
+  // 只为让 gateway 建立 attach client：typeInPane 的文本 send-keys 依赖它，与徽标无关
   await openSession(page, session)
   await typeInPane(pane.tmuxPaneId, 'sleep 300')
   await waitPaneCommand(pane.tmuxPaneId, (command) => command === 'sleep')
@@ -158,41 +159,39 @@ test('occupied, missing and unsupported-provider candidates are blocked in the U
     candidate({ paneId: 'local:%99997', tmuxPaneId: '%99997', agent: 'claude', agentSessionId: 'blk-miss' }),
     candidate({ paneId: idlePane.id, tmuxPaneId: idlePane.tmuxPaneId, agent: 'gemini', agentSessionId: 'blk-prov' }),
   ])
-  await page.reload()
   const listed = await listCandidates(request)
-  expect(listed.find((item) => item.tmuxPaneId === pane.tmuxPaneId)?.blockReason).toBe('pane_occupied')
-  expect(listed.find((item) => item.tmuxPaneId === '%99997')?.blockReason).toBe('pane_missing')
-  expect(listed.find((item) => item.tmuxPaneId === idlePane.tmuxPaneId)?.blockReason).toBe('provider_not_supported')
-  const badge = page.getByRole('button', { name: badgeName })
-  await expect(badge).toBeVisible({ timeout: 20000 })
-  await badge.click()
-  const dialog = page.getByRole('dialog', { name: recoveryDialogName })
-  await expect(dialog.getByText(/Pane is occupied|Pane 被占用/)).toBeVisible()
-  await expect(dialog.getByText(/Pane no longer exists|Pane 已不存在/)).toBeVisible()
-  await expect(dialog.getByText(/Agent does not support resume|该 Agent 不支持恢复/)).toBeVisible()
-  // 三类受阻候选的 Resume 全部禁用，不产生任何执行路径
-  const resumeButtons = dialog.getByRole('button', { name: resumeName })
-  await expect(resumeButtons).toHaveCount(3)
-  for (let index = 0; index < 3; index += 1) await expect(resumeButtons.nth(index)).toBeDisabled()
+  const byPane = new Map(listed.map((item) => [item.tmuxPaneId, item]))
+  expect(byPane.get(pane.tmuxPaneId)?.blockReason).toBe('pane_occupied')
+  expect(byPane.get('%99997')?.blockReason).toBe('pane_missing')
+  expect(byPane.get(idlePane.tmuxPaneId)?.blockReason).toBe('provider_not_supported')
+  // 三类受阻候选中至少被占/不支持两类由服务端权威拒绝（missing 类目标 pane 已不存在）
+  for (const [tmuxPaneId, code] of [
+    [pane.tmuxPaneId, 'pane_occupied'],
+    [idlePane.tmuxPaneId, 'provider_not_supported'],
+  ] as const) {
+    const item = byPane.get(tmuxPaneId)!
+    const result = await resumeViaApi(request, item)
+    expect(result.body.code).toBe(code)
+    expect(result.status).toBe(code === 'pane_occupied' ? 409 : 400)
+  }
+  // 被拒的候选全部保持 pending，pane 内没有注入恢复命令
+  expect((await listCandidates(request)).filter((item) => item.status === 'pending')).toHaveLength(3)
+  expect(await paneOutput(request, pane.id)).not.toContain('claude --resume')
 })
 
-test('failed resume surfaces the error and leaves the candidate pending', async ({ page, request }) => {
-  const { session, pane } = await newTestPane(request, `rec-fail-${Date.now().toString(36)}`)
+test('failed resume reports the block reason and leaves the candidate pending', async ({ request }) => {
+  const { pane } = await newTestPane(request, `rec-fail-${Date.now().toString(36)}`)
   seedCandidates([
     candidate({ paneId: pane.id, tmuxPaneId: pane.tmuxPaneId, agent: 'claude', agentSessionId: 'e2e-fail-1' }),
   ])
-  await openSession(page, session)
-  await page.getByRole('button', { name: badgeName }).click()
-  const dialog = page.getByRole('dialog', { name: recoveryDialogName })
-  await expect(dialog.getByText(`claude · ${pane.tmuxPaneId}`)).toBeVisible()
-  // 列表取数后再把 pane 占住：resume 的权威复检必须拦下并报错
+  const [target] = (await listCandidates(request)).filter((item) => item.status === 'pending')
+  // 取数后再把 pane 占住：resume 的权威复检必须拦下并给出可解释错误
   await typeInPane(pane.tmuxPaneId, 'sleep 300')
   await waitPaneCommand(pane.tmuxPaneId, (command) => command === 'sleep')
-  await dialog.getByRole('button', { name: resumeName }).click()
-  const confirm = page.getByRole('dialog', { name: /Resume agent|恢复 Agent/i })
-  await confirm.getByRole('button', { name: resumeName }).click()
-  await expect(page.getByRole('alert')).toContainText(/occupied|占用/i)
-  // 未执行的候选保持 pending，pane 内无 resume 命令
+  const result = await resumeViaApi(request, target)
+  expect(result.status).toBe(409)
+  expect(result.body.code).toBe('pane_occupied')
+  expect(result.body.message || '').toMatch(/occupied/i)
   expect((await listCandidates(request)).filter((item) => item.status === 'pending')).toHaveLength(1)
   expect(await paneOutput(request, pane.id)).not.toContain('claude --resume')
 })

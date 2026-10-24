@@ -1,10 +1,18 @@
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
+import { execFileSync } from 'node:child_process'
+import { join } from 'node:path'
 import { ensureSession, openSession } from './session'
 import type { TerminalProbe } from './probe-types'
 
-async function sendKeys(request: APIRequestContext, sessionId: string, data: string) {
-  const res = await request.post(`/api/hosts/local/sessions/${sessionId}/input`, { data: { data } })
-  if (!res.ok()) throw new Error(await res.text())
+// POST /api/hosts/:hostId/sessions/:id/input 已下线（终端输入统一走 WS 的 input 消息，
+// 见 routes/stream.ts）。这里直接对 e2e 的隔离 tmux server 发 send-keys：
+// 显式 -S socket + 清 TMUX，绝不触达用户的 default server
+function sendKeys(sessionName: string, data: string) {
+  const tmuxDir = process.env.TMUX_TMPDIR || ''
+  const socket = join(tmuxDir, `tmux-${typeof process.getuid === 'function' ? process.getuid() : 0}`, 'default')
+  const env = { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir }
+  execFileSync('tmux', ['-S', socket, 'send-keys', '-l', '-t', sessionName, data], { env, encoding: 'utf8' })
+  execFileSync('tmux', ['-S', socket, 'send-keys', '-t', sessionName, 'Enter'], { env, encoding: 'utf8' })
 }
 
 async function terminalState(page: Page) {
@@ -27,8 +35,8 @@ async function terminalState(page: Page) {
 test('switch session keeps terminal visible', async ({ page, request }) => {
   const a = await ensureSession(request, 'repro-switch-a')
   const b = await ensureSession(request, 'repro-switch-b')
-  await sendKeys(request, a.id, 'printf "MARKER-A\\n"\r')
-  await sendKeys(request, b.id, 'printf "MARKER-B\\n"\r')
+  sendKeys(a.name, 'printf "MARKER-A"')
+  sendKeys(b.name, 'printf "MARKER-B"')
   await openSession(page, { id: a.id, name: 'repro-switch-a' })
   await page.waitForFunction(
     () => !!(window as typeof window & { __tmuxgoTerminal?: TerminalProbe }).__tmuxgoTerminal,
