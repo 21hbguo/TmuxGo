@@ -147,28 +147,28 @@ body { paneId: "host:%N", task: "T-234" }      // task 为空串 => 清除
 
 ### 3.2 数据源（全部已存在）
 
-| 用途               | 来源                                                                        | 证据                                                                             |
-| ------------------ | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| 主数据（实时状态） | WS `agent_state` 帧：`full` 首帧 / `delta` 增量 / `pulse` 拥塞水位          | `lib/agent-stream.ts:44-58`，每连接一个 monitor listener：`routes/stream.ts:466` |
-| 冷启动兜底         | `GET /hosts/:hostId/sessions?agents=1`（缺省行为不变，`agents=0` 才是精简） | `routes/sessions.ts:371-383`                                                     |
-| 任务号             | 同上响应里 pane 的 `task`（T-234 后）                                       | §2.3                                                                             |
-| 恢复建议           | `GET /hosts/:hostId/agent-recovery`                                         | `routes/agent-recovery.ts:33`；前端 `api.ts:706`                                 |
-| host 列表          | `GET /hosts`（含 online 状态、connectionMode）                              | `routes/hosts.ts:60-73`                                                          |
+| 用途               | 来源                                                                        | 证据                                                                                                              |
+| ------------------ | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| 主数据（实时状态） | WS `agent_state` 帧：`full` 首帧 / `delta` 增量 / `pulse` 拥塞水位          | `lib/agent-stream.ts:44-58`，每连接一个 monitor listener：`routes/stream.ts:466`                                  |
+| 冷启动兜底         | `GET /hosts/:hostId/sessions?agents=1`（缺省行为不变，`agents=0` 才是精简） | `routes/sessions.ts:371-383`                                                                                      |
+| 任务号             | `GET /hosts/:hostId/sessions/:sessionId/panes` 里 `Pane.task`（T-234 后）   | `routes/windows.ts:258`、`types/index.ts:130`；`sessions?agents=1` 的 `agents` 元素是 `AgentPaneState`，不带 task |
+| 恢复建议           | `GET /hosts/:hostId/agent-recovery`                                         | `routes/agent-recovery.ts:33`；前端 `api.ts:706`                                                                  |
+| host 列表          | `GET /hosts`（含 online 状态、connectionMode）                              | `routes/hosts.ts:60-73`                                                                                           |
 
 **不新增接口**。fleet 面板是纯前端聚合：把已订阅的 `agent_state` 按 host 分组即可。
 
 ### 3.3 列定义
 
-| 列             | 取值                                 | 备注                                                           |
-| -------------- | ------------------------------------ | -------------------------------------------------------------- |
-| Host           | hostId + online 点                   | 远端显示 `ssh` / `agent` 通道标记                              |
-| Session / Pane | `sessionName` / `#{pane_index}`      | 点击跳转到该 pane（复用现有 select 动作 `routes/panes.ts:29`） |
-| Agent          | `agent` 字段（codex / claude / …）   | 未知显示 `—`                                                   |
-| 任务           | `pane.task` 解析出的 id              | 无值显示 `—`，不是空字符串                                     |
-| 状态           | `AgentStatusBadge` 同款 tone/dot     | 复用 `components/AgentStatusBadge.tsx:20`，不重画              |
-| 停留           | `since` → 相对时长（`12m`）          | 每分钟重算；不触发网络                                         |
-| 最近事件       | `lastEvent` + `updatedAt`            | 用于「刚失败还是卡了很久」                                     |
-| 动作           | 跳到 pane / 恢复（仅当有 candidate） | 恢复复用 `POST .../agent-recovery/:id/resume`（`:48`）         |
+| 列             | 取值                                                  | 备注                                                           |
+| -------------- | ----------------------------------------------------- | -------------------------------------------------------------- |
+| Host           | hostId + online 点                                    | 远端显示 `ssh` / `agent` 通道标记                              |
+| Session / Pane | `sessionName` / `#{pane_index}`（同上一份 pane 列表） | 点击跳转到该 pane（复用现有 select 动作 `routes/panes.ts:29`） |
+| Agent          | `agent` 字段（codex / claude / …）                    | 未知显示 `—`                                                   |
+| 任务           | `pane.task` 解析出的 id                               | 无值显示 `—`，不是空字符串                                     |
+| 状态           | `AgentStatusBadge` 同款 tone/dot                      | 复用 `components/AgentStatusBadge.tsx:20`，不重画              |
+| 停留           | `since` → 相对时长（`12m`）                           | 每分钟重算；不触发网络                                         |
+| 最近事件       | `lastEvent` + `updatedAt`                             | 用于「刚失败还是卡了很久」                                     |
+| 动作           | 跳到 pane / 恢复（仅当有 candidate）                  | 恢复复用 `POST .../agent-recovery/:id/resume`（`:48`）         |
 
 ### 3.4 排序与过滤
 
@@ -179,6 +179,9 @@ body { paneId: "host:%N", task: "T-234" }      // task 为空串 => 清除
 ### 3.5 刷新策略
 
 - **事件驱动**：订阅 `agent_state`（already the transport），收到 `delta` 只 patch 对应 pane。
+  订阅本身**由连接共享**：`routes/stream.ts` 每连接只挂一个 monitor listener（禁止按订阅挂），
+  且 `PaneNotifications` 已为所有 host 建了订阅并原地 patch `['sessions', hostId]` 缓存。
+  所以 fleet 面板只消费这份缓存的接收侧事件，不再发 `agent_subscribe`——多发一份只会多一路重复帧。
 - **兜底**：面板不可见时**不订阅**；可见且 30s 无帧时拉一次 `sessions?agents=1` 全量对齐（防丢帧）。
 - **不做**：面板自带 `setInterval` 轮询 agent 状态。理由见 §1.2：订阅本身就把 monitor 拉到快档，再叠加轮询等于双重计费。
 - 任务号变化不推送（冷数据）：面板可见时每 30s 顺带刷一次 pane 列表即可；pane 上的 chip 由所在列表刷新自然更新。
