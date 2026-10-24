@@ -9,6 +9,7 @@ import {
   type AgentPaneState,
 } from './agent-state.js'
 import {
+  closeAgentTodosForPane,
   getPushSubscriberCount,
   onPushSubscriberChange,
   persistAgentNotification,
@@ -86,6 +87,9 @@ interface AgentMonitorOptions {
   // recovery manifest 落点：pane 移除/host 下线/agent 进程结束时记录候选；
   // 只记录绝不执行 resume——恢复必须走显式 resume API
   onRecoveryCandidate?: (candidate: RecoveryCandidateInput) => void
+  // pane 消失（扫描里没了 / host 被移除）时回调：待办队列据此把该 pane 的未完成项转 done。
+  // 为什么不用 subscribe()：常驻 listener 会把 monitor 永久拉到快档（见 currentPollMs）
+  onPaneRemoved?: (info: { hostId: string; paneId: string; sessionName: string; reason: string }) => void
 }
 
 const notificationEvents = new Set<AgentEvent>([
@@ -243,6 +247,7 @@ export class AgentMonitor {
   private readonly now: () => number
   private readonly onNotification?: (event: Extract<AgentMonitorEvent, { type: 'agent_notification' }>) => void
   private readonly onRecoveryCandidate: (candidate: RecoveryCandidateInput) => void
+  private readonly onPaneRemoved?: AgentMonitorOptions['onPaneRemoved']
   private readonly hosts = new Map<string, MonitorHostState>()
   private readonly pendingProtocolEvents = new Map<string, Map<string, AgentProtocolEvent>>()
   private readonly listeners = new Set<(event: AgentMonitorEvent) => void>()
@@ -282,6 +287,7 @@ export class AgentMonitor {
     this.onNotification = options.onNotification
     this.onRecoveryCandidate =
       options.onRecoveryCandidate || ((candidate) => void upsertRecoveryCandidate(candidate).catch(() => {}))
+    this.onPaneRemoved = options.onPaneRemoved
   }
   private recordRecoveryCandidate(hostId: string, pane: AgentPaneState, reason: string) {
     try {
@@ -400,6 +406,13 @@ export class AgentMonitor {
     if (!this.running) return
     for (const [hostId, state] of this.hosts) this.armHostTimer(hostId, state)
     if (this.listeners.size) for (const hostId of this.hosts.keys()) void this.pollHost(hostId)
+  }
+
+  // 扁平化全机队 pane 状态：待办队列用它把「通知里的旧状态」纠正成实时状态
+  getAllStates() {
+    const all: AgentPaneState[] = []
+    for (const state of this.hosts.values()) if (state.initialized) all.push(...state.agents.values())
+    return all
   }
 
   getStates(hostId: string) {
@@ -527,6 +540,10 @@ export class AgentMonitor {
       for (const pane of state.agents.values()) {
         forgetAgentPane(pane.paneId)
         this.recordRecoveryCandidate(hostId, pane, 'host_removed')
+        // 待办收口：pane 没了就再也扫不到，通知流也不会再为它产生事件
+        try {
+          this.onPaneRemoved?.({ hostId, paneId: pane.paneId, sessionName: pane.sessionName, reason: 'host_removed' })
+        } catch {}
         this.emit({
           type: 'agent_status_removed',
           initial: false,
@@ -666,6 +683,14 @@ export class AgentMonitor {
         (previous.agentSessionId || previous.sessionName) +
         ':removed:' +
         state.revision
+      try {
+        this.onPaneRemoved?.({
+          hostId,
+          paneId: previous.paneId,
+          sessionName: previous.sessionName,
+          reason: 'pane_exited',
+        })
+      } catch {}
       this.emit({
         type: 'agent_status_removed',
         initial,
@@ -831,4 +856,7 @@ export class AgentMonitor {
   }
 }
 
-export const agentMonitor = new AgentMonitor({ onNotification: (event) => void persistAgentNotification(event) })
+export const agentMonitor = new AgentMonitor({
+  onNotification: (event) => void persistAgentNotification(event),
+  onPaneRemoved: ({ hostId, paneId }) => void closeAgentTodosForPane(hostId, paneId).catch(() => {}),
+})

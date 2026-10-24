@@ -59,6 +59,9 @@ export interface AgentPaneState {
   // pane_current_path：仅作 recovery manifest 的 cwd 快照；不计入 samePane，
   // agent 在 pane 里 cd 不会触发状态变更事件
   cwd?: string
+  // pane 绑定的任务号（tmux user-option @tmuxgo_task，T-234）。冷元数据：
+  // 只跟着扫描走，不进 stream 热路径，也不参与 samePane 判定
+  task?: string
   agentStatus: AgentStatus
   revision: number
   // monitor 物化序号：pane 状态内容真实变化时递增，agent.wait 以此做基线
@@ -88,6 +91,8 @@ interface PaneCandidate {
   commandRunning: boolean
   commandStatus: string
   commandDuration: string
+  // 未绑定任务的 pane 该字段为空串（tmux 对不存在的 user-option 输出空白）
+  task?: string
   osc133Event?: Osc133Event
   tmuxHookEvent?: TmuxAgentHookEvent
 }
@@ -423,6 +428,7 @@ function updateRecord(
     message: detected.message,
     revision: ++nextRevision,
     cwd: candidate.currentPath || undefined,
+    task: candidate.task,
     lastOutputTime: candidate.lastOutputTime,
     paneDead: candidate.paneDead,
   }
@@ -464,7 +470,7 @@ async function getProcessAgents(hostId: string, candidates: PaneCandidate[]) {
   }
 }
 const paneListFormat =
-  '#{session_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_title}\t#{pane_dead}\t#{pane_dead_status}\t#{pane_last_output_time}\t#{pane_current_path}\t#{pane_command_running}\t#{pane_command_status}\t#{pane_command_duration}'
+  '#{session_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_title}\t#{pane_dead}\t#{pane_dead_status}\t#{pane_last_output_time}\t#{pane_current_path}\t#{pane_command_running}\t#{pane_command_status}\t#{pane_command_duration}\t#{@tmuxgo_task}'
 // 远端 scan 输出分段标记：\x1e<NAME> 行起新段，HOOKS 段内各事件以 \x1f 分隔
 const scanSectionMarker = '\x1e'
 const scanHookSep = '\x1f'
@@ -556,6 +562,7 @@ function parsePaneCandidates(
         commandRunning,
         commandStatus,
         commandDuration,
+        task,
       ] = line.split('\t')
       return {
         paneId: `${hostId}:${tmuxPaneId}`,
@@ -571,6 +578,7 @@ function parsePaneCandidates(
         commandRunning: commandRunning === '1',
         commandStatus: commandStatus || '',
         commandDuration: commandDuration || '',
+        task: (task || '').trim() || undefined,
         tmuxHookEvent: tmuxHookEvents.filter((event) => event.paneId === tmuxPaneId).at(-1),
       }
     })

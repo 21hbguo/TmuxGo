@@ -17,6 +17,13 @@ export interface AgentNotificationRecord {
   message: string
   timestamp: string
   readBy: string[]
+  // 待办队列（agent v2 P2，docs/architecture/agent-observability-v2.md §4）：
+  // kind='info' 是纯状态播报（不进待办三段视图），'todo' 才是「等着人处理/回看」的项
+  kind?: 'todo' | 'info'
+  // pending=进行中、blocked=需人处理、done=已终结（含 pane 消失）
+  todoState?: 'pending' | 'blocked' | 'done'
+  // 写入时从 pane 的 @tmuxgo_task 快照，不做关联查询（任务号后改不影响历史待办）
+  task?: string
 }
 export interface AgentPushSubscription {
   endpoint: string
@@ -204,6 +211,27 @@ function notificationStatus(pane: AgentPaneState): AgentNotificationRecord['stat
   if (pane.agentStatus === 'blocked') return 'blocked'
   return null
 }
+/**
+ * 通知状态 → 待办语义。纯函数，写入与「读时懒迁移」共用同一份规则，
+ * 保证历史数据不需要停机脚本也能被 Tasks 视图正确归类。
+ */
+export function todoStateOf(status: AgentNotificationRecord['status']): 'pending' | 'blocked' | 'done' {
+  if (status === 'permission_required' || status === 'needs_input' || status === 'blocked') return 'blocked'
+  if (status === 'done' || status === 'ended' || status === 'failed') return 'done'
+  return 'pending'
+}
+// 断连/纯播报不算待办：disconnected 是环境状态，处理它没有「打勾」这个动作
+export function kindOf(status: AgentNotificationRecord['status']): 'todo' | 'info' {
+  return status === 'disconnected' ? 'info' : 'todo'
+}
+// 读时懒迁移：老记录没有这三个字段，按同一份规则补出来（不写回，避免读路径产生 IO）
+export function normalizeNotification(record: AgentNotificationRecord): AgentNotificationRecord {
+  return {
+    ...record,
+    kind: record.kind ?? kindOf(record.status),
+    todoState: record.todoState ?? todoStateOf(record.status),
+  }
+}
 function publicMessage(status: AgentNotificationRecord['status'], agent: string) {
   const messages: Record<AgentNotificationRecord['status'], string> = {
     blocked: `${agent} is waiting for attention`,
@@ -300,6 +328,101 @@ export async function listUnreadAgentNotifications(deviceId: string, limit = 100
     .filter((item) => !item.readBy.includes(deviceId))
     .slice(0, Math.max(1, Math.min(200, limit)))
 }
+export interface AgentTodoItem extends AgentNotificationRecord {
+  kind: 'todo'
+  todoState: 'pending' | 'blocked' | 'done'
+}
+export interface AgentTodoQueue {
+  blocked: AgentTodoItem[]
+  pending: AgentTodoItem[]
+  done: AgentTodoItem[]
+  counts: { blocked: number; pending: number; done: number }
+}
+/**
+ * 待办队列：按 paneId 聚合，每个 pane 只留「最新一条」待办。
+ * 通知本身全量留存（回看/审计都在原列表），这里只是视图层的投影：
+ * 同一 pane 连续 blocked → working → done 不会在队列里堆三行。
+ */
+export async function listAgentTodoQueue(options: { doneLimit?: number } = {}): Promise<AgentTodoQueue> {
+  const value = await loadStore()
+  const latestByPane = new Map<string, AgentTodoItem>()
+  // notifications 是「新在前」，首个命中的就是该 pane 最新的一条
+  for (const raw of value.notifications) {
+    const record = normalizeNotification(raw)
+    if (record.kind !== 'todo') continue
+    const item = record as AgentTodoItem
+    if (latestByPane.has(item.paneId)) continue
+    latestByPane.set(item.paneId, item)
+  }
+  const items = [...latestByPane.values()].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
+  const blocked = items.filter((item) => item.todoState === 'blocked')
+  const pending = items.filter((item) => item.todoState === 'pending')
+  const doneLimit = Math.max(1, Math.min(200, options.doneLimit ?? 50))
+  const done = items.filter((item) => item.todoState === 'done').slice(0, doneLimit)
+  return {
+    blocked,
+    pending,
+    done,
+    counts: { blocked: blocked.length, pending: pending.length, done: done.length },
+  }
+}
+const blockedPhases = new Set(['permission_required', 'needs_input'])
+const runningPhases = new Set(['working', 'retrying', 'idle'])
+/**
+ * 用 monitor 的实时阶段纠正待办分类：
+ * 通知是「那一刻发生了什么」的快照，用户看到队列时 agent 可能已经自己继续跑了。
+ * blocked 的 pane 若已回到 working/idle，降级为 pending（不用人管，等它跑完）；
+ * pending 的 pane 若已卡在 permission/needs_input，升级为 blocked（及早上浮）。
+ * pane 已不在实时状态里不在这里处理——那由 onPaneRemoved → closeAgentTodosForPane 收口。
+ */
+export function reconcileTodoQueue(
+  queue: AgentTodoQueue,
+  live: Map<string, { phase?: string; agentStatus?: string }>,
+): AgentTodoQueue {
+  const blocked: AgentTodoItem[] = []
+  const pending: AgentTodoItem[] = [...queue.pending]
+  for (const item of queue.blocked) {
+    const state = live.get(item.paneId)
+    const phase = state?.phase
+    if (phase && runningPhases.has(phase)) pending.push({ ...item, todoState: 'pending' })
+    else blocked.push(item)
+  }
+  for (const item of queue.pending) {
+    const state = live.get(item.paneId)
+    const phase = state?.phase
+    if ((phase && blockedPhases.has(phase)) || state?.agentStatus === 'blocked') {
+      blocked.push({ ...item, todoState: 'blocked' })
+    }
+  }
+  const pendingAfterEscalation = pending.filter((item) => !blocked.some((entry) => entry.id === item.id))
+  const byTime = (a: AgentTodoItem, b: AgentTodoItem) => Date.parse(b.timestamp) - Date.parse(a.timestamp)
+  blocked.sort(byTime)
+  pendingAfterEscalation.sort(byTime)
+  return {
+    blocked,
+    pending: pendingAfterEscalation,
+    done: queue.done,
+    counts: { blocked: blocked.length, pending: pendingAfterEscalation.length, done: queue.done.length },
+  }
+}
+/**
+ * pane 消失 → 该 pane 的未完成待办全部转 done。
+ * 不能只靠扫描：pane 没了就再也扫不到它，通知流也不会再为它产生事件。
+ */
+export async function closeAgentTodosForPane(hostId: string, paneId: string) {
+  const value = await loadStore()
+  let changed = 0
+  for (const record of value.notifications) {
+    if (record.hostId !== hostId || record.paneId !== paneId) continue
+    const normalized = normalizeNotification(record)
+    if (normalized.todoState === 'done') continue
+    record.kind = normalized.kind
+    record.todoState = 'done'
+    changed++
+  }
+  if (changed) await saveStore(value)
+  return changed
+}
 export async function markAgentNotificationsRead(deviceIdRaw: string, ids: string[]) {
   const deviceId = normalizeAgentDeviceId(deviceIdRaw)
   const selected = new Set(ids.filter((id) => typeof id === 'string' && id.length <= 256))
@@ -333,6 +456,10 @@ export async function persistAgentNotification(event: MonitorNotificationEvent) 
     message: event.pane.message || publicMessage(status, event.pane.agent),
     timestamp,
     readBy: [],
+    kind: kindOf(status),
+    todoState: todoStateOf(status),
+    // 任务号快照：pane 上没绑定就是 undefined，UI 那列显示 —（不写空串）
+    task: event.pane.task,
   }
   value.notifications = [notification, ...value.notifications].slice(0, 500)
   await saveStore(value)

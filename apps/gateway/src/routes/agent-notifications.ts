@@ -1,8 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
+import { agentMonitor } from '../lib/agent-monitor.js'
 import {
   getAgentPushPublicKey,
+  listAgentTodoQueue,
   listUnreadAgentNotifications,
+  reconcileTodoQueue,
   markAgentNotificationsRead,
   normalizeAgentDeviceId,
   registerAgentPushSubscription,
@@ -45,6 +48,11 @@ function sendError(reply: { code: (status: number) => { send: (payload: unknown)
   })
 }
 export async function agentNotificationRoutes(fastify: FastifyInstance) {
+  // 待办队列统一入口：store 里的通知是快照，用 monitor 的实时阶段纠正 blocked/pending
+  const loadTodoQueue = async (doneLimit = 50) => {
+    const live = new Map(agentMonitor.getAllStates().map((state) => [state.paneId, state]))
+    return reconcileTodoQueue(await listAgentTodoQueue({ doneLimit }), live)
+  }
   fastify.get('/agent-notifications/vapid-public-key', async (_request, reply) => {
     reply.header('cache-control', 'no-store')
     return { publicKey: await getAgentPushPublicKey() }
@@ -71,6 +79,19 @@ export async function agentNotificationRoutes(fastify: FastifyInstance) {
       return sendError(reply, error)
     }
   })
+  // 待办队列（agent v2 P2）：按 paneId 聚合的三段视图。
+  // 与 /unread 分开是刻意的：unread 是「消息未读数」，语义不变；tasks 是「等谁处理」
+  fastify.get('/agent-notifications/tasks', async (request, reply) => {
+    try {
+      const params = query(request)
+      const doneLimit = params.doneLimit === undefined ? 50 : Number(params.doneLimit)
+      if (!Number.isInteger(doneLimit) || doneLimit < 1 || doneLimit > 200) throw new Error('Invalid doneLimit')
+      reply.header('cache-control', 'no-store')
+      return await loadTodoQueue(doneLimit)
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
   fastify.get('/agent-notifications/unread', async (request, reply) => {
     try {
       const params = query(request)
@@ -78,7 +99,11 @@ export async function agentNotificationRoutes(fastify: FastifyInstance) {
       const limit = params.limit === undefined ? 100 : Number(params.limit)
       if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error('Invalid limit')
       reply.header('cache-control', 'no-store')
-      return { notifications: await listUnreadAgentNotifications(deviceId, limit) }
+      const notifications = await listUnreadAgentNotifications(deviceId, limit)
+      // 老客户端只读 notifications 字段，语义一个字没变；新字段只增不改
+      // blocked 数走同一套队列（含实时纠正），与 /tasks 面板显示的数字必然一致
+      const queue = await loadTodoQueue()
+      return { notifications, messagesUnread: notifications.length, tasksBlocked: queue.counts.blocked }
     } catch (error) {
       return sendError(reply, error)
     }

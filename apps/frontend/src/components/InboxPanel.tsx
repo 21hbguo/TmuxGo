@@ -48,6 +48,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { InboxPreview } from './InboxPreview'
 import { InboxForwardDialog } from './InboxForwardDialog'
 import { InboxShareDialog } from './InboxShareDialog'
+import { InboxTasksView } from './InboxTasksView'
 
 const TYPE_ICONS = {
   text: FiFileText,
@@ -203,6 +204,9 @@ export function InboxPanel({ mode, onClose, onPreview, onJump }: InboxPanelProps
   const [purgeTargets, setPurgeTargets] = useState<AgentInboxMessage[] | null>(null)
   const [archiveIds, setArchiveIds] = useState<string[] | null>(null)
   const [confirmCloseTabs, setConfirmCloseTabs] = useState(false)
+  // Messages | Tasks：两个视图的数据源和心智都不同（消息 vs 待办），
+  // 用切换器而不是给消息列表再加一个过滤维度
+  const [view, setView] = useState<'messages' | 'tasks'>('messages')
 
   // 打开面板即拉最新一页（WS 事件只带增量 metadata，首次/断线靠 REST 补齐）
   useEffect(() => {
@@ -442,6 +446,22 @@ export function InboxPanel({ mode, onClose, onPreview, onJump }: InboxPanelProps
           {t('inbox.title')}
           {unreadCount > 0 && <span className="ml-1.5 text-caption text-accent">{unreadCount}</span>}
         </h2>
+        <div role="tablist" aria-label={t('inbox.viewSwitch')} className="flex shrink-0 items-center gap-0.5">
+          {(['messages', 'tasks'] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={view === key}
+              onClick={() => setView(key)}
+              className={`rounded-apple px-1.5 py-0.5 text-caption ${
+                view === key ? 'bg-bg-2 text-text-1' : 'text-text-3 hover:text-text-1'
+              }`}
+            >
+              {t(key === 'messages' ? 'inbox.viewMessages' : 'inbox.viewTasks')}
+            </button>
+          ))}
+        </div>
         {/* 同步状态：乐观写/对账在途、断线、失败都显式提示，不假装已同步 */}
         <span className={`flex shrink-0 items-center gap-1 text-caption ${SYNC_TONE[syncState]}`}>
           <span className={`h-1.5 w-1.5 rounded-full bg-current ${syncState === 'syncing' ? 'animate-pulse' : ''}`} />
@@ -754,11 +774,14 @@ export function InboxPanel({ mode, onClose, onPreview, onJump }: InboxPanelProps
     </>
   )
 
+  // 待办视图复用同一外壳：不参与消息的选中/归档/回收站等操作，所以整体替换列表区
+  const body = view === 'tasks' ? <InboxTasksView t={t} /> : list
+
   if (mode === 'mobile') {
     return (
       <div className="relative flex h-full min-h-0 flex-col">
         {header}
-        {list}
+        {body}
         {footer}
         {dialogs}
       </div>
@@ -783,7 +806,7 @@ export function InboxPanel({ mode, onClose, onPreview, onJump }: InboxPanelProps
       >
         <div className="flex h-44 w-full shrink-0 flex-col border-b border-[var(--line)] bg-bg-1 sm:h-auto sm:w-[clamp(420px,34%,520px)] sm:border-b-0 sm:border-r">
           {header}
-          {list}
+          {body}
           {footer}
         </div>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">

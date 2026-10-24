@@ -31,6 +31,10 @@ vi.mock('@/lib/api', () => ({
       assetUrl: vi.fn(),
       fetchAsset: vi.fn(),
     },
+    // 待办视图（Tasks）走 /agent-notifications/tasks：默认空队列，用例按需覆盖
+    agentNotifications: {
+      tasks: vi.fn(async () => ({ blocked: [], pending: [], done: [], counts: { blocked: 0, pending: 0, done: 0 } })),
+    },
   },
 }))
 vi.mock('@/i18n', () => ({
@@ -38,6 +42,19 @@ vi.mock('@/i18n', () => ({
     t: (key: string, params?: Record<string, unknown>) => {
       const map: Record<string, string> = {
         'inbox.title': 'Inbox',
+        'inbox.viewSwitch': 'Switch view',
+        'inbox.viewMessages': 'Messages',
+        'inbox.viewTasks': 'Tasks',
+        'inbox.tasksBlocked': 'Needs you',
+        'inbox.tasksBlockedHint': 'agent is waiting',
+        'inbox.tasksPending': 'In progress',
+        'inbox.tasksPendingHint': 'still running',
+        'inbox.tasksDone': 'Done',
+        'inbox.tasksDoneHint': 'last 50',
+        'inbox.tasksSummary': '{{blocked}} blocked · {{pending}} in progress',
+        'inbox.tasksRefresh': 'Refresh tasks',
+        'inbox.tasksError': 'Failed: {{message}}',
+        'inbox.tasksEmpty': 'Nothing here',
         'inbox.empty': 'No messages',
         'inbox.unreadDot': 'Unread',
         'inbox.markAllRead': 'Mark all read',
@@ -161,6 +178,49 @@ describe('InboxPanel', () => {
     apiMocks.purge.mockResolvedValue({ ok: true, purged: 1 })
     apiMocks.archive.mockResolvedValue({ ok: true, changed: 1, skippedUnread: 0 })
     resetInboxStore()
+  })
+
+  it('switches to the Tasks view and shows aggregated todos with their task ids', async () => {
+    apiMocks.list.mockResolvedValue({ ok: true, messages: [], nextCursor: null, unreadCount: 0, total: 0 })
+    const tasks = vi.mocked((await import('@/lib/api')).api.agentNotifications.tasks)
+    tasks.mockResolvedValue({
+      blocked: [
+        {
+          id: 'n1',
+          eventId: 'n1',
+          hostId: 'local',
+          sessionName: 'agent-1',
+          paneId: 'local:%3',
+          agent: 'codex',
+          status: 'permission_required',
+          message: 'codex is waiting for permission',
+          timestamp: new Date(Date.now() - 12 * 60_000).toISOString(),
+          kind: 'todo',
+          todoState: 'blocked',
+          task: 'T-237:待办队列',
+        },
+      ],
+      pending: [],
+      done: [],
+      counts: { blocked: 1, pending: 0, done: 0 },
+    })
+    render(<InboxPanel mode="mobile" onClose={vi.fn()} />)
+    await act(async () => {})
+    fireEvent.click(screen.getByRole('tab', { name: 'Tasks' }))
+    // 待办三段视图：blocked 段里出现任务号 chip（只渲染冒号前的 id）
+    expect(await screen.findByText('T-237')).toBeInTheDocument()
+    expect(screen.getByText('codex is waiting for permission')).toBeInTheDocument()
+    expect(screen.getByText('Needs you')).toBeInTheDocument()
+    // 消息列表让位给待办视图，不会同时存在
+    expect(screen.queryByText('No messages')).not.toBeInTheDocument()
+  })
+
+  it('keeps the Messages view untouched when the panel opens (default tab)', async () => {
+    useInboxStore.setState({ messages: [{ ...message({ id: 'm1' }) }], unreadCount: 1 })
+    render(<InboxPanel mode="mobile" onClose={vi.fn()} />)
+    await act(async () => {})
+    expect(screen.getByText('hello world')).toBeInTheDocument()
+    expect(screen.queryByText('Needs you')).not.toBeInTheDocument()
   })
 
   it('lists messages with unread dot and opens preview + marks read on click (mobile)', async () => {

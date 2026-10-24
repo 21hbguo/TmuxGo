@@ -2,6 +2,7 @@
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useInboxStore } from '@/stores/useInboxStore'
 import { useTranslation } from '@/i18n'
+import { useBlockedTodoCount } from '@/hooks/useBlockedTodoCount'
 import { FiBell, FiFolder, FiGitBranch, FiInbox, FiServer, FiSettings } from 'react-icons/fi'
 import {
   FiActivity,
@@ -165,6 +166,9 @@ export function ActivityBar() {
   const togglePicker = useElementPickerStore((state) => state.toggle)
   const inboxPanelOpen = useInboxStore((state) => state.panelOpen)
   const inboxUnread = useInboxStore((state) => state.unreadCount)
+  // 角标 = 消息未读 + 待处理待办（设计稿 §4.3）：两件事权重不同，但都指向「点开我」，
+  // 抽屉里再拆开显示；这里只取和，避免入口上挂两个数字
+  const blockedTodos = useBlockedTodoCount()
   const { t } = useTranslation()
   const { data } = usePlugins()
   const { preferences, updatePreferences } = usePreferences()
@@ -243,7 +247,7 @@ export function ActivityBar() {
       icon: FiInbox,
       onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-open-inbox')),
       active: inboxPanelOpen,
-      unread: inboxUnread,
+      unread: inboxUnread + blockedTodos,
       plugin: false,
     },
     {
