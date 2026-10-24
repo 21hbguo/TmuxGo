@@ -9,32 +9,31 @@ import { ModalPortal } from './ModalPortal'
 import { Button } from './Button'
 import type { AgentRecoveryCandidate } from '@/types'
 
-// 自管轮询而非 react-query：SessionPanel 的测试/挂载上下文不保证有
-// QueryClientProvider；每 host 一份 15s 轮询足够轻（manifest ≤100 条）
+// 自管取数而非 react-query：SessionPanel 的测试/挂载上下文不保证有 QueryClientProvider。
+//
+// 不做常驻轮询：候选只在 agent 退出/pane 消失时产生（低频），列表本身 ≤100 条，
+// 15s 定时轮询等于每 host 每天 5760 次空请求；徽标当前也还没挂载
+// （见 SessionPanel 的「暂不展示」注释）。所以这里只在 hostId 变化和显式 refetch() 时取一次，
+// 保活策略交给将来的挂载点自己决定——需要的话在挂载处加低频轮询，而不是在 hook 里替它做。
 export function useAgentRecoveryList(hostId: string | null) {
   const [candidates, setCandidates] = useState<AgentRecoveryCandidate[]>([])
-  const [tick, setTick] = useState(0)
+  const [nonce, setNonce] = useState(0)
   useEffect(() => {
     if (!hostId) {
       setCandidates([])
       return
     }
     let cancelled = false
-    const load = () => {
-      api.agentRecovery
-        .list(hostId)
-        .then((result) => {
-          if (!cancelled) setCandidates(Array.isArray(result?.candidates) ? result.candidates : [])
-        })
-        .catch(() => {})
-    }
-    load()
-    const timer = window.setInterval(load, 15000)
+    api.agentRecovery
+      .list(hostId)
+      .then((result) => {
+        if (!cancelled) setCandidates(Array.isArray(result?.candidates) ? result.candidates : [])
+      })
+      .catch(() => {})
     return () => {
       cancelled = true
-      window.clearInterval(timer)
     }
-  }, [hostId, tick])
+  }, [hostId, nonce])
   const bySession = useMemo(() => {
     const grouped = new Map<string, AgentRecoveryCandidate[]>()
     for (const candidate of candidates) {
@@ -45,7 +44,8 @@ export function useAgentRecoveryList(hostId: string | null) {
     }
     return grouped
   }, [candidates])
-  return { bySession, refetch: () => setTick((value) => value + 1) }
+  // candidates 一并暴露：将来的挂载点可能要自己算徽标总数或做排序
+  return { bySession, candidates, refetch: () => setNonce((value) => value + 1) }
 }
 
 export function AgentRecoveryBadge({
