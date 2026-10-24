@@ -28,6 +28,7 @@ import {
   upsertWorktreeRecord,
 } from '../lib/git-worktree.js'
 import { taskManager, type TaskExecutionContext, type TaskManager } from '../lib/task-manager.js'
+import { classifyPullFailure, parsePullFailureState } from '../lib/git-pull-classify.js'
 
 // catch 到的值不保证是 Error（tmux/SSH 通道可能抛字符串），统一收窄取文案
 function errorMessage(error: unknown, fallback = '') {
@@ -47,20 +48,26 @@ async function mergeLeftUnmergedPaths(hostId: string, repositoryPath: string) {
   }
 }
 
-// 分叉分类同理不能看文案：git 2.27+ 的 hint 在 zh_CN 下是「你需要指定如何协调这些分支」，
-// 英文才是 "You have divergent branches"，版本之间措辞也改过。仓库状态是唯一稳定信号：
-// porcelain v2 的 branch.ab 同时给出 ahead/behind，两边都非零就是分叉。
-// 顺带把计数交给前端，才能提示「选 rebase 还是 merge」而不是只丢一句裸失败。
-async function branchDivergence(hostId: string, repositoryPath: string) {
+// pull 失败后做一次状态探查，把「用户自己能处理」的失败分类出来。不解析 git 报错文案：
+// 文案随版本/locale 变（zh_CN 下分叉提示根本不是 "divergent branches"），状态才是稳定信号。
+// 探查本身失败（SSH 掉线等）返回 null，交给上层按原样报 500，绝不伪造结论。
+async function probePullFailure(hostId: string, repositoryPath: string, explicitTarget = false) {
   try {
     const { stdout } = await execGit(hostId, ['status', '--porcelain=v2', '--branch'], repositoryPath, 10000)
-    const match = /^# branch\.ab \+(\d+) -(\d+)$/m.exec(stdout)
-    if (!match) return null
-    const ahead = Number(match[1])
-    const behind = Number(match[2])
-    return ahead > 0 && behind > 0 ? { ahead, behind } : null
+    const state = parsePullFailureState(stdout)
+    // 只有分离 HEAD 或疑似分叉时才多问两次 rev-parse：常见路径（冲突/脏树）不必付这笔 round-trip
+    const needsInProgressProbe = state.detached || (state.ahead > 0 && state.behind > 0)
+    const inProgress = needsInProgressProbe
+      ? await Promise.all([
+          execGit(hostId, ['rev-parse', '--verify', '-q', 'MERGE_HEAD'], repositoryPath, 10000, true),
+          execGit(hostId, ['rev-parse', '--verify', '-q', 'REBASE_HEAD'], repositoryPath, 10000, true),
+        ]).then(([merge, rebase]) => ({
+          merge: merge.stdout.trim().length > 0,
+          rebase: rebase.stdout.trim().length > 0,
+        }))
+      : { merge: false, rebase: false }
+    return classifyPullFailure(state, inProgress, { explicitTarget })
   } catch {
-    // 状态问不到（SSH 掉线等）时保持原样抛错，不要伪造分叉结论
     return null
   }
 }
@@ -632,13 +639,32 @@ export async function gitRoutes(fastify: FastifyInstance, options: { taskManager
       return { ok: true, conflicts: false, message: stdout.trim() }
     } catch (err) {
       const msg = errorMessage(err)
-      // 顺序有意义：冲突优先（会有未合并路径），分叉是"没冲突但历史分道"的第二种可操作失败
-      if (await mergeLeftUnmergedPaths(hostId, repoPath)) {
-        return { ok: false, conflicts: true, message: msg }
+      const failure = await probePullFailure(hostId, repoPath, Boolean(remote || branch))
+      // 冲突与分叉保持 200 + 结构化字段：前端弹层就是按 ok/conflicts/diverged/ahead/behind 解析的，
+      // 改成 4xx 会打断已落地的交互。其余可操作失败回 409 + code，message 仍带 git 原文。
+      if (failure?.kind === 'conflicts') return { ok: false, conflicts: true, message: msg }
+      if (failure?.kind === 'diverged') {
+        return {
+          ok: false,
+          conflicts: false,
+          diverged: true,
+          ahead: failure.ahead,
+          behind: failure.behind,
+          message: msg,
+        }
       }
-      const divergence = await branchDivergence(hostId, repoPath)
-      if (divergence) {
-        return { ok: false, conflicts: false, diverged: true, ...divergence, message: msg }
+      if (failure) {
+        const code =
+          failure.kind === 'rebase-in-progress'
+            ? 'GIT_REBASE_IN_PROGRESS'
+            : failure.kind === 'merge-in-progress'
+              ? 'GIT_MERGE_IN_PROGRESS'
+              : failure.kind === 'detached-head'
+                ? 'GIT_DETACHED_HEAD'
+                : failure.kind === 'no-upstream'
+                  ? 'GIT_NO_UPSTREAM'
+                  : 'GIT_DIRTY_TREE'
+        return reply.status(409).send({ ok: false, conflicts: false, code, message: msg })
       }
       throw err
     }
