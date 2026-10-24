@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { assertTargetAllowed } from '../lib/tmux-policy.js'
 import { execTmux } from '../lib/tmux-executor.js'
 import { markAgentPaneSeen } from '../lib/agent-state.js'
+import { appendAuditEvent } from '../lib/audit-log.js'
+import { getRequestPrincipal } from '../lib/principal.js'
 import { agentMonitor } from '../lib/agent-monitor.js'
 import {
   paneCopySelectionBodySchema,
@@ -10,6 +12,7 @@ import {
   paneResizeBodySchema,
   paneSelectBodySchema,
   paneSplitBodySchema,
+  paneTaskBodySchema,
 } from '../lib/request-validation.js'
 
 // catch 到的值不保证是 Error（tmux/SSH 通道可能抛字符串），统一收窄取文案
@@ -190,6 +193,47 @@ export async function paneRoutes(fastify: FastifyInstance) {
       await execTmux(hostId, ['kill-pane', '-t', tmuxPaneId])
       return { ok: true }
     } catch (err) {
+      return { ok: false, error: errorMessage(err) }
+    }
+  })
+  // pane ↔ 任务号绑定：写进 pane user-option @tmuxgo_task，列表接口读回 Pane.task。
+  // 存 user-option 而不是自建表：tmux 自身是权威源，pane 关掉即随 pane 消失，
+  // 不需要额外 GC；外部工具（tmux-comm/脚本）也能直接 set-option 写同一个位置。
+  fastify.post('/panes/task', async (request) => {
+    const { paneId, task } = paneTaskBodySchema.parse(request.body)
+    const trimmed = task.trim()
+    const audit = (result: 'success' | 'failure', hostId?: string) => {
+      const principal = getRequestPrincipal(request)
+      void appendAuditEvent({
+        id: `${Date.now().toString(36)}-${request.id}`,
+        timestamp: new Date().toISOString(),
+        user: principal.actor,
+        actor: principal.actor,
+        source: principal.source,
+        action: trimmed ? 'pane-task-set' : 'pane-task-clear',
+        target: paneId,
+        result,
+        method: request.method,
+        statusCode: result === 'success' ? 200 : 400,
+        hostId,
+        message: trimmed || undefined,
+      }).catch(() => {})
+    }
+    try {
+      const { hostId, tmuxPaneId } = parsePaneId(paneId)
+      await assertTargetAllowed(hostId, tmuxPaneId)
+      // 空 task = 解绑。用 -u 删掉 option 而不是写入空串：空串会在 show-options 里
+      // 留下一条 @tmuxgo_task ""，外部工具按「存在即绑定」判断时会误判
+      await execTmux(
+        hostId,
+        trimmed
+          ? ['set-option', '-p', '-t', tmuxPaneId, '@tmuxgo_task', trimmed]
+          : ['set-option', '-u', '-p', '-t', tmuxPaneId, '@tmuxgo_task'],
+      )
+      audit('success', hostId)
+      return { ok: true, paneId, task: trimmed || null }
+    } catch (err) {
+      audit('failure')
       return { ok: false, error: errorMessage(err) }
     }
   })

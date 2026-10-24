@@ -772,6 +772,7 @@ export const en = {
   'shortcut.save': 'Save',
 
   // PaneActions
+  'pane.taskTitle': 'Current task: {task}',
   'pane.splitH': 'Split Horizontal',
   'pane.splitV': 'Split Vertical',
   'pane.fullscreen': 'Fullscreen',
