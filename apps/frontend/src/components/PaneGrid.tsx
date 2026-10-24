@@ -55,6 +55,8 @@ export interface PaneGridSocket {
   send: (data: Record<string, unknown>) => boolean
   isConnected: boolean
   isSocketReady: boolean
+  // 镜像输出序号（可选）：自定义 socket 实现不必提供，缺省就不上报增量
+  getLastMirrorSeq?: () => number | null
   subscribeOutput: (
     hostId: string,
     sessionName: string,
@@ -83,7 +85,12 @@ export function PaneGrid({
   const updateConnection = useConsoleStore((s) => s.updateConnection)
   const updateTerminalPerf = useConsoleStore((s) => s.updateTerminalPerf)
   const defaultConnection = useWebSocket()
-  const { send, isConnected, isSocketReady, subscribeOutput, retryConnection } = socket || defaultConnection
+  const { send, isConnected, isSocketReady, subscribeOutput, retryConnection, getLastMirrorSeq } =
+    socket || defaultConnection
+  // hook 每次渲染都会给出新的 getter 实例：直接进 attachNow 的依赖会让回调每帧重建，
+  // 连带触发下游 attach 重跑；用 ref 转一手保持身份稳定
+  const getLastMirrorSeqRef = useRef(getLastMirrorSeq)
+  getLastMirrorSeqRef.current = getLastMirrorSeq
   const updateConnectionState = useCallback(
     (...args: Parameters<typeof updateConnection>) => {
       if (!socket) updateConnection(...args)
@@ -802,6 +809,10 @@ export function PaneGrid({
     attachStartedAtRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now()
     isSessionAttachedRef.current = false
     updateConnectionState({ status: 'attaching' })
+    // 断线前收到的镜像输出序号：服务端镜像环里还有这段就只补增量。
+    // 拿不到（二进制输出帧/首连/刚收过快照）时一律不发，让服务端走整快照——
+    // 报一个偏旧的值会导致重复渲染
+    const lastSeq = getLastMirrorSeqRef.current?.()
     const sent = send({
       type: 'attach',
       hostId: activeHostId || 'local',
@@ -810,6 +821,7 @@ export function PaneGrid({
       rows: size?.rows || 36,
       exclusive,
       ...(attachPassive ? { passive: true } : {}),
+      ...(typeof lastSeq === 'number' && lastSeq > 0 ? { lastSeq } : {}),
     })
     if (!sent) {
       attachInFlightRef.current = null

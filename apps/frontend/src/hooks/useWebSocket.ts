@@ -45,6 +45,9 @@ type WSState = {
   onClose: (() => void) | null
   onError: (() => void) | null
   closeExpected: boolean
+  // 镜像输出序号：只由 JSON 输出帧携带。二进制帧不解码这个字段，收到就作废——
+  // 报一个偏旧的 seq 会让服务端补发已渲染过的字节，等于花屏
+  lastMirrorSeq: number | null
   lastInteractionRecoverAt: number
   listenersReady: boolean
   cleanupListeners: (() => void) | null
@@ -70,6 +73,7 @@ const wsState: WSState = {
   onClose: null,
   onError: null,
   closeExpected: false,
+  lastMirrorSeq: null,
   lastInteractionRecoverAt: 0,
   listenersReady: false,
   cleanupListeners: null,
@@ -159,6 +163,9 @@ export function useWebSocket() {
           break
         case 'output':
         case 'output_resync': {
+          // 快照是新的基准，之前的序号不再可比；普通输出帧带 mirrorSeq 才更新
+          if (data.type === 'output_resync') wsState.lastMirrorSeq = null
+          else if (typeof data.mirrorSeq === 'number') wsState.lastMirrorSeq = data.mirrorSeq
           emitOutput({
             // output 帧契约上 data 必有；协议容错起见原样透传，不做补默认值
             data: data.data as string,
@@ -361,6 +368,8 @@ export function useWebSocket() {
             if (typeof ArrayBuffer !== 'undefined' && event.data instanceof ArrayBuffer) {
               const decoded = decodeStreamOutputBinary(event.data, wsState.routes as StreamRouteMap)
               if (!decoded) return
+              // 二进制输出帧不带 mirrorSeq（协议未扩），序号从此不可信：宁可整快照
+              if (decoded.type === 'output' || decoded.type === 'output_resync') wsState.lastMirrorSeq = null
               if ((decoded.type === 'cell_snapshot' || decoded.type === 'cell_snapshot_v2') && decoded.cellPayload) {
                 const snap = (decoded.type === 'cell_snapshot_v2' ? decodeCellSnapshotV2 : decodeCellSnapshot)(
                   decoded.cellPayload,
@@ -768,5 +777,13 @@ export function useWebSocket() {
       }
     }
   }, [clearConnectTimer, connect, ensureConnection, handleMessage, scheduleReconnect, sendPing, clearPongTimer])
-  return { send, isConnected, isSocketReady, subscribeOutput, retryConnection: () => ensureConnection(true) }
+  return {
+    send,
+    isConnected,
+    isSocketReady,
+    subscribeOutput,
+    retryConnection: () => ensureConnection(true),
+    // 重连时上报给服务端，命中镜像增量环就只补断线期间的字节
+    getLastMirrorSeq: () => wsState.lastMirrorSeq,
+  }
 }

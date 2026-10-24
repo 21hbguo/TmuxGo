@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useWebSocket } from './useWebSocket'
 import { subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
+import { STREAM_BINARY_TYPE_OUTPUT, STREAM_BINARY_VERSION } from '@/lib/stream-binary'
 const updateConnectionMock = vi.fn()
 const preferenceState = { autoReconnect: false, reconnectInterval: 1000 }
 const authState = { enabled: false }
@@ -36,7 +37,32 @@ class MockWebSocket {
   message(data: unknown) {
     this.onmessage?.({ data: JSON.stringify(data) })
   }
+  binaryMessage(buffer: ArrayBuffer) {
+    this.onmessage?.({ data: buffer } as unknown as { data: string })
+  }
 }
+// 非 compact 帧头：TG + version + type + hostLen + sessionLen + dataLen（全小端）
+function binaryOutputFrame(hostId: string, sessionName: string, data: string) {
+  const enc = new TextEncoder()
+  const host = enc.encode(hostId)
+  const session = enc.encode(sessionName)
+  const payload = enc.encode(data)
+  const buffer = new ArrayBuffer(12 + host.length + session.length + payload.length)
+  const view = new DataView(buffer)
+  view.setUint8(0, 0x54)
+  view.setUint8(1, 0x47)
+  view.setUint8(2, STREAM_BINARY_VERSION)
+  view.setUint8(3, STREAM_BINARY_TYPE_OUTPUT)
+  view.setUint16(4, host.length, true)
+  view.setUint16(6, session.length, true)
+  view.setUint32(8, payload.length, true)
+  const bytes = new Uint8Array(buffer)
+  bytes.set(host, 12)
+  bytes.set(session, 12 + host.length)
+  bytes.set(payload, 12 + host.length + session.length)
+  return buffer
+}
+
 vi.mock('./usePreferences', () => ({
   usePreferences: () => ({ preferences: preferenceState }),
 }))
@@ -72,6 +98,46 @@ describe('useWebSocket', () => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
   })
+  it('tracks the mirror sequence from JSON output frames and invalidates it otherwise', () => {
+    const { result, unmount } = renderHook(() => useWebSocket())
+    act(() => {
+      socketInstances[0].open()
+    })
+    expect(result.current.getLastMirrorSeq()).toBeNull()
+    act(() => {
+      socketInstances[0].message({ type: 'output', data: 'a', hostId: 'local', sessionName: 'dev', mirrorSeq: 7 })
+    })
+    expect(result.current.getLastMirrorSeq()).toBe(7)
+    act(() => {
+      socketInstances[0].message({ type: 'output', data: 'b', hostId: 'local', sessionName: 'dev', mirrorSeq: 9 })
+    })
+    expect(result.current.getLastMirrorSeq()).toBe(9)
+    // 快照是新的基准：旧序号不再可比，必须作废，否则重连会报一个错基准
+    act(() => {
+      socketInstances[0].message({ type: 'output_resync', data: 'snap', hostId: 'local', sessionName: 'dev' })
+    })
+    expect(result.current.getLastMirrorSeq()).toBeNull()
+    unmount()
+  })
+
+  it('drops the mirror sequence when a binary output frame arrives', () => {
+    const { result, unmount } = renderHook(() => useWebSocket())
+    act(() => {
+      socketInstances[0].open()
+    })
+    act(() => {
+      socketInstances[0].message({ type: 'output', data: 'a', hostId: 'local', sessionName: 'dev', mirrorSeq: 7 })
+    })
+    expect(result.current.getLastMirrorSeq()).toBe(7)
+    // 二进制输出帧协议上不带 mirrorSeq：此后序号不可信，继续上报会让服务端补发
+    // 已经渲染过的字节（重复内容）。宁可回整快照
+    act(() => {
+      socketInstances[0].binaryMessage(binaryOutputFrame('local', 'dev', 'x'))
+    })
+    expect(result.current.getLastMirrorSeq()).toBeNull()
+    unmount()
+  })
+
   it('dispatches terminal attach errors and leaves attaching state', async () => {
     const tmuxErrorListener = vi.fn()
     const unsubscribeError = subscribeStreamEvent(STREAM_EVENT.error, tmuxErrorListener)

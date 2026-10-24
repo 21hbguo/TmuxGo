@@ -25,7 +25,11 @@ const sendMock = vi.hoisted(() => vi.fn((_message: Record<string, unknown> & { t
 const subscribeOutputMock = vi.hoisted(() =>
   vi.fn((_hostId: string, _sessionName: string, _listener: unknown) => vi.fn()),
 )
-const socketState = vi.hoisted(() => ({ isConnected: false, isSocketReady: true }))
+const socketState = vi.hoisted(() => ({
+  isConnected: false,
+  isSocketReady: true,
+  lastMirrorSeq: null as number | null,
+}))
 const retryConnectionMock = vi.hoisted(() => vi.fn())
 const windowsData = vi.hoisted(() => [] as MockWindow[])
 const hostsMockData = vi.hoisted(() => ({ value: [{ id: 'local' }] as Array<Pick<Host, 'id'>> | undefined }))
@@ -79,6 +83,7 @@ vi.mock('@/hooks/useWebSocket', () => ({
     isSocketReady: socketState.isSocketReady,
     subscribeOutput: subscribeOutputMock,
     retryConnection: retryConnectionMock,
+    getLastMirrorSeq: () => socketState.lastMirrorSeq,
   }),
 }))
 vi.mock('@/i18n', () => ({
@@ -251,6 +256,7 @@ describe('PaneGrid', () => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
     socketState.isConnected = false
     socketState.isSocketReady = true
+    socketState.lastMirrorSeq = null
     terminalProps.current = null
     hostsMockData.value = [{ id: 'local' }]
     orderedSessionsData.value = []
@@ -280,6 +286,24 @@ describe('PaneGrid', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
+  })
+  it('reports the mirror sequence on a reconnect attach so the server can replay only the delta', async () => {
+    socketState.lastMirrorSeq = 42
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() =>
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'attach', hostId: 'local', sessionName: 'dev1', lastSeq: 42 }),
+      ),
+    )
+  })
+  it('omits lastSeq on a fresh attach so the server sends a full snapshot', async () => {
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach' })))
+    const attachPayload = sendMock.mock.calls.map(([message]) => message).find((message) => message?.type === 'attach')
+    // 没有可信序号时报 0/undefined 都不行：服务端只有 >0 才有意义，缺字段才是「整快照」
+    expect(attachPayload).not.toHaveProperty('lastSeq')
   })
   it('waits for the new terminal instance before attaching after session switch', async () => {
     render(<PaneGrid />)
