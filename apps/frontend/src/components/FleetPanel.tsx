@@ -379,7 +379,9 @@ export function FleetPanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobi
   const compact = mode === 'mobile'
   const body = (
     <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain">
-      {loading && <FleetSkeleton />}
+      {/* 骨架只出现在冷启动：某台 host 的 sessions 请求 pending（离线 ssh/agent 要等超时）
+          时其余 host 的行已能渲染，再盖一层骨架就是「隐藏了又没有」的闪动 */}
+      {loading && fleet.total === 0 && <FleetSkeleton />}
       {!loading &&
         fleet.total === 0 &&
         // 机器上根本没有 agent → 安装引导；有 agent 只是被筛掉 → 提示放宽条件
