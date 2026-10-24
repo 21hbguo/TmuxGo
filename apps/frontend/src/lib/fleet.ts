@@ -25,6 +25,14 @@ export interface FleetRow {
   tmuxPaneId: string
   /** pane 序号未在 agents 帧里携带时为 null，表格显示 — */
   paneIndex: number | null
+  /** window 层级信息来自 pane 冷数据；未到时为 null（树里按单 window 处理，不出 window 行） */
+  windowId: string | null
+  windowName: string | null
+  windowIndex: number | null
+  /** tmux pane 标题（通常是当前命令），message 缺席时作为「简要内容」兜底 */
+  paneTitle: string | null
+  /** agent 最近事件消息：无人值守时一眼看它比看 lastEvent 事件名有用 */
+  message: string | null
   agent: string | null
   task: string | null
   status: AgentStatus
@@ -112,6 +120,12 @@ function toRow(
     tmuxPaneId: pane.tmuxPaneId || '',
     // 序号/任务号取 pane 列表；那一份还没到时显示 —，不猜
     paneIndex: typeof paneMeta?.index === 'number' ? paneMeta.index : null,
+    windowId: paneMeta?.windowId || null,
+    windowName: paneMeta?.windowName?.trim() || null,
+    windowIndex: typeof paneMeta?.windowIndex === 'number' ? paneMeta.windowIndex : null,
+    paneTitle: paneMeta?.title?.trim() || null,
+    // agents 帧被 agent_state 推送实时 patch，比低频刷的 pane 列表新，优先读它
+    message: (pane.message || paneMeta?.message || '').trim() || null,
     agent: pane.agent || null,
     task: parseFleetTask(paneMeta?.task),
     status: pane.agentStatus || 'unknown',
@@ -208,4 +222,91 @@ export function buildFleet(options: {
     blocked: allRows.filter((row) => row.status === 'blocked').length,
     withRecovery: allRows.filter((row) => row.recovery).length,
   }
+}
+
+export interface FleetWindowNode {
+  /** windowId；缺失时退回 windowIndex / 匿名组，React key 与排序都用它 */
+  key: string
+  windowName: string | null
+  windowIndex: number | null
+  rows: FleetRow[]
+}
+
+export interface FleetSessionNode {
+  key: string
+  sessionName: string
+  /** 组内最高优先级（fleetRank 最小值）：session 之间按它排，要处理的 session 不会因为树形而沉底 */
+  rank: number
+  windows: FleetWindowNode[]
+  /** 摊平后的叶子行：单 window session 直接渲染它，不再插一层 window 行 */
+  rows: FleetRow[]
+}
+
+function compareOptionalNumber(left: number | null, right: number | null) {
+  if (left === right) return 0
+  // 缺序号（pane 冷数据还没到）排在同级末尾，别插进有序数据中间
+  if (left === null) return 1
+  if (right === null) return -1
+  return left - right
+}
+
+function sinceValue(row: FleetRow) {
+  if (!row.since) return Number.POSITIVE_INFINITY
+  const value = Date.parse(row.since)
+  return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY
+}
+
+// 树形结构：host 组 → session → window → pane。排序与扁平表的 fleetRank 全局排序刻意分成两套口径：
+// - session 之间按「组内最高优先级 → 最久停留 → 名字」排，需要我处理的 session 不会因为树形而沉底；
+// - session 内部按 windowIndex → paneIndex 排（tmux 真实布局顺序），不看状态——
+//   同一屏里相邻 pane 位置稳定，扫视时才像一棵树，而不是一堆按状态跳动的行。
+// 过滤（needsAttention/task/query）已在 buildFleet 完成，这里的输入就是「当前可见行」。
+export function buildFleetTree(rows: FleetRow[]): FleetSessionNode[] {
+  const bySession = new Map<string, FleetRow[]>()
+  for (const row of rows) {
+    const list = bySession.get(row.sessionId)
+    if (list) list.push(row)
+    else bySession.set(row.sessionId, [row])
+  }
+  const nodes: Array<{ node: FleetSessionNode; since: number }> = []
+  for (const [sessionId, sessionRows] of bySession) {
+    const windows = new Map<string, FleetWindowNode>()
+    for (const row of sessionRows) {
+      // windowId 缺失时退回 windowIndex，再没有就并进同一个匿名组：
+      // 冷数据没到时宁可当单 window 渲染，也不要凭空造出 window 行
+      const key = row.windowId || (row.windowIndex === null ? '' : `#${row.windowIndex}`)
+      const existing = windows.get(key)
+      if (existing) existing.rows.push(row)
+      else windows.set(key, { key, windowName: row.windowName, windowIndex: row.windowIndex, rows: [row] })
+    }
+    const windowNodes = [...windows.values()]
+    for (const window of windowNodes) {
+      window.rows.sort(
+        (left, right) =>
+          compareOptionalNumber(left.paneIndex, right.paneIndex) || left.tmuxPaneId.localeCompare(right.tmuxPaneId),
+      )
+    }
+    windowNodes.sort(
+      (left, right) => compareOptionalNumber(left.windowIndex, right.windowIndex) || left.key.localeCompare(right.key),
+    )
+    const rank = Math.min(...sessionRows.map((row) => fleetRank(row)))
+    const since = Math.min(...sessionRows.filter((row) => fleetRank(row) === rank).map(sinceValue))
+    nodes.push({
+      node: {
+        key: sessionId,
+        sessionName: sessionRows[0].sessionName,
+        rank,
+        windows: windowNodes,
+        rows: windowNodes.flatMap((window) => window.rows),
+      },
+      since,
+    })
+  }
+  nodes.sort(
+    (left, right) =>
+      left.node.rank - right.node.rank ||
+      left.since - right.since ||
+      left.node.sessionName.localeCompare(right.node.sessionName),
+  )
+  return nodes.map((item) => item.node)
 }

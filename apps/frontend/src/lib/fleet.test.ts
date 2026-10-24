@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildFleet, fleetRank, formatFleetDuration, parseFleetTask } from './fleet'
+import { buildFleet, buildFleetTree, fleetRank, formatFleetDuration, parseFleetTask } from './fleet'
 import type { AgentPaneState, AgentRecoveryCandidate, Host, Pane, Session } from '@/types'
 
 const host = (overrides: Partial<Host> = {}): Host =>
@@ -181,5 +181,78 @@ describe('buildFleet', () => {
   it('drops a host group that has no row left after filtering', () => {
     const fleet = buildFleet({ hosts, sessionsByHost: sessions, panesBySession: panes, filters: { query: 'T-236' } })
     expect(fleet.groups.map((group) => group.hostId)).toEqual(['local'])
+  })
+})
+
+describe('buildFleetTree', () => {
+  const agents = (ids: string[]) => ids.map((id) => pane({ paneId: `local:${id}`, tmuxPaneId: id }))
+
+  it('orders windows by windowIndex and panes by index inside each window', () => {
+    const fleet = buildFleet({
+      hosts: [host()],
+      sessionsByHost: { local: [session('dev', agents(['%3', '%1', '%2']))] },
+      panesBySession: {
+        'local:local:dev': [
+          paneRow('local:%3', { index: 0, windowId: 'local:@2', windowName: 'serve', windowIndex: 1 }),
+          paneRow('local:%1', { index: 1, windowId: 'local:@1', windowName: 'edit', windowIndex: 0 }),
+          paneRow('local:%2', { index: 0, windowId: 'local:@1', windowName: 'edit', windowIndex: 0 }),
+        ],
+      },
+    })
+    const tree = buildFleetTree(fleet.groups[0].rows)
+    expect(tree).toHaveLength(1)
+    expect(tree[0].windows.map((window) => window.windowName)).toEqual(['edit', 'serve'])
+    expect(tree[0].rows.map((row) => row.tmuxPaneId)).toEqual(['%2', '%1', '%3'])
+    // window/pane 元数据落到叶子上，面板才有东西画层级
+    expect(tree[0].rows[0]).toMatchObject({ windowName: 'edit', windowIndex: 0, paneIndex: 0 })
+  })
+
+  it('sorts session nodes by the best rank inside, with the longest-stuck as tie-break', () => {
+    const fleet = buildFleet({
+      hosts: [host()],
+      sessionsByHost: {
+        local: [
+          session('alpha', [pane({ paneId: 'local:%1', agentStatus: 'working', since: '2026-01-01T10:00:00.000Z' })]),
+          session('beta', [pane({ paneId: 'local:%2', agentStatus: 'working', since: '2026-01-01T11:00:00.000Z' })]),
+          session('gamma', [pane({ paneId: 'local:%3', agentStatus: 'blocked' })]),
+        ],
+      },
+    })
+    const tree = buildFleetTree(fleet.groups[0].rows)
+    expect(tree.map((node) => node.sessionName)).toEqual(['gamma', 'alpha', 'beta'])
+  })
+
+  it('falls back to a single anonymous window while pane metadata is still loading', () => {
+    const fleet = buildFleet({ hosts: [host()], sessionsByHost: { local: [session('dev', agents(['%1', '%2']))] } })
+    const tree = buildFleetTree(fleet.groups[0].rows)
+    // 没有 windowId/windowIndex 时不能凭空造出一堆 window 行：单组 → 面板按单 window 渲染
+    expect(tree[0].windows).toHaveLength(1)
+    expect(tree[0].rows.map((row) => row.windowIndex)).toEqual([null, null])
+  })
+
+  it('prefers the live agent message and keeps the pane title as the brief fallback', () => {
+    const fleet = buildFleet({
+      hosts: [host()],
+      sessionsByHost: {
+        local: [
+          session('dev', [
+            pane({ paneId: 'local:%1', tmuxPaneId: '%1', message: 'live message' }),
+            pane({ paneId: 'local:%2', tmuxPaneId: '%2' }),
+          ]),
+        ],
+      },
+      panesBySession: {
+        'local:local:dev': [
+          paneRow('local:%1', { title: 'claude', message: 'stale copy' }),
+          paneRow('local:%2', { title: 'nvim README.md' }),
+        ],
+      },
+    })
+    const [first, second] = fleet.rows
+    // agents 帧实时 patch 更准；pane 列表那份可能是上一轮抓的
+    expect(first.message).toBe('live message')
+    expect(first.paneTitle).toBe('claude')
+    expect(second.message).toBeNull()
+    expect(second.paneTitle).toBe('nvim README.md')
   })
 })
