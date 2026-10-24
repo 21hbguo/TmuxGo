@@ -37,13 +37,37 @@ describe('buildPaneTargets', () => {
     expect(targets[1]!.rect).toEqual({ left: 0.5, top: 0, width: 0.5, height: 1 })
   })
 
-  it('keeps tmux pane numbers (index + 1) and falls back to the index as label', () => {
+  it('numbers panes 1..n by order, not pane.index + 1 (pane-base-index 1 会整体错位一格)', () => {
     const targets = buildPaneTargets([
-      pane({ id: 'local:%1', index: 0, top: 0 }),
-      pane({ id: 'local:%3', index: 2, top: 24, title: 'logs' }),
+      pane({ id: 'local:%1', index: 1, top: 0 }),
+      pane({ id: 'local:%3', index: 3, top: 24, title: 'logs' }),
     ])
-    expect(targets.map((item) => item.number)).toEqual([1, 3])
+    expect(targets.map((item) => item.number)).toEqual([1, 2])
     expect(targets.map((item) => item.label)).toEqual(['#1', 'logs'])
+    // 默认 0 起（pane-base-index 0）时行为不变
+    expect(
+      buildPaneTargets([pane({ id: 'local:%1', index: 0 }), pane({ id: 'local:%2', index: 1, top: 24 })]).map(
+        (item) => item.number,
+      ),
+    ).toEqual([1, 2])
+  })
+
+  it('lays window badges out in one row instead of stacking them on the same spot', () => {
+    render(
+      <PaneNumberOverlay
+        mode="windows"
+        targets={[
+          { id: 'local:@1', number: 1, label: 'dev' },
+          { id: 'local:@2', number: 2, label: 'ops' },
+        ]}
+      />,
+    )
+    const first = screen.getByTestId('window-number-1')
+    const second = screen.getByTestId('window-number-2')
+    // 同一个横向容器里做兄弟节点，才会并排；旧实现各自 absolute inset-x-0 top-3 会完全重叠
+    expect(first.parentElement).toBe(second.parentElement)
+    expect(first.parentElement?.className).toContain('flex')
+    expect(first.className).not.toContain('absolute')
   })
 
   it('bails out when there is nothing to jump to', () => {
