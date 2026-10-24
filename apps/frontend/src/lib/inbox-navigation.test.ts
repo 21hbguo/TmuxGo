@@ -26,12 +26,38 @@ vi.mock('@/lib/api', () => ({
 
 const session = (id: string, name: string): Session => ({ id, name, hostId: 'local' }) as Session
 
-function snapshotWith(paneId: string, windowId: string, activeWindowId = windowId) {
+function snapshotWith(
+  paneId: string,
+  windowId: string,
+  activeWindowId = windowId,
+  zoomed = false,
+  extraWindows: Array<{ id: string; zoomed?: boolean }> = [],
+) {
   return {
     sessionId: 'local:s1',
     sessionName: 'dev',
-    windows: [{ id: windowId, index: 0, name: 'w', active: true }],
-    panes: [{ id: paneId, windowId, tmuxPaneId: paneId.split(':')[1] }],
+    windows: [
+      ...extraWindows.map((window, index) => ({
+        id: window.id,
+        sessionId: 'local:s1',
+        index: index + 1,
+        name: window.id,
+        active: window.id === activeWindowId,
+        zoomed: window.zoomed,
+      })),
+      { id: windowId, sessionId: 'local:s1', index: 0, name: 'w', active: windowId === activeWindowId, zoomed },
+    ],
+    panes: [
+      {
+        id: paneId,
+        windowId,
+        tmuxPaneId: paneId.split(':')[1],
+        index: 0,
+        title: '',
+        active: true,
+        size: { cols: 80, rows: 24 },
+      },
+    ],
     activeWindowId,
     activePaneId: paneId,
   }
@@ -105,5 +131,66 @@ describe('inbox 跳 pane', () => {
     const result = await navigateInboxRoute({ hostId: 'local', sessionName: 'dev', paneId: 'local:%2' }, null)
     expect(result).toBe('not-found')
     expect(apiMocks.panesSelect).not.toHaveBeenCalled()
+  })
+
+  // ---- T-245：切 pane 不能把 zoom 掉 ----
+  it('同 window 已 zoom：切 pane 带 keepZoom（-Z），否则 zoom 会被摊平', async () => {
+    const snapshot = snapshotWith('local:%2', 'local:@9', 'local:@9', true)
+    await selectPaneInSession({
+      hostId: 'local',
+      sessionId: 'local:s1',
+      pane: { id: 'local:%2', windowId: 'local:@9' },
+      activeWindowId: 'local:@9',
+      queryClient: null,
+      snapshot,
+    })
+    expect(apiMocks.panesSelect).toHaveBeenCalledWith('local:%2', { keepZoom: true })
+  })
+
+  it('目标 window 未 zoom：不传 keepZoom（不假装 -Z 能把窗 zoom 上）', async () => {
+    const snapshot = snapshotWith('local:%2', 'local:@9', 'local:@9', false)
+    await selectPaneInSession({
+      hostId: 'local',
+      sessionId: 'local:s1',
+      pane: { id: 'local:%2', windowId: 'local:@9' },
+      activeWindowId: 'local:@9',
+      queryClient: null,
+      snapshot,
+    })
+    expect(apiMocks.panesSelect).toHaveBeenCalledWith('local:%2')
+  })
+
+  it('跨 window 跳：看的是目标 window 的 zoomed，不是当前 window', async () => {
+    const snapshot = snapshotWith('local:%2', 'local:@9', 'local:@1', true, [{ id: 'local:@1', zoomed: false }])
+    await selectPaneInSession({
+      hostId: 'local',
+      sessionId: 'local:s1',
+      pane: { id: 'local:%2', windowId: 'local:@9' },
+      // 当前 window 未 zoom，目标 window 已 zoom：必须保目标窗的 zoom
+      activeWindowId: 'local:@1',
+      queryClient: null,
+      snapshot,
+    })
+    expect(apiMocks.panesSelect).toHaveBeenCalledWith('local:%2', { keepZoom: true })
+  })
+
+  it('没传快照时从 session-snapshot 缓存读 zoom 标志（MobileDrawer 走这条）', async () => {
+    const getQueryData = vi.fn(() => snapshotWith('local:%2', 'local:@9', 'local:@9', true))
+    await selectPaneInSession({
+      hostId: 'local',
+      sessionId: 'local:s1',
+      pane: { id: 'local:%2', windowId: 'local:@9' },
+      activeWindowId: 'local:@9',
+      queryClient: { getQueryData, setQueryData: vi.fn() } as unknown as never,
+    })
+    expect(getQueryData).toHaveBeenCalledWith(['session-snapshot', 'local', 'local:s1'])
+    expect(apiMocks.panesSelect).toHaveBeenCalledWith('local:%2', { keepZoom: true })
+  })
+
+  it('inbox route 端到端：落点是 zoomed window 时 select 带 keepZoom', async () => {
+    apiMocks.snapshotGet.mockResolvedValue(snapshotWith('local:%2', 'local:@9', 'local:@9', true))
+    const result = await navigateInboxRoute({ hostId: 'local', sessionName: 'dev', paneId: 'local:%2' }, null)
+    expect(result).toBe('pane')
+    expect(apiMocks.panesSelect).toHaveBeenCalledWith('local:%2', { keepZoom: true })
   })
 })

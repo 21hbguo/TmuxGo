@@ -1,20 +1,44 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { api } from './api'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import type { InboxMessageRoute, Session, Window } from '@/types'
+import type { InboxMessageRoute, Session, SessionSnapshot, Window } from '@/types'
 
 // 跨 window 选 pane 的唯一正确顺序（与 MobileDrawer.handleSelectPane 同链）：
 // 先 select-window 再 select-pane，顺序不能颠倒；最后回填 snapshot cache + activePane
+// 目标 window 的 zoom 标志：优先用调用方刚取的快照，其次读 session-snapshot 缓存。
+// 必须看**目标 window**——跨 window 跳 pane 时当前 window 的 zoom 与落点无关，
+// 而 select-pane 不带 -Z 会把 zoom 掉的窗摊平（tmux 3.4 实测：zoomed 窗 select 后 zoom=0）。
+function targetWindowZoomed(options: {
+  queryClient: QueryClient | null
+  hostId: string
+  sessionId: string
+  windowId?: string
+  snapshot?: SessionSnapshot | null
+}) {
+  const { queryClient, hostId, sessionId, windowId, snapshot } = options
+  if (!windowId) return false
+  const fromSnapshot = snapshot?.windows?.find((item) => item.id === windowId)
+  if (fromSnapshot?.zoomed !== undefined) return fromSnapshot.zoomed === true
+  const cached = queryClient?.getQueryData<SessionSnapshot>(['session-snapshot', hostId, sessionId])
+  return cached?.windows?.find((item) => item.id === windowId)?.zoomed === true
+}
+
 export async function selectPaneInSession(options: {
   hostId: string
   sessionId: string
   pane: { id: string; windowId?: string }
   activeWindowId?: string | null
   queryClient: QueryClient | null
+  // 调用方已拿到的快照：省一次网络（navigateInboxRoute 本来就要取）
+  snapshot?: SessionSnapshot | null
 }) {
-  const { hostId, sessionId, pane, activeWindowId, queryClient } = options
+  const { hostId, sessionId, pane, activeWindowId, queryClient, snapshot } = options
+  const keepZoom = targetWindowZoomed({ queryClient, hostId, sessionId, windowId: pane.windowId, snapshot })
   if (pane.windowId && pane.windowId !== activeWindowId) await api.windows.select(hostId, sessionId, pane.windowId)
-  await api.panes.select(pane.id)
+  // keepZoom 只在目标窗本来就 zoom 时传：未 zoom 的窗传不传 -Z 都是 no-op（实测），
+  // 但先判一次语义更准——避免以后有人以为 -Z 能顺手把窗 zoom 上
+  if (keepZoom) await api.panes.select(pane.id, { keepZoom: true })
+  else await api.panes.select(pane.id)
   const nextSnapshot = await api.snapshot.get(hostId, sessionId)
   queryClient?.setQueryData(['session-snapshot', hostId, sessionId], nextSnapshot)
   useConsoleStore.getState().setActivePane(pane.id)
@@ -76,7 +100,7 @@ export async function navigateInboxRoute(
     const activeWindowId =
       snapshot?.activeWindowId || snapshot?.windows?.find?.((item: Window) => item.active)?.id || null
     try {
-      await selectPaneInSession({ hostId, sessionId, pane, activeWindowId, queryClient })
+      await selectPaneInSession({ hostId, sessionId, pane, activeWindowId, queryClient, snapshot })
     } catch {
       return 'error'
     }
