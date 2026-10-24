@@ -14,6 +14,7 @@ concurrency:
 jobs:
   lint-typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
@@ -50,6 +51,7 @@ jobs:
           fi
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       # 不 fail-fast：20 与 22 的结果都是合并判据的一部分，一个失败不该取消兄弟
       fail-fast: false
@@ -71,6 +73,7 @@ jobs:
       - run: pnpm run test:frontend
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
@@ -84,6 +87,7 @@ jobs:
       - run: pnpm run build
   smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
         with:
