@@ -54,6 +54,7 @@ import {
 } from './SessionSortableList'
 import { HostSwitcher } from './HostSwitcher'
 import { AgentStatusBadge } from './AgentStatusBadge'
+import { AgentRecoveryBadge, useAgentRecoveryList } from './AgentRecovery'
 import { getAgentAttentionRank, mergeAgentSummaries } from '@/lib/agent-status'
 import type { AgentStatus, AgentSummary, Pane, Session, SessionSnapshot, WorkspaceEntry } from '@/types'
 import { ModalPortal } from './ModalPortal'
@@ -86,7 +87,10 @@ export function SessionPanel() {
   const pushToast = useConsoleStore((state) => state.pushToast)
   const queryClient = useOptionalQueryClient()
   const { data: sessions = [], moveSession, isError, error, refetch } = useOrderedSessions(activeHostId || '')
-  // agent 恢复徽标暂不展示（AgentRecoveryBadge/useAgentRecoveryList 保留以便恢复）
+  // agent 恢复候选：hook 自管取数（hostId 变化取一次），不在这里加定时器——
+  // 候选只在 agent 退出/pane 消失时产生，15s 空轮询是纯浪费（见 AgentRecovery 的注释）。
+  // 刷新时机：resume 成功后 refetch，以及下面 session 列表自身的刷新点。
+  const { bySession: recoveryBySession, refetch: refetchRecovery } = useAgentRecoveryList(activeHostId || null)
   const createSession = useCreateSession()
   const deleteSession = useDeleteSession()
   const batchDeleteSessions = useBatchDeleteSessions()
@@ -149,6 +153,12 @@ export function SessionPanel() {
     setCreateDialogInitialWorkspace(templateWorkspace)
     setTemplateWorkspace(null)
     setCreateDialogOpen(true)
+  }
+  // resume 会重新拉起 agent（可能新建/复用 pane）：session 列表与候选列表都要重新取，
+  // 否则徽标还挂在已经恢复的 session 上
+  const handleRecoveryResumed = () => {
+    void refetch()
+    refetchRecovery()
   }
   const handleLayoutApplied = (session: Session) => {
     setShowLayoutImport(false)
@@ -596,6 +606,11 @@ export function SessionPanel() {
           <AgentStatusBadge
             summary={session.agentSummary}
             onStatusClick={(status) => handleAgentStatusClick(session, status)}
+          />
+          <AgentRecoveryBadge
+            hostId={activeHostId || 'local'}
+            candidates={recoveryBySession.get(session.name)}
+            onResumed={handleRecoveryResumed}
           />
         </div>
       </button>
