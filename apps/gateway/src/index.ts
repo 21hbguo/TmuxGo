@@ -32,7 +32,7 @@ import { templateRoutes } from './routes/templates.js'
 import { workspaceRoutes } from './routes/workspaces.js'
 import { sessionArchiveRoutes } from './routes/session-archives.js'
 import { sessionSnapshotRoutes } from './routes/session-snapshots.js'
-import { snapshotSessionsOnShutdown } from './lib/session-snapshot.js'
+import { describeShutdownSnapshots, snapshotSessionsOnShutdown } from './lib/session-snapshot.js'
 import { parseNameList } from './lib/env-lists.js'
 import { pluginRoutes } from './routes/plugins.js'
 import { pluginManager } from './lib/plugin-manager.js'
@@ -232,11 +232,8 @@ const shutdown = createShutdownSequence({
       include: parseNameList(process.env.TMUXGO_SNAPSHOT_SESSIONS),
       logWarn: (message) => fastify.log.warn(message),
     }).then((result) => {
-      if (result.saved.length || result.skipped.length)
-        fastify.log.info(
-          { saved: result.saved.length, skipped: result.skipped.length },
-          'session snapshots on shutdown',
-        )
+      const summary = describeShutdownSnapshots(result)
+      if (summary) fastify.log[summary.level](summary.payload, summary.message)
     }),
   cleanupSockets: () => cleanupMultiplexSockets(),
   closeServer: () => fastify.close(),

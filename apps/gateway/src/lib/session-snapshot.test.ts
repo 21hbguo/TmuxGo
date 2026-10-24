@@ -10,10 +10,12 @@ import {
   SNAPSHOT_TAIL_BYTES,
   SNAPSHOT_TAIL_LINES,
   captureSessionSnapshot,
+  describeShutdownSnapshots,
   getSnapshotDir,
   readSnapshots,
   restoreSnapshot,
   snapshotSessionsOnShutdown,
+  summarizeSkipReasons,
 } from './session-snapshot.js'
 import type { TmuxExec } from './session-layout-apply.js'
 
@@ -420,4 +422,29 @@ test('shutdown capture honours the session whitelist and records why the rest we
     assert.deepEqual(missing.saved, [])
     assert.deepEqual(missing.skipped, ['local:test:not-in-whitelist'])
   })
+})
+
+// 关停摘要走 warn：生产默认 level=warn，走 info 时白名单/跳过效果对运维不可见
+test('shutdown snapshot summary is warn-level with a reason breakdown', () => {
+  const skipped = [
+    'devbox:remote-host',
+    'local:work:not-in-whitelist',
+    'local:ops:not-in-whitelist',
+    'local:x:deadline',
+  ]
+  assert.deepEqual(summarizeSkipReasons(skipped), { 'remote-host': 1, 'not-in-whitelist': 2, deadline: 1 })
+
+  const summary = describeShutdownSnapshots({ saved: ['local:test'], skipped })
+  assert.equal(summary?.level, 'warn')
+  assert.equal(summary?.payload.saved, 1)
+  assert.equal(summary?.payload.skipped, 4)
+  assert.deepEqual(summary?.payload.reasons, { 'remote-host': 1, 'not-in-whitelist': 2, deadline: 1 })
+
+  // 只有 saved 也是 warn：运维要能从默认日志看到「这次关停抓到了什么」
+  assert.equal(describeShutdownSnapshots({ saved: ['local:a'], skipped: [] })?.level, 'warn')
+  // 全 0 是正常退出路径，不打日志
+  assert.equal(describeShutdownSnapshots({ saved: [], skipped: [] }), null)
+  // 明细限长，避免关停路径刷出长列表
+  const many = describeShutdownSnapshots({ saved: Array.from({ length: 30 }, (_, i) => `local:s${i}`), skipped: [] })
+  assert.equal((many?.payload.savedSessions as string[]).length, 10)
 })
