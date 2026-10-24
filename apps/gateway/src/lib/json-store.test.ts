@@ -149,7 +149,13 @@ test('write failure leaves the previous file and backup recoverable', async (t) 
 
 // 独立 Node 进程跑同一路径 update()：无锁时 read-modify-write 互相覆盖丢写，
 // 有锁时全部落盘。worker 脚本写到共享 tmpdir，经 --import tsx 加载 .ts 源码
-async function runStoreWorker(dir: string, file: string, tag: string, count: number) {
+async function runStoreWorker(
+  dir: string,
+  file: string,
+  tag: string,
+  count: number,
+  options: Record<string, unknown> = {},
+) {
   const helper = path.join(dir, `worker-${tag}.mjs`)
   const storeUrl = new URL('./json-store.ts', import.meta.url).href
   await writeFile(
@@ -180,6 +186,23 @@ test('serializes concurrent read-modify-write across independent processes', asy
   assert.equal(items.length, perWorker * 2)
   assert.equal(new Set(items.map((item) => item.id)).size, perWorker * 2)
   // 锁文件不残留
+  await assert.rejects(stat(`${file}.lock`))
+})
+
+// 锁看起来 stale（lockStaleMs 极短）时，回收方与持锁方的窗口会被放大：
+// 误回收后两个进程都以为自己持锁，写入会互相覆盖。心跳 + 写前校验必须挡住，
+// 一次写都不许丢。修复前这个用例稳定丢数据。
+test('keeps every write when the lock is recycled aggressively', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-store-'))
+  const file = path.join(dir, 'items.json')
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const perWorker = 25
+  const workers = [0, 1, 2, 3, 4, 5, 6, 7]
+  await Promise.all(workers.map((index) => runStoreWorker(dir, file, `r${index}`, perWorker, { lockStaleMs: 5 })))
+  const store = makeStore(dir)
+  const items = await store.read()
+  assert.equal(items.length, perWorker * workers.length)
+  assert.equal(new Set(items.map((item) => item.id)).size, perWorker * workers.length)
   await assert.rejects(stat(`${file}.lock`))
 })
 
