@@ -33,6 +33,7 @@ import { workspaceRoutes } from './routes/workspaces.js'
 import { sessionArchiveRoutes } from './routes/session-archives.js'
 import { sessionSnapshotRoutes } from './routes/session-snapshots.js'
 import { snapshotSessionsOnShutdown } from './lib/session-snapshot.js'
+import { parseNameList } from './lib/env-lists.js'
 import { pluginRoutes } from './routes/plugins.js'
 import { pluginManager } from './lib/plugin-manager.js'
 import { createFastifyLoggerConfig } from './lib/process-log.js'
@@ -227,6 +228,8 @@ const shutdown = createShutdownSequence({
   snapshotSessions: () =>
     snapshotSessionsOnShutdown({
       hostIds: ['local'],
+      // 生产机常有关停时不该抓的会话（别人的实验 pane）：白名单留空则维持扫全部
+      include: parseNameList(process.env.TMUXGO_SNAPSHOT_SESSIONS),
       logWarn: (message) => fastify.log.warn(message),
     }).then((result) => {
       if (result.saved.length || result.skipped.length)

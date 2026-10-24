@@ -349,12 +349,20 @@ export async function restoreSnapshot(options: {
 /** 退出前自动快照：只做本机 host，远端 host 无等价 capture-pane 通道，按单降级跳过并标记 */
 export async function snapshotSessionsOnShutdown(options: {
   hostIds: string[]
+  /**
+   * 只快照这些 session（空/未给 = 扫全部，维持原有默认）。生产机关停时没必要把所有
+   * 无关会话都抓一遍；白名单也让真机验证能在不碰用户会话的前提下跑通关停路径。
+   * 由组装根从 TMUXGO_SNAPSHOT_SESSIONS 解析后传入，lib 不直接读 env。
+   */
+  include?: string[]
   deadlineMs?: number
   capture?: typeof captureSessionSnapshot
   exec?: TmuxExec
   logWarn?: (message: string) => void
 }) {
   const { hostIds } = options
+  const include = options.include?.filter(Boolean) ?? []
+  const includeSet = include.length ? new Set(include) : null
   const logWarn = options.logWarn || (() => {})
   const capture = options.capture || captureSessionSnapshot
   const exec = options.exec || execTmux
@@ -375,6 +383,11 @@ export async function snapshotSessionsOnShutdown(options: {
       continue
     }
     for (const name of names) {
+      // 白名单外的会话直接记原因跳过，和 remote-host/deadline/error 保持同一套 skipped 语义
+      if (includeSet && !includeSet.has(name)) {
+        skipped.push(`${hostId}:${name}:not-in-whitelist`)
+        continue
+      }
       if (Date.now() >= deadline) {
         skipped.push(`${hostId}:${name}:deadline`)
         continue
