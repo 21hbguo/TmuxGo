@@ -1,0 +1,10 @@
+# 生成物：pnpm 写出的格式不代表源码风格，永远不该用 prettier 校验
+pnpm-lock.yaml
+# 历史文档：中文表格被 prettier 重排会产生上百行噪音，且非代码；
+# 新增/在改的文档仍然纳入检查（不要在此处加 docs/** 通配）
+docs/TmuxGo-功能完备度与流量对比-2026-10-09-144532.md
+docs/research/tmux-capability-matrix.md
+# 构建与测试产物
+apps/frontend/dist
+test-results
+playwright-report

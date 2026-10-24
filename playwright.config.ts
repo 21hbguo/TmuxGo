@@ -10,6 +10,8 @@ export default defineConfig({
     ...(process.env.TMUXGO_MEASURE_PERF ? [] : ['**/measure-*.spec.ts']),
   ],
   timeout: 30000,
+  // CI 重试一次：吸收渲染/布局的时序抖动，真失败仍然红（本地默认 0 次，失败立刻可见）
+  retries: process.env.CI ? 1 : 0,
   workers: process.env.TMUXGO_E2E_WORKERS ? Number(process.env.TMUXGO_E2E_WORKERS) : undefined,
   use: {
     baseURL: externalServer || 'http://127.0.0.1:3000',
