@@ -226,6 +226,11 @@ test('restore replays layout + cwd + command but never writes the tail back into
         'select-window',
       ],
     )
+    // 首 pane 的 cwd 在建 session 时就要落地：window0/pane0 由 new-session 创建，
+    // 不给 -c 会继承 tmux server 的 cwd（远端新起 server = home）
+    const createArgs = restore.calls.find((args) => args[0] === 'new-session')
+    assert.ok(createArgs)
+    assert.equal(createArgs[createArgs.indexOf('-c') + 1], '/repo/app')
     // 只有非 shell 命令会被重跑（nvim / tail），zsh 这种 shell 不重放
     const typed = restore.calls.filter((args) => args[0] === 'send-keys' && args.includes('-l')).map((args) => args[4])
     // 每个 pane 至少回 cd（zsh 这种 shell 不重放命令，只回目录），非 shell 命令跟在 cd 后面

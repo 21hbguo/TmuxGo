@@ -5,6 +5,20 @@ import { execTmux } from './tmux-executor.js'
 // 可注入的 exec：单测传假实现喂固定 tmux 输出，不拉起真实 server
 export type TmuxExec = typeof execTmux
 
+/**
+ * 建 session 的参数：首 window 首 pane 的 cwd 走 `new-session -c`。
+ * window0/pane0 由 new-session 创建，applyTemplateLayout 只给 new-window(i>0) 和
+ * split-window 传 cwd；不给 -c 时首 pane 继承 tmux server 的 cwd（远端新起 server = home），
+ * 快照恢复出来的首个 pane 就落错目录。cwd 缺失/空白时不传，维持继承 server cwd 的旧行为。
+ * `-c` 自 tmux 1.9 起可用，远低于本机与 CI 的 3.4 基线。
+ */
+export function buildSessionCreateArgs(sessionName: string, layout: SessionTemplateLayout) {
+  const args = ['new-session', '-d', '-s', sessionName, '-e', 'TMUXGO_ENV=1']
+  const cwd = layout.windows[0]?.panes?.[0]?.cwd?.trim()
+  if (cwd) args.push('-c', cwd)
+  return args
+}
+
 // layout 应用（新建 window / split / select-layout / 打字启动命令）从 sessions 路由抽出，
 // 供 session 快照恢复复用：恢复语义 = 同结构 + 同 cwd + 同命令重跑，只有一份实现。
 export async function runSendKeys(hostId: string, target: string, command: string, exec: TmuxExec = execTmux) {
@@ -32,6 +46,8 @@ export function getPaneStartupCommand(pane: { command?: string; cwd?: string; en
         )
       : []
   if (env.length) parts.push(`export ${env.map(([key, value]) => `${key}=${quoteShellValue(value)}`).join(' ')}`)
+  // cd 保留：`new-session -c` 只决定创建瞬间的 pwd，shell 的 rc 里若有 cd/自动跳目录
+  // （zoxide/chezmoi 之类）仍会把它改掉；这里是在 shell 就绪后再确认一次目录
   if (pane.cwd?.trim()) parts.push(`cd -- ${quoteShellValue(pane.cwd.trim())}`)
   if (pane.command?.trim()) parts.push(pane.command.trim())
   return parts.join('; ')
