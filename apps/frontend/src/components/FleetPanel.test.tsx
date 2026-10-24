@@ -84,11 +84,29 @@ const sessions: Record<string, Session[]> = {
     ]),
   ],
 }
-// pane 列表是任务号与序号的来源：只有它在，表格才会显示 T-236 而不是 —
+// pane 列表是任务号/序号/window 层级的来源：只有它在，树才会显示 T-236 与 window 行
 const panes: Record<string, unknown[]> = {
   'local:local:dev': [
-    { id: 'local:%1', tmuxPaneId: '%1', index: 0 },
-    { id: 'local:%2', tmuxPaneId: '%2', index: 1, task: 'T-236' },
+    {
+      id: 'local:%1',
+      tmuxPaneId: '%1',
+      index: 0,
+      windowId: 'local:@1',
+      windowName: 'dev',
+      windowIndex: 0,
+      title: 'claude',
+    },
+    {
+      id: 'local:%2',
+      tmuxPaneId: '%2',
+      index: 1,
+      windowId: 'local:@1',
+      windowName: 'dev',
+      windowIndex: 0,
+      title: 'shell',
+      task: 'T-236',
+      message: 'waiting for approval',
+    },
   ],
 }
 
@@ -120,12 +138,17 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('FleetPanel', () => {
-  it('renders rows grouped by host with the blocked row first and the task column filled', async () => {
+  it('renders a session tree whose panes keep tmux order, not status order', async () => {
     vi.mocked((await import('@/lib/api')).api.hosts.list).mockResolvedValue([host()])
     wrap(makeClient(), React.createElement(FleetPanel))
-    // 默认全量显示（两个筛选钮都关）：两行都在，blocked 仍排最前
+    // 默认全量显示（两个筛选钮都关）：树内叶子按 pane 顺序排，blocked 的 %2 不再被提到最前
     await waitFor(() => expect(document.querySelectorAll('[data-fleet-row]')).toHaveLength(2))
-    expect(document.querySelector('[data-fleet-row]')?.getAttribute('data-fleet-row')).toBe('local:local:%2')
+    expect(
+      Array.from(document.querySelectorAll('[data-fleet-row]')).map((node) => node.getAttribute('data-fleet-row')),
+    ).toEqual(['local:local:%1', 'local:local:%2'])
+    // 单 window session 只出 session 节点，不插 window 行
+    expect(document.querySelectorAll('[data-fleet-session]')).toHaveLength(1)
+    expect(document.querySelectorAll('[data-fleet-window]')).toHaveLength(0)
     expect(screen.getByLabelText('等待处理')).toBeTruthy()
     expect(screen.getByText('T-236')).toBeTruthy()
   })
@@ -136,7 +159,7 @@ describe('FleetPanel', () => {
     await waitFor(() => expect(document.querySelectorAll('[data-fleet-row]')).toHaveLength(2))
     // 状态不只靠颜色：blocked/failed 走 danger 锚点，行内 badge 带可见文案
     const anchors = Array.from(document.querySelectorAll('[data-fleet-row] [data-fleet-anchor]'))
-    expect(anchors.map((node) => node.getAttribute('data-fleet-anchor'))).toEqual(['danger', 'working'])
+    expect(anchors.map((node) => node.getAttribute('data-fleet-anchor'))).toEqual(['working', 'danger'])
     expect(screen.getByText('等待处理')).toBeTruthy()
     expect(screen.getByText('工作中')).toBeTruthy()
   })
@@ -151,6 +174,92 @@ describe('FleetPanel', () => {
     expect(await screen.findByText('没有符合条件的结果')).toBeTruthy()
     expect(screen.getByText('换个关键词，或放宽上面的筛选条件')).toBeTruthy()
     expect(screen.queryByText('本机还没有 agent pane')).toBeNull()
+  })
+
+  it('shows a window row only when the session has more than one window', async () => {
+    vi.mocked((await import('@/lib/api')).api.hosts.list).mockResolvedValue([host()])
+    apiMocks.list.mockImplementation(async () => [
+      session('dev', [
+        pane({ paneId: 'local:%1', tmuxPaneId: '%1' }),
+        pane({ paneId: 'local:%2', tmuxPaneId: '%2', agentStatus: 'blocked' }),
+        pane({ paneId: 'local:%3', tmuxPaneId: '%3', agentStatus: 'done' }),
+      ]),
+    ])
+    apiMocks.listBySession.mockImplementation(async () => [
+      { id: 'local:%1', tmuxPaneId: '%1', index: 0, windowId: 'local:@1', windowName: 'edit', windowIndex: 0 },
+      { id: 'local:%2', tmuxPaneId: '%2', index: 1, windowId: 'local:@1', windowName: 'edit', windowIndex: 0 },
+      { id: 'local:%3', tmuxPaneId: '%3', index: 0, windowId: 'local:@2', windowName: 'serve', windowIndex: 1 },
+    ])
+    wrap(makeClient(), React.createElement(FleetPanel))
+    await waitFor(() => expect(document.querySelectorAll('[data-fleet-row]')).toHaveLength(3))
+    const windows = Array.from(document.querySelectorAll('[data-fleet-window]'))
+    expect(windows.map((node) => node.getAttribute('data-fleet-window'))).toEqual(['local:@1', 'local:@2'])
+    // window 行显示 windowName + 该 window 的 pane 数
+    expect(windows[0].textContent).toContain('edit')
+    expect(windows[0].textContent).toContain('2')
+    expect(windows[1].textContent).toContain('serve')
+    expect(windows[1].textContent).toContain('1')
+    // 叶子按 windowIndex → paneIndex，而不是按状态（blocked 的 %2 仍在 %1 之后）
+    expect(
+      Array.from(document.querySelectorAll('[data-fleet-row]')).map((node) => node.getAttribute('data-fleet-row')),
+    ).toEqual(['local:local:%1', 'local:local:%2', 'local:local:%3'])
+  })
+
+  it('sorts session nodes by the highest-priority pane inside them', async () => {
+    vi.mocked((await import('@/lib/api')).api.hosts.list).mockResolvedValue([host()])
+    apiMocks.list.mockImplementation(async () => [
+      session('alpha', [pane({ paneId: 'local:%1', tmuxPaneId: '%1', sessionName: 'alpha' })]),
+      session('beta', [pane({ paneId: 'local:%2', tmuxPaneId: '%2', sessionName: 'beta', agentStatus: 'blocked' })]),
+    ])
+    apiMocks.listBySession.mockImplementation(async () => [])
+    wrap(makeClient(), React.createElement(FleetPanel))
+    await waitFor(() => expect(document.querySelectorAll('[data-fleet-session]')).toHaveLength(2))
+    // beta 里有人等我处理 → 排在 alpha 前，树形不改变跨 session 的优先级语义
+    expect(
+      Array.from(document.querySelectorAll('[data-fleet-session]')).map((node) =>
+        node.getAttribute('data-fleet-session'),
+      ),
+    ).toEqual(['local:beta', 'local:alpha'])
+  })
+
+  it('fills the brief column from the agent message first, then the pane title', async () => {
+    vi.mocked((await import('@/lib/api')).api.hosts.list).mockResolvedValue([host()])
+    apiMocks.list.mockImplementation(async () => [
+      session('dev', [
+        pane({ paneId: 'local:%1', tmuxPaneId: '%1' }),
+        pane({ paneId: 'local:%2', tmuxPaneId: '%2', agentStatus: 'idle' }),
+        pane({ paneId: 'local:%3', tmuxPaneId: '%3', agentStatus: 'done' }),
+      ]),
+    ])
+    apiMocks.listBySession.mockImplementation(async () => [
+      {
+        id: 'local:%1',
+        tmuxPaneId: '%1',
+        index: 0,
+        windowId: 'local:@1',
+        windowName: 'dev',
+        windowIndex: 0,
+        title: 'claude',
+        message: 'waiting for approval',
+      },
+      {
+        id: 'local:%2',
+        tmuxPaneId: '%2',
+        index: 1,
+        windowId: 'local:@1',
+        windowName: 'dev',
+        windowIndex: 0,
+        title: 'nvim README.md',
+      },
+      { id: 'local:%3', tmuxPaneId: '%3', index: 2, windowId: 'local:@1', windowName: 'dev', windowIndex: 0 },
+    ])
+    wrap(makeClient(), React.createElement(FleetPanel))
+    await waitFor(() => expect(document.querySelectorAll('[data-fleet-row]')).toHaveLength(3))
+    const briefs = Array.from(document.querySelectorAll('[data-fleet-row] [data-fleet-brief]')).map(
+      (node) => node.textContent,
+    )
+    // message 优先于 paneTitle；两者都没有时只留占位符，不编文案
+    expect(briefs).toEqual(['waiting for approval', 'nvim README.md', '—'])
   })
 
   it('jumps to the pane through the existing select action', async () => {

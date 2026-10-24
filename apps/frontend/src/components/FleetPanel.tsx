@@ -1,5 +1,5 @@
 'use client'
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { FiCpu, FiPlay, FiRefreshCw, FiSearch, FiX } from 'react-icons/fi'
 import { useTranslation } from '@/i18n'
@@ -8,7 +8,15 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useFleetClock, useFleetData, useFleetDurationFormatter } from '@/hooks/useFleet'
 import { navigateInboxRoute } from '@/lib/inbox-navigation'
-import { FLEET_ATTENTION_MAX_RANK, fleetRank, type FleetGroup, type FleetRow as FleetRowData } from '@/lib/fleet'
+import {
+  FLEET_ATTENTION_MAX_RANK,
+  buildFleetTree,
+  fleetRank,
+  type FleetGroup,
+  type FleetRow as FleetRowData,
+  type FleetSessionNode,
+  type FleetWindowNode,
+} from '@/lib/fleet'
 import { AgentStatusBadge } from './AgentStatusBadge'
 import { AgentRecoveryBadge } from './AgentRecovery'
 import { Button } from './Button'
@@ -187,10 +195,77 @@ function FleetGroupHeader({ group }: { group: FleetGroup }) {
   )
 }
 
+// 树形缩进：每级 16px，竖线落在内容左侧 6px。只画祖先级 + 本级竖线，
+// 本级是最后一个孩子时只画上半段（└ 的收口），最后再画一段 8px 横肘接到内容。
+// 竖线用 --line（行分隔用更淡的 --line-subtle）：只在模块边缘露一点，不和状态锚点抢注意力
+const TREE_INDENT = 16
+const TREE_GUIDE_BASE = 18
+const TREE_CONTENT_BASE = 12
+
+function TreeGuides({ depth, last }: { depth: number; last: boolean }) {
+  if (depth <= 0) return null
+  return (
+    <span aria-hidden="true" className="pointer-events-none absolute inset-0">
+      {Array.from({ length: depth }, (_, level) => {
+        const own = level === depth - 1
+        return (
+          <span
+            key={level}
+            className="absolute top-0 w-px bg-[var(--line)]"
+            style={{ left: TREE_GUIDE_BASE + level * TREE_INDENT, height: own && last ? '50%' : '100%' }}
+          />
+        )
+      })}
+      <span
+        className="absolute h-px bg-[var(--line)]"
+        style={{ left: TREE_GUIDE_BASE + (depth - 1) * TREE_INDENT, top: '50%', width: 8 }}
+      />
+    </span>
+  )
+}
+
+// session 节点：树的一级。数量放右侧，和 host 组头的计数同列，
+// 这样「host 有几个 agent / 每个 session 有几个」在同一条视觉基线上
+function FleetSessionHeader({ node }: { node: FleetSessionNode }) {
+  return (
+    <div
+      data-fleet-session={node.key}
+      className="flex h-9 items-center gap-2 border-b border-[var(--line-subtle)] pl-3 pr-3"
+      style={{ paddingLeft: TREE_CONTENT_BASE }}
+    >
+      <span className="min-w-0 truncate text-xs font-medium text-text-1" title={node.sessionName}>
+        {node.sessionName}
+      </span>
+      <span className="ml-auto shrink-0 font-mono text-caption tabular-nums text-text-3">{node.rows.length}</span>
+    </div>
+  )
+}
+
+// window 节点只在多 window session 里出现：windowName + pane 数。缺 windowName 时退回序号，
+// 不编「window」前缀文案——数据里有什么就显示什么
+function FleetWindowHeader({ node }: { node: FleetWindowNode }) {
+  const label = node.windowName || (node.windowIndex === null ? '—' : String(node.windowIndex))
+  return (
+    <div
+      data-fleet-window={node.key}
+      className="relative flex h-8 items-center gap-2 border-b border-[var(--line-subtle)] pr-3"
+      style={{ paddingLeft: TREE_CONTENT_BASE + TREE_INDENT }}
+    >
+      <TreeGuides depth={1} last={false} />
+      <span className="min-w-0 truncate text-caption text-text-2" title={label}>
+        {label}
+      </span>
+      <span className="ml-auto shrink-0 font-mono text-caption tabular-nums text-text-3">{node.rows.length}</span>
+    </div>
+  )
+}
+
 function FleetRow({
   row,
   batchResult,
   duration,
+  depth,
+  last,
   compact,
   onJump,
   onResumed,
@@ -198,6 +273,9 @@ function FleetRow({
   row: FleetRowData
   batchResult?: BatchResult
   duration: string
+  /** 树层级：1 = 单 window session 的直接子行，2 = window 下的 pane */
+  depth: number
+  last: boolean
   compact: boolean
   onJump: (row: FleetRowData) => void
   onResumed: () => void
@@ -205,17 +283,21 @@ function FleetRow({
   const { t } = useTranslation()
   const tone = ROW_TONE[rowTone(row)]
   const paneLabel = row.tmuxPaneId || row.paneId
+  // 简要内容：agent 最近事件消息优先，没有就退到 tmux pane 标题（当前命令）
+  const brief = row.message || row.paneTitle || ''
   // blocked 已经靠自己的红色徽标表达了「要处理」，这里只补「最近事件失败」这一类隐性失败
   const failedEvent = row.status !== 'blocked' && fleetRank(row) === FLEET_ATTENTION_MAX_RANK
   return (
     <div
       data-fleet-row={row.key}
       className={cn(
-        'tmuxgo-list-row relative flex h-9 items-center gap-2 border-b border-[var(--line)]/60 pl-3.5 pr-3 last:border-b-0',
+        'tmuxgo-list-row relative flex h-9 items-center gap-2 border-b border-[var(--line-subtle)] pr-3 last:border-b-0',
         tone.row,
         tone.hover,
       )}
+      style={{ paddingLeft: TREE_CONTENT_BASE + depth * TREE_INDENT }}
     >
+      <TreeGuides depth={depth} last={last} />
       {/* 绝对定位的状态色条不占 flex 宽度，右侧数字列才能跨行对齐 */}
       <span
         data-fleet-anchor={rowTone(row)}
@@ -227,11 +309,14 @@ function FleetRow({
         onClick={() => onJump(row)}
         title={`${row.sessionName} · ${paneLabel}`}
         aria-label={`${t('fleet.jump')} ${row.sessionName} ${paneLabel}`}
-        className="grid min-w-0 flex-1 grid-cols-[minmax(0,1.3fr)_1.5rem_minmax(0,3.5rem)_minmax(0,1.4fr)] items-center gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
+        className={cn(
+          'grid min-w-0 flex-1 items-center gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/25',
+          // session 名已在父节点上，叶子不再重复；省下来的宽度给「简要内容」列
+          compact
+            ? 'grid-cols-[1.5rem_minmax(0,4rem)_minmax(0,1fr)]'
+            : 'grid-cols-[1.5rem_minmax(0,3.5rem)_minmax(0,1fr)_minmax(0,1.4fr)]',
+        )}
       >
-        <span className="min-w-0 truncate text-xs text-text-1" title={row.sessionName}>
-          {row.sessionName}
-        </span>
         <span className="shrink-0 text-right font-mono text-caption tabular-nums text-text-3" title={paneLabel}>
           {row.paneIndex === null ? '—' : row.paneIndex}
         </span>
@@ -241,6 +326,11 @@ function FleetRow({
         <span className="min-w-0 truncate font-mono text-caption text-accent-2" title={row.task || undefined}>
           {row.task || '—'}
         </span>
+        {!compact && (
+          <span data-fleet-brief="" className="min-w-0 truncate text-caption text-text-3" title={brief || undefined}>
+            {brief || '—'}
+          </span>
+        )}
       </button>
       {failedEvent ? (
         // 状态还是 working/idle 但最近一次事件 failed：徽标不会显示 failed，用细环+title 补上这条语义
@@ -253,14 +343,6 @@ function FleetRow({
       <span className="w-10 shrink-0 text-right font-mono text-caption tabular-nums text-text-3">
         {duration || '—'}
       </span>
-      {!compact && (
-        <span
-          className="hidden min-w-0 max-w-[10rem] shrink-0 truncate text-caption text-text-3 md:block"
-          title={row.updatedAt || undefined}
-        >
-          {row.lastEvent || '—'}
-        </span>
-      )}
       {batchResult === 'ok' && (
         <span
           aria-label={t('fleet.batchResumeOk')}
@@ -292,7 +374,7 @@ function FleetSkeleton() {
   return (
     <div role="status" aria-busy="true" aria-label={t('fleet.loading')} className="animate-pulse">
       {[0, 1, 2, 3].map((index) => (
-        <div key={index} className="flex h-9 items-center gap-2 border-b border-[var(--line)]/60 px-3">
+        <div key={index} className="flex h-9 items-center gap-2 border-b border-[var(--line-subtle)] px-3">
           <span className="h-2.5 w-24 rounded-full bg-bg-2/80" />
           <span className="h-2.5 w-8 rounded-full bg-bg-2/60" />
           <span className="h-2.5 w-16 rounded-full bg-bg-2/60" />
@@ -390,22 +472,54 @@ export function FleetPanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobi
         ) : (
           <EmptyState icon={<FiSearch size={15} />} title={t('fleet.noMatch')} description={t('fleet.noMatchHint')} />
         ))}
-      {fleet.groups.map((group) => (
-        <section key={group.hostId} aria-label={group.hostName}>
-          <FleetGroupHeader group={group} />
-          {group.rows.map((row) => (
-            <FleetRow
-              key={row.key}
-              row={row}
-              batchResult={batch.results[row.key]}
-              duration={formatDuration(row.since)}
-              compact={compact}
-              onJump={jumpToPane}
-              onResumed={refetchRecovery}
-            />
-          ))}
-        </section>
-      ))}
+      {fleet.groups.map((group) => {
+        // 树在组件层按 group 即时拼：group.rows 仍是 fleetRank 排好的扁平可见行，
+        // buildFleetTree 只决定「谁在谁下面」，不改 buildFleet 的过滤/排序口径
+        const sessions = buildFleetTree(group.rows)
+        return (
+          <section key={group.hostId} aria-label={group.hostName}>
+            <FleetGroupHeader group={group} />
+            {sessions.map((session) => (
+              <div key={session.key}>
+                <FleetSessionHeader node={session} />
+                {/* 单 window session 不占 window 行：直接挂 pane，避免每层都浪费 36px */}
+                {session.windows.length > 1
+                  ? session.windows.map((window) => (
+                      <Fragment key={window.key}>
+                        <FleetWindowHeader node={window} />
+                        {window.rows.map((row, index) => (
+                          <FleetRow
+                            key={row.key}
+                            row={row}
+                            depth={2}
+                            last={index === window.rows.length - 1}
+                            batchResult={batch.results[row.key]}
+                            duration={formatDuration(row.since)}
+                            compact={compact}
+                            onJump={jumpToPane}
+                            onResumed={refetchRecovery}
+                          />
+                        ))}
+                      </Fragment>
+                    ))
+                  : session.rows.map((row, index) => (
+                      <FleetRow
+                        key={row.key}
+                        row={row}
+                        depth={1}
+                        last={index === session.rows.length - 1}
+                        batchResult={batch.results[row.key]}
+                        duration={formatDuration(row.since)}
+                        compact={compact}
+                        onJump={jumpToPane}
+                        onResumed={refetchRecovery}
+                      />
+                    ))}
+              </div>
+            ))}
+          </section>
+        )
+      })}
     </div>
   )
   const header = (
