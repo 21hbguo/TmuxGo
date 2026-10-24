@@ -663,6 +663,7 @@ export const zh = {
   'grid.addHost': '添加主机',
   'grid.createSession': '新建会话',
   'grid.selectRecent': '选择最近会话',
+  'grid.snapshotResume': '最近快照 {count} 个 · 恢复布局',
   'grid.control.owned': '可输入 · 本机控制',
   'grid.control.spectating': '旁观中 · 当前控制权不在本页',
   'grid.control.inactive': '旁观中 · 本页未激活',

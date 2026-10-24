@@ -53,6 +53,9 @@ const continuityState = vi.hoisted(() => ({
   upsertResumePoint: vi.fn(),
 }))
 
+// 启动页快照入口自己有网络取数（真实 api），这里整体替身：PaneGrid 只负责挂载位置，
+// 入口行为由 SnapshotResumeHint.test.tsx 覆盖
+vi.mock('./SnapshotResumeHint', () => ({ SnapshotResumeHint: () => null }))
 vi.mock('./TerminalPane', () => ({
   TerminalPane: (props: {
     sessionName?: string
