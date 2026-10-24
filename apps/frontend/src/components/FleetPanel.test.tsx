@@ -3,6 +3,7 @@ import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-libr
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { I18nProvider } from '@/i18n'
+import { useConsoleStore } from '@/stores/useConsoleStore'
 import { FleetPanel } from './FleetPanel'
 import { useFleetAlign, useFleetData } from '@/hooks/useFleet'
 import { countFleetFromCache } from '@/hooks/useFleetCounts'
@@ -12,6 +13,7 @@ const apiMocks = vi.hoisted(() => ({
   list: vi.fn(),
   listBySession: vi.fn(),
   recoveryList: vi.fn(),
+  resume: vi.fn(),
 }))
 const streamMocks = vi.hoisted(() => ({ listeners: new Set<(detail: unknown) => void>() }))
 const navigateMock = vi.hoisted(() => vi.fn())
@@ -21,7 +23,7 @@ vi.mock('@/lib/api', () => ({
     hosts: { list: vi.fn(async () => []) },
     sessions: { list: apiMocks.list },
     panes: { listBySession: apiMocks.listBySession },
-    agentRecovery: { list: apiMocks.recoveryList, resume: vi.fn() },
+    agentRecovery: { list: apiMocks.recoveryList, resume: apiMocks.resume },
   },
 }))
 // 只有接收侧事件：fleet 不发订阅帧，这里把「有没有挂 listener」也变成可断言的东西
@@ -90,17 +92,22 @@ const panes: Record<string, unknown[]> = {
   ],
 }
 
+const pushToast = vi.fn()
 const makeClient = () => new QueryClient({ defaultOptions: { queries: { retry: false } } })
 const wrap = (client: QueryClient, node: React.ReactNode) =>
   render(React.createElement(QueryClientProvider, { client }, React.createElement(I18nProvider, null, node)))
 
 beforeEach(() => {
+  useConsoleStore.setState({ pushToast })
   streamMocks.listeners.clear()
   navigateMock.mockReset()
   navigateMock.mockResolvedValue('pane')
   apiMocks.list.mockReset()
   apiMocks.listBySession.mockReset()
   apiMocks.recoveryList.mockReset()
+  apiMocks.resume.mockReset()
+  apiMocks.resume.mockResolvedValue({ ok: true, paneId: 'local:%1', command: 'claude --resume s1' })
+  pushToast.mockReset()
   apiMocks.list.mockImplementation(async (hostId: string) => sessions[hostId] || [])
   apiMocks.listBySession.mockImplementation(
     async (hostId: string, sessionId: string) => panes[`${hostId}:${sessionId}`] || [],
@@ -151,6 +158,75 @@ describe('FleetPanel', () => {
     act(() => toggle.click())
     await waitFor(() => expect(document.querySelectorAll('[data-fleet-row]')).toHaveLength(2))
     expect(screen.getAllByRole('button', { name: '可恢复的 Agent' })).toHaveLength(1)
+  })
+})
+
+describe('FleetPanel batch resume', () => {
+  const twoHosts = () => [host(), host({ id: 'devbox', name: 'devbox', status: 'online', connectionMode: 'ssh' })]
+  const blockedSessions = {
+    local: [session('dev', [pane({ paneId: 'local:%1', agentStatus: 'blocked' })])],
+    devbox: [session('ops', [pane({ paneId: 'devbox:%1', sessionName: 'ops', agentStatus: 'blocked' })], 'devbox')],
+  }
+
+  it('resumes every visible resumable candidate with its own pane payload', async () => {
+    vi.mocked((await import('@/lib/api')).api.hosts.list).mockResolvedValue(twoHosts())
+    apiMocks.list.mockImplementation(async (hostId: string) => blockedSessions[hostId as 'local'] || [])
+    apiMocks.recoveryList.mockImplementation(async (hostId: string) => ({
+      version: 1,
+      candidates:
+        hostId === 'local'
+          ? [candidate({ id: 'c-local', paneId: 'local:%1', agentSessionId: 'sess-local' })]
+          : [candidate({ id: 'c-remote', hostId: 'devbox', paneId: 'devbox:%1', agentSessionId: 'sess-remote' })],
+    }))
+    wrap(makeClient(), React.createElement(FleetPanel))
+    const button = await screen.findByRole('button', { name: /fleet\.batchResume|批量恢复/ })
+    await waitFor(() => expect(document.querySelectorAll('[data-fleet-row]')).toHaveLength(2))
+    act(() => button.click())
+    // 两个 host 各发一次，paneId/agentSessionId 不能串（少发一个或串了都算失败）
+    await waitFor(() => expect(apiMocks.resume).toHaveBeenCalledTimes(2))
+    expect(apiMocks.resume).toHaveBeenCalledWith(
+      'local',
+      'c-local',
+      expect.objectContaining({ paneId: 'local:%1', agentSessionId: 'sess-local' }),
+    )
+    expect(apiMocks.resume).toHaveBeenCalledWith(
+      'devbox',
+      'c-remote',
+      expect.objectContaining({ paneId: 'devbox:%1', agentSessionId: 'sess-remote' }),
+    )
+    await waitFor(() =>
+      expect(pushToast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'success', message: expect.stringContaining('2') }),
+      ),
+    )
+  })
+
+  it('keeps going after a failure and marks the failed row', async () => {
+    vi.mocked((await import('@/lib/api')).api.hosts.list).mockResolvedValue(twoHosts())
+    apiMocks.list.mockImplementation(async (hostId: string) => blockedSessions[hostId as 'local'] || [])
+    apiMocks.recoveryList.mockImplementation(async (hostId: string) => ({
+      version: 1,
+      candidates:
+        hostId === 'local'
+          ? [candidate({ id: 'c-local', paneId: 'local:%1' })]
+          : [candidate({ id: 'c-remote', hostId: 'devbox', paneId: 'devbox:%1' })],
+    }))
+    apiMocks.resume.mockImplementation(async (_hostId: string, candidateId: string) => {
+      if (candidateId === 'c-remote') throw new Error('resume boom')
+      return { ok: true, paneId: 'local:%1', command: 'claude --resume' }
+    })
+    wrap(makeClient(), React.createElement(FleetPanel))
+    const button = await screen.findByRole('button', { name: /fleet\.batchResume|批量恢复/ })
+    await waitFor(() => expect(document.querySelectorAll('[data-fleet-row]')).toHaveLength(2))
+    act(() => button.click())
+    // allSettled：远端失败不能把本地那次成功的结论一起吞掉
+    await waitFor(() => expect(apiMocks.resume).toHaveBeenCalledTimes(2))
+    // 真实 i18n 上下文里渲染，标签是中文文案
+    expect(await screen.findByLabelText('恢复失败')).toBeTruthy()
+    expect(screen.getByLabelText('已恢复')).toBeTruthy()
+    expect(pushToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }))
+    // 失败行的恢复入口还在，用户能就地重试
+    expect(screen.getAllByRole('button', { name: '可恢复的 Agent' })).toHaveLength(2)
   })
 })
 

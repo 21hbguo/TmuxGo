@@ -1,9 +1,10 @@
 'use client'
 import { useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { FiCpu, FiRefreshCw, FiSearch, FiX } from 'react-icons/fi'
+import { FiCpu, FiPlay, FiRefreshCw, FiSearch, FiX } from 'react-icons/fi'
 import { useTranslation } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import { api } from '@/lib/api'
 import { useFleetClock, useFleetData, useFleetDurationFormatter } from '@/hooks/useFleet'
 import { navigateInboxRoute } from '@/lib/inbox-navigation'
 import { AgentStatusBadge } from './AgentStatusBadge'
@@ -30,6 +31,51 @@ export function FleetPanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobi
   const { hosts, fleet, loading, refetch, refetchRecovery } = useFleetData({ visible: true, filters })
   const now = useFleetClock(true)
   const formatDuration = useFleetDurationFormatter(now)
+  // 批量 resume：逐行结果留在行上（成功/失败/需手动），汇总进 toast。
+  // 只打「当前可见且 resumable」的候选：看不见的行不能因为你点了按钮就动手，
+  // 而 resumable=false 的（原 pane 已没、只支持激活 pane 恢复）必须人来选目标。
+  const [batch, setBatch] = useState<{
+    running: boolean
+    results: Record<string, 'ok' | 'error' | 'skipped'>
+  }>({ running: false, results: {} })
+  const resumableRows = useMemo(() => fleet.rows.filter((row) => row.recovery && row.recovery.resumable), [fleet.rows])
+  const resumeAll = async () => {
+    if (batch.running || !resumableRows.length) return
+    const skipped = Object.fromEntries(
+      fleet.rows.filter((row) => row.recovery && !row.recovery.resumable).map((row) => [row.key, 'skipped' as const]),
+    )
+    setBatch({ running: true, results: skipped })
+    // allSettled 而不是 all：一个失败不能把其余的成功结果一起吞掉
+    const settled = await Promise.allSettled(
+      resumableRows.map((row) =>
+        api.agentRecovery.resume(row.hostId, row.recovery!.id, {
+          paneId: row.recovery!.paneId,
+          agentSessionId: row.recovery!.agentSessionId || '',
+        }),
+      ),
+    )
+    const results: Record<string, 'ok' | 'error' | 'skipped'> = { ...skipped }
+    let ok = 0
+    let failed = 0
+    settled.forEach((outcome, index) => {
+      const key = resumableRows[index].key
+      if (outcome.status === 'fulfilled') {
+        results[key] = 'ok'
+        ok += 1
+      } else {
+        results[key] = 'error'
+        failed += 1
+      }
+    })
+    setBatch({ running: false, results })
+    // 成功的候选会在服务端转成 resumed，refetch 后行上的恢复入口自然消失；
+    // 失败的行保持原样，行内 badge 还能重试
+    refetchRecovery()
+    pushToast({
+      type: failed ? 'error' : 'success',
+      message: t('fleet.batchResumeSummary', { ok, failed }),
+    })
+  }
 
   const jumpToPane = async (row: FleetRow) => {
     const result = await navigateInboxRoute(
@@ -71,6 +117,18 @@ export function FleetPanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobi
       >
         {t('fleet.onlyTask')}
       </button>
+      {fleet.withRecovery > 0 && (
+        <button
+          type="button"
+          onClick={() => void resumeAll()}
+          disabled={batch.running || !resumableRows.length}
+          title={resumableRows.length ? t('fleet.batchResumeHint') : t('fleet.batchResumeNone')}
+          className="flex h-7 shrink-0 items-center gap-1 rounded-apple border border-accent-2/35 bg-accent-2/10 px-2 text-caption text-accent-2 disabled:opacity-50"
+        >
+          <FiPlay aria-hidden="true" size={11} />
+          {batch.running ? t('fleet.batchResumeRunning') : t('fleet.batchResume', { count: resumableRows.length })}
+        </button>
+      )}
       <Button
         variant="ghost"
         size="icon-sm"
@@ -152,6 +210,24 @@ export function FleetPanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobi
               <span className="min-w-0 shrink-0 truncate text-caption text-text-3" title={row.updatedAt || undefined}>
                 {row.lastEvent || '—'}
               </span>
+              {batch.results[row.key] === 'ok' && (
+                <span
+                  aria-label={t('fleet.batchResumeOk')}
+                  title={t('fleet.batchResumeOk')}
+                  className="shrink-0 text-caption text-accent-2"
+                >
+                  ✓
+                </span>
+              )}
+              {batch.results[row.key] === 'error' && (
+                <span
+                  aria-label={t('fleet.batchResumeFailed')}
+                  title={t('fleet.batchResumeFailed')}
+                  className="shrink-0 text-caption text-danger"
+                >
+                  !
+                </span>
+              )}
               {row.recovery && (
                 <AgentRecoveryBadge hostId={row.hostId} candidates={[row.recovery]} onResumed={refetchRecovery} />
               )}
