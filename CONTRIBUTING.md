@@ -38,6 +38,18 @@ npm run verify            # 全量：test + frontend test + e2e + build
 - 描述复现步骤、验证命令与结果；UI 改动附截图/录屏
 - 协议编解码、tmux workaround、安全分支等非显而易见逻辑写注释说明意图
 
+## 测试与验收惯例
+
+以下每条惯例都对应一次真实踩坑，写测试/验收时请遵守：
+
+- **新断言要有牙齿**：给实现做最小变异（改坏一行），测试必须变红才算断言有效；写完直接全绿的不算验收。「测试通过」证明不了测试会失败。
+- **断言行测不变量、不测实现细节**：例如宽度回弹是真不变量，attached 消息次数是实现细节（0/1/2 都合法）。把实现细节当契约断言 = 制造 flake。
+- **jsdom 必须 mock 网络边界**：jsdom 没有 fetch 实现，未 mock 的请求会落到 Node undici，在 `act()` 冲刷内可能失控分配（曾有单测因此把 worker 堆打到 4.5GB）。凡是组件会发请求的测试，先 stub `api.*`。
+- **给共享模块加 export 时查 mock 陈旧**：别的测试文件的 `vi.mock('@/hooks/useApi')` 之类是手工枚举的，新增 hook/方法后那些 mock 会缺定义。改完跑 `grep -rl "vi.mock('被改模块'"` 确认无漏。
+- **超时是签名不是答案**：测试恰好卡在某个 poll 超时整数倍，先查等待条件再考虑加超时；run-tests.ts 有 per-file 超时兜底，别用更大超时掩盖「用例结束后进程不退出」（残留 interval/WS/子进程是清理 bug，要修实现）。
+- **环境依赖测试按错误形态分类，不一刀切 skip**：如浏览器「二进制在但起不来」（缺共享库）应识别错误内容后 skip 并打原因，其它错误照旧 fail——blanket skip 会掩盖真 bug。
+- **tmux 操作只碰 `test` session + 显式 socket**：`tmux -S <sock>` 且 `env -u TMUX`（`TMUX` 会让 CLI 忽略 TMUX_TMPDIR），禁止批量 kill-server。
+
 ## 不进仓库的内容
 
 - 凭据、token、本机 `~/.tmuxgo/` 数据与日志
