@@ -231,3 +231,196 @@ describe('normalize — trusted closed baseline', () => {
     expect(shrunkLayout.last.snapshot.fullLayoutSpace?.height).toBe(FULL)
   })
 })
+
+// 复审探针（viewport-review-probes.jsonl）转成的回归用例：
+// 输入序列按探针原样复刻，断言目标行为。
+describe('normalize — review probe regressions', () => {
+  const L = 800
+  const kbObs = (over: Partial<ViewportObservation> = {}) =>
+    obs({
+      layoutViewport: { width: 390, height: L },
+      visualViewport: { width: 390, height: L, offsetTop: 0, offsetLeft: 0, scale: 1 },
+      ...over,
+    })
+
+  it('overlay_full_visual_viewport: deducts the overlaying keyboard from the visible region', () => {
+    const seed = drive([kbObs({ now: 1000 })])
+    const { last } = drive(
+      [
+        kbObs({
+          now: 1100,
+          inputOwner: 'terminal',
+          keyboardIntent: true,
+          virtualKeyboard: { available: true, overlaysContent: true, rect: { x: 0, y: 500, width: 390, height: 300 } },
+        }),
+      ],
+      seed.state,
+    )
+    expect(last.snapshot.visibleRegion.height).toBe(500)
+    expect(last.snapshot.occlusion).toEqual({ height: 300, trusted: true, source: 'virtual-keyboard' })
+    // 只扣一次：绝不是 rect(300) + gap(0) 之外的 600，也不是 800 原样
+    expect(last.snapshot.occlusion.height).not.toBe(600)
+    expect(last.snapshot.keyboardPhase).not.toBe('closed')
+  })
+
+  it('overlay rect does not double-deduct an already-shrunk visual viewport', () => {
+    const { last } = drive([
+      kbObs({
+        now: 1000,
+        keyboardIntent: true,
+        visualViewport: { width: 390, height: 500, offsetTop: 0, offsetLeft: 0, scale: 1 },
+        virtualKeyboard: { available: true, overlaysContent: true, rect: { x: 0, y: 500, width: 390, height: 300 } },
+      }),
+    ])
+    expect(last.snapshot.visibleRegion.height).toBe(500)
+    expect(last.snapshot.occlusion.height).toBe(300)
+    expect(last.snapshot.occlusion.trusted).toBe(true)
+  })
+
+  it('both_viewports_resize: gap=0 is not proof of "no keyboard"', () => {
+    const seed = drive([kbObs({ now: 1000 })])
+    expect(seed.state.trustedClosedBaseline).toBe(L)
+    const { last } = drive(
+      [
+        kbObs({
+          now: 1100,
+          inputOwner: 'terminal',
+          keyboardIntent: true,
+          layoutViewport: { width: 390, height: 500 },
+          visualViewport: { width: 390, height: 500, offsetTop: 0, offsetLeft: 0, scale: 1 },
+        }),
+      ],
+      seed.state,
+    )
+    expect(last.snapshot.keyboardPhase).not.toBe('closed')
+    expect(last.snapshot.keyboardPhase).toBe('unknown')
+    // 也不许把双缩当成无遮挡证据写进基线
+    expect(last.state.trustedClosedBaseline).toBe(L)
+    expect(last.snapshot.fullLayoutSpace).toEqual({ width: 390, height: L })
+  })
+
+  it('cold_start_known_keyboard_rect: a live rect vetoes the trusted baseline', () => {
+    const { last } = drive([
+      kbObs({
+        now: 1000,
+        inputOwner: 'overlay',
+        keyboardIntent: false,
+        layoutViewport: { width: 390, height: 500 },
+        visualViewport: { width: 390, height: 500, offsetTop: 0, offsetLeft: 0, scale: 1 },
+        virtualKeyboard: { available: true, overlaysContent: false, rect: { x: 0, y: 500, width: 390, height: 300 } },
+      }),
+    ])
+    expect(last.snapshot.keyboardPhase).toBe('unknown')
+    expect(last.state.trustedClosedBaseline).toBeNull()
+    expect(last.snapshot.fullLayoutSpace).toBeNull()
+    // 不扣像素（vv 已经不含键盘），但证据保留：这正是"不扣像素 ≠ 丢证据"
+    expect(last.snapshot.visibleRegion.height).toBe(500)
+    expect(last.snapshot.occlusion).toEqual({ height: 300, trusted: true, source: 'virtual-keyboard' })
+  })
+
+  it('weak_occlusion_oscillation: 70-119px band converges to indeterminate instead of flapping', () => {
+    const seed = drive([kbObs({ now: 1000 })])
+    let state = seed.state
+    const steps: Array<{ phase: string; wake: number | null }> = []
+    for (const now of [1100, 1101, 1421, 1422, 1742]) {
+      const r = normalize(
+        state,
+        kbObs({
+          now,
+          inputOwner: 'terminal',
+          keyboardIntent: true,
+          visualViewport: { width: 390, height: 710, offsetTop: 0, offsetLeft: 0, scale: 1 },
+        }),
+      )
+      state = r.state
+      steps.push({ phase: r.snapshot.keyboardPhase, wake: r.nextWakeAt })
+    }
+    expect(steps.map((step) => step.phase)).toEqual(Array(5).fill('unknown'))
+    expect(steps.every((step) => step.wake === null)).toBe(true)
+
+    // 遮挡加深到高阈后能正常收敛到 open（滞回不会把状态卡死）
+    const strong = normalize(
+      state,
+      kbObs({
+        now: 2000,
+        inputOwner: 'terminal',
+        keyboardIntent: true,
+        visualViewport: { width: 390, height: 600, offsetTop: 0, offsetLeft: 0, scale: 1 },
+      }),
+    )
+    expect(strong.snapshot.keyboardPhase).toBe('opening')
+    const settled = normalize(
+      strong.state,
+      kbObs({
+        now: 2400,
+        inputOwner: 'terminal',
+        keyboardIntent: true,
+        visualViewport: { width: 390, height: 600, offsetTop: 0, offsetLeft: 0, scale: 1 },
+      }),
+    )
+    expect(settled.snapshot.keyboardPhase).toBe('open')
+  })
+
+  it('old_environment_accepted: a stale envGen is ignored, not adopted', () => {
+    const current = drive([kbObs({ now: 1000, envGen: 2 })])
+    expect(current.state.envGen).toBe(2)
+    expect(current.state.trustedClosedBaseline).toBe(L)
+    const { last } = drive(
+      [
+        kbObs({
+          now: 1100,
+          envGen: 1,
+          layoutViewport: { width: 390, height: 900 },
+          visualViewport: { width: 390, height: 900, offsetTop: 0, offsetLeft: 0, scale: 1 },
+        }),
+      ],
+      current.state,
+    )
+    expect(last.state.envGen).toBe(2)
+    expect(last.state.trustedClosedBaseline).toBe(L)
+    expect(last.snapshot.envGen).toBe(2)
+    expect(last.snapshot.fullLayoutSpace).toEqual({ width: 390, height: L })
+    expect(last.nextWakeAt).toBeNull()
+  })
+
+  it('keeps hysteresis between open and closing instead of exiting at the entry threshold', () => {
+    const opened = drive([
+      kbObs({ now: 1000 }),
+      kbObs({
+        now: 1100,
+        keyboardIntent: true,
+        visualViewport: { width: 390, height: 500, offsetTop: 0, offsetLeft: 0, scale: 1 },
+      }),
+      kbObs({
+        now: 1420,
+        keyboardIntent: true,
+        visualViewport: { width: 390, height: 500, offsetTop: 0, offsetLeft: 0, scale: 1 },
+      }),
+    ])
+    expect(opened.last.snapshot.keyboardPhase).toBe('open')
+    // 遮挡回到 78px（弱区）仍算开：低阈是 70
+    const weakStillOpen = drive(
+      [
+        kbObs({
+          now: 1500,
+          keyboardIntent: true,
+          visualViewport: { width: 390, height: 722, offsetTop: 0, offsetLeft: 0, scale: 1 },
+        }),
+      ],
+      opened.state,
+    )
+    expect(weakStillOpen.last.snapshot.keyboardPhase).toBe('open')
+    // 低于 70 才退
+    const closing = drive(
+      [
+        kbObs({
+          now: 1600,
+          keyboardIntent: true,
+          visualViewport: { width: 390, height: 750, offsetTop: 0, offsetLeft: 0, scale: 1 },
+        }),
+      ],
+      weakStillOpen.state,
+    )
+    expect(closing.last.snapshot.keyboardPhase).toBe('closing')
+  })
+})

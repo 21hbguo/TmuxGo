@@ -13,7 +13,17 @@
 // not drift. Deliberate differences, all noted at their use site:
 // - settle is measured from geometry samples only, never from a flag flip;
 // - the closed baseline is guarded against intent-driven shrinks (the legacy
-//   "open latch" assumption) instead of being refreshed unconditionally.
+//   "open latch" assumption) instead of being refreshed unconditionally;
+// - the open direction has hysteresis: enter at OPEN, leave at CLOSE, so a
+//   weak occlusion (70-119px) can never ping-pong between opening and closing.
+//
+// Coordinate spaces used here:
+// - layoutViewport: the layout viewport (can itself shrink in resize mode).
+// - visualViewport: what is displayable; offsetTop is its top in the same
+//   client coordinates as virtualKeyboard.rect.
+// The keyboard rect is only *deducted* from the visual viewport band it
+// actually overlaps, so an already-shrunk visual viewport never loses the same
+// pixels twice.
 import type {
   KeyboardPhase,
   NormalizeResult,
@@ -31,48 +41,88 @@ const OPENING_GRACE_MS = 1500 // KEYBOARD_VIEWPORT_GRACE_MS
 // browser chrome / stale keyboard rather than a new closed baseline.
 const CLOSED_GAP_SUSPICION = 120 // CLOSED_VIEWPORT_GAP
 
-type Occlusion = {
+type OcclusionResolution = {
+  // Occluded extent relative to the *layout* space — the legacy "inset"
+  // quantity, so a resize-mode gap and an overlay rect stay comparable.
   height: number
+  // True when the platform handed us keyboard geometry (any overlaysContent).
   trusted: boolean
   source: 'virtual-keyboard' | 'inferred' | 'none'
+  // Pixels the keyboard covers *inside* the visual viewport band: the amount
+  // visibleRegion must drop. Zero in resize mode because vv already excludes it.
+  vvOverlap: number
 }
 
 const px = (n: number) => Math.round(n || 0)
 const clamp0 = (n: number) => (n > 0 ? n : 0)
 
+function bandOverlap(aTop: number, aHeight: number, bTop: number, bHeight: number) {
+  const top = Math.max(aTop, bTop)
+  const bottom = Math.min(aTop + aHeight, bTop + bHeight)
+  return clamp0(bottom - top)
+}
+
 // Occlusion is resolved to a single number per snapshot: "deduct once" is a
 // structural property, not a caller discipline.
-function resolveOcclusion(obs: ViewportObservation, layoutHeight: number): Occlusion {
-  const vv = obs.visualViewport
-  const vvHeight = vv ? clamp0(px(vv.height)) : null
-  const vk = obs.virtualKeyboard
-  // rect is only authoritative when the keyboard *overlays* content: with
-  // overlaysContent === false the visual viewport already excludes it, so
-  // subtracting rect again would count the same occlusion twice.
-  const overlayingRect = vk.available && vk.overlaysContent && vk.rect ? vk.rect : null
-  const rectHeight = overlayingRect ? clamp0(px(overlayingRect.height)) : 0
+function resolveOcclusion(
+  obs: ViewportObservation,
+  layoutHeight: number,
+  vvHeight: number | null,
+  vvOffsetTop: number,
+): OcclusionResolution {
+  const kb = obs.virtualKeyboard
+  const kbRect = kb.available && kb.rect && px(kb.rect.height) > 0 ? kb.rect : null
+  const kbHeight = kbRect ? clamp0(px(kbRect.height)) : 0
   const gap = vvHeight === null ? null : clamp0(layoutHeight - vvHeight)
 
-  if (rectHeight > 0 && gap !== null) {
+  if (kbRect) {
+    // API geometry is authoritative on its own ("the keyboard is showing"),
+    // independent of whether it happens to equal the layout-vv gap: in overlay
+    // mode the gap is legitimately 0. Never add gap + rect.
+    const height = Math.min(Math.max(layoutHeight, kbHeight), Math.max(kbHeight, gap ?? 0))
     return {
-      height: Math.max(rectHeight, gap),
-      trusted: Math.abs(rectHeight - gap) <= GEOMETRY_TOLERANCE,
+      height,
+      trusted: true,
       source: 'virtual-keyboard',
+      // Intersection with the visual viewport band, clamped: a keyboard below
+      // an already-shrunk vv subtracts nothing from what is visible now.
+      vvOverlap: vvHeight === null ? 0 : Math.min(vvHeight, bandOverlap(vvOffsetTop, vvHeight, px(kbRect.y), kbHeight)),
     }
   }
-  if (rectHeight > 0) return { height: rectHeight, trusted: true, source: 'virtual-keyboard' }
-  if (gap !== null && gap > 0) return { height: gap, trusted: false, source: 'inferred' }
-  if (gap === null && vk.available && vk.rect) {
-    // No visual viewport to measure against: best available signal, flagged
-    // untrusted because it cannot be cross-checked.
-    return { height: clamp0(px(vk.rect.height)), trusted: false, source: 'inferred' }
-  }
-  return { height: 0, trusted: false, source: 'none' }
+  if (gap !== null && gap > 0) return { height: gap, trusted: false, source: 'inferred', vvOverlap: 0 }
+  return { height: 0, trusted: false, source: 'none', vvOverlap: 0 }
 }
 
 export function normalize(state: ViewportModelState, obs: ViewportObservation): NormalizeResult {
   const now = Math.max(0, px(obs.now))
   const envGen = obs.envGen
+  const layoutW = clamp0(px(obs.layoutViewport.width))
+  const layoutH = clamp0(px(obs.layoutViewport.height))
+  const vv = obs.visualViewport
+  const vvHeight = vv ? clamp0(px(vv.height)) : null
+  const vvOffsetTop = vv ? px(vv.offsetTop) : 0
+
+  // A stale generation is not a new environment: reject it outright. Do not
+  // reset, do not write a baseline, and keep the phase we already have.
+  // Live callers sample synchronously (tracker.sync() is monotonic), so this
+  // path only matters for delayed/queued or replayed observations.
+  if (envGen < state.envGen) {
+    const staleHeight = state.trustedClosedBaseline ?? layoutH
+    return {
+      state,
+      snapshot: {
+        fullLayoutSpace:
+          state.trustedClosedBaseline === null ? null : { width: layoutW, height: state.trustedClosedBaseline },
+        visibleRegion: { width: layoutW, height: staleHeight, offsetTop: 0 },
+        occlusion: { height: 0, trusted: false, source: 'none' },
+        keyboardPhase: state.phase,
+        envGen: state.envGen,
+        measuredAt: now,
+      },
+      nextWakeAt: null,
+    }
+  }
+
   // envGen change (width / orientation / fullscreen) voids every baseline and
   // every in-flight candidate: the old numbers describe a different layout
   // environment and must not leak into the new one.
@@ -88,24 +138,32 @@ export function normalize(state: ViewportModelState, obs: ViewportObservation): 
           envGen,
         }
 
-  const layoutW = clamp0(px(obs.layoutViewport.width))
-  const layoutH = clamp0(px(obs.layoutViewport.height))
-  const vv = obs.visualViewport
-  const occ = resolveOcclusion(obs, layoutH)
+  const occ = resolveOcclusion(obs, layoutH, vvHeight, vvOffsetTop)
   const intent = obs.keyboardIntent
+  const overlaysContent = obs.virtualKeyboard.overlaysContent
 
   // Evidence and intent are separate axes on purpose.
-  // - trusted: the platform handed us a live virtualKeyboard rect.
-  // - evidence: geometry shows an occlusion, which may be a keyboard or the
-  //   browser chrome; it needs intent to become a keyboard belief.
-  const trustedEvidence = occ.trusted && occ.height > 0
-  const evidence = occ.height >= OPEN_OCCLUSION_THRESHOLD || trustedEvidence
-  const occluded = occ.height >= CLOSE_OCCLUSION_THRESHOLD
-  // Entering the open direction needs occlusion *plus* a reason to think it is
-  // a keyboard: intent, or an authoritative keyboard rect.
-  const openingSignal = occluded && (intent || trustedEvidence)
-  // Nothing measurable at all (no visualViewport, no keyboard rect).
-  const measurable = vv !== null || trustedEvidence
+  // - occ.trusted: the platform handed us keyboard geometry. It is evidence of
+  //   "a keyboard exists" even when it deducts nothing (resize mode with a vv
+  //   that has not caught up yet).
+  // - overlayProof: the API says the keyboard floats over content, which is
+  //   direct geometric proof that it is on screen.
+  const vkEvidence = occ.trusted
+  const overlayProof = vkEvidence && overlaysContent
+  // Hysteresis: enter the open direction only at the high threshold (or with
+  // overlay proof); leave it only below the low threshold. The 70-119px band is
+  // deliberately indeterminate instead of oscillating.
+  const strongOcclusion = occ.height >= OPEN_OCCLUSION_THRESHOLD || overlayProof
+  const weakOcclusion = occ.height >= CLOSE_OCCLUSION_THRESHOLD
+  const openingSignal = strongOcclusion && (intent || overlayProof)
+  const measurable = vv !== null || vkEvidence
+
+  // gap === 0 is not proof of "no keyboard": both viewports can resize together
+  // (resize mode with a browser that shrinks the layout viewport too), and a
+  // live keyboard rect is evidence even when it overlaps nothing.
+  const layoutShrank =
+    prev.trustedClosedBaseline !== null && prev.trustedClosedBaseline - layoutH >= CLOSE_OCCLUSION_THRESHOLD
+  const ambiguous = !weakOcclusion && (vkEvidence || (intent && layoutShrank))
 
   let phase: KeyboardPhase = prev.phase
   let pendingHeight = prev.pendingHeight
@@ -121,10 +179,10 @@ export function normalize(state: ViewportModelState, obs: ViewportObservation): 
   // Settle: the same candidate on a later sample, or a full settle window with
   // steady geometry. The legacy machine used candidateFrames>=2 || elapsed>=MS
   // for the same reason — the visual viewport animates, so one frame can land
-  // mid-animation. Trusted rect geometry needs no settle (it is the API's
-  // truth, not a rendered measurement).
-  let settled = trustedEvidence
-  if (evidence) {
+  // mid-animation. Overlay proof needs no settle (it is the API's truth, not a
+  // rendered measurement).
+  let settled = overlayProof
+  if (strongOcclusion) {
     if (pendingHeight === null || Math.abs(occ.height - pendingHeight) > GEOMETRY_TOLERANCE) {
       pendingHeight = occ.height
       pendingSince = now
@@ -143,30 +201,32 @@ export function normalize(state: ViewportModelState, obs: ViewportObservation): 
     switch (phase) {
       case 'unknown':
         if (openingSignal) enter('opening')
-        else if (!evidence && !intent) enter('closed') // positive closed measurement
+        else if (!weakOcclusion && !ambiguous) enter('closed') // positive closed measurement
         break
       case 'closed':
         if (openingSignal) enter('opening')
+        // A weak occlusion without a reason to call it a keyboard is not a
+        // closed state either: park in unknown until geometry resolves.
+        else if (weakOcclusion || ambiguous) enter('unknown')
         break
       case 'opening':
         // Occlusion vanished before it settled: the open attempt aborted.
-        if (!evidence) enter('closing')
+        if (!weakOcclusion) enter('closing')
         else if (settled || now - phaseSince >= OPENING_GRACE_MS) enter('open')
         break
       case 'open':
         // Once open, geometry is the authority: a lost focus does not close a
         // still-present keyboard (the textarea keeps focus through a dismiss),
-        // but a vanished or weak occlusion does.
-        if (!occluded || (!intent && !evidence)) enter('closing')
+        // but the occlusion dropping below the low threshold does.
+        if (!weakOcclusion) enter('closing')
         break
       case 'closing':
+        // Re-entering needs sustained strong evidence, not a single weak frame.
         if (openingSignal) enter('opening')
         else if (now - phaseSince >= SETTLE_MS) enter('closed')
         break
     }
-    // Authoritative geometry may short-circuit the opening animation wait
-    // (cold start with the keyboard already up).
-    if (phase === 'opening' && trustedEvidence) enter('open')
+    if (phase === 'opening' && overlayProof) enter('open')
   }
 
   const unobstructed = occ.height <= GEOMETRY_TOLERANCE
@@ -174,11 +234,12 @@ export function normalize(state: ViewportModelState, obs: ViewportObservation): 
   // baseline — this is the guard the legacy "open latch" assumption lacked.
   const suspiciousShrink =
     prev.trustedClosedBaseline !== null && prev.trustedClosedBaseline - layoutH >= CLOSED_GAP_SUSPICION
-  // Invariant: updated only by an unobstructed visual-viewport measurement in
-  // the same envGen (guaranteed by the reset above). Applied layout heights
-  // never enter this value.
+  // Invariant: updated only by an unobstructed, intent-free visual viewport
+  // measurement in the same envGen (guaranteed above), and never while the
+  // platform reports live keyboard geometry — "deducts nothing" is not the same
+  // as "no keyboard".
   let trustedClosedBaseline = prev.trustedClosedBaseline
-  if (vv !== null && unobstructed && !intent && !suspiciousShrink && layoutH > 0) {
+  if (vv !== null && unobstructed && !intent && !suspiciousShrink && !vkEvidence && layoutH > 0) {
     trustedClosedBaseline = layoutH
   }
 
@@ -187,14 +248,16 @@ export function normalize(state: ViewportModelState, obs: ViewportObservation): 
   // An "unobstructed" reading taken while keyboard intent is live is not proof
   // of the full space: in resize mode the layout viewport itself shrinks and
   // the gap still reads zero. Prefer the baseline there.
-  const measuredFull = vv !== null && layoutH > 0 && unobstructed && !intent && !suspiciousShrink ? layoutH : null
+  const measuredFull =
+    vv !== null && layoutH > 0 && unobstructed && !intent && !suspiciousShrink && !vkEvidence ? layoutH : null
   const fullHeight = measuredFull ?? trustedClosedBaseline
   const fullLayoutSpace = fullHeight === null ? null : { width: layoutW, height: fullHeight }
 
-  // visibleRegion: with a visual viewport, vv already excludes the occlusion —
-  // subtracting occ.height here would be the double deduction.
+  // visibleRegion: with a visual viewport, only the keyboard band that actually
+  // overlaps it is removed. In resize mode vv already excludes the keyboard, so
+  // vvOverlap is 0 and nothing is subtracted twice.
   const visibleRegion = vv
-    ? { width: clamp0(px(vv.width)), height: clamp0(px(vv.height)), offsetTop: px(vv.offsetTop) }
+    ? { width: clamp0(px(vv.width)), height: clamp0(clamp0(px(vv.height)) - occ.vvOverlap), offsetTop: vvOffsetTop }
     : {
         width: layoutW,
         height: clamp0(layoutH - occ.height),
@@ -213,19 +276,22 @@ export function normalize(state: ViewportModelState, obs: ViewportObservation): 
   let nextWakeAt: number | null = null
   if (phase === 'opening') {
     // Re-sample until the settle window closes or the opening grace expires.
-    nextWakeAt = Math.max(now + 1, Math.min(pendingSince + SETTLE_MS, phaseSince + OPENING_GRACE_MS))
+    const settleDeadline = pendingSince > 0 ? pendingSince + SETTLE_MS : now + SETTLE_MS
+    nextWakeAt = Math.max(now + 1, Math.min(settleDeadline, phaseSince + OPENING_GRACE_MS))
   } else if (phase === 'closing') {
     nextWakeAt = Math.max(now + 1, phaseSince + SETTLE_MS)
-  } else if (phase === 'unknown' && intent) {
-    // Intent without evidence: poll while a keyboard may still be animating in.
+  } else if (phase === 'unknown' && intent && !weakOcclusion) {
+    // Intent without any occlusion yet: poll while a keyboard may be animating
+    // in. Once a weak-but-not-strong band is present, waiting for the next
+    // event is enough — resampling it would only burn timers.
     nextWakeAt = now + SETTLE_MS
   }
 
   const nextState: ViewportModelState = {
     phase,
     trustedClosedBaseline,
-    pendingHeight: evidence ? pendingHeight : null,
-    pendingSince: evidence ? pendingSince : 0,
+    pendingHeight: strongOcclusion ? pendingHeight : null,
+    pendingSince: strongOcclusion ? pendingSince : 0,
     phaseSince,
     envGen,
   }
