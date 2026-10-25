@@ -47,7 +47,11 @@ function isKeyDiagnostic(event: string, urgent: boolean) {
     event === 'flicker-suspect' ||
     event === 'longtask' ||
     event === 'layout-shift' ||
-    event === 'frame-jank'
+    event === 'frame-jank' ||
+    // Shadow coverage heartbeat: low frequency (>=1min) and it is the only
+    // evidence that separates "no diff" from "never sampled", so it must not
+    // depend on the debug switch being on.
+    event === 'viewport-shadow-summary'
   )
 }
 function getSessionId() {
@@ -350,4 +354,34 @@ export type ViewportShadowDiffRecord = {
 }
 export function recordViewportShadowDiff(record: ViewportShadowDiffRecord) {
   recordMobileDiagnostic(VIEWPORT_SHADOW_DIFF_EVENT, { ...record })
+}
+
+// --- Viewport shadow coverage summary (E2) ---
+// Periodic heartbeat of the shadow run: ticks/agreed/diverged/unknown/recovered
+// plus the phase and env denominators. Numbers only, so it stays desensitized.
+// Unlike the diff event it is recorded without the debug switch (see
+// isKeyDiagnostic) — otherwise "no diffs" and "shadow off" look identical.
+export const VIEWPORT_SHADOW_SUMMARY_EVENT = 'viewport-shadow-summary'
+export type ViewportShadowSummaryRecord = {
+  ticks: number
+  agreed: number
+  diverged: number
+  suppressions: number
+  inconclusive: number
+  failed: number
+  unknown: number
+  transition: number
+  recovered: number
+  sessionCoverage: {
+    spanMs: number
+    envGens: number
+    phases: Record<string, number>
+  }
+  // Which path owned the shell during this window; 'none' = shadow disabled.
+  appliedBy: 'model' | 'legacy' | 'none'
+  // Why the window ended: periodic timer, tick budget, or shadow teardown.
+  reason: 'interval' | 'ticks' | 'flush'
+}
+export function recordViewportShadowSummary(record: ViewportShadowSummaryRecord) {
+  recordMobileDiagnostic(VIEWPORT_SHADOW_SUMMARY_EVENT, { ...record })
 }

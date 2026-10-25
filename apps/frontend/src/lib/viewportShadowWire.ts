@@ -20,8 +20,13 @@ import {
   type ViewportShadowStats,
   type ViewportShadowRunner,
 } from '@/components/viewportShadow'
-import type { ViewportSnapshot } from '@/components/viewportContract'
-import { recordViewportShadowDiff } from './mobile-diagnostics'
+import type { KeyboardPhase, ViewportSnapshot } from '@/components/viewportContract'
+import {
+  recordViewportShadowDiff,
+  recordViewportShadowSummary,
+  type ViewportShadowSummaryRecord,
+} from './mobile-diagnostics'
+import { createViewportShadowCoverage, type ViewportShadowCoverage } from './viewportShadowCoverage'
 
 // Kill switch for field triage: `localStorage['tmuxgo-viewport-shadow'] = '0'`
 // or `?viewport-shadow=0` disables the shadow without a deploy.
@@ -34,6 +39,10 @@ const MODEL_SWITCH_ON = '1'
 // No real wake is useful beyond a couple of seconds; clamp so a stale model
 // timestamp cannot park a long timer.
 const MAX_WAKE_DELAY_MS = 2000
+// Coverage heartbeat: once a minute, or every 240 ticks on a busy phone — either
+// way the trace answers "did the shadow actually run, and did it agree?".
+const SUMMARY_INTERVAL_MS = 60_000
+const SUMMARY_TICK_INTERVAL = 240
 
 export function isViewportShadowEnabled(): boolean {
   if (typeof window === 'undefined') return false
@@ -78,10 +87,17 @@ export type ViewportShadowWire = {
   // caller can apply it without normalizing a second time.
   tick(input: ViewportShadowTickInput): ViewportSnapshot | null
   readonly stats: ViewportShadowStats
+  // Coverage totals since the last emitted summary (window included).
+  readonly coverage: ViewportShadowCoverage
+  // Emit any pending coverage window (called on teardown / flag change).
+  flush(now: number): void
 }
 
 export type ViewportShadowWireOptions = {
   onDiff?: (diff: ViewportShadowDiff) => void
+  onSummary?: (summary: ViewportShadowSummaryRecord) => void
+  summaryIntervalMs?: number
+  summaryTickInterval?: number
   // Called when the model wants another sample (settle/grace deadlines).
   scheduleResample?: (delayMs: number) => void
   normalize?: ViewportNormalizeFn
@@ -93,8 +109,31 @@ export function createViewportShadowWire(options: ViewportShadowWireOptions = {}
   const tracker = options.tracker ?? new ViewportEnvTracker()
   const runner = options.runner ?? createViewportShadowRunner({ normalize: options.normalize ?? normalize })
   const onDiff = options.onDiff ?? recordViewportShadowDiff
+  const onSummary = options.onSummary ?? recordViewportShadowSummary
+  const summaryIntervalMs = options.summaryIntervalMs ?? SUMMARY_INTERVAL_MS
+  const summaryTickInterval = options.summaryTickInterval ?? SUMMARY_TICK_INTERVAL
   const scheduleResample = options.scheduleResample
+  const coverage = createViewportShadowCoverage()
   let warned = false
+  let windowTicks = 0
+  let lastSummaryAt: number | null = null
+  let windowAppliedBy: ViewportShadowSummaryRecord['appliedBy'] = 'none'
+
+  // Emission is best-effort: a diagnostics failure must never break the tick.
+  const emitSummary = (now: number, reason: ViewportShadowSummaryRecord['reason']) => {
+    const totals = coverage.drain()
+    const appliedBy = windowAppliedBy
+    windowTicks = 0
+    lastSummaryAt = now
+    windowAppliedBy = 'none'
+    // An empty window proves nothing: only a sampled window is evidence.
+    if (totals.ticks === 0) return
+    try {
+      onSummary({ ...totals, appliedBy, reason })
+    } catch {
+      // Diagnostics are not part of the layout contract.
+    }
+  }
 
   return {
     tick({ now, composition, enabled, record = enabled, appliedBy = 'legacy', legacy }) {
@@ -109,14 +148,35 @@ export function createViewportShadowWire(options: ViewportShadowWireOptions = {}
           envGen,
           orientation: tracker.resolvedOrientation ?? undefined,
         })
+        const before = runner.stats
         const diff = runner.tick(observation, legacy)
         if (diff && record) onDiff({ ...diff, appliedBy })
+        const after = runner.stats
+        // The runner reports records/suppressions as cumulative counters, so the
+        // per-tick classification comes from the deltas: coverage needs no field
+        // of the compare/dedupe logic to know about it.
+        coverage.note(
+          diff !== null ? 'diverged' : after.suppressed > before.suppressed ? 'suppressed' : 'agreed',
+          snapshotPhase(runner.snapshot),
+          envGen,
+          now,
+        )
+        windowTicks += 1
+        if (appliedBy === 'model') windowAppliedBy = 'model'
+        else if (windowAppliedBy === 'none') windowAppliedBy = 'legacy'
+        if (lastSummaryAt === null) lastSummaryAt = now
+        if (now - lastSummaryAt >= summaryIntervalMs) emitSummary(now, 'interval')
+        else if (windowTicks >= summaryTickInterval) emitSummary(now, 'ticks')
         const wakeAt = runner.nextWakeAt
         if (wakeAt !== null && scheduleResample) {
           scheduleResample(Math.min(MAX_WAKE_DELAY_MS, Math.max(0, wakeAt - now)))
         }
         return runner.snapshot
       } catch (err) {
+        // A failed tick is a real observation of the wiring, not a gap: count it
+        // so a run where every tick throws cannot look like "no divergence".
+        coverage.note('failed', 'unknown', 0, now)
+        if (lastSummaryAt === null) lastSummaryAt = now
         // One warn per session: a broken shadow must not spam a phone console.
         if (!warned) {
           warned = true
@@ -128,5 +188,17 @@ export function createViewportShadowWire(options: ViewportShadowWireOptions = {}
     get stats() {
       return runner.stats
     },
+    get coverage() {
+      return coverage
+    },
+    flush(now) {
+      emitSummary(now, 'flush')
+    },
   }
+}
+
+// `unknown` is a real phase value, not "no snapshot": a missing snapshot means
+// the tick failed, which the coverage window already counts as a tick.
+function snapshotPhase(snapshot: ViewportSnapshot | null): KeyboardPhase {
+  return snapshot ? snapshot.keyboardPhase : 'unknown'
 }

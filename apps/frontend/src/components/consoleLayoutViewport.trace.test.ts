@@ -96,12 +96,19 @@ describe('viewport contract invariants', () => {
   })
 
   // Invariant 1 of viewportContract.ts: an applied appHeight must never become the
-  // closed baseline. Today it does: the clamped closed frame applies 446, the open
-  // frame takes 446 as `openingHeight`, and the shell collapses to 124 instead of
-  // staying at the 769 full-layout baseline.
-  it.fails('never feeds the applied appHeight back in as the closed baseline', () => {
-    const frames = replay(collapseTraceFixture)
-    expect(frames[2].stableClosedHeight).toBe(769)
-    expect(frames[2].appliedHeight).toBe(446)
+  // closed baseline *by itself*. The pure machine still has the legacy open latch
+  // (`openingHeight = currentAppHeight`) — it is only harmless while nobody feeds
+  // an applied height back in, which is exactly what F3's isolation guarantees for
+  // production. Both halves are pinned here so neither side can quietly drift.
+  it('never turns an applied height into the closed baseline unless the caller feeds it', () => {
+    // 12:38 build fed it (closed frame clamped to the shrunken vv): latch → 124.
+    const clamped = replay(collapseTraceFixture)
+    expect(clamped[2]).toMatchObject({ appliedHeight: 124, stableClosedHeight: 446 })
+
+    // Without that external feed the same trace keeps the 769 baseline while the
+    // shell legitimately follows the occlusion to 446 — the invariant holds.
+    const isolated = replayViewportTrace(collapseTraceFixture, { closedClamp: false })
+    expect(isolated[2]).toMatchObject({ appliedHeight: 446, stableClosedHeight: 769 })
+    expect(appliedHeights(isolated)).not.toContain(124)
   })
 })
