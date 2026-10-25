@@ -73,6 +73,29 @@ vi.mock('./GitPanel', () => ({
       ),
     ),
 }))
+// wire 注入开关：默认透传真实实现，只在需要模拟“模型 tick 抛错”的用例里置位
+const shadowWireControl = vi.hoisted(() => ({ throwTicks: 0 }))
+vi.mock('@/lib/viewportShadowWire', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/viewportShadowWire')>()
+  return {
+    ...actual,
+    createViewportShadowWire: (options?: Parameters<typeof actual.createViewportShadowWire>[0]) => {
+      const wire = actual.createViewportShadowWire(options)
+      return {
+        get stats() {
+          return wire.stats
+        },
+        tick: (input: Parameters<typeof wire.tick>[0]) => {
+          if (shadowWireControl.throwTicks > 0) {
+            shadowWireControl.throwTicks -= 1
+            throw new Error('wire down')
+          }
+          return wire.tick(input)
+        },
+      }
+    },
+  }
+})
 vi.mock('@/hooks/usePreferences', () => ({ usePreferences: () => ({ preferences: { showStatusBar: false } }) }))
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
@@ -512,6 +535,19 @@ describe('ConsoleLayout viewport model takeover', () => {
   const events = (name: string) =>
     ((window as ShadowWindow).__tmuxgoMobileDiagnostics?.events || []).filter((event) => event.event === name)
   const appliedHeights = () => events('app-height').map((event) => event.height as number)
+  // 反事实侧记录：legacy 那一列的高度（只有和模型不一致时才进 diff）
+  const legacyShells = () =>
+    events('viewport-shadow-diff').flatMap((event) =>
+      ((event.fieldDiffs as Array<{ field: string; legacy: number | boolean | null }>) || [])
+        .filter((field) => field.field === 'shellHeight')
+        .map((field) => field.legacy as number),
+    )
+  const legacyBaseHeights = () =>
+    events('viewport-shadow-diff').flatMap((event) =>
+      ((event.fieldDiffs as Array<{ field: string; legacy: number | boolean | null }>) || [])
+        .filter((field) => field.field === 'baseHeight')
+        .map((field) => field.legacy as number),
+    )
   function stubViewport(vvHeight: number, layoutHeight = 768) {
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
@@ -554,6 +590,7 @@ describe('ConsoleLayout viewport model takeover', () => {
     document.body.removeAttribute('data-viewport-occlusion')
     window.localStorage.setItem('tmuxgo-debug-mobile', '1')
     window.localStorage.setItem('tmuxgo-viewport-model', '1')
+    shadowWireControl.throwTicks = 0
     delete (window as ShadowWindow).__tmuxgoMobileDiagnostics
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' })
   })
@@ -625,5 +662,71 @@ describe('ConsoleLayout viewport model takeover', () => {
     // 旧机器把 vv 鸿沟 ≥120px 视为异常，继续按基线 800 施加（不跟随 vv）
     const shell = container.querySelector('.tmuxgo-app-shell') as HTMLElement
     expect(shell.style.height).toBe('800px')
+  })
+  it('keeps the legacy counterfactual at 446 and never revives 124 when the flag lands late', async () => {
+    stubViewport(768, 768)
+    render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    await nextFrame()
+    // 第2步：vv 先缩到 446，flag 还没落位
+    await resizeTo(446)
+    // 第3步：flag 落位（inset 322）
+    await act(async () => {
+      document.body.classList.add('keyboard-open')
+      window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true, inset: 322 } }))
+      await new Promise((resolve) => setTimeout(resolve, 80))
+    })
+    expect(appliedHeights().at(-1)).toBe(446)
+    expect(appliedHeights()).not.toContain(124)
+    // 反事实：第2步旧机器按 768 施加（与被模型接管的 446 相异，故入 diff）
+    expect(legacyShells()).toContain(768)
+    expect(legacyShells()).not.toContain(124)
+    // 关键盘后 vv 回到 600：旧机器仍按 768 基线走，证明基线没被 446 污染
+    await act(async () => {
+      document.body.classList.remove('keyboard-open')
+      window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: false, inset: 0 } }))
+      await new Promise((resolve) => setTimeout(resolve, 80))
+    })
+    await resizeTo(600)
+    expect(legacyShells().at(-1)).toBe(768)
+    expect(appliedHeights()).not.toContain(124)
+  })
+
+  it('falls back to the isolated legacy height when the model tick throws', async () => {
+    stubViewport(800, 800)
+    render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    await nextFrame()
+    await resizeTo(446)
+    expect(appliedHeights().at(-1)).toBe(446)
+    // 让“flag 落位”这一 tick 的 wire 抛错：污染版会拿模型壳高 446 当基线算出 124
+    shadowWireControl.throwTicks = 1
+    await act(async () => {
+      document.body.classList.add('keyboard-open')
+      window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true, inset: 322 } }))
+      await new Promise((resolve) => setTimeout(resolve, 80))
+    })
+    expect(shadowWireControl.throwTicks).toBe(0)
+    expect(appliedHeights().at(-1)).toBe(446)
+    expect(appliedHeights()).not.toContain(124)
+    // wire 恢复后模型重新接管
+    await resizeTo(500)
+    expect(appliedHeights().at(-1)).toBe(500)
+  })
+
+  it('does not carry the model shell into the legacy baseline after a hot switch', async () => {
+    stubViewport(800, 800)
+    render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    await nextFrame()
+    await resizeTo(446)
+    expect(appliedHeights().at(-1)).toBe(446)
+    window.localStorage.removeItem('tmuxgo-viewport-model')
+    await act(async () => {
+      document.body.classList.add('keyboard-open')
+      window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true, inset: 322 } }))
+      await new Promise((resolve) => setTimeout(resolve, 80))
+    })
+    // 旧基线是 800：446 就是唯一正确答案；拿模型壳高 446 当基线会算成 124
+    expect(appliedHeights().at(-1)).toBe(446)
+    expect(appliedHeights()).not.toContain(124)
+    expect(legacyBaseHeights().every((height) => height !== 124)).toBe(true)
   })
 })
