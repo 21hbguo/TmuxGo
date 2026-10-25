@@ -433,3 +433,73 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     expect(buttons.indexOf('★ beta')).toBeLessThan(buttons.indexOf('epsilon'))
   })
 })
+
+// 阶段2 影子运行：只验证接线在正确的门槛下记录分歧，不验证施加行为
+describe('ConsoleLayout viewport shadow wiring', () => {
+  type ShadowWindow = typeof window & {
+    __tmuxgoMobileDiagnostics?: { events: Array<Record<string, unknown>> }
+  }
+  const shadowEvents = () =>
+    ((window as ShadowWindow).__tmuxgoMobileDiagnostics?.events || []).filter(
+      (event) => event.event === 'viewport-shadow-diff',
+    )
+  function stubViewport(mobile: boolean, vvHeight: number, layoutHeight: number) {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation(() => ({
+        matches: mobile,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    })
+    Object.defineProperty(window, 'visualViewport', {
+      writable: true,
+      value: {
+        height: vvHeight,
+        width: 390,
+        offsetTop: 0,
+        offsetLeft: 0,
+        scale: 1,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    })
+    Object.defineProperty(window, 'innerHeight', { writable: true, value: layoutHeight })
+    Object.defineProperty(window, 'innerWidth', { writable: true, value: 390 })
+  }
+  beforeEach(() => {
+    window.localStorage.clear()
+    document.body.className = ''
+    // 开启诊断通道，否则"零记录"可能只是因为上报被关掉
+    window.localStorage.setItem('tmuxgo-debug-mobile', '1')
+    delete (window as ShadowWindow).__tmuxgoMobileDiagnostics
+    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' })
+  })
+  it('records nothing on a desktop viewport', async () => {
+    stubViewport(false, 446, 768)
+    render(React.createElement(ConsoleLayout))
+    await act(async () => {
+      window.dispatchEvent(new Event('resize'))
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+    expect(shadowEvents()).toHaveLength(0)
+  })
+  it('records the divergence when a mobile viewport shrinks without the legacy flag', async () => {
+    stubViewport(true, 800, 800)
+    render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+    stubViewport(true, 446, 768)
+    await act(async () => {
+      window.dispatchEvent(new Event('resize'))
+      await new Promise((resolve) => setTimeout(resolve, 80))
+    })
+    await waitFor(() => expect(shadowEvents().length).toBeGreaterThan(0), { timeout: 2000 })
+    const fields = shadowEvents().flatMap((event) =>
+      (event.fieldDiffs as Array<{ field: string }>).map((diff) => diff.field),
+    )
+    // 这是 2026-10-25 事故的形状：vv 缩了，旧路径仍按 800 施加
+    expect(fields).toContain('shellHeight')
+  })
+})

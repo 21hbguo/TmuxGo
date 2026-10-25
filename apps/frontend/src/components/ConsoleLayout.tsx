@@ -44,7 +44,12 @@ import { usePrompt } from '@/hooks/usePrompt'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 import { useGitPreferencesSync } from '@/hooks/useGitPreferencesSync'
 import { DesktopWorkbench } from './DesktopWorkbench'
-import { recordMobileDiagnostic, startMobileFlickerDiagnostics } from '@/lib/mobile-diagnostics'
+import {
+  recordMobileDiagnostic,
+  recordViewportShadowDiff,
+  startMobileFlickerDiagnostics,
+} from '@/lib/mobile-diagnostics'
+import { createViewportShadowWire, isViewportShadowEnabled, type ViewportShadowWire } from '@/lib/viewportShadowWire'
 import { useTranslation } from '@/i18n'
 import { readActiveHostId, readActiveSessionId } from '@/lib/console-device-state'
 import { FiX } from 'react-icons/fi'
@@ -189,6 +194,10 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   const viewportFrameRef = useRef<number | null>(null)
   const viewportWidthRef = useRef(0)
   const viewportStableRef = useRef(createViewportStableState())
+  // 影子运行（阶段2）：只采样/比对/记录，不参与任何施加决策
+  const viewportShadowRef = useRef<ViewportShadowWire | null>(null)
+  const viewportShadowWakeRef = useRef<number | null>(null)
+  const scheduleViewportSyncRef = useRef<() => void>(() => {})
   const mobileSessionLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mobileSessionLongPressFiredRef = useRef(false)
   const mobileGitCloseRef = useRef<HTMLButtonElement>(null)
@@ -427,6 +436,25 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
       cancelAnimationFrame(viewportFrameRef.current)
       viewportFrameRef.current = null
     }
+    if (viewportShadowWakeRef.current !== null) {
+      window.clearTimeout(viewportShadowWakeRef.current)
+      viewportShadowWakeRef.current = null
+    }
+  }, [])
+  const getViewportShadow = useCallback(() => {
+    if (viewportShadowRef.current) return viewportShadowRef.current
+    viewportShadowRef.current = createViewportShadowWire({
+      onDiff: recordViewportShadowDiff,
+      // 单次重采样：先清旧 timer，避免 nextWakeAt 抖动堆叠
+      scheduleResample: (delayMs) => {
+        if (viewportShadowWakeRef.current !== null) window.clearTimeout(viewportShadowWakeRef.current)
+        viewportShadowWakeRef.current = window.setTimeout(() => {
+          viewportShadowWakeRef.current = null
+          scheduleViewportSyncRef.current()
+        }, delayMs)
+      },
+    })
+    return viewportShadowRef.current
   }, [])
   const scheduleViewportSync = useCallback(() => {
     if (viewportFrameRef.current) return
@@ -495,13 +523,41 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
       const nextHeight = immersive
         ? Math.round(viewportHeight || state.nextHeight || window.innerHeight || 0)
         : state.nextHeight
-      if (document.body.classList.contains('ime-composing')) return
-      if (isMobileViewport && appHeightNumRef.current && !open && Math.abs(nextHeight - appHeightNumRef.current) < 36)
+      // 影子分支：在真实路径决定是否施加之后运行，无论是否施加都采样一次；
+      // legacyOutput 用“本次 tick 结束后实际生效的高度”，否则每次真实变化都会被记成 diff
+      const shadowTick = (appliedHeight: number) => {
+        try {
+          getViewportShadow().tick({
+            now: Math.round(performance.now()),
+            composition: document.body.classList.contains('ime-composing'),
+            enabled: isMobileViewport && isViewportShadowEnabled(),
+            legacy: {
+              shellHeight: appliedHeight,
+              keyboardOpen: open,
+              keyboardInset: state.inset,
+              baseHeight: viewportStableRef.current.stableClosedHeight || viewportBaseHeightRef.current,
+              viewportWidth: state.viewportWidth,
+            },
+          })
+        } catch {}
+      }
+      if (document.body.classList.contains('ime-composing')) {
+        shadowTick(appHeightNumRef.current)
         return
-      if (isMobileViewport && appHeightNumRef.current && open && Math.abs(nextHeight - appHeightNumRef.current) < 48)
+      }
+      if (isMobileViewport && appHeightNumRef.current && !open && Math.abs(nextHeight - appHeightNumRef.current) < 36) {
+        shadowTick(appHeightNumRef.current)
         return
+      }
+      if (isMobileViewport && appHeightNumRef.current && open && Math.abs(nextHeight - appHeightNumRef.current) < 48) {
+        shadowTick(appHeightNumRef.current)
+        return
+      }
       const nextValue = `${nextHeight}px`
-      if (appHeightRef.current === nextValue) return
+      if (appHeightRef.current === nextValue) {
+        shadowTick(nextHeight)
+        return
+      }
       appHeightRef.current = nextValue
       appHeightNumRef.current = nextHeight
       recordMobileDebug('app-height', { height: nextHeight, open })
@@ -511,8 +567,13 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
           detail: { reason: 'viewport-sync', height: nextHeight, keyboardOpen: open, mobile: isMobileViewport },
         }),
       )
+      shadowTick(nextHeight)
     })
-  }, [])
+  }, [getViewportShadow])
+  // 影子重采样要能重新触发同步，但 scheduleViewportSync 不能引用自身（会破坏 useCallback 身份）
+  useEffect(() => {
+    scheduleViewportSyncRef.current = scheduleViewportSync
+  }, [scheduleViewportSync])
 
   useEffect(() => {
     const mql = window.matchMedia(MOBILE_QUERY)

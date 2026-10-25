@@ -88,6 +88,9 @@ export class ViewportShadowRunner {
   private readonly lastEmitted: (number | boolean | null)[] = new Array(FIELD_COUNT).fill(null)
   private lastMask = 0
   private lastEmittedAt = Number.NEGATIVE_INFINITY
+  // Surfaced from the injected normalize result so the wiring layer can drive
+  // its own resample timer without calling normalize a second time.
+  private wakeAt: number | null = null
   private suppressedSinceRecord = 0
   private tickCount = 0
   private recordCount = 0
@@ -104,6 +107,10 @@ export class ViewportShadowRunner {
     return this.modelState
   }
 
+  get nextWakeAt(): number | null {
+    return this.wakeAt
+  }
+
   get stats(): ViewportShadowStats {
     return { ticks: this.tickCount, records: this.recordCount, suppressed: this.suppressedCount }
   }
@@ -112,6 +119,7 @@ export class ViewportShadowRunner {
     this.modelState = state
     this.lastMask = 0
     this.lastEmittedAt = Number.NEGATIVE_INFINITY
+    this.wakeAt = null
     this.suppressedSinceRecord = 0
     this.tickCount = 0
     this.recordCount = 0
@@ -123,6 +131,7 @@ export class ViewportShadowRunner {
   tick(observation: ViewportObservation, legacy: LegacyViewportOutput): ViewportShadowDiff | null {
     const result = this.normalize(this.modelState, observation)
     this.modelState = result.state
+    this.wakeAt = result.nextWakeAt
     const snapshot = result.snapshot
     this.tickCount += 1
 
