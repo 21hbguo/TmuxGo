@@ -1,6 +1,7 @@
 import type { Terminal } from '@xterm/xterm'
 import { recordMobileDebug } from './terminal-debug'
 import type { TerminalSizeState } from './terminal-size-state'
+import { hasViewportOcclusion } from './viewportOcclusion'
 
 // xterm 私有渲染服务入口（非公开 API）：dimensions.css 提供 cell/canvas 像素几何，
 // clear() 清字形图集；字段缺失时全链路可选链降级
@@ -375,8 +376,10 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     const terminal = getTerminal()
     const screen = terminal?.element?.querySelector('.xterm-screen') as HTMLElement | null
     if (!screen) return
-    // 键盘开合只压缩可视高度、行列数不变：把 canvas 上移锚住底部，prompt 行保持可见
-    const active = isMobileDevice && document.body.classList.contains('keyboard-open')
+    // 键盘开合只压缩可视高度、行列数不变：把 canvas 上移锚住底部，prompt 行保持可见。
+    // 成因取 model 模式同步写的 data-viewport-occlusion（RO 时已可读）或 legacy 的
+    // body.keyboard-open，见 viewportOcclusion.ts 的时序不变量
+    const active = isMobileDevice && hasViewportOcclusion()
     const canvas = active ? getCanvasSize() : null
     const clip = canvas ? Math.max(0, canvas.height - getAvailableSize().height) : 0
     if (clip > 0) screen.style.transform = `translateY(${-clip}px)`
@@ -472,7 +475,7 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
       !force &&
       sizeState.lastSize &&
       Math.abs(container.clientWidth - lastFitSize.width) <= MOBILE_FIT_SIZE_TOLERANCE &&
-      document.body.classList.contains('keyboard-open')
+      hasViewportOcclusion()
     if (keyboardHeightOnly) {
       layoutRetryCount = 0
       mobileKeyboardTransition = false
@@ -630,13 +633,7 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     // 不能用节流后 ~140ms 一发的 onResize 反推停止——慢拖/同格像素变也会命中
     options.onResizeActivityRef?.current?.()
     // 键盘开着时纯高度变化不 refit（宽度变仍走正常流程，如旋转）
-    if (
-      isMobileDevice &&
-      sizeState.isExclusiveOwner() &&
-      hadContainerSize &&
-      !widthChanged &&
-      document.body.classList.contains('keyboard-open')
-    ) {
+    if (isMobileDevice && sizeState.isExclusiveOwner() && hadContainerSize && !widthChanged && hasViewportOcclusion()) {
       applyKeyboardClip()
       return
     }

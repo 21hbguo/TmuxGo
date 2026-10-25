@@ -3,6 +3,7 @@ import type { Terminal } from '@xterm/xterm'
 import { createTerminalLayout } from './terminal-layout'
 import { createTerminalResizeMask } from './terminal-resize-mask'
 import { createTerminalSizeState } from './terminal-size-state'
+import { writeViewportOcclusion } from './viewportOcclusion'
 
 // 真实异步 rAF 队列：同步 mock 会让"跨帧"缺陷（pending 残留、样式修正擦除
 // 键盘锚定、resize 饥饿）在测试里隐形，必须手动逐帧排空
@@ -153,6 +154,7 @@ describe('terminal-layout', () => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
     document.body.classList.remove('keyboard-open')
+    document.body.removeAttribute('data-viewport-occlusion')
     document.body.replaceChildren()
   })
 
@@ -340,6 +342,60 @@ describe('terminal-layout', () => {
     const screen = h.container.querySelector('.xterm-screen') as HTMLElement
     expect(screen.style.transform).toBe('translateY(-240px)')
     h.layout.dispose()
+  })
+  // 复刻 v7_early_shell_resize_before_legacy_keyboard_flag：model 模式 shell 随
+  // visibleRegion 一缩就改（V7 接管），RO 早于旧 keyboard flag。成因由
+  // data-viewport-occlusion 在同一 turn 同步给出，终端必须保网格 + 底锚裁剪，
+  // 不能 refit 下发远端尺寸主张（后到的 class 收不回来）
+  it('keeps the grid when the shell shrinks with the occlusion cause already readable', () => {
+    const h = createHarness({ mobile: true })
+    h.terminal.cols = 39
+    h.terminal.rows = 38
+    h.terminal._core!._renderService.dimensions.css.canvas = { width: 390, height: 760 }
+    h.setSize(390, 768)
+    h.layout.primeContainerSize()
+    // 一个 turn：先落成因（ConsoleLayout 的顺序），再让容器高度跟上，最后 RO 回调
+    writeViewportOcclusion(322)
+    h.setSize(390, 446)
+    h.layout.notifyObservedResize()
+    for (let i = 0; i < 8; i++) tick()
+    expect(h.resizeCalls).toHaveLength(0)
+    expect(h.onResize).not.toHaveBeenCalled()
+    expect(h.terminal.rows).toBe(38)
+    const screen = h.container.querySelector('.xterm-screen') as HTMLElement
+    // 760 画布 vs 446 可用 → 上移 314 锚住底部，prompt 行仍在
+    expect(screen.style.transform).toBe('translateY(-314px)')
+    h.layout.dispose()
+    h.mask.dispose()
+  })
+  it('refits the same shrink when no occlusion cause is readable (the pre-fix behaviour)', () => {
+    const h = createHarness({ mobile: true })
+    h.terminal.cols = 39
+    h.terminal.rows = 38
+    h.terminal._core!._renderService.dimensions.css.canvas = { width: 390, height: 760 }
+    h.setSize(390, 768)
+    h.layout.primeContainerSize()
+    h.setSize(390, 446)
+    h.layout.notifyObservedResize()
+    for (let i = 0; i < 8; i++) tick()
+    // 无成因证据 → 普通尺寸变化：refit 39x22 并已下发远端主张，正是要消除的竞态
+    expect(h.resizeCalls.at(-1)).toEqual([39, 22])
+    expect(h.onResize).toHaveBeenCalledWith(39, 22)
+    h.layout.dispose()
+    h.mask.dispose()
+  })
+  it('resumes refitting once the occlusion cause is cleared', () => {
+    const h = createHarness({ mobile: true })
+    writeViewportOcclusion(322)
+    h.setSize(390, 446)
+    h.layout.primeContainerSize()
+    writeViewportOcclusion(null)
+    h.setSize(390, 400)
+    h.layout.notifyObservedResize()
+    for (let i = 0; i < 8; i++) tick()
+    expect(h.resizeCalls.at(-1)).toEqual([39, 20])
+    h.layout.dispose()
+    h.mask.dispose()
   })
   it('does not keep the mask pending during a real window-resize drag (window event + RO)', () => {
     const h = createHarness()
