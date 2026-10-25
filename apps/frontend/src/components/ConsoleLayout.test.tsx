@@ -551,6 +551,7 @@ describe('ConsoleLayout viewport model takeover', () => {
   beforeEach(() => {
     window.localStorage.clear()
     document.body.className = ''
+    document.body.removeAttribute('data-viewport-occlusion')
     window.localStorage.setItem('tmuxgo-debug-mobile', '1')
     window.localStorage.setItem('tmuxgo-viewport-model', '1')
     delete (window as ShadowWindow).__tmuxgoMobileDiagnostics
@@ -579,6 +580,41 @@ describe('ConsoleLayout viewport model takeover', () => {
     const fields = (diff?.fieldDiffs as Array<{ field: string; legacy: number; next: number }>) || []
     const shell = fields.find((field) => field.field === 'shellHeight')
     expect(shell).toMatchObject({ legacy: 800, next: 446 })
+  })
+  it('commits the occlusion cause before the shell height in the same turn', async () => {
+    stubViewport(800, 800)
+    render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    await nextFrame()
+    // 在 layout-change 监听里读属性：回调同步于 dispatch，而 RO 一定晚于 dispatch，
+    // 所以这里读到值就等价于「终端 RO 回调时成因已可读」
+    const seen: Array<{ height: number; attr: string | null; detail: unknown }> = []
+    const listener = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { height: number; occlusionHeight?: number }
+      seen.push({
+        height: detail.height,
+        attr: document.body.getAttribute('data-viewport-occlusion'),
+        detail: detail.occlusionHeight,
+      })
+    }
+    window.addEventListener('tmuxgo-layout-change', listener)
+    await resizeTo(446)
+    const shrink = seen.find((entry) => entry.height === 446)
+    expect(shrink).toBeDefined()
+    // 768 - 446 = 322：模型 snapshot 的遮挡高度，与 detail 同源
+    expect(shrink?.attr).toBe('322')
+    expect(shrink?.detail).toBe(322)
+    // 遮挡消失后属性清空，避免陈旧成因继续压住终端的 refit 判定
+    await resizeTo(800)
+    window.removeEventListener('tmuxgo-layout-change', listener)
+    expect(document.body.hasAttribute('data-viewport-occlusion')).toBe(false)
+  })
+  it('does not write the occlusion attribute on the legacy path', async () => {
+    window.localStorage.removeItem('tmuxgo-viewport-model')
+    stubViewport(800, 800)
+    render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    await nextFrame()
+    await resizeTo(446)
+    expect(document.body.hasAttribute('data-viewport-occlusion')).toBe(false)
   })
   it('leaves the legacy path in charge when the flag is off', async () => {
     window.localStorage.removeItem('tmuxgo-viewport-model')

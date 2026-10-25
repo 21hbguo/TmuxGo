@@ -55,6 +55,7 @@ import {
   isViewportShadowEnabled,
   type ViewportShadowWire,
 } from '@/lib/viewportShadowWire'
+import { writeViewportOcclusion } from '@/lib/viewportOcclusion'
 import { useTranslation } from '@/i18n'
 import { readActiveHostId, readActiveSessionId } from '@/lib/console-device-state'
 import { FiX } from 'react-icons/fi'
@@ -562,17 +563,31 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
           return null
         }
       }
-      // 唯一施加出口：写 appHeight + 广播（与旧路径逐字等价）
-      const applyHeight = (height: number) => {
+      // 唯一施加出口：写 appHeight + 广播（与旧路径逐字等价）。
+      // occlusion：model 模式传 snapshot.occlusion.height（唯一写入端），legacy 传
+      // null 表示不写该属性、保持旧语义。时序不变量：成因必须在改 shell / 广播之前
+      // 同步落盘——壳高变化先于 ResizeObserver 回调，终端在 RO 里读到的「这次变化
+      // 是不是纯遮挡」必须已可读，否则会把遮挡当普通 resize refit 并下发远端尺寸
+      // 主张（V7 提前缩壳事故，见 lib/viewportOcclusion.ts）
+      const applyHeight = (height: number, occlusion: number | null) => {
+        writeViewportOcclusion(occlusion)
         const nextValue = `${height}px`
         if (appHeightRef.current === nextValue) return false
         appHeightRef.current = nextValue
         appHeightNumRef.current = height
-        recordMobileDebug('app-height', { height, open })
+        // occlusion 一并记进诊断：线上复查「成因是否与壳高同 turn」只看这一条就够
+        recordMobileDebug('app-height', { height, open, occlusion })
         setAppHeight(nextValue)
         window.dispatchEvent(
           new CustomEvent('tmuxgo-layout-change', {
-            detail: { reason: 'viewport-sync', height, keyboardOpen: open, mobile: isMobileViewport },
+            detail: {
+              reason: 'viewport-sync',
+              height,
+              keyboardOpen: open,
+              mobile: isMobileViewport,
+              // model 模式来自 snapshot（与上面写的属性同源），legacy 沿用 state.inset
+              occlusionHeight: occlusion ?? state.inset,
+            },
           }),
         )
         return true
@@ -584,7 +599,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         legacyAppliedHeightRef.current = legacyCounterfactual
         const modelHeight = snapshot ? Math.round(snapshot.visibleRegion.height) : null
         if (modelHeight !== null) {
-          applyHeight(modelHeight)
+          applyHeight(modelHeight, snapshot ? Math.round(snapshot.occlusion.height) : 0)
           return
         }
         // 模型不可用（wire 抛错）时退回旧路径，绝不把 shell 冻死
@@ -601,7 +616,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         modelTick(appHeightNumRef.current)
         return
       }
-      applyHeight(nextHeight)
+      applyHeight(nextHeight, null)
       // 施加后再采样：legacy 侧记录的是“本 tick 实际生效的高度”
       modelTick(nextHeight)
     })
@@ -618,6 +633,9 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
       setIsMobile(nextMobile)
       const nextHeight = Math.round(window.visualViewport?.height || window.innerHeight || 0)
       if (!nextHeight) return
+      // 设备形态切换（mobile↔desktop）是新的布局环境：上一环境的遮挡成因不能
+      // 继续挂在下一次 RO 上，清掉属性让消费端回落到 body class 语义
+      writeViewportOcclusion(null)
       const nextValue = `${nextHeight}px`
       appHeightRef.current = nextValue
       appHeightNumRef.current = nextHeight
