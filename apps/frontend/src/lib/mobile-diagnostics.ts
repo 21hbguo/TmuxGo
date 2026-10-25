@@ -327,3 +327,25 @@ export function startMobileFlickerDiagnostics() {
     void flushMobileDiagnostics()
   }
 }
+
+// --- Viewport shadow diffs (stage 1 shadow run of the new viewport model) ---
+// Appended event type: records only numbers/phases/enums so uploaded traces stay
+// desensitized. Field names mirror ViewportShadowDiff in
+// components/viewportShadow.ts; keep the two in sync.
+export const VIEWPORT_SHADOW_DIFF_EVENT = 'viewport-shadow-diff'
+export type ViewportShadowDiffRecord = {
+  observedAt: number
+  envGen: number
+  phase: string
+  fieldDiffs: Array<{
+    field: string
+    legacy: number | boolean | null
+    next: number | boolean | null
+    delta: number | null
+  }>
+  suppressed: number
+  geometry: Record<string, number | boolean | string | null>
+}
+export function recordViewportShadowDiff(record: ViewportShadowDiffRecord) {
+  recordMobileDiagnostic(VIEWPORT_SHADOW_DIFF_EVENT, { ...record })
+}
