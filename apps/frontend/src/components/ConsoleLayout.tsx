@@ -22,12 +22,8 @@ import { UploadQueue } from './UploadQueue'
 import { AppVersionGuard } from './AppVersionGuard'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ElementPickerOverlay } from './ElementPickerOverlay'
-import {
-  createViewportStableState,
-  getNextViewportStableState,
-  getViewportLayoutState,
-  normalizeKeyboardViewportState,
-} from './consoleLayoutViewport'
+import { normalizeKeyboardViewportState } from './consoleLayoutViewport'
+import { createLegacyViewportMachine, type LegacyViewportMachine } from '@/lib/legacyViewportMachine'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useInboxStore } from '@/stores/useInboxStore'
 import { useElementPickerStore } from '@/stores/useElementPickerStore'
@@ -193,17 +189,14 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   const exitBackToastRef = useRef(t('common.pressBackAgainToExit'))
   exitBackToastRef.current = t('common.pressBackAgainToExit')
   const appHeightRef = useRef(appHeight)
-  const viewportBaseHeightRef = useRef(0)
   const appHeightNumRef = useRef(0)
   const keyboardStateRef = useRef({ open: false, inset: 0 })
   const viewportFrameRef = useRef<number | null>(null)
-  const viewportWidthRef = useRef(0)
-  const viewportStableRef = useRef(createViewportStableState())
+  // legacy 反事实机器：stable/base/applied/width 全部独立于模型输出（不变量 1）
+  const legacyViewportRef = useRef<LegacyViewportMachine | null>(null)
   // 影子运行（阶段2）：只采样/比对/记录，不参与任何施加决策
   const viewportShadowRef = useRef<ViewportShadowWire | null>(null)
   const viewportShadowWakeRef = useRef<number | null>(null)
-  // 旧机器“如果接管”会施加的高度：model 模式下只喂 diff 反事实，绝不施加
-  const legacyAppliedHeightRef = useRef(0)
   const scheduleViewportSyncRef = useRef<() => void>(() => {})
   const mobileSessionLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mobileSessionLongPressFiredRef = useRef(false)
@@ -463,6 +456,10 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
     })
     return viewportShadowRef.current
   }, [])
+  const getLegacyViewport = useCallback(() => {
+    if (!legacyViewportRef.current) legacyViewportRef.current = createLegacyViewportMachine()
+    return legacyViewportRef.current
+  }, [])
   const scheduleViewportSync = useCallback(() => {
     if (viewportFrameRef.current) return
     viewportFrameRef.current = requestAnimationFrame(() => {
@@ -495,56 +492,39 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         keyboardInset: keyboardStateRef.current.inset,
         bodyKeyboardOpen: byClass,
       })
-      viewportStableRef.current = getNextViewportStableState({
-        state: viewportStableRef.current,
+      // legacy 机器自己推进自己的一套状态（stable/base/applied/width）。
+      // currentAppHeight 必须取 legacy 自己上次施加的高度，不能取 appHeightNumRef：
+      // model 模式下那是模型输出，会让 open latch 把模型高度当闭合基线 → 124px 复活。
+      const legacy = getLegacyViewport()
+      const legacyState = legacy.step({
         isMobileViewport,
         innerHeight: window.innerHeight,
         viewportHeight,
         viewportWidth,
-        previousViewportWidth: viewportWidthRef.current,
-        baseHeight: viewportBaseHeightRef.current,
-        keyboardOpen: keyboardStateRef.current.open,
-        bodyKeyboardOpen: byClass,
-        currentAppHeight: appHeightNumRef.current,
-        now: performance.now(),
-      })
-      const state = getViewportLayoutState({
-        isMobileViewport,
-        innerHeight: window.innerHeight,
-        viewportHeight,
-        viewportWidth,
-        previousViewportWidth: viewportWidthRef.current,
-        baseHeight: viewportStableRef.current.stableClosedHeight || viewportBaseHeightRef.current,
         keyboardOpen: keyboardStateRef.current.open,
         keyboardInset: keyboardStateRef.current.inset,
         bodyKeyboardOpen: byClass,
+        immersive,
+        now: performance.now(),
       })
-      if (viewportWidthRef.current !== state.viewportWidth) appHeightNumRef.current = 0
-      viewportWidthRef.current = state.viewportWidth
-      viewportBaseHeightRef.current = state.baseHeight
-      const open = state.open
-      if (keyboardStateRef.current.open !== open || keyboardStateRef.current.inset !== state.inset) {
-        keyboardStateRef.current = { open, inset: state.inset }
+      const open = legacyState.open
+      if (keyboardStateRef.current.open !== open || keyboardStateRef.current.inset !== legacyState.inset) {
+        keyboardStateRef.current = { open, inset: legacyState.inset }
         setKeyboardOpen(open)
       }
-      const nextHeight = immersive
-        ? Math.round(viewportHeight || state.nextHeight || window.innerHeight || 0)
-        : state.nextHeight
       // model 模式：shell 高度由 normalize 的 snapshot 驱动（阶段3 唯一接管点）
       const modelMode = isMobileViewport && isViewportModelEnabled()
       const shadowOn = isMobileViewport && isViewportShadowEnabled()
-      // 反事实：旧机器在本 tick 会施加的高度。只喂 diff，绝不施加；
-      // 用独立 ref 而不是 appHeightNumRef，避免模型输出回流成旧机器输入（事故根因）
-      const legacyBase = legacyAppliedHeightRef.current || appHeightNumRef.current
-      const legacyHysteresisSkip =
-        isMobileViewport &&
-        legacyBase > 0 &&
-        (open ? Math.abs(nextHeight - legacyBase) < 48 : Math.abs(nextHeight - legacyBase) < 36)
-      const legacyCounterfactual = legacyHysteresisSkip ? legacyBase : nextHeight
+      // flag 热切（model on→off）边界：不 adopt 当前壳高，也不重建旧机器。
+      // 旧机器整段时间都在独立推进，它的 baseline 才是“旧代码此刻会用的”；
+      // 把模型壳高写回去等于重新引入 latch（open 时 446 当基线 → 124）。
+      // 代价仅是切回瞬间可能跳回旧高度，属 flag 关闭后旧行为的一部分。
+      // 反事实：旧机器在本 tick 会施加的高度（已含 36/48px 滞回）。只喂 diff，绝不施加。
+      const legacyCounterfactual = legacyState.height
       // 采样/归一每 tick 只跑一次：影子与施加共用同一份 snapshot
       const modelTick = (legacyShellHeight: number) => {
         try {
-          return getViewportShadow().tick({
+          const snapshot = getViewportShadow().tick({
             now: Math.round(performance.now()),
             composition: document.body.classList.contains('ime-composing'),
             enabled: modelMode || shadowOn,
@@ -553,11 +533,14 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
             legacy: {
               shellHeight: legacyShellHeight,
               keyboardOpen: open,
-              keyboardInset: state.inset,
-              baseHeight: viewportStableRef.current.stableClosedHeight || viewportBaseHeightRef.current,
-              viewportWidth: state.viewportWidth,
+              keyboardInset: legacyState.inset,
+              baseHeight: legacyState.closedBaseline || legacyState.baseHeight,
+              viewportWidth: legacyState.viewportWidth,
             },
           })
+          // env 代次只作重置触发信号，绝不把模型数值写进旧机器
+          if (snapshot) legacy.noteEnvGen(snapshot.envGen)
+          return snapshot
         } catch {
           return null
         }
@@ -577,35 +560,29 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         )
         return true
       }
+      const composing = document.body.classList.contains('ime-composing')
       if (modelMode) {
         const snapshot = modelTick(legacyCounterfactual)
         // 组合期照旧不施加，反事实一并冻结
-        if (document.body.classList.contains('ime-composing')) return
-        legacyAppliedHeightRef.current = legacyCounterfactual
+        if (composing) return
         const modelHeight = snapshot ? Math.round(snapshot.visibleRegion.height) : null
         if (modelHeight !== null) {
           applyHeight(modelHeight)
           return
         }
-        // 模型不可用（wire 抛错）时退回旧路径，绝不把 shell 冻死
+        // 模型不可用（wire 抛错）时退回旧路径：旧机器是独立推进的，
+        // 这里施加的就是它自己的反事实高度，不含任何模型输出
       }
-      if (document.body.classList.contains('ime-composing')) {
-        modelTick(appHeightNumRef.current)
+      if (composing) {
+        modelTick(legacyCounterfactual)
         return
       }
-      if (isMobileViewport && appHeightNumRef.current && !open && Math.abs(nextHeight - appHeightNumRef.current) < 36) {
-        modelTick(appHeightNumRef.current)
-        return
-      }
-      if (isMobileViewport && appHeightNumRef.current && open && Math.abs(nextHeight - appHeightNumRef.current) < 48) {
-        modelTick(appHeightNumRef.current)
-        return
-      }
-      applyHeight(nextHeight)
+      // 滞回已在机器内部完成（held = 保持上次高度），这里只负责写出
+      applyHeight(legacyCounterfactual)
       // 施加后再采样：legacy 侧记录的是“本 tick 实际生效的高度”
-      modelTick(nextHeight)
+      modelTick(legacyCounterfactual)
     })
-  }, [getViewportShadow])
+  }, [getLegacyViewport, getViewportShadow])
   // 影子重采样要能重新触发同步，但 scheduleViewportSync 不能引用自身（会破坏 useCallback 身份）
   useEffect(() => {
     scheduleViewportSyncRef.current = scheduleViewportSync
@@ -621,8 +598,10 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
       const nextValue = `${nextHeight}px`
       appHeightRef.current = nextValue
       appHeightNumRef.current = nextHeight
-      viewportBaseHeightRef.current = nextMobile ? nextHeight : 0
-      viewportStableRef.current = createViewportStableState(nextMobile ? nextHeight : 0)
+      // 环境边界的冷重置：旧机器的基线/宽度历史全部作废，下一 tick 从观测重新锚定
+      const legacySeed = nextMobile ? nextHeight : 0
+      if (legacyViewportRef.current) legacyViewportRef.current.reset(legacySeed)
+      else legacyViewportRef.current = createLegacyViewportMachine(legacySeed)
       setAppHeight(nextValue)
     }
     syncViewportMode()
