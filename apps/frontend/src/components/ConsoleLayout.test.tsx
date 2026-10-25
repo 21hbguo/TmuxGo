@@ -503,3 +503,91 @@ describe('ConsoleLayout viewport shadow wiring', () => {
     expect(fields).toContain('shellHeight')
   })
 })
+
+// 阶段3：model 模式只接管 shell 高度，其余全部保持旧路径
+describe('ConsoleLayout viewport model takeover', () => {
+  type ShadowWindow = typeof window & {
+    __tmuxgoMobileDiagnostics?: { events: Array<Record<string, unknown>> }
+  }
+  const events = (name: string) =>
+    ((window as ShadowWindow).__tmuxgoMobileDiagnostics?.events || []).filter((event) => event.event === name)
+  const appliedHeights = () => events('app-height').map((event) => event.height as number)
+  function stubViewport(vvHeight: number, layoutHeight = 768) {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation(() => ({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    })
+    Object.defineProperty(window, 'visualViewport', {
+      writable: true,
+      value: {
+        height: vvHeight,
+        width: 390,
+        offsetTop: 0,
+        offsetLeft: 0,
+        scale: 1,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    })
+    Object.defineProperty(window, 'innerHeight', { writable: true, value: layoutHeight })
+    Object.defineProperty(window, 'innerWidth', { writable: true, value: 390 })
+  }
+  const nextFrame = async (ms = 60) => {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, ms))
+    })
+  }
+  const resizeTo = async (vvHeight: number) => {
+    stubViewport(vvHeight)
+    await act(async () => {
+      window.dispatchEvent(new Event('resize'))
+      await new Promise((resolve) => setTimeout(resolve, 80))
+    })
+  }
+  beforeEach(() => {
+    window.localStorage.clear()
+    document.body.className = ''
+    window.localStorage.setItem('tmuxgo-debug-mobile', '1')
+    window.localStorage.setItem('tmuxgo-viewport-model', '1')
+    delete (window as ShadowWindow).__tmuxgoMobileDiagnostics
+    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' })
+  })
+  it('follows the visual viewport frame by frame instead of latched steps', async () => {
+    stubViewport(768)
+    const { container } = render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    await nextFrame()
+    for (const height of [658, 710, 768]) await resizeTo(height)
+    expect(appliedHeights().slice(-3)).toEqual([658, 710, 768])
+    const shell = container.querySelector('.tmuxgo-app-shell') as HTMLElement
+    expect(shell.style.height).toBe('768px')
+  })
+  it('applies the collapsed viewport without producing the historical 124px shell', async () => {
+    stubViewport(800, 800)
+    render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    await nextFrame()
+    await resizeTo(446)
+    const heights = appliedHeights()
+    expect(heights[heights.length - 1]).toBe(446)
+    for (const height of heights) expect(Math.abs(height - 124)).toBeGreaterThan(20)
+    // 旧机器仍按 800 施加，diff 记录的正是"切过去实际是什么 vs 旧机器会干什么"
+    const diff = events('viewport-shadow-diff').at(-1)
+    expect(diff?.appliedBy).toBe('model')
+    const fields = (diff?.fieldDiffs as Array<{ field: string; legacy: number; next: number }>) || []
+    const shell = fields.find((field) => field.field === 'shellHeight')
+    expect(shell).toMatchObject({ legacy: 800, next: 446 })
+  })
+  it('leaves the legacy path in charge when the flag is off', async () => {
+    window.localStorage.removeItem('tmuxgo-viewport-model')
+    stubViewport(800, 800)
+    const { container } = render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    await nextFrame()
+    await resizeTo(446)
+    // 旧机器把 vv 鸿沟 ≥120px 视为异常，继续按基线 800 施加（不跟随 vv）
+    const shell = container.querySelector('.tmuxgo-app-shell') as HTMLElement
+    expect(shell.style.height).toBe('800px')
+  })
+})

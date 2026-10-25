@@ -49,7 +49,12 @@ import {
   recordViewportShadowDiff,
   startMobileFlickerDiagnostics,
 } from '@/lib/mobile-diagnostics'
-import { createViewportShadowWire, isViewportShadowEnabled, type ViewportShadowWire } from '@/lib/viewportShadowWire'
+import {
+  createViewportShadowWire,
+  isViewportModelEnabled,
+  isViewportShadowEnabled,
+  type ViewportShadowWire,
+} from '@/lib/viewportShadowWire'
 import { useTranslation } from '@/i18n'
 import { readActiveHostId, readActiveSessionId } from '@/lib/console-device-state'
 import { FiX } from 'react-icons/fi'
@@ -197,6 +202,8 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   // 影子运行（阶段2）：只采样/比对/记录，不参与任何施加决策
   const viewportShadowRef = useRef<ViewportShadowWire | null>(null)
   const viewportShadowWakeRef = useRef<number | null>(null)
+  // 旧机器“如果接管”会施加的高度：model 模式下只喂 diff 反事实，绝不施加
+  const legacyAppliedHeightRef = useRef(0)
   const scheduleViewportSyncRef = useRef<() => void>(() => {})
   const mobileSessionLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mobileSessionLongPressFiredRef = useRef(false)
@@ -523,51 +530,80 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
       const nextHeight = immersive
         ? Math.round(viewportHeight || state.nextHeight || window.innerHeight || 0)
         : state.nextHeight
-      // 影子分支：在真实路径决定是否施加之后运行，无论是否施加都采样一次；
-      // legacyOutput 用“本次 tick 结束后实际生效的高度”，否则每次真实变化都会被记成 diff
-      const shadowTick = (appliedHeight: number) => {
+      // model 模式：shell 高度由 normalize 的 snapshot 驱动（阶段3 唯一接管点）
+      const modelMode = isMobileViewport && isViewportModelEnabled()
+      const shadowOn = isMobileViewport && isViewportShadowEnabled()
+      // 反事实：旧机器在本 tick 会施加的高度。只喂 diff，绝不施加；
+      // 用独立 ref 而不是 appHeightNumRef，避免模型输出回流成旧机器输入（事故根因）
+      const legacyBase = legacyAppliedHeightRef.current || appHeightNumRef.current
+      const legacyHysteresisSkip =
+        isMobileViewport &&
+        legacyBase > 0 &&
+        (open ? Math.abs(nextHeight - legacyBase) < 48 : Math.abs(nextHeight - legacyBase) < 36)
+      const legacyCounterfactual = legacyHysteresisSkip ? legacyBase : nextHeight
+      // 采样/归一每 tick 只跑一次：影子与施加共用同一份 snapshot
+      const modelTick = (legacyShellHeight: number) => {
         try {
-          getViewportShadow().tick({
+          return getViewportShadow().tick({
             now: Math.round(performance.now()),
             composition: document.body.classList.contains('ime-composing'),
-            enabled: isMobileViewport && isViewportShadowEnabled(),
+            enabled: modelMode || shadowOn,
+            record: shadowOn,
+            appliedBy: modelMode ? 'model' : 'legacy',
             legacy: {
-              shellHeight: appliedHeight,
+              shellHeight: legacyShellHeight,
               keyboardOpen: open,
               keyboardInset: state.inset,
               baseHeight: viewportStableRef.current.stableClosedHeight || viewportBaseHeightRef.current,
               viewportWidth: state.viewportWidth,
             },
           })
-        } catch {}
+        } catch {
+          return null
+        }
+      }
+      // 唯一施加出口：写 appHeight + 广播（与旧路径逐字等价）
+      const applyHeight = (height: number) => {
+        const nextValue = `${height}px`
+        if (appHeightRef.current === nextValue) return false
+        appHeightRef.current = nextValue
+        appHeightNumRef.current = height
+        recordMobileDebug('app-height', { height, open })
+        setAppHeight(nextValue)
+        window.dispatchEvent(
+          new CustomEvent('tmuxgo-layout-change', {
+            detail: { reason: 'viewport-sync', height, keyboardOpen: open, mobile: isMobileViewport },
+          }),
+        )
+        return true
+      }
+      if (modelMode) {
+        const snapshot = modelTick(legacyCounterfactual)
+        // 组合期照旧不施加，反事实一并冻结
+        if (document.body.classList.contains('ime-composing')) return
+        legacyAppliedHeightRef.current = legacyCounterfactual
+        const modelHeight = snapshot ? Math.round(snapshot.visibleRegion.height) : null
+        if (modelHeight !== null) {
+          applyHeight(modelHeight)
+          return
+        }
+        // 模型不可用（wire 抛错）时退回旧路径，绝不把 shell 冻死
       }
       if (document.body.classList.contains('ime-composing')) {
-        shadowTick(appHeightNumRef.current)
+        modelTick(appHeightNumRef.current)
         return
       }
       if (isMobileViewport && appHeightNumRef.current && !open && Math.abs(nextHeight - appHeightNumRef.current) < 36) {
-        shadowTick(appHeightNumRef.current)
+        modelTick(appHeightNumRef.current)
         return
       }
       if (isMobileViewport && appHeightNumRef.current && open && Math.abs(nextHeight - appHeightNumRef.current) < 48) {
-        shadowTick(appHeightNumRef.current)
+        modelTick(appHeightNumRef.current)
         return
       }
-      const nextValue = `${nextHeight}px`
-      if (appHeightRef.current === nextValue) {
-        shadowTick(nextHeight)
-        return
-      }
-      appHeightRef.current = nextValue
-      appHeightNumRef.current = nextHeight
-      recordMobileDebug('app-height', { height: nextHeight, open })
-      setAppHeight(nextValue)
-      window.dispatchEvent(
-        new CustomEvent('tmuxgo-layout-change', {
-          detail: { reason: 'viewport-sync', height: nextHeight, keyboardOpen: open, mobile: isMobileViewport },
-        }),
-      )
-      shadowTick(nextHeight)
+      applyHeight(nextHeight)
+      // 施加后再采样：legacy 侧记录的是“本 tick 实际生效的高度”
+      modelTick(nextHeight)
     })
   }, [getViewportShadow])
   // 影子重采样要能重新触发同步，但 scheduleViewportSync 不能引用自身（会破坏 useCallback 身份）

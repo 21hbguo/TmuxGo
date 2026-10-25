@@ -7,7 +7,13 @@
 //
 // Record hygiene: diffs carry numbers/phases/enums only (no DOM text, no
 // element handles), so a trace stays useful after desensitization.
-import type { KeyboardPhase, NormalizeResult, ViewportModelState, ViewportObservation } from './viewportContract'
+import type {
+  KeyboardPhase,
+  NormalizeResult,
+  ViewportModelState,
+  ViewportObservation,
+  ViewportSnapshot,
+} from './viewportContract'
 import { createViewportModelState } from './viewportContract'
 
 // V3's normalize(state, obs) — injected so this branch has no import edge to
@@ -51,6 +57,9 @@ export type ViewportShadowGeometry = {
 }
 
 export type ViewportShadowDiff = {
+  // Which path actually drives the shell this tick; set by the wiring layer.
+  // Absent = shadow-only run (legacy still owns the shell).
+  appliedBy?: 'model' | 'legacy'
   observedAt: number
   envGen: number
   phase: KeyboardPhase
@@ -91,6 +100,9 @@ export class ViewportShadowRunner {
   // Surfaced from the injected normalize result so the wiring layer can drive
   // its own resample timer without calling normalize a second time.
   private wakeAt: number | null = null
+  // Last model snapshot; lets the wiring layer apply the model without
+  // normalizing twice per tick.
+  private lastSnapshot: ViewportSnapshot | null = null
   private suppressedSinceRecord = 0
   private tickCount = 0
   private recordCount = 0
@@ -111,6 +123,10 @@ export class ViewportShadowRunner {
     return this.wakeAt
   }
 
+  get snapshot(): ViewportSnapshot | null {
+    return this.lastSnapshot
+  }
+
   get stats(): ViewportShadowStats {
     return { ticks: this.tickCount, records: this.recordCount, suppressed: this.suppressedCount }
   }
@@ -120,6 +136,7 @@ export class ViewportShadowRunner {
     this.lastMask = 0
     this.lastEmittedAt = Number.NEGATIVE_INFINITY
     this.wakeAt = null
+    this.lastSnapshot = null
     this.suppressedSinceRecord = 0
     this.tickCount = 0
     this.recordCount = 0
@@ -132,6 +149,7 @@ export class ViewportShadowRunner {
     const result = this.normalize(this.modelState, observation)
     this.modelState = result.state
     this.wakeAt = result.nextWakeAt
+    this.lastSnapshot = result.snapshot
     const snapshot = result.snapshot
     this.tickCount += 1
 
