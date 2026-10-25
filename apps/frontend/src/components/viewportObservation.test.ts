@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Rect } from './viewportContract'
-import { sampleViewportObservation, ViewportEnvTracker, type ViewportObservationContext } from './viewportObservation'
+import {
+  hasKeyboardOcclusionEvidence,
+  sampleViewportObservation,
+  ViewportEnvTracker,
+  type ViewportObservationContext,
+} from './viewportObservation'
 
 const ctx = (over: Partial<ViewportObservationContext> = {}): ViewportObservationContext => ({
   now: 1000,
@@ -207,5 +212,79 @@ describe('ViewportEnvTracker', () => {
     tracker.reset()
     expect(tracker.envGen).toBe(0)
     expect(tracker.sync()).toBe(0)
+  })
+})
+
+// --- F2: env identity must not be derived from keyboard-collapsible height ---
+function setScreenOrientationType(type: string | undefined) {
+  Object.defineProperty(screen, 'orientation', { value: type ? { type } : undefined, configurable: true })
+}
+
+afterEach(() => {
+  setScreenOrientationType(undefined)
+})
+
+describe('env identity vs keyboard height', () => {
+  it('does not forge an env switch when the keyboard collapses innerHeight only', () => {
+    setWindowSize(390, 800)
+    setVisualViewport({ width: 390, height: 800 })
+    const tracker = new ViewportEnvTracker()
+    expect(tracker.sync()).toBe(0)
+    // Chrome-style resize: keyboard shrinks the layout viewport too (800 → 300).
+    setWindowSize(390, 300)
+    setVisualViewport({ width: 390, height: 300 })
+    expect(tracker.sync()).toBe(0)
+    expect(tracker.resolvedOrientation).toBe('portrait')
+  })
+
+  it('still detects a real rotation while the keyboard is up', () => {
+    setWindowSize(390, 800)
+    setVisualViewport({ width: 390, height: 800 })
+    const tracker = new ViewportEnvTracker()
+    expect(tracker.sync()).toBe(0)
+    // Rotation: width changes, height shrinks and stays occluded.
+    setWindowSize(844, 390)
+    setVisualViewport({ width: 844, height: 200 })
+    expect(tracker.sync()).toBe(1)
+    expect(tracker.resolvedOrientation).toBe('landscape')
+    expect(tracker.envGen).toBe(1)
+  })
+
+  it('prefers screen.orientation over the aspect ratio', () => {
+    setWindowSize(800, 390)
+    setVisualViewport({ width: 800, height: 390 })
+    setScreenOrientationType('portrait-primary')
+    const tracker = new ViewportEnvTracker()
+    expect(tracker.sync()).toBe(0)
+    expect(tracker.resolvedOrientation).toBe('portrait')
+    // Height collapse must not change it while the screen still reports portrait.
+    setWindowSize(800, 200)
+    setVisualViewport({ width: 800, height: 200 })
+    expect(tracker.sync()).toBe(0)
+    expect(tracker.resolvedOrientation).toBe('portrait')
+  })
+
+  it('resolution helpers report keyboard occlusion evidence', () => {
+    setWindowSize(390, 800)
+    Object.defineProperty(window, 'visualViewport', { value: undefined, configurable: true })
+    expect(hasKeyboardOcclusionEvidence()).toBe(false)
+    setVisualViewport({ width: 390, height: 500 })
+    expect(hasKeyboardOcclusionEvidence()).toBe(true)
+    setVisualViewport({ width: 390, height: 780 })
+    expect(hasKeyboardOcclusionEvidence()).toBe(false)
+    setVirtualKeyboard({ overlaysContent: true, boundingRect: { height: 300 } })
+    expect(hasKeyboardOcclusionEvidence()).toBe(true)
+  })
+
+  it('lets the injected tracker orientation win over the stateless read', () => {
+    setWindowSize(800, 390)
+    expect(sampleViewportObservation(ctx({ orientation: 'portrait' })).orientation).toBe('portrait')
+    expect(sampleViewportObservation(ctx()).orientation).toBe('landscape')
+  })
+
+  it('reads orientation from screen.orientation in the stateless path', () => {
+    setWindowSize(800, 390)
+    setScreenOrientationType('portrait-secondary')
+    expect(sampleViewportObservation(ctx()).orientation).toBe('portrait')
   })
 })

@@ -229,3 +229,59 @@ describe('scrollAnchor and purity', () => {
     expect(plan.shell.height).toBe(800)
   })
 })
+
+// --- F2 guards: causation evidence + degenerate pane geometry ---
+describe('occlusion-only requires metric evidence', () => {
+  it('refits instead of keeping when the cell grew under the keyboard', () => {
+    // 同一形状（39 列、行数变少）但成因是字体行高变化：必须走真 refit
+    const plan = computeLayoutPlan(
+      input({
+        snapshot: keyboardOpen(500, 300),
+        cell: { width: 10, height: 25 },
+        prevCell: { width: 10, height: 20 },
+        currentGrid: { cols: 39, rows: 40 },
+      }),
+    )
+    expect(plan.terminal.targetGrid).toEqual({ cols: 39, rows: 20 })
+    expect(plan.requestRemoteResize).toEqual({ cols: 39, rows: 20 })
+  })
+
+  it('keeps the grid when the fingerprint proves the cell did not change', () => {
+    const plan = computeLayoutPlan(input({ snapshot: keyboardOpen(500, 300), prevCell: { width: 10, height: 20 } }))
+    expect(plan.terminal.targetGrid).toBe('keep')
+    expect(plan.requestRemoteResize).toBeNull()
+  })
+
+  it('honours a cell generation change and ignores an unchanged one', () => {
+    const changed = computeLayoutPlan(input({ snapshot: keyboardOpen(500, 300), cellGen: 4, prevCellGen: 3 }))
+    expect(changed.terminal.targetGrid).toEqual({ cols: 39, rows: 25 })
+    const same = computeLayoutPlan(input({ snapshot: keyboardOpen(500, 300), cellGen: 3, prevCellGen: 3 }))
+    expect(same.terminal.targetGrid).toBe('keep')
+  })
+
+  it('still keeps pure occlusion when no fingerprint is available (migration default)', () => {
+    const plan = computeLayoutPlan(input({ snapshot: keyboardOpen(500, 300) }))
+    expect(plan.terminal.targetGrid).toBe('keep')
+  })
+})
+
+describe('degenerate pane geometry', () => {
+  it('never claims a remote resize for a zero-width pane with a valid cell', () => {
+    const plan = computeLayoutPlan(input({ pane: { width: 0, height: 500 }, snapshot: keyboardOpen(500, 300) }))
+    expect(plan.terminal.targetGrid).toBe('keep')
+    expect(plan.requestRemoteResize).toBeNull()
+    // 仍然裁剪到可见区，而不是把远端网格缩成 2 列
+    expect(plan.terminal.clipTranslateY).toBe(300)
+  })
+
+  it('never refits a zero-width pane without occlusion either', () => {
+    const plan = computeLayoutPlan(input({ pane: { width: 0, height: 800 } }))
+    expect(plan.terminal.targetGrid).toBe('keep')
+    expect(plan.requestRemoteResize).toBeNull()
+  })
+
+  it('keeps refitting normally once the width is measured again', () => {
+    const plan = computeLayoutPlan(input({ pane: { width: 300, height: 800 } }))
+    expect(plan.requestRemoteResize).toEqual({ cols: 30, rows: 40 })
+  })
+})

@@ -28,6 +28,9 @@ export type ViewportObservationContext = {
   composition: boolean
   // Generation from ViewportEnvTracker at sample time; defaults to 0.
   envGen?: number
+  // Orientation resolved by ViewportEnvTracker (which can freeze it while an
+  // occlusion is present). Falls back to a stateless read when absent.
+  orientation?: ViewportObservation['orientation']
 }
 
 function getVirtualKeyboard(): VirtualKeyboardLike | undefined {
@@ -100,9 +103,67 @@ export function readInputOwner(): {
   return { inputOwner: 'none', keyboardIntent: false }
 }
 
-export function readOrientation(): ViewportObservation['orientation'] {
-  // Geometry-based: inner dims swap on rotation, and jsdom has no matchMedia.
-  return window.innerWidth > window.innerHeight ? 'landscape' : 'portrait'
+export type ViewportOrientation = ViewportObservation['orientation']
+
+// A layout viewport shorter by at least this much than the visual viewport's
+// available height is keyboard-sized occlusion, not browser chrome (same order
+// as the legacy keyboard-open threshold of 70px).
+export const ORIENTATION_FREEZE_INSET_PX = 70
+
+function readScreenOrientationType(): string | null {
+  // screen.orientation is not part of the jsdom DOM lib; treat it as optional.
+  const orientation = (screen as Screen & { orientation?: { type?: string } }).orientation
+  return typeof orientation?.type === 'string' ? orientation.type : null
+}
+
+function orientationFromScreenType(type: string | null): ViewportOrientation | null {
+  if (!type) return null
+  if (type.startsWith('portrait')) return 'portrait'
+  if (type.startsWith('landscape')) return 'landscape'
+  return null
+}
+
+// Keyboard-height evidence. The keyboard collapses the visual viewport (or
+// reports a visible virtual-keyboard rect) and/or holds an explicit input
+// intent; none of these can change the width.
+export function hasKeyboardOcclusionEvidence(): boolean {
+  const keyboard = readVirtualKeyboard()
+  if (keyboard.rect && keyboard.rect.height > 0) return true
+  const vv = readVisualViewport()
+  if (vv && window.innerHeight - vv.height >= ORIENTATION_FREEZE_INSET_PX) return true
+  return readInputOwner().keyboardIntent
+}
+
+// Environment identity must never be derived from a dimension the keyboard can
+// collapse. Precedence: screen.orientation (authoritative, keyboard-independent)
+// → frozen previous value when it cannot be a rotation (a rotation always
+// changes the viewport width, a keyboard never does; with no previous width,
+// occlusion evidence is enough) → raw aspect ratio as last resort.
+export function resolveOrientation(
+  signals: { width: number; height: number; screenType: string | null; occluded: boolean },
+  previous: ViewportOrientation | null,
+  previousWidth: number | null,
+): ViewportOrientation {
+  const fromScreen = orientationFromScreenType(signals.screenType)
+  if (fromScreen) return fromScreen
+  if (previous) {
+    if (previousWidth === null) {
+      if (signals.occluded) return previous
+    } else if (Math.round(previousWidth) === Math.round(signals.width)) {
+      return previous
+    }
+  }
+  return signals.width > signals.height ? 'landscape' : 'portrait'
+}
+
+// Stateless best effort (screen API first). Callers that can see occlusions
+// should use ViewportEnvTracker.sync(), which freezes the value instead.
+export function readOrientation(): ViewportOrientation {
+  return resolveOrientation(
+    { width: window.innerWidth, height: window.innerHeight, screenType: readScreenOrientationType(), occluded: false },
+    null,
+    null,
+  )
 }
 
 export function readFullscreen(): boolean {
@@ -123,7 +184,7 @@ export function sampleViewportObservation(ctx: ViewportObservationContext): View
     inputOwner,
     keyboardIntent,
     composition: ctx.composition,
-    orientation: readOrientation(),
+    orientation: ctx.orientation ?? readOrientation(),
     fullscreen: readFullscreen(),
     envGen: ctx.envGen ?? 0,
   }
@@ -132,20 +193,46 @@ export function sampleViewportObservation(ctx: ViewportObservationContext): View
 // Layout-environment identity: only these fields invalidate a baseline.
 export type ViewportEnv = {
   width: number
-  orientation: ViewportObservation['orientation']
+  orientation: ViewportOrientation
   fullscreen: boolean
 }
 
+// Raw signals for env resolution (orientation not yet decided).
+export type ViewportEnvSignals = {
+  width: number
+  height: number
+  screenType: string | null
+  fullscreen: boolean
+  occluded: boolean
+}
+
+export function readViewportEnvSignals(): ViewportEnvSignals {
+  return {
+    width: window.innerWidth,
+    height: window.innerHeight,
+    screenType: readScreenOrientationType(),
+    fullscreen: readFullscreen(),
+    occluded: hasKeyboardOcclusionEvidence(),
+  }
+}
+
 export function readViewportEnv(): ViewportEnv {
-  return { width: window.innerWidth, orientation: readOrientation(), fullscreen: readFullscreen() }
+  const signals = readViewportEnvSignals()
+  return {
+    width: signals.width,
+    orientation: resolveOrientation(signals, null, null),
+    fullscreen: signals.fullscreen,
+  }
 }
 
 // Pure tracker: callers feed it the current env (readViewportEnv() or their own
 // probe). The generation bumps only on width/orientation/fullscreen changes;
-// the first observation establishes the baseline without bumping.
+// the first observation establishes the baseline without bumping. Height-only
+// keyboard collapse changes neither, so it cannot forge an env switch.
 export class ViewportEnvTracker {
   private gen: number
   private env: ViewportEnv | null = null
+  private orientation: ViewportOrientation | null = null
 
   constructor(initialGen = 0) {
     this.gen = initialGen
@@ -153,6 +240,12 @@ export class ViewportEnvTracker {
 
   get envGen(): number {
     return this.gen
+  }
+
+  // Last resolved orientation (frozen across occlusions), for reuse by the
+  // observation sampler so both agree on one env identity.
+  get resolvedOrientation(): ViewportOrientation | null {
+    return this.orientation
   }
 
   update(env: ViewportEnv): number {
@@ -165,16 +258,21 @@ export class ViewportEnvTracker {
     )
       this.gen += 1
     this.env = next
+    this.orientation = next.orientation
     return this.gen
   }
 
-  // observe + track in one step for wiring convenience.
-  sync(env: ViewportEnv = readViewportEnv()): number {
-    return this.update(env)
+  // observe + track in one step for wiring convenience; resolves orientation
+  // with occlusion-aware freezing before bumping the generation.
+  sync(signals: ViewportEnvSignals = readViewportEnvSignals()): number {
+    const previousWidth = this.env?.width ?? null
+    this.orientation = resolveOrientation(signals, this.orientation, previousWidth)
+    return this.update({ width: signals.width, orientation: this.orientation, fullscreen: signals.fullscreen })
   }
 
   reset(initialGen = 0): void {
     this.gen = initialGen
     this.env = null
+    this.orientation = null
   }
 }
