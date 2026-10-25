@@ -7,6 +7,16 @@
 //
 // Record hygiene: diffs carry numbers/phases/enums only (no DOM text, no
 // element handles), so a trace stays useful after desensitization.
+//
+// Three semantics that must not lie (architecture review §7):
+// - Dedupe identity is the full comparison state (both sides' values, phase,
+//   envGen, appliedBy), not just the model side: a legacy value that moves
+//   while the model stays put is a new observation, not a repeat.
+// - A phase that is not settled ('opening'/'closing'/'unknown') must not be
+//   projected to a boolean and counted as agreement; keyboardOpen is simply
+//   incomparable then, and the raw phase travels in the record.
+// - Divergence → agreement is an event of its own ('recover'), so a trace can
+//   measure how long a disagreement lasted instead of only seeing its start.
 import type {
   KeyboardPhase,
   NormalizeResult,
@@ -56,16 +66,31 @@ export type ViewportShadowGeometry = {
   baseline: number | null
 }
 
+export type ViewportShadowRecordKind = 'diff' | 'recover'
+export type ViewportShadowAppliedBy = 'model' | 'legacy'
+
 export type ViewportShadowDiff = {
-  // Which path actually drives the shell this tick; set by the wiring layer.
-  // Absent = shadow-only run (legacy still owns the shell).
-  appliedBy?: 'model' | 'legacy'
+  // 'diff' = divergence record, 'recover' = the divergence ended. Absent is
+  // read as 'diff' so records written before this field stay valid.
+  kind?: ViewportShadowRecordKind
+  // Which path actually drives the shell this tick; set by the wiring layer
+  // (or passed to tick()). Absent = shadow-only run (legacy owns the shell).
+  appliedBy?: ViewportShadowAppliedBy
   observedAt: number
   envGen: number
+  // Raw model phase — keep the original value for coverage/unknown accounting.
   phase: KeyboardPhase
   fieldDiffs: ViewportShadowFieldDiff[]
+  // Fields whose comparison was skipped this tick because the evidence cannot
+  // decide them (keyboardOpen while the phase is transitional or unknown).
+  // Never counted as agreement or divergence.
+  incomparable?: ViewportShadowField[]
   // Divergent ticks suppressed by the dedupe window before this record.
   suppressed: number
+  // 'recover' only: wall time since the first divergent tick, and how many
+  // ticks were divergent in that span.
+  durationMs?: number
+  divergentTicks?: number
   geometry: ViewportShadowGeometry
 }
 
@@ -79,10 +104,11 @@ export type ViewportShadowOptions = {
   state?: ViewportModelState
 }
 
-export type ViewportShadowStats = { ticks: number; records: number; suppressed: number }
+export type ViewportShadowStats = { ticks: number; records: number; suppressed: number; recovers: number }
 
 const FIELDS: ViewportShadowField[] = ['shellHeight', 'keyboardOpen', 'keyboardInset', 'baseHeight', 'viewportWidth']
 const FIELD_COUNT = FIELDS.length
+const FIELD_KEYBOARD_OPEN = 1
 const DEFAULT_TOLERANCE_PX = 1
 const DEFAULT_MIN_INTERVAL_MS = 1000
 
@@ -94,9 +120,19 @@ export class ViewportShadowRunner {
   // Reused scratch buffers keep the agreeing (common) path allocation-free.
   private readonly legacyScratch: (number | boolean | null)[] = new Array(FIELD_COUNT).fill(null)
   private readonly nextScratch: (number | boolean | null)[] = new Array(FIELD_COUNT).fill(null)
-  private readonly lastEmitted: (number | boolean | null)[] = new Array(FIELD_COUNT).fill(null)
+  // Last *recorded* comparison identity (both sides, phase, env, appliedBy).
+  private readonly lastLegacy: (number | boolean | null)[] = new Array(FIELD_COUNT).fill(null)
+  private readonly lastNext: (number | boolean | null)[] = new Array(FIELD_COUNT).fill(null)
   private lastMask = 0
+  private lastPhase: KeyboardPhase | null = null
+  private lastEnvGen: number | null = null
+  private lastAppliedBy: ViewportShadowAppliedBy | null = null
   private lastEmittedAt = Number.NEGATIVE_INFINITY
+  private incomparableMask = 0
+  // Divergence episode state (start time + tick count) for recover records.
+  private divergenceActive = false
+  private divergenceStartedAt = 0
+  private divergentTicks = 0
   // Surfaced from the injected normalize result so the wiring layer can drive
   // its own resample timer without calling normalize a second time.
   private wakeAt: number | null = null
@@ -107,6 +143,7 @@ export class ViewportShadowRunner {
   private tickCount = 0
   private recordCount = 0
   private suppressedCount = 0
+  private recoverCount = 0
 
   constructor(options: ViewportShadowOptions) {
     this.normalize = options.normalize
@@ -128,24 +165,43 @@ export class ViewportShadowRunner {
   }
 
   get stats(): ViewportShadowStats {
-    return { ticks: this.tickCount, records: this.recordCount, suppressed: this.suppressedCount }
+    return {
+      ticks: this.tickCount,
+      records: this.recordCount,
+      suppressed: this.suppressedCount,
+      recovers: this.recoverCount,
+    }
   }
 
   reset(state: ViewportModelState = createViewportModelState()): void {
     this.modelState = state
     this.lastMask = 0
+    this.lastPhase = null
+    this.lastEnvGen = null
+    this.lastAppliedBy = null
     this.lastEmittedAt = Number.NEGATIVE_INFINITY
+    this.incomparableMask = 0
+    this.divergenceActive = false
+    this.divergenceStartedAt = 0
+    this.divergentTicks = 0
     this.wakeAt = null
     this.lastSnapshot = null
     this.suppressedSinceRecord = 0
     this.tickCount = 0
     this.recordCount = 0
     this.suppressedCount = 0
+    this.recoverCount = 0
   }
 
   // One sample: advance the model, compare against legacy output, and return a
-  // diff only when something diverged (null on agreement / throttled repeats).
-  tick(observation: ViewportObservation, legacy: LegacyViewportOutput): ViewportShadowDiff | null {
+  // record only on a divergence (or the recover edge that closes one).
+  // `appliedBy` optionally joins the dedupe identity; the wiring layer sets it
+  // when the model actually drives the shell.
+  tick(
+    observation: ViewportObservation,
+    legacy: LegacyViewportOutput,
+    appliedBy?: ViewportShadowAppliedBy,
+  ): ViewportShadowDiff | null {
     const result = this.normalize(this.modelState, observation)
     this.modelState = result.state
     this.wakeAt = result.nextWakeAt
@@ -155,29 +211,32 @@ export class ViewportShadowRunner {
 
     const mask = this.compareAgainstLegacy(legacy, snapshot)
     if (mask === 0) {
-      // Back in agreement: the next divergence is a fresh event.
-      this.lastMask = 0
-      this.suppressedSinceRecord = 0
-      return null
+      if (!this.divergenceActive) {
+        // Steady agreement: zero allocation, nothing to report.
+        this.lastMask = 0
+        this.suppressedSinceRecord = 0
+        return null
+      }
+      return this.buildRecover(observation, snapshot, appliedBy)
     }
-    if (this.isDuplicate(mask, observation.now)) {
+
+    if (!this.divergenceActive) {
+      this.divergenceActive = true
+      this.divergenceStartedAt = observation.now
+      this.divergentTicks = 0
+    }
+    this.divergentTicks += 1
+
+    if (this.isDuplicate(mask, snapshot.keyboardPhase, observation.envGen, appliedBy, observation.now)) {
       this.suppressedSinceRecord += 1
       this.suppressedCount += 1
       return null
     }
 
     const fieldDiffs = this.collectDiffs(mask)
-    this.lastMask = mask
-    this.lastEmittedAt = observation.now
+    this.captureIdentity(mask, snapshot.keyboardPhase, observation.envGen, appliedBy, observation.now)
     this.recordCount += 1
-    const diff: ViewportShadowDiff = {
-      observedAt: observation.now,
-      envGen: observation.envGen,
-      phase: snapshot.keyboardPhase,
-      fieldDiffs,
-      suppressed: this.suppressedSinceRecord,
-      geometry: buildGeometry(observation, snapshot, this.modelState),
-    }
+    const diff = this.buildRecord('diff', observation, snapshot, fieldDiffs, appliedBy)
     this.suppressedSinceRecord = 0
     return diff
   }
@@ -185,11 +244,21 @@ export class ViewportShadowRunner {
   // Fills scratch buffers and returns a bitmask of divergent fields.
   private compareAgainstLegacy(legacy: LegacyViewportOutput, snapshot: NormalizeResult['snapshot']): number {
     let mask = 0
-    mask = this.setField(0, mask, legacy.shellHeight, snapshot.visibleRegion.height)
-    mask = this.setField(1, mask, legacy.keyboardOpen, isOpenPhase(snapshot.keyboardPhase))
-    mask = this.setField(2, mask, legacy.keyboardInset, snapshot.occlusion.height)
-    mask = this.setField(3, mask, legacy.baseHeight, snapshot.fullLayoutSpace ? snapshot.fullLayoutSpace.height : null)
-    mask = this.setField(4, mask, legacy.viewportWidth, snapshot.visibleRegion.width)
+    this.incomparableMask = 0
+    mask = this.setField(0, mask, legacy.shellHeight, snapshot.visibleRegion.height, true)
+    // A phase that is not settled cannot decide the boolean: transitional
+    // (opening/closing) or unknown means "not comparable", not "false".
+    const openProjection = phaseToKeyboardOpen(snapshot.keyboardPhase)
+    mask = this.setField(FIELD_KEYBOARD_OPEN, mask, legacy.keyboardOpen, openProjection, openProjection !== null)
+    mask = this.setField(2, mask, legacy.keyboardInset, snapshot.occlusion.height, true)
+    mask = this.setField(
+      3,
+      mask,
+      legacy.baseHeight,
+      snapshot.fullLayoutSpace ? snapshot.fullLayoutSpace.height : null,
+      true,
+    )
+    mask = this.setField(4, mask, legacy.viewportWidth, snapshot.visibleRegion.width, true)
     return mask
   }
 
@@ -198,23 +267,57 @@ export class ViewportShadowRunner {
     mask: number,
     legacyValue: number | boolean | undefined,
     nextValue: number | boolean | null,
+    comparable: boolean,
   ): number {
     const known = legacyValue !== undefined
     this.legacyScratch[index] = known ? legacyValue : null
     this.nextScratch[index] = nextValue
-    // Unknown on the legacy side is not a divergence.
     if (!known) return mask
+    if (!comparable) {
+      this.incomparableMask |= 1 << index
+      return mask
+    }
     return valuesDiffer(legacyValue, nextValue, this.tolerancePx) ? mask | (1 << index) : mask
   }
 
-  private isDuplicate(mask: number, now: number): boolean {
-    if (mask !== this.lastMask) return false
+  // Identity = mask + both sides' values + phase + envGen + appliedBy. Legacy
+  // values are part of it on purpose: a moving legacy baseline with a still
+  // model is a new observation, not a repeat.
+  private isDuplicate(
+    mask: number,
+    phase: KeyboardPhase,
+    envGen: number,
+    appliedBy: ViewportShadowAppliedBy | undefined,
+    now: number,
+  ): boolean {
+    if (
+      mask !== this.lastMask ||
+      phase !== this.lastPhase ||
+      envGen !== this.lastEnvGen ||
+      (appliedBy ?? null) !== this.lastAppliedBy
+    )
+      return false
     if (now - this.lastEmittedAt >= this.minIntervalMs) return false
     for (let i = 0; i < FIELD_COUNT; i += 1) {
       if (!(mask & (1 << i))) continue
-      if (valuesDiffer(this.lastEmitted[i], this.nextScratch[i], this.tolerancePx)) return false
+      if (valuesDiffer(this.lastNext[i], this.nextScratch[i], this.tolerancePx)) return false
+      if (valuesDiffer(this.lastLegacy[i], this.legacyScratch[i], this.tolerancePx)) return false
     }
     return true
+  }
+
+  private captureIdentity(
+    mask: number,
+    phase: KeyboardPhase,
+    envGen: number,
+    appliedBy: ViewportShadowAppliedBy | undefined,
+    now: number,
+  ): void {
+    this.lastMask = mask
+    this.lastPhase = phase
+    this.lastEnvGen = envGen
+    this.lastAppliedBy = appliedBy ?? null
+    this.lastEmittedAt = now
   }
 
   // Allocation happens only on the record path.
@@ -222,24 +325,82 @@ export class ViewportShadowRunner {
     const diffs: ViewportShadowFieldDiff[] = []
     for (let i = 0; i < FIELD_COUNT; i += 1) {
       if (!(mask & (1 << i))) continue
-      const legacyValue = this.legacyScratch[i]
-      const nextValue = this.nextScratch[i]
-      this.lastEmitted[i] = nextValue
-      diffs.push({
-        field: FIELDS[i],
-        legacy: legacyValue,
-        next: nextValue,
-        delta:
-          typeof legacyValue === 'number' && typeof nextValue === 'number' ? Math.round(nextValue - legacyValue) : null,
-      })
+      diffs.push(this.fieldDiff(i))
+      this.lastLegacy[i] = this.legacyScratch[i]
+      this.lastNext[i] = this.nextScratch[i]
     }
     return diffs
   }
+
+  private fieldDiff(index: number): ViewportShadowFieldDiff {
+    const legacyValue = this.legacyScratch[index]
+    const nextValue = this.nextScratch[index]
+    return {
+      field: FIELDS[index],
+      legacy: legacyValue,
+      next: nextValue,
+      delta:
+        typeof legacyValue === 'number' && typeof nextValue === 'number' ? Math.round(nextValue - legacyValue) : null,
+    }
+  }
+
+  private buildRecord(
+    kind: ViewportShadowRecordKind,
+    observation: ViewportObservation,
+    snapshot: ViewportSnapshot,
+    fieldDiffs: ViewportShadowFieldDiff[],
+    appliedBy?: ViewportShadowAppliedBy,
+  ): ViewportShadowDiff {
+    const record: ViewportShadowDiff = {
+      kind,
+      observedAt: observation.now,
+      envGen: observation.envGen,
+      phase: snapshot.keyboardPhase,
+      fieldDiffs,
+      suppressed: this.suppressedSinceRecord,
+      geometry: buildGeometry(observation, snapshot, this.modelState),
+    }
+    if (appliedBy) record.appliedBy = appliedBy
+    if (this.incomparableMask !== 0) record.incomparable = maskedFields(this.incomparableMask)
+    return record
+  }
+
+  // Divergence closed: emit the edge record with the final (now agreeing)
+  // values for the fields that were divergent, plus how long it lasted.
+  private buildRecover(
+    observation: ViewportObservation,
+    snapshot: ViewportSnapshot,
+    appliedBy: ViewportShadowAppliedBy | undefined,
+  ): ViewportShadowDiff {
+    const fieldDiffs: ViewportShadowFieldDiff[] = []
+    for (let i = 0; i < FIELD_COUNT; i += 1) if (this.lastMask & (1 << i)) fieldDiffs.push(this.fieldDiff(i))
+    const record = this.buildRecord('recover', observation, snapshot, fieldDiffs, appliedBy)
+    record.durationMs = Math.max(0, observation.now - this.divergenceStartedAt)
+    record.divergentTicks = this.divergentTicks
+    this.divergenceActive = false
+    this.divergentTicks = 0
+    this.divergenceStartedAt = 0
+    this.lastMask = 0
+    this.lastPhase = null
+    this.lastEnvGen = null
+    this.lastAppliedBy = null
+    this.suppressedSinceRecord = 0
+    this.recoverCount += 1
+    return record
+  }
 }
 
-function isOpenPhase(phase: KeyboardPhase): boolean {
-  // 'opening' still means "keyboard is up" as far as legacy booleans concern.
-  return phase === 'open' || phase === 'opening'
+// Only settled phases prove a boolean; transitional and unknown ones do not.
+function phaseToKeyboardOpen(phase: KeyboardPhase): boolean | null {
+  if (phase === 'open') return true
+  if (phase === 'closed') return false
+  return null
+}
+
+function maskedFields(mask: number): ViewportShadowField[] {
+  const fields: ViewportShadowField[] = []
+  for (let i = 0; i < FIELD_COUNT; i += 1) if (mask & (1 << i)) fields.push(FIELDS[i])
+  return fields
 }
 
 function valuesDiffer(a: number | boolean | null, b: number | boolean | null, tolerancePx: number): boolean {
