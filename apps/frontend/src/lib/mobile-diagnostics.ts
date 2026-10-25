@@ -334,6 +334,8 @@ export function startMobileFlickerDiagnostics() {
 // components/viewportShadow.ts; keep the two in sync.
 export const VIEWPORT_SHADOW_DIFF_EVENT = 'viewport-shadow-diff'
 export type ViewportShadowDiffRecord = {
+  // 'model' = the new model drives the shell this run, 'legacy' = shadow-only.
+  appliedBy?: 'model' | 'legacy'
   observedAt: number
   envGen: number
   phase: string

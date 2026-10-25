@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VIEWPORT_SHADOW_DIFF_EVENT } from './mobile-diagnostics'
 import {
   createViewportShadowWire,
+  isViewportModelEnabled,
   isViewportShadowEnabled,
+  VIEWPORT_MODEL_SWITCH_KEY,
   VIEWPORT_SHADOW_SWITCH_KEY,
   type ViewportShadowWireOptions,
 } from './viewportShadowWire'
@@ -59,6 +61,7 @@ function makeWire(over: ViewportShadowWireOptions = {}) {
 beforeEach(() => {
   stubViewport(768)
   window.localStorage.removeItem(VIEWPORT_SHADOW_SWITCH_KEY)
+  window.localStorage.removeItem(VIEWPORT_MODEL_SWITCH_KEY)
   window.history.replaceState(null, '', '/')
 })
 
@@ -67,6 +70,7 @@ afterEach(() => {
   vi.useRealTimers()
   window.localStorage.removeItem('tmuxgo-debug-mobile')
   window.localStorage.removeItem(VIEWPORT_SHADOW_SWITCH_KEY)
+  window.localStorage.removeItem(VIEWPORT_MODEL_SWITCH_KEY)
   delete (window as DiagnosticWindow).__tmuxgoMobileDiagnostics
   Reflect.deleteProperty(window, 'visualViewport')
   document.body.innerHTML = ''
@@ -174,5 +178,58 @@ describe('viewport shadow wire — failure isolation', () => {
     expect(() => wire.tick({ now: 1000, composition: false, enabled: true, legacy })).not.toThrow()
     expect(() => wire.tick({ now: 1100, composition: false, enabled: true, legacy })).not.toThrow()
     expect(warn).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('viewport model flag', () => {
+  it('defaults to off and needs an explicit opt-in', () => {
+    expect(isViewportModelEnabled()).toBe(false)
+    window.localStorage.setItem(VIEWPORT_MODEL_SWITCH_KEY, '0')
+    expect(isViewportModelEnabled()).toBe(false)
+    window.localStorage.setItem(VIEWPORT_MODEL_SWITCH_KEY, '1')
+    expect(isViewportModelEnabled()).toBe(true)
+    window.localStorage.removeItem(VIEWPORT_MODEL_SWITCH_KEY)
+    window.history.replaceState(null, '', '/?viewport-model=1')
+    expect(isViewportModelEnabled()).toBe(true)
+    window.history.replaceState(null, '', '/?viewport-model=0')
+    expect(isViewportModelEnabled()).toBe(false)
+  })
+})
+
+describe('viewport shadow wire — model snapshot handoff', () => {
+  it('returns the snapshot the caller should apply, from a single normalize per tick', () => {
+    stubViewport(446)
+    let calls = 0
+    const { wire } = makeWire({
+      normalize: (state, obs) => {
+        calls += 1
+        return {
+          state,
+          snapshot: {
+            fullLayoutSpace: { width: 390, height: 768 },
+            visibleRegion: { width: 390, height: 446, offsetTop: 0 },
+            occlusion: { height: 322, trusted: false, source: 'inferred' },
+            keyboardPhase: 'closed',
+            envGen: obs.envGen,
+            measuredAt: obs.now,
+          },
+          nextWakeAt: null,
+        }
+      },
+    })
+    const snapshot = wire.tick({ now: 1000, composition: false, enabled: true, legacy })
+    expect(snapshot?.visibleRegion.height).toBe(446)
+    expect(calls).toBe(1)
+    expect(wire.stats.ticks).toBe(1)
+  })
+
+  it('keeps sampling when recording is off, and tags diffs with the applied path', () => {
+    stubViewport(446)
+    const { wire, diffs } = makeWire()
+    wire.tick({ now: 1000, composition: false, enabled: true, record: false, legacy })
+    expect(wire.stats.ticks).toBe(1)
+    expect(diffs).toEqual([])
+    wire.tick({ now: 3000, composition: false, enabled: true, appliedBy: 'model', legacy })
+    expect(diffs[0].appliedBy).toBe('model')
   })
 })
