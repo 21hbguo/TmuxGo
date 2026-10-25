@@ -101,7 +101,14 @@ export function createViewportShadowWire(options: ViewportShadowWireOptions = {}
       if (!enabled) return null
       try {
         const envGen = tracker.sync()
-        const observation = sampleViewportObservation({ now, composition, envGen })
+        // Orientation comes from the tracker so the observation and envGen agree
+        // on one identity (the tracker can freeze it while an occlusion is up).
+        const observation = sampleViewportObservation({
+          now,
+          composition,
+          envGen,
+          orientation: tracker.resolvedOrientation ?? undefined,
+        })
         const diff = runner.tick(observation, legacy)
         if (diff && record) onDiff({ ...diff, appliedBy })
         const wakeAt = runner.nextWakeAt

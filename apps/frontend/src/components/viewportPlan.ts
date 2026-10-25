@@ -21,6 +21,12 @@ export type LayoutPlanInput = {
   scrollAtBottom?: boolean
   // 余量填充策略；缺省按余量大小推断，见 computeLayoutPlan 内注释
   remainderFill?: LayoutRemainderFill
+  // 度量指纹：本次 cell 与上次计划所用 cell 的对应关系。纯遮挡与「键盘下字体
+  // 行高变化」在结果形状上完全同形（列数不变、行数变少），因此不能靠形状反推
+  // 成因，必须由调用方提供前后度量证据。缺省时沿用旧形状推断（迁移期兼容）。
+  prevCell?: { width: number; height: number }
+  cellGen?: number
+  prevCellGen?: number
 }
 
 // 与 terminal-layout 的 fit 保底一致：至少 2 列 1 行，避免 0 尺寸网格下发
@@ -29,6 +35,18 @@ const MIN_ROWS = 1
 
 // 几何输入来自 DOM 采样，NaN/负值不能扩散成 NaN 网格
 const positive = (value: number) => (Number.isFinite(value) && value > 0 ? value : 0)
+
+const CELL_EPSILON = 0.01
+const sameCell = (a: { width: number; height: number }, b: { width: number; height: number }) =>
+  Math.abs(a.width - b.width) <= CELL_EPSILON && Math.abs(a.height - b.height) <= CELL_EPSILON
+
+// 度量是否变过。指纹优先级：具体尺寸 > 代次 > 未知。未知按「没变」处理，保持
+// 迁移期旧行为（未接线前没有第二份度量可对比）。
+function didCellChange(input: LayoutPlanInput): boolean {
+  if (input.prevCell) return !sameCell(input.prevCell, input.cell)
+  if (input.cellGen !== undefined && input.prevCellGen !== undefined) return input.cellGen !== input.prevCellGen
+  return false
+}
 
 function fitGrid(
   width: number,
@@ -58,16 +76,22 @@ export function computeLayoutPlan(input: LayoutPlanInput): LayoutPlan {
   const cellHeight = positive(cell.height)
   const fit = fitGrid(pane.width, visibleHeight, cell)
   const gridChanged = fit != null && (fit.cols !== currentGrid.cols || fit.rows !== currentGrid.rows)
-  // 纯高度遮挡：列数不变、行数变少、且确有遮挡来源。此时必须保住网格——
-  // refit 会把最后可见行挤出裁剪窗口（prompt 行下跳/被裁），改由 clipTranslateY
-  // 底锚裁剪把 canvas 上移，使最后一行留在底边
+  // 纯高度遮挡：列数不变、行数变少、确有遮挡来源，且度量指纹证明 cell 没变。
+  // 此时必须保住网格——refit 会把最后可见行挤出裁剪窗口（prompt 行下跳/被裁），
+  // 改由 clipTranslateY 底锚裁剪把 canvas 上移，使最后一行留在底边。
+  // 结果形状不能证明成因：键盘下字体行高变高（10×20→10×25）同样会得到「列数不
+  // 变、行数变少」，若误判为纯遮挡就会把真实的行数变化 keep 掉。因此 cell 变过时
+  // 一律走真 refit（keep 由 gridChanged 自然决定）。
+  const cellChanged = didCellChange(input)
   const occlusionOnly =
-    fit != null && occludedHeight > 0 && fit.cols === currentGrid.cols && fit.rows < currentGrid.rows
+    fit != null && occludedHeight > 0 && fit.cols === currentGrid.cols && fit.rows < currentGrid.rows && !cellChanged
   // 共享端服从远端协议尺寸：本地网格由 sharedSize 决定，永不本地 refit、也永不
   // 申请远端 resize；独占端的真网格变化（宽度/字体/分屏/高度增长）才重算。
-  // 可见区为 0（应用不可见/几何缺失）时禁止 refit：否则 floor(0/cell) 会把远端
-  // 窗口缩成 1 行，这种退化状态只允许裁剪，等观测恢复后再重算
-  const canRefit = fit != null && visibleHeight > 0 && cellHeight > 0
+  // 可见区/宽度为 0（应用不可见、几何缺失、pane 尚未测量）时禁止 refit：否则
+  // floor(0/cell) 会被 MIN_COLS 兜成 2 列，把远端窗口缩成 2×N，这种退化状态只
+  // 允许裁剪，等观测恢复后再重算
+  const paneWidth = positive(pane.width)
+  const canRefit = fit != null && paneWidth > 0 && visibleHeight > 0 && cellHeight > 0
   const targetGrid: LayoutPlan['terminal']['targetGrid'] =
     canRefit && ownership === 'exclusive' && gridChanged && !occlusionOnly ? { cols: fit.cols, rows: fit.rows } : 'keep'
   const plannedRows = targetGrid === 'keep' ? currentGrid.rows : targetGrid.rows
