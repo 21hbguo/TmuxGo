@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { VIEWPORT_SHADOW_DIFF_EVENT } from './mobile-diagnostics'
+import { VIEWPORT_SHADOW_DIFF_EVENT, VIEWPORT_SHADOW_SUMMARY_EVENT } from './mobile-diagnostics'
 import {
   createViewportShadowWire,
   isViewportModelEnabled,
@@ -231,5 +231,72 @@ describe('viewport shadow wire — model snapshot handoff', () => {
     expect(diffs).toEqual([])
     wire.tick({ now: 3000, composition: false, enabled: true, appliedBy: 'model', legacy })
     expect(diffs[0].appliedBy).toBe('model')
+  })
+
+  describe('viewport shadow wire — coverage summary', () => {
+    it('emits a periodic summary with the agreement denominator', () => {
+      const summaries: Parameters<NonNullable<ViewportShadowWireOptions['onSummary']>>[0][] = []
+      const { wire } = makeWire({ onSummary: (summary) => summaries.push(summary), summaryIntervalMs: 1000 })
+      // 两个一致 tick、一个分歧 tick，然后在窗口到期时收一条摘要
+      wire.tick({ now: 1000, composition: false, enabled: true, legacy })
+      wire.tick({ now: 1100, composition: false, enabled: true, legacy })
+      stubViewport(446)
+      wire.tick({ now: 1200, composition: false, enabled: true, legacy })
+      expect(summaries).toEqual([])
+      wire.tick({ now: 2100, composition: false, enabled: true, legacy })
+      expect(summaries).toHaveLength(1)
+      expect(summaries[0]).toMatchObject({ ticks: 4, diverged: 1, appliedBy: 'legacy', reason: 'interval' })
+      expect(summaries[0].agreed + summaries[0].inconclusive + summaries[0].diverged + summaries[0].suppressions).toBe(
+        summaries[0].ticks,
+      )
+      // 窗口含触发这次摘要的 tick（1000 → 2100）
+      expect(summaries[0].sessionCoverage.spanMs).toBe(1100)
+    })
+
+    it('counts a throwing tick as a failure instead of a silent gap', () => {
+      const summaries: Parameters<NonNullable<ViewportShadowWireOptions['onSummary']>>[0][] = []
+      const boom = () => {
+        throw new Error('sampler down')
+      }
+      const { wire } = makeWire({ onSummary: (summary) => summaries.push(summary), normalize: boom })
+      wire.tick({ now: 1000, composition: false, enabled: true, legacy })
+      wire.flush(1200)
+      expect(summaries).toHaveLength(1)
+      expect(summaries[0]).toMatchObject({ ticks: 1, failed: 1, agreed: 0 })
+    })
+
+    it('also emits on a tick budget so a busy viewport never goes unreported', () => {
+      const summaries: Parameters<NonNullable<ViewportShadowWireOptions['onSummary']>>[0][] = []
+      const { wire } = makeWire({ onSummary: (summary) => summaries.push(summary), summaryTickInterval: 3 })
+      for (let i = 0; i < 3; i += 1) wire.tick({ now: 1000 + i, composition: false, enabled: true, legacy })
+      expect(summaries).toHaveLength(1)
+      expect(summaries[0]).toMatchObject({ ticks: 3, reason: 'ticks' })
+    })
+
+    it('flushes on teardown and counts nothing while disabled', () => {
+      const summaries: Parameters<NonNullable<ViewportShadowWireOptions['onSummary']>>[0][] = []
+      const { wire } = makeWire({ onSummary: (summary) => summaries.push(summary) })
+      wire.tick({ now: 1000, composition: false, enabled: false, legacy })
+      // 没有样本的 flush 不发：空摘要会把「还没跑」说成「跑过了」
+      wire.flush(1000)
+      expect(summaries).toEqual([])
+      wire.tick({ now: 1100, composition: false, enabled: true, appliedBy: 'model', legacy })
+      wire.flush(1200)
+      expect(summaries).toHaveLength(1)
+      expect(summaries[0]).toMatchObject({ ticks: 1, appliedBy: 'model', reason: 'flush' })
+    })
+
+    it('records the summary event without the debug switch', () => {
+      // 没开 debug 时 diff 会被丢弃，摘要必须留下来，否则「无分歧」和「没运行」仍然不可分
+      expect(window.localStorage.getItem('tmuxgo-debug-mobile')).toBeNull()
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        value: vi.fn().mockImplementation(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })),
+      })
+      const { wire } = makeWire({ summaryTickInterval: 1 })
+      wire.tick({ now: 1000, composition: false, enabled: true, legacy })
+      expect(diagnosticsEvents().filter((event) => event.event === VIEWPORT_SHADOW_SUMMARY_EVENT)).toHaveLength(1)
+      expect(diagnosticsEvents().filter((event) => event.event === VIEWPORT_SHADOW_DIFF_EVENT)).toHaveLength(0)
+    })
   })
 })

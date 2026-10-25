@@ -42,6 +42,10 @@ export type LegacyViewportSample = {
   // Immersive shell pins the shell to the visible height; the legacy path did
   // the same, so the counterfactual has to model it.
   immersive: boolean
+  // The 12:38 build clamped the closed shell to the visible height (design.md
+  // incident chain). Not a behaviour of the current build: only replay
+  // fixtures set it, to reproduce what the device actually did.
+  closedClampToViewport?: boolean
   now: number
 }
 
@@ -133,9 +137,11 @@ export function createLegacyViewportMachine(seedHeight = 0): LegacyViewportMachi
       if (previousWidth !== layout.viewportWidth) appliedHeight = 0
       viewportWidth = layout.viewportWidth
       baseHeight = layout.baseHeight
-      const nextHeight = sample.immersive
+      let nextHeight = sample.immersive
         ? Math.round(sample.viewportHeight || layout.nextHeight || sample.innerHeight || 0)
         : layout.nextHeight
+      if (sample.closedClampToViewport && !layout.open && sample.viewportHeight > 0)
+        nextHeight = Math.min(nextHeight, Math.round(sample.viewportHeight))
       const tolerance = layout.open ? OPEN_APPLY_TOLERANCE : CLOSED_APPLY_TOLERANCE
       const held = sample.isMobileViewport && appliedHeight > 0 && Math.abs(nextHeight - appliedHeight) < tolerance
       const height = held ? appliedHeight : nextHeight

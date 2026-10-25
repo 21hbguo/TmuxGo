@@ -226,18 +226,30 @@ describe('ViewportShadowRunner', () => {
     expect(diff?.geometry).toEqual({
       layoutWidth: 390,
       layoutHeight: 769,
+      vvWidth: 390,
       vvHeight: 500,
       vvOffsetTop: 12,
+      vvOffsetLeft: 0,
       vvScale: 1.25,
       kbAvailable: true,
       kbOverlays: true,
       kbHeight: 268,
+      kbX: 0,
+      kbY: 500,
+      kbWidth: 390,
       owner: 'terminal',
       intent: true,
       composing: true,
       orientation: 'portrait',
       fullscreen: false,
+      envGen: 3,
+      occlusionHeight: 268,
+      occlusionSource: 'virtual-keyboard',
       baseline: 768,
+      // fakeNormalize 回填的 checkpoint 原样带出：state 字段是模型记忆，不是几何
+      pendingHeight: 1,
+      pendingSince: 0,
+      phaseSince: 0,
     })
     expect(diff?.envGen).toBe(3)
     expect(JSON.stringify(diff)).not.toMatch(/[<>]/)

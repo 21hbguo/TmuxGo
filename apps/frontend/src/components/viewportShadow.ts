@@ -49,21 +49,39 @@ export type ViewportShadowFieldDiff = {
 }
 
 // Key observation geometry for replay — rounded, enum-only.
+//
+// Complete enough to rebuild the ViewportObservation that produced the tick
+// (layout pair, the visual-viewport five-tuple, the virtual-keyboard triple,
+// owner/intent/composition, env generation) plus the model checkpoint
+// (pending/phase timestamps, occlusion, baseline). Without the checkpoint a
+// trace can be inspected but not resumed mid-flight.
 export type ViewportShadowGeometry = {
   layoutWidth: number
   layoutHeight: number
+  vvWidth: number | null
   vvHeight: number | null
   vvOffsetTop: number | null
+  vvOffsetLeft: number | null
   vvScale: number | null
   kbAvailable: boolean
   kbOverlays: boolean
   kbHeight: number | null
+  kbX: number | null
+  kbY: number | null
+  kbWidth: number | null
   owner: ViewportObservation['inputOwner']
   intent: boolean
   composing: boolean
   orientation: ViewportObservation['orientation']
   fullscreen: boolean
+  envGen: number
+  occlusionHeight: number
+  occlusionSource: ViewportSnapshot['occlusion']['source']
   baseline: number | null
+  // Model checkpoint after this tick (what normalize() returned as state).
+  pendingHeight: number | null
+  pendingSince: number
+  phaseSince: number
 }
 
 export type ViewportShadowRecordKind = 'diff' | 'recover'
@@ -416,21 +434,33 @@ function buildGeometry(
   const vv = observation.visualViewport
   const keyboard = observation.virtualKeyboard
   const baseline = snapshot.fullLayoutSpace ? snapshot.fullLayoutSpace.height : state.trustedClosedBaseline
+  const rect = keyboard.rect
   return {
     layoutWidth: Math.round(observation.layoutViewport.width),
     layoutHeight: Math.round(observation.layoutViewport.height),
+    vvWidth: vv ? Math.round(vv.width) : null,
     vvHeight: vv ? Math.round(vv.height) : null,
     vvOffsetTop: vv ? Math.round(vv.offsetTop) : null,
+    vvOffsetLeft: vv ? Math.round(vv.offsetLeft) : null,
     vvScale: vv ? Math.round(vv.scale * 100) / 100 : null,
     kbAvailable: keyboard.available,
     kbOverlays: keyboard.overlaysContent,
-    kbHeight: keyboard.rect ? Math.round(keyboard.rect.height) : null,
+    kbHeight: rect ? Math.round(rect.height) : null,
+    kbX: rect ? Math.round(rect.x) : null,
+    kbY: rect ? Math.round(rect.y) : null,
+    kbWidth: rect ? Math.round(rect.width) : null,
     owner: observation.inputOwner,
     intent: observation.keyboardIntent,
     composing: observation.composition,
     orientation: observation.orientation,
     fullscreen: observation.fullscreen,
+    envGen: observation.envGen,
+    occlusionHeight: Math.round(snapshot.occlusion.height),
+    occlusionSource: snapshot.occlusion.source,
     baseline: baseline === null ? null : Math.round(baseline),
+    pendingHeight: state.pendingHeight === null ? null : Math.round(state.pendingHeight),
+    pendingSince: Math.round(state.pendingSince),
+    phaseSince: Math.round(state.phaseSince),
   }
 }
 
