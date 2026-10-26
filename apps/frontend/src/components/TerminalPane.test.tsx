@@ -2304,6 +2304,39 @@ describe('TerminalPane', () => {
     expect(blur).not.toHaveBeenCalled()
     expect(document.activeElement).toBe(helper)
   })
+  it('self-heals a stuck ime-composing class when a focus request arrives', async () => {
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const helper = container.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement
+    // 组字收尾事件双丢后 body 上的信号会永久挂着：焦点早已不在组字元素上
+    document.body.classList.add('ime-composing')
+    ;(document.activeElement as HTMLElement | null)?.blur?.()
+    window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal'))
+    await waitFor(() => expect(document.activeElement).toBe(helper))
+    expect(document.body.classList.contains('ime-composing')).toBe(false)
+  })
+  it('lets a click refocus the terminal when ime-composing is stuck on body', async () => {
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    document.body.classList.add('ime-composing')
+    ;(document.activeElement as HTMLElement | null)?.blur?.()
+    terminalMocks.focus.mockClear()
+    fireEvent.mouseDown(container.firstChild as Element)
+    expect(terminalMocks.focus).toHaveBeenCalled()
+    document.body.classList.remove('ime-composing')
+  })
+  it('retries a focus request that lands while the terminal is composing', async () => {
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const helper = container.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement
+    helper.focus()
+    fireEvent.compositionStart(helper)
+    // 真实组字期间聚焦请求必须让路
+    helper.blur()
+    document.body.classList.remove('ime-composing')
+    window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal'))
+    await waitFor(() => expect(document.activeElement).toBe(helper))
+  })
   it('restores helper textarea ime geometry on terminal focus request after paste', async () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())

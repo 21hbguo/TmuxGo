@@ -21,6 +21,7 @@ import { useTerminalPinch } from '@/hooks/useTerminalPinch'
 import { useGithubDeviceLogin } from '@/hooks/useGithubDeviceLogin'
 import { createTerminalRuntime } from '@/lib/terminal-runtime'
 import { createTerminalResizeMask } from '@/lib/terminal-resize-mask'
+import { isImeComposingActive } from '@/lib/terminal-focus'
 import type { TerminalSizeState } from '@/lib/terminal-size-state'
 import dynamic from '@/lib/dynamic'
 import { Chip } from './Chip'
@@ -591,10 +592,12 @@ export function TerminalPane({
         e.stopPropagation()
       }}
       onMouseDown={() => {
-        if (!isMobileDevice && !document.body.classList.contains('ime-composing')) terminalInstance.current?.focus?.()
+        // 组字期不抢焦点；但 body 上的 ime-composing 可能是收尾事件丢失后的陈旧
+        // 信号（焦点早已不在组字元素上），一律按陈旧放行，否则用户点终端也无法自救
+        if (!isMobileDevice && !isImeComposingActive()) terminalInstance.current?.focus?.()
       }}
       onFocus={() => {
-        if (!isMobileDevice && !document.body.classList.contains('ime-composing')) terminalInstance.current?.focus?.()
+        if (!isMobileDevice && !isImeComposingActive()) terminalInstance.current?.focus?.()
       }}
       onTouchEnd={(e) => {
         if (isMobileDevice && !touchMovedRef.current) {
