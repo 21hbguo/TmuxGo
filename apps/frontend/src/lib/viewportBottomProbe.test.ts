@@ -50,7 +50,7 @@ describe('probeBottomEdge — elementFromPoint', () => {
   it('keeps root hits out of probeVisibleBottom but counts them as canvas', () => {
     stubElementFromPoint((y) => (y === 344 ? document.body : y === 368 ? document.documentElement : null))
     const sample = probeBottomEdge(baseInput())
-    expect(sample.probeHits).toBe('344:B;368:B;392:N;416:N;440:N;464:N;488:N;512:N')
+    expect(sample.probeHits).toBe('344:B;368:B;392:N;416:N')
     // 根节点可能只是「画布可见但空」，不冒充应用内容
     expect(sample.probeVisibleBottom).toBe(336.2)
     expect(sample.vvVsProbeDelta).toBe(0)
@@ -62,9 +62,10 @@ describe('probeBottomEdge — elementFromPoint', () => {
     // 应用内容到 400 为止，其下全是 html/body 画布：Edge 死区的真实形态
     stubElementFromPoint((y) => (y <= 400 ? elementAt() : document.body))
     const sample = probeBottomEdge(baseInput())
-    expect(sample.probeHits).toBe('344:E;368:E;392:E;416:B;440:B;464:B;488:B;512:B')
+    // 自适应下探不再被 8 点上限截断：一路到 innerHeight-8（650）→ 632
+    expect(sample.probeHits).toBe('344:E;368:E;392:E;416:B;440:B;464:B;488:B;512:B;536:B;560:B;584:B;608:B;632:B')
     expect(sample.probeVisibleBottom).toBe(392)
-    expect(sample.probeCanvasBottom).toBe(512)
+    expect(sample.probeCanvasBottom).toBe(632)
     expect(sample.vvVsProbeDelta).toBeCloseTo(55.8, 1)
   })
 
@@ -76,12 +77,36 @@ describe('probeBottomEdge — elementFromPoint', () => {
     expect(sample.vvVsProbeDelta).toBeGreaterThan(120)
   })
 
-  it('caps the probe points and stops at innerHeight - edge', () => {
+  it('caps the adaptive descent and stops at innerHeight - edge', () => {
     const fn = stubElementFromPoint(() => elementAt())
     const sample = probeBottomEdge(baseInput())
-    expect(fn.mock.calls.length).toBeLessThanOrEqual(8)
+    expect(fn.mock.calls.length).toBeLessThanOrEqual(20)
     for (const [, y] of fn.mock.calls) expect(y).toBeLessThanOrEqual(658 - 8)
-    expect(sample.probeVisibleBottom).toBe(512)
+    // 13 个点走到底（344 → 632），没有提前被旧 8 点上限截断
+    expect(sample.probeVisibleBottom).toBe(632)
+    expect(sample.probeCanvasBottom).toBe(632)
+  })
+
+  it('walks deeper than the old cap when the canvas keeps painting', () => {
+    const fn = stubElementFromPoint(() => document.body)
+    const sample = probeBottomEdge(baseInput())
+    expect(fn.mock.calls.length).toBe(13)
+    expect(sample.probeCanvasBottom).toBe(632)
+  })
+
+  it('stops after two consecutive misses', () => {
+    const fn = stubElementFromPoint((y) => (y <= 470 ? elementAt() : null))
+    probeBottomEdge(baseInput())
+    expect(fn.mock.calls).toHaveLength(8) // 344..464 命中，488/512 连续两个 N → 收手
+    expect(fn.mock.calls.at(-1)?.[1]).toBe(512)
+  })
+
+  it('keeps going through a single miss', () => {
+    const fn = stubElementFromPoint((y) => (y === 392 ? null : elementAt()))
+    const sample = probeBottomEdge(baseInput())
+    expect(fn.mock.calls).toHaveLength(13)
+    expect(sample.probeHits).toContain('392:N')
+    expect(sample.probeVisibleBottom).toBe(632)
   })
 
   it('records a missing visual viewport as unavailable rather than a guess', () => {
@@ -112,7 +137,18 @@ describe('probeBottomEdge — elementFromPoint', () => {
     expect(sample.probeCostMs).toBeGreaterThan(2)
     // Partial hit list is kept so the attempt is auditable.
     expect(sample.probeHits.length).toBeGreaterThan(0)
-    expect(sample.probeHits.split(';').length).toBeLessThanOrEqual(8)
+    expect(sample.probeHits.split(';').length).toBeLessThanOrEqual(20)
+  })
+
+  it('reports screen/outer sizes as chrome context', () => {
+    stubElementFromPoint(() => elementAt())
+    Object.defineProperty(screen, 'height', { value: 800, configurable: true })
+    Object.defineProperty(screen, 'availHeight', { value: 760, configurable: true })
+    Object.defineProperty(window, 'outerHeight', { value: 782, configurable: true })
+    const sample = probeBottomEdge(baseInput())
+    expect(sample.screenHeight).toBe(800)
+    expect(sample.screenAvailHeight).toBe(760)
+    expect(sample.outerHeight).toBe(782)
   })
 
   it('passes raw virtual-keyboard geometry through without touching overlaysContent', () => {
@@ -196,6 +232,8 @@ describe('bottom probe runner — diagnostics channel', () => {
     })
     expect(typeof event?.probeCostMs).toBe('number')
     expect(event?.probeHits).toBe('344:E;368:E;392:E;416:E;440:E;464:E;488:N;512:N')
+    for (const key of ['screenHeight', 'screenAvailHeight', 'outerHeight', 'probeCanvasBottom'])
+      expect(event).toHaveProperty(key)
   })
 
   it('returns null and records nothing when the gate is closed', () => {

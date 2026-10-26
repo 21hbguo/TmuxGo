@@ -61,6 +61,10 @@ export type BottomProbeSample = {
   probeMethod: 'elementFromPoint' | 'none' | 'budget'
   // Wall time spent probing this tick; kept to prove the cost is ignorable.
   probeCostMs: number
+  // Platform chrome context for reading the numbers above (diagnostics only).
+  screenHeight: number | null
+  screenAvailHeight: number | null
+  outerHeight: number | null
 }
 
 export type BottomProbeInput = {
@@ -89,7 +93,7 @@ export type BottomProbeOptions = {
 const DEFAULT_STEP_PX = 24
 const DEFAULT_START_GAP_PX = 8
 const DEFAULT_EDGE_PX = 8
-const DEFAULT_MAX_POINTS = 8
+const DEFAULT_MAX_POINTS = 20
 const DEFAULT_BUDGET_MS = 2
 // How many ticks stay "hot" after a vv change, and the steady-state cadence.
 const DEFAULT_HOT_TICKS = 15
@@ -104,6 +108,22 @@ function defaultClock(): number {
 
 function defaultVirtualKeyboard(): VirtualKeyboardLike | undefined {
   return (navigator as Navigator & { virtualKeyboard?: VirtualKeyboardLike }).virtualKeyboard
+}
+
+// Screen/outer sizes are context, not truth: they tell us whether an N run is
+// chrome (URL bar / OS nav) or the page really ended.
+function readScreenMetrics(): {
+  screenHeight: number | null
+  screenAvailHeight: number | null
+  outerHeight: number | null
+} {
+  const screens = typeof screen !== 'undefined' ? screen : undefined
+  const outer = typeof window !== 'undefined' ? window.outerHeight : undefined
+  return {
+    screenHeight: screens && Number.isFinite(screens.height) ? Math.round(screens.height) : null,
+    screenAvailHeight: screens && Number.isFinite(screens.availHeight) ? Math.round(screens.availHeight) : null,
+    outerHeight: typeof outer === 'number' && Number.isFinite(outer) ? Math.round(outer) : null,
+  }
 }
 
 const round1 = (value: number) => Math.round(value * 10) / 10
@@ -161,6 +181,7 @@ export function probeBottomEdge(input: BottomProbeInput, options: BottomProbeOpt
     vvBottom,
     vkRectHeight: rect && typeof rect.height === 'number' ? round1(rect.height) : null,
     vkRectTop: rect && typeof rect.y === 'number' ? round1(rect.y) : null,
+    ...readScreenMetrics(),
   }
   const cost = () => round1(clock() - started)
 
@@ -181,6 +202,11 @@ export function probeBottomEdge(input: BottomProbeInput, options: BottomProbeOpt
   const baseline = Math.min(vvBottom, base.innerHeight)
   let visibleBottom = baseline
   let canvasBottom = baseline
+  // Adaptive descent: keep walking down until two consecutive misses. A single
+  // N is not a boundary (a gap in content is possible); two in a row marks the
+  // start of chrome or the true page end. Which of the two a browser reports
+  // for the URL bar / keyboard is exactly what this probe is meant to answer.
+  let consecutiveMisses = 0
   for (let y = vvBottom + startGapPx; y <= base.innerHeight - edgePx && hits.length < maxPoints; y += stepPx) {
     if (clock() - started > budgetMs)
       return {
@@ -203,6 +229,8 @@ export function probeBottomEdge(input: BottomProbeInput, options: BottomProbeOpt
     hits.push(`${sampleY}:${code}`)
     if (code !== 'N') canvasBottom = sampleY
     if (code === 'E') visibleBottom = sampleY
+    consecutiveMisses = code === 'N' ? consecutiveMisses + 1 : 0
+    if (consecutiveMisses >= 2) break
   }
 
   return {
