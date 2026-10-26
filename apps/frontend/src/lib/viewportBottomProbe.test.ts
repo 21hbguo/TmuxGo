@@ -210,9 +210,34 @@ describe('probeBottomEdge — elementFromPoint', () => {
     stubElementFromPoint(() => elementAt())
     const vk = { overlaysContent: false, boundingRect: { x: 0, y: 500.4, width: 390, height: 300.6 } }
     const sample = probeBottomEdge(baseInput({ getVirtualKeyboard: () => vk }))
+    expect(sample.vkRectX).toBe(0)
+    expect(sample.vkRectY).toBe(500.4)
+    expect(sample.vkRectWidth).toBe(390)
     expect(sample.vkRectHeight).toBe(300.6)
-    expect(sample.vkRectTop).toBe(500.4)
+    // top/bottom absent on this platform: recorded as null, not derived
+    expect(sample.vkRectTop).toBeNull()
+    expect(sample.vkRectBottom).toBeNull()
+    expect(sample.vkOverlayEnabled).toBe(false)
     expect(vk.overlaysContent).toBe(false)
+  })
+
+  it('derives vkBottomEst from screen height, rect height and the URL-bar estimate', () => {
+    stubElementFromPoint(() => elementAt())
+    Object.defineProperty(screen, 'height', { value: 800, configurable: true })
+    const vk = { overlaysContent: true, boundingRect: { x: 0, y: 0, width: 390, height: 300.6 } }
+    const sample = probeBottomEdge(baseInput({ getVirtualKeyboard: () => vk, urlbarEst: 52 }))
+    expect(sample.screenHeight).toBe(800)
+    expect(sample.urlbarEst).toBe(52)
+    expect(sample.vkBottomEst).toBe(447) // 800 - 300.6 - 52 → round
+    expect(sample.vkOverlayEnabled).toBe(true)
+  })
+
+  it('leaves vkBottomEst null until the URL bar is calibrated', () => {
+    stubElementFromPoint(() => elementAt())
+    const vk = { overlaysContent: false, boundingRect: { height: 300 } }
+    const sample = probeBottomEdge(baseInput({ getVirtualKeyboard: () => vk }))
+    expect(sample.vkBottomEst).toBeNull()
+    expect(sample.urlbarEst).toBeNull()
   })
 
   it('leaves vk fields null when the API is absent', () => {
@@ -287,7 +312,21 @@ describe('bottom probe runner — diagnostics channel', () => {
     })
     expect(typeof event?.probeCostMs).toBe('number')
     expect(event?.probeHits).toBe('344:E;368:E;392:E;416:E;440:E;464:E;488:N;512:N')
-    for (const key of ['screenHeight', 'screenAvailHeight', 'outerHeight', 'probeCanvasBottom'])
+    for (const key of [
+      'screenHeight',
+      'screenAvailHeight',
+      'outerHeight',
+      'probeCanvasBottom',
+      'vkRectX',
+      'vkRectY',
+      'vkRectWidth',
+      'vkRectHeight',
+      'vkRectTop',
+      'vkRectBottom',
+      'vkBottomEst',
+      'urlbarEst',
+      'vkOverlayEnabled',
+    ])
       expect(event).toHaveProperty(key)
   })
 

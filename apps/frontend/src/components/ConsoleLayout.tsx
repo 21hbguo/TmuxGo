@@ -53,6 +53,7 @@ import {
 } from '@/lib/viewportShadowWire'
 import { writeViewportOcclusion } from '@/lib/viewportOcclusion'
 import { maybeRecordViewportBottomProbe } from '@/lib/viewportBottomProbe'
+import { applyVkOverlay, isVkOverlayRequested } from '@/lib/viewportVkOverlay'
 import { useTranslation } from '@/i18n'
 import { readActiveHostId, readActiveSessionId } from '@/lib/console-device-state'
 import { FiX } from 'react-icons/fi'
@@ -666,6 +667,8 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
     }
   }, [clearViewportSchedule, scheduleViewportSync])
   useEffect(() => startMobileFlickerDiagnostics(), [])
+  // G2-vk 实验：仅 flag 开启时切 overlaysContent（会改变 vv 行为，属预期），卸载/关 flag 复原
+  useEffect(() => applyVkOverlay(isVkOverlayRequested()), [])
   useEffect(() => {
     const handleKeyboardChange = (event: Event) => {
       const detail = (event as CustomEvent<{ open?: boolean; inset?: number }>).detail
