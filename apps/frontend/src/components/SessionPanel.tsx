@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import {
   useBatchDeleteSessions,
@@ -20,15 +20,15 @@ import { useSplitGroups } from '@/hooks/useSplitGroups'
 import { SessionTemplates, templates as builtinTemplates, type Template } from './SessionTemplates'
 import { SessionLayoutImportDialog } from './SessionLayoutImportDialog'
 import { CreateSessionDialog } from './CreateSessionDialog'
+import { SessionHoverCard } from './SessionHoverCard'
 import { getDefaultSessionName } from '@/lib/session-template'
 import { parseSessionName } from '@/lib/session-id'
 import { requestTerminalFocus } from '@/lib/terminal-focus-request'
 import { Chip } from './Chip'
-import { SessionSnapshotsDialog } from './SessionSnapshotsDialog'
 import { ConfirmDialog } from './ConfirmDialog'
 import { QuickActions } from './QuickActions'
-import { usePreferences } from '@/hooks/usePreferences'
-import { useTranslation } from '@/i18n'
+import { usePreferences, type SessionSortMode } from '@/hooks/usePreferences'
+import { useTranslation, type TranslationKey } from '@/i18n'
 import { usePrompt } from '@/hooks/usePrompt'
 import {
   DndContext,
@@ -43,9 +43,10 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from '@dnd-kit/core'
-import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
+import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import {
   SessionGroupedSortableList,
+  SessionSortableList,
   findPreviewGroup,
   movePreviewBetweenGroups,
   orderByIds,
@@ -61,21 +62,88 @@ import { api } from '@/lib/api'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
 import { WorkspaceDirectoryPicker, type WorkspaceDirectoryTarget } from './WorkspaceDirectoryPicker'
 import {
+  FiChevronsDown,
   FiCheck,
   FiChevronDown,
   FiCommand,
   FiDownload,
   FiFolder,
   FiFolderPlus,
+  FiLayers,
   FiMoreHorizontal,
   FiPlus,
-  FiClock,
   FiUpload,
 } from 'react-icons/fi'
 
 function getNextSessionId(sessions: { id: string }[], removedIds: string[]) {
   const removed = new Set(removedIds)
   return sessions.find((item) => !removed.has(item.id))?.id || ''
+}
+
+type SessionGroup = { key: string; workspace: WorkspaceEntry | null; sessions: Session[]; agentSummary: AgentSummary }
+// 单一事实表：菜单顺序与 label key 同源，漏登 label 类型层即报
+const SESSION_SORTS: { rule: SessionSortMode; labelKey: TranslationKey }[] = [
+  { rule: 'manual', labelKey: 'sidebar.sortManual' },
+  { rule: 'createdAt', labelKey: 'sidebar.sortCreatedAt' },
+  { rule: 'lastActiveAt', labelKey: 'sidebar.sortLastActiveAt' },
+  { rule: 'name', labelKey: 'sidebar.sortName' },
+  { rule: 'attention', labelKey: 'sidebar.sortAttention' },
+]
+const SESSION_SORT_RULES: SessionSortMode[] = SESSION_SORTS.map((item) => item.rule)
+const SESSION_SORT_LABELS = Object.fromEntries(SESSION_SORTS.map((item) => [item.rule, item.labelKey])) as Record<
+  SessionSortMode,
+  TranslationKey
+>
+// 禁用拖拽时给 DndContext 的固定空表：字面量 [] 每次 render 都是新引用，会导致传感器反复拆装
+const NO_SENSORS: never[] = []
+const sameIdOrder = (a: string[], b: string[]) => a.length === b.length && a.every((id, i) => id === b[i])
+const timeValue = (value?: string) => {
+  const ms = Date.parse(value || '')
+  return Number.isNaN(ms) ? 0 : ms
+}
+// 会话级排序：时间类新→旧，name 走 localeCompare，attention 用现成 rank；
+// 返回 0 时依赖 Array.sort 稳定性保住用户手动序
+function compareSessionsByRule(rule: SessionSortMode, a: Session, b: Session) {
+  switch (rule) {
+    case 'createdAt':
+      return timeValue(b.createdAt) - timeValue(a.createdAt)
+    case 'lastActiveAt':
+      return timeValue(b.lastActiveAt) - timeValue(a.lastActiveAt)
+    case 'name':
+      // numeric: session-2 应排在 session-10 前
+      return a.name.localeCompare(b.name, undefined, { numeric: true })
+    case 'attention':
+      return getAgentAttentionRank(a.agentSummary) - getAgentAttentionRank(b.agentSummary)
+    default:
+      return 0
+  }
+}
+// 组间聚合值：lastActiveAt 取组内最大值、createdAt 取组内最新 session、
+// name 用 workspace.name、attention 用组 rollup 的 rank；「未分类」恒沉底
+function compareGroupsByRule(rule: SessionSortMode, a: SessionGroup, b: SessionGroup) {
+  if (!a.workspace && !b.workspace) return 0
+  if (!a.workspace) return 1
+  if (!b.workspace) return -1
+  // 空组没有任何可聚合信号，按任何规则排都突兀：统一沉底（未分类之上语义不变）
+  if (!a.sessions.length || !b.sessions.length) {
+    if (a.sessions.length === b.sessions.length) return 0
+    return a.sessions.length ? -1 : 1
+  }
+  switch (rule) {
+    case 'createdAt':
+      return maxTime(b.sessions, 'createdAt') - maxTime(a.sessions, 'createdAt')
+    case 'lastActiveAt':
+      return maxTime(b.sessions, 'lastActiveAt') - maxTime(a.sessions, 'lastActiveAt')
+    case 'name':
+      return a.workspace.name.localeCompare(b.workspace.name, undefined, { numeric: true })
+    case 'attention':
+      return getAgentAttentionRank(a.agentSummary) - getAgentAttentionRank(b.agentSummary)
+    default:
+      return 0
+  }
+}
+function maxTime(sessions: Session[], field: 'createdAt' | 'lastActiveAt') {
+  return sessions.reduce((max, session) => Math.max(max, timeValue(session[field])), 0)
 }
 
 export function SessionPanel() {
@@ -126,6 +194,18 @@ export function SessionPanel() {
       window.removeEventListener('scroll', close, true)
     }
   }, [templateMenu])
+  const [sortMenu, setSortMenu] = useState<{ top: number; right: number } | null>(null)
+  // 与组头菜单同策略：portal + fixed 定位不跟随滚动，滚动/外部 mousedown 即关
+  useEffect(() => {
+    if (!sortMenu) return
+    const close = () => setSortMenu(null)
+    window.addEventListener('mousedown', close)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [sortMenu])
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false)
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false)
   const workspaceMenuRef = useRef<HTMLDivElement>(null)
@@ -135,12 +215,15 @@ export function SessionPanel() {
   const [showTemplates, setShowTemplates] = useState(false)
   const [showLayoutImport, setShowLayoutImport] = useState(false)
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
-  const [snapshotsOpen, setSnapshotsOpen] = useState(false)
   const [batchMode, setBatchMode] = useState(false)
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
   const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false)
   const [createDialogTemplate, setCreateDialogTemplate] = useState<Template | null>(null)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  // hover 预览卡：identity 与锚点分开——anchorRect 置 null 进宽限期时卡片仍要活着，
+  // 等卡片宽限结束自行 close 再清 identity（见 SessionHoverCard 内部计时）
+  const [hoverSession, setHoverSession] = useState<{ id: string; name: string } | null>(null)
+  const [hoverAnchor, setHoverAnchor] = useState<DOMRect | null>(null)
   const handleTemplateSelect = (template: Template) => {
     if (!activeHostId) return
     setShowTemplates(false)
@@ -467,8 +550,7 @@ export function SessionPanel() {
       groupSessions
         .slice()
         .sort((a, b) => getAgentAttentionRank(a.agentSummary) - getAgentAttentionRank(b.agentSummary))
-    const result: { key: string; workspace: WorkspaceEntry | null; sessions: Session[]; agentSummary: AgentSummary }[] =
-      []
+    const result: SessionGroup[] = []
     for (const workspace of hostWorkspaces) {
       const groupSessions = groups.get(workspace.id) || []
       result.push({
@@ -487,6 +569,40 @@ export function SessionPanel() {
   }, [sessions, hostWorkspaces, sessionWorkspaces])
   const currentWorkspace =
     workspaceGroups.find((group) => group.sessions.some((session) => session.id === activeSessionId))?.workspace || null
+  const hideWorkspaceGroups = preferences.hideWorkspaceGroups === true
+  // 持久值可能来自旧版本/远端：非法值回落 manual，避免标签与比较器拿到未知规则
+  const sortRule: SessionSortMode = SESSION_SORT_RULES.includes(preferences.sessionSortMode)
+    ? preferences.sessionSortMode
+    : 'manual'
+  // 非 manual 排序下拖拽无意义（落不回持久序），统一禁用传感器
+  const canDragSessions = sortRule === 'manual'
+  // 分组模式的排序视图：组内按规则排，组间按组聚合值排，未分类恒定沉底。
+  // manual 直接复用 workspaceGroups（现状：组内/组间都是注意力 rank）
+  const sortedGroups = useMemo(() => {
+    if (sortRule === 'manual') return workspaceGroups
+    const groups = workspaceGroups
+      .filter((group) => group.workspace)
+      .map((group) => ({
+        ...group,
+        sessions: group.sessions.slice().sort((a, b) => compareSessionsByRule(sortRule, a, b)),
+      }))
+    groups.sort((a, b) => compareGroupsByRule(sortRule, a, b))
+    const unclassified = workspaceGroups.find((group) => !group.workspace)
+    if (unclassified)
+      groups.push({
+        ...unclassified,
+        sessions: unclassified.sessions.slice().sort((a, b) => compareSessionsByRule(sortRule, a, b)),
+      })
+    return groups
+  }, [workspaceGroups, sortRule])
+  // flat 模式数据源：非 manual 直接对全量 sessions 排序；manual 必须用持久序——
+  // flat 没有分组注意力聚合语义，若拍平 sortedGroups 的派生展示序，
+  // 用户一次轻拖就会把 attention 序当手动序写回全局（SessionRail/CommandPalette 全跟着变）
+  const flatSessions = useMemo(() => {
+    if (sortRule !== 'manual') return sessions.slice().sort((a, b) => compareSessionsByRule(sortRule, a, b))
+    return sessions
+  }, [sessions, sortRule])
+
   // —— 跨组拖拽：DndContext 上移到此，预览序按组 key 存 ——
   // 粗指针端（iPad/触屏本）：长按激活延迟加长+死区加大，列表滚动/长按菜单优先，
   // 否则 TouchSensor 220ms 抢手势；桌面触控维持原延迟
@@ -500,27 +616,52 @@ export function SessionPanel() {
   )
   const [dragSessionId, setDragSessionId] = useState<string | null>(null)
   const [dragPreview, setDragPreview] = useState<Record<string, string[]> | null>(null)
+  // flat 模式没有组 key，预览序退化成一条全量 id 列表（与单列表封装同语义）
+  const [flatPreview, setFlatPreview] = useState<string[] | null>(null)
   const dragSourceKeyRef = useRef('')
+  // 轮询驱动下时间/attention 规则会让行持续换位；行 hover（含悬浮卡驻留）期间
+  // 冻结展示序，避免指针下的行溜走。冻结期间新建/删除的行等指针移开才刷新；
+  // 起手拖拽即解冻（dragSessionId 排除），预览按最新数据源构建
+  const frozenListRef = useRef<{ groups: SessionGroup[]; flat: Session[] } | null>(null)
+  useEffect(() => {
+    if (!hoverSession || dragSessionId) {
+      frozenListRef.current = null
+      return
+    }
+    if (!frozenListRef.current) frozenListRef.current = { groups: sortedGroups, flat: flatSessions }
+  }, [hoverSession, dragSessionId, sortedGroups, flatSessions])
+  const frozenList = hoverSession && !dragSessionId ? frozenListRef.current : null
+  const visibleGroups = frozenList ? frozenList.groups : sortedGroups
+  const visibleFlat = frozenList ? frozenList.flat : flatSessions
   // 拖拽期间未分类组即使为空也要渲染成可落点
   const displayedGroups = useMemo(() => {
-    if (!dragPreview) return workspaceGroups
+    if (!dragPreview) return visibleGroups
     // orderByIds 空 ids 时返回全量 sessions（其语义是「无保存序则原序」），
     // 这里需要「按 id 过滤」语义——空预览组必须渲染为空，否则每行在每个组
     // 重复渲染，同 id 重复注册进 SortableContext 会污染 dnd-kit 内部状态
-    const list = workspaceGroups.map((group) => {
+    const list = visibleGroups.map((group) => {
       const ids = dragPreview[group.key] || []
       return { ...group, sessions: ids.length ? orderByIds(sessions, ids) : [] }
     })
     if (!list.some((group) => group.key === ''))
       list.push({ key: '', workspace: null, sessions: [], agentSummary: mergeAgentSummaries([]) })
     return list
-  }, [dragPreview, workspaceGroups, sessions])
+  }, [dragPreview, visibleGroups, sessions])
   const dragSession = sessions.find((item) => item.id === dragSessionId) || null
+  // batch/拖拽进行中收回已弹出的 hover 卡（进入新行时 onMouseEnter 也有同样的拦截）
+  useEffect(() => {
+    if (batchMode || dragSessionId) setHoverAnchor(null)
+  }, [batchMode, dragSessionId])
   const handleSessionDragStart = (event: DragStartEvent) => {
     const id = String(event.active.id)
     setDragSessionId(id)
+    if (hideWorkspaceGroups) {
+      setFlatPreview(flatSessions.map((session) => session.id))
+      dragSourceKeyRef.current = ''
+      return
+    }
     const preview: Record<string, string[]> = {}
-    for (const group of workspaceGroups) preview[group.key] = group.sessions.map((session) => session.id)
+    for (const group of visibleGroups) preview[group.key] = group.sessions.map((session) => session.id)
     if (!('' in preview)) preview[''] = []
     setDragPreview(preview)
     dragSourceKeyRef.current = findPreviewGroup(preview, id) || ''
@@ -529,17 +670,46 @@ export function SessionPanel() {
     const activeId = event.active?.id ? String(event.active.id) : null
     const overId = event.over?.id ? String(event.over.id) : null
     if (!activeId || !overId || activeId === overId) return
+    if (hideWorkspaceGroups) {
+      // flat 列表没有组 dropzone：拖动即整表重排预览
+      setFlatPreview((current) => {
+        if (!current) return current
+        const from = current.indexOf(activeId)
+        const to = current.indexOf(overId)
+        if (from === -1 || to === -1 || from === to) return current
+        return arrayMove(current, from, to)
+      })
+      return
+    }
     setDragPreview((current) => (current ? movePreviewBetweenGroups(current, activeId, overId) : current))
   }
-  const resetSessionDrag = () => {
+  const resetSessionDrag = useCallback(() => {
     setDragSessionId(null)
     setDragPreview(null)
-  }
+    setFlatPreview(null)
+  }, [])
+  // 视图模式/排序规则切换后旧预览语义失效（flat↔grouped 预览互不通用）：丢弃在途拖拽与悬浮锚点
+  useEffect(() => {
+    resetSessionDrag()
+    setHoverAnchor(null)
+  }, [hideWorkspaceGroups, sortRule, resetSessionDrag])
   const handleSessionDragEnd = (_event: DragEndEvent) => {
     const preview = dragPreview
+    const flat = flatPreview
     const sessionId = dragSessionId
     resetSessionDrag()
-    if (!preview || !sessionId) return
+    if (!sessionId) return
+    // 拖拽中途偏好被另一标签页同步改掉（flat↔grouped 视图切换）时，
+    // 预览属于旧视图，此时落盘会把顺序写进用户没在看的模式——直接放弃
+    if (hideWorkspaceGroups ? !flat : !preview) return
+    if (flat) {
+      // flat：落点即全量顺序，无跨组归属变更；与持久序一致时不脏写
+      // （对照 SessionSortableList.handleDragEnd 的 arraysEqual 守卫同标准）
+      const persisted = sessions.map((session) => session.id)
+      if (!sameIdOrder(flat, persisted)) moveSession(flat)
+      return
+    }
+    if (!preview) return
     const targetKey = findPreviewGroup(preview, sessionId)
     if (targetKey != null && targetKey !== dragSourceKeyRef.current) {
       if (targetKey === '') {
@@ -564,7 +734,7 @@ export function SessionPanel() {
       }
     }
     // 全局序 = 各组预览序按显示顺序拼接（moveSession 收全量有序 id）
-    const order = workspaceGroups.map((group) => group.key)
+    const order = visibleGroups.map((group) => group.key)
     if ('' in preview && !order.includes('')) order.push('')
     moveSession(order.flatMap((key) => preview[key] || []))
   }
@@ -578,7 +748,16 @@ export function SessionPanel() {
   const sessionItemClassName = ({ session, isDragging, isOverlay }: GetClassNameArgs) =>
     `group tmuxgo-list-row border-b border-[var(--line)] ${batchMode ? (selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : 'tmuxgo-list-row--hover') : activeSessionId === session.id ? 'tmuxgo-list-row--active' : 'tmuxgo-list-row--hover'} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'rounded-apple border border-accent bg-bg-1' : ''}`
   const renderSessionItem = ({ session }: RenderSessionArgs) => (
-    <div className="flex items-center gap-1 pr-2">
+    <div
+      className="flex items-center gap-1 pr-2"
+      onMouseEnter={(event) => {
+        // 拖拽中 / batch 模式不弹悬浮预览卡（组件自身不做业务判断，由这里不给锚点）
+        if (batchMode || dragSessionId) return
+        setHoverSession({ id: session.id, name: session.name })
+        setHoverAnchor(event.currentTarget.getBoundingClientRect())
+      }}
+      onMouseLeave={() => setHoverAnchor(null)}
+    >
       {batchMode && (
         <button
           onClick={() => toggleBatchSession(session.id)}
@@ -774,77 +953,82 @@ export function SessionPanel() {
     <>
       <div className="flex h-full min-h-0 flex-col bg-transparent">
         <div className="border-b border-[var(--line)] px-3 py-2">
-          <HostSwitcher />
-          <div ref={workspaceMenuRef} className="relative mt-2">
-            <button
-              onClick={() => {
-                if (!activeHostId || batchMode) return
-                if (!hostWorkspaces.length) setWorkspacePickerOpen(true)
-                else setWorkspaceMenuOpen((value) => !value)
-              }}
-              className="tmuxgo-control flex h-8 w-full items-center gap-2 rounded-apple px-2 text-left text-xs text-text-2 hover:border-accent/50 hover:text-text-1 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={batchMode}
-              aria-label={`${t('workspace.current')}: ${currentWorkspace?.name || t('workspace.choose')}`}
-            >
-              <FiFolder aria-hidden="true" className="shrink-0 text-accent" size={14} />
-              <span className="min-w-0 flex-1 truncate font-medium">
-                {currentWorkspace?.name || t('workspace.choose')}
-              </span>
-              <FiChevronDown aria-hidden="true" className="shrink-0 text-text-3" size={14} />
-            </button>
-            {workspaceMenuOpen && (
-              <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-30 overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1 py-1">
-                <div className="tmuxgo-scrollbar max-h-64 overflow-y-auto">
-                  {/* 下拉项与列表分组同序：都按 workspaceGroups 的注意力序排，
+          {/* 主机与工作区并排一行：HostSwitcher 自带 label 行（控件 h-8），items-end 让两个控件底对齐 */}
+          <div className="flex items-end gap-2">
+            <div className="min-w-0 flex-1">
+              <HostSwitcher />
+            </div>
+            <div ref={workspaceMenuRef} className="relative min-w-0 flex-1">
+              <button
+                onClick={() => {
+                  if (!activeHostId || batchMode) return
+                  if (!hostWorkspaces.length) setWorkspacePickerOpen(true)
+                  else setWorkspaceMenuOpen((value) => !value)
+                }}
+                className="tmuxgo-control flex h-8 w-full items-center gap-2 rounded-apple px-2 text-left text-xs text-text-2 hover:border-accent/50 hover:text-text-1 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={batchMode}
+                aria-label={`${t('workspace.current')}: ${currentWorkspace?.name || t('workspace.choose')}`}
+              >
+                <FiFolder aria-hidden="true" className="shrink-0 text-accent" size={14} />
+                <span className="min-w-0 flex-1 truncate font-medium">
+                  {currentWorkspace?.name || t('workspace.choose')}
+                </span>
+                <FiChevronDown aria-hidden="true" className="shrink-0 text-text-3" size={14} />
+              </button>
+              {workspaceMenuOpen && (
+                <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-30 overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1 py-1">
+                  <div className="tmuxgo-scrollbar max-h-64 overflow-y-auto">
+                    {/* 下拉项与列表分组同序：都走 sortedGroups（当前排序规则），
                       徽标语义一致（同一 rollup summary），不再用 hostWorkspaces 原序；
                       done 徽标可标记已查看，清除语义与列表项一致 */}
-                  {workspaceGroups.flatMap((group) =>
-                    group.workspace ? (
-                      <button
-                        key={group.workspace.id}
-                        onClick={() => handleWorkspaceSelect(group.workspace!)}
-                        className={`flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs ${currentWorkspace?.id === group.workspace.id ? 'bg-accent/10 text-text-1' : 'text-text-2 hover:bg-bg-2 hover:text-text-1'}`}
-                        aria-label={group.workspace.name}
-                      >
-                        <FiFolder aria-hidden="true" className="shrink-0 text-[#dcb67a]" size={14} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium">{group.workspace.name}</span>
-                          <span className="block truncate font-mono text-caption text-text-3">
-                            {group.workspace.path}
+                    {sortedGroups.flatMap((group) =>
+                      group.workspace ? (
+                        <button
+                          key={group.workspace.id}
+                          onClick={() => handleWorkspaceSelect(group.workspace!)}
+                          className={`flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs ${currentWorkspace?.id === group.workspace.id ? 'bg-accent/10 text-text-1' : 'text-text-2 hover:bg-bg-2 hover:text-text-1'}`}
+                          aria-label={group.workspace.name}
+                        >
+                          <FiFolder aria-hidden="true" className="shrink-0 text-[#dcb67a]" size={14} />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium">{group.workspace.name}</span>
+                            <span className="block truncate font-mono text-caption text-text-3">
+                              {group.workspace.path}
+                            </span>
                           </span>
-                        </span>
-                        <AgentStatusBadge summary={group.agentSummary} compact />
-                        {currentWorkspace?.id === group.workspace.id && (
-                          <FiCheck aria-hidden="true" className="shrink-0 text-accent" size={14} />
-                        )}
-                      </button>
-                    ) : (
-                      []
-                    ),
-                  )}
+                          <AgentStatusBadge summary={group.agentSummary} compact />
+                          {currentWorkspace?.id === group.workspace.id && (
+                            <FiCheck aria-hidden="true" className="shrink-0 text-accent" size={14} />
+                          )}
+                        </button>
+                      ) : (
+                        []
+                      ),
+                    )}
+                  </div>
+                  <div className="border-t border-[var(--line)] p-1">
+                    <button
+                      onClick={() => {
+                        setWorkspaceMenuOpen(false)
+                        setWorkspacePickerOpen(true)
+                      }}
+                      className="flex w-full items-center gap-2 rounded-apple px-2 py-2 text-left text-xs text-accent hover:bg-bg-2"
+                    >
+                      <FiFolderPlus aria-hidden="true" size={14} />
+                      {t('workspace.add')}
+                    </button>
+                  </div>
                 </div>
-                <div className="border-t border-[var(--line)] p-1">
-                  <button
-                    onClick={() => {
-                      setWorkspaceMenuOpen(false)
-                      setWorkspacePickerOpen(true)
-                    }}
-                    className="flex w-full items-center gap-2 rounded-apple px-2 py-2 text-left text-xs text-accent hover:bg-bg-2"
-                  >
-                    <FiFolderPlus aria-hidden="true" size={14} />
-                    {t('workspace.add')}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="mt-2 flex items-center justify-between">
-            <div className="min-w-0 truncate text-xs font-medium text-text-1">
-              {batchMode
-                ? t('sidebar.batchSelectedCount', { count: selectedSessionIds.length })
-                : t('sidebar.sessions')}
+              )}
             </div>
-            <div className="flex items-center gap-1">
+          </div>
+          <div className="mt-2 flex items-center gap-1">
+            {batchMode && (
+              <span className="min-w-0 flex-1 truncate text-xs font-medium text-text-3">
+                {t('sidebar.batchSelectedCount', { count: selectedSessionIds.length })}
+              </span>
+            )}
+            <div className="ml-auto flex items-center gap-1">
               {batchMode ? (
                 <>
                   <Chip onClick={() => setSelectedSessionIds(sessions.map((session) => session.id))}>
@@ -884,13 +1068,29 @@ export function SessionPanel() {
                     <FiUpload aria-hidden="true" size={13} />
                   </Chip>
                   <Chip
-                    onClick={() => setSnapshotsOpen(true)}
-                    disabled={!activeHostId}
+                    tone={sortRule === 'manual' ? 'default' : 'accent'}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      if (sortMenu) return setSortMenu(null)
+                      const rect = event.currentTarget.getBoundingClientRect()
+                      setSortMenu({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+                    }}
                     className="px-2 py-1"
-                    title={t('snapshot.entry')}
-                    aria-label={t('snapshot.entry')}
+                    title={`${t('sidebar.sort')}: ${t(SESSION_SORT_LABELS[sortRule])}`}
+                    aria-label={t('sidebar.sort')}
+                    aria-pressed={sortRule !== 'manual'}
                   >
-                    <FiClock aria-hidden="true" size={13} />
+                    <FiChevronsDown aria-hidden="true" size={13} />
+                  </Chip>
+                  <Chip
+                    tone={hideWorkspaceGroups ? 'accent' : 'default'}
+                    onClick={() => updatePreferences({ hideWorkspaceGroups: !hideWorkspaceGroups })}
+                    className="px-2 py-1"
+                    title={t('sidebar.toggleWorkspaceGroups')}
+                    aria-label={t('sidebar.toggleWorkspaceGroups')}
+                    aria-pressed={hideWorkspaceGroups}
+                  >
+                    <FiLayers aria-hidden="true" size={13} />
                   </Chip>
                   <Chip
                     onClick={toggleBatchMode}
@@ -918,24 +1118,35 @@ export function SessionPanel() {
             </div>
           ) : (
             <DndContext
-              sensors={sessionDndSensors}
+              sensors={canDragSessions ? sessionDndSensors : NO_SENSORS}
               collisionDetection={closestCenter}
               onDragStart={handleSessionDragStart}
               onDragOver={handleSessionDragOver}
               onDragEnd={handleSessionDragEnd}
               onDragCancel={resetSessionDrag}
             >
-              <SessionGroupedSortableList
-                listClassName="min-h-full"
-                getItemClassName={sessionItemClassName}
-                renderItem={renderSessionItem}
-                groups={displayedGroups.map(({ key, workspace, sessions: groupSessions }) => ({
-                  key,
-                  sessions: groupSessions,
-                  header: renderGroupHeader(workspace),
-                  headerClassName: groupHeaderClassName,
-                }))}
-              />
+              {hideWorkspaceGroups ? (
+                // flat 模式绕过 grouped list：不渲染任何组头/未分类头，也不留占位空白；
+                // 仍在同一 DndContext 内（SessionSortableList 依赖共享 context 才能拖拽）
+                <SessionSortableList
+                  sessions={flatPreview ? orderByIds(visibleFlat, flatPreview) : visibleFlat}
+                  listClassName="min-h-full"
+                  getItemClassName={sessionItemClassName}
+                  renderItem={renderSessionItem}
+                />
+              ) : (
+                <SessionGroupedSortableList
+                  listClassName="min-h-full"
+                  getItemClassName={sessionItemClassName}
+                  renderItem={renderSessionItem}
+                  groups={displayedGroups.map(({ key, workspace, sessions: groupSessions }) => ({
+                    key,
+                    sessions: groupSessions,
+                    header: renderGroupHeader(workspace),
+                    headerClassName: groupHeaderClassName,
+                  }))}
+                />
+              )}
               {/* DragOverlay 必须 portal 出容器：内联 fixed 会被 backdrop-filter/
                   transform 祖先当作包含块，top 按面板坐标解析导致位置大幅偏移 */}
               <ModalPortal>
@@ -970,6 +1181,41 @@ export function SessionPanel() {
           </div>
         )}
       </div>
+      {hoverSession && activeHostId && (
+        <SessionHoverCard
+          hostId={activeHostId}
+          sessionId={hoverSession.id}
+          sessionName={hoverSession.name}
+          anchorRect={hoverAnchor}
+          onClose={() => setHoverSession(null)}
+        />
+      )}
+      {sortMenu && (
+        <ModalPortal>
+          {/* 面板容器带 backdrop-blur/滚动裁剪，菜单必须 portal + fixed（同组头模板菜单） */}
+          <div
+            className="tmuxgo-menu fixed z-[90] w-44 py-1 text-xs"
+            style={{ top: sortMenu.top, right: sortMenu.right }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            {SESSION_SORTS.map((item) => (
+              <button
+                key={item.rule}
+                onClick={() => {
+                  updatePreferences({ sessionSortMode: item.rule })
+                  setSortMenu(null)
+                }}
+                className={`tmuxgo-menu-item truncate text-xs ${sortRule === item.rule ? 'text-accent' : ''}`}
+              >
+                {t(item.labelKey)}
+              </button>
+            ))}
+            {!canDragSessions && (
+              <div className="px-2 pt-1 text-caption leading-tight text-text-3">{t('sidebar.sortDragHint')}</div>
+            )}
+          </div>
+        </ModalPortal>
+      )}
       {showTemplates && (
         <ModalPortal>
           <SessionTemplates
@@ -1017,14 +1263,6 @@ export function SessionPanel() {
           setCreateDialogCwd(null)
           setCreateDialogWorktreeLink(null)
         }}
-      />
-      <SessionSnapshotsDialog
-        open={snapshotsOpen}
-        onClose={() => setSnapshotsOpen(false)}
-        hostId={activeHostId || 'local'}
-        activeSessionId={activeSessionId}
-        // 恢复后列表里没有新 session：重建完必须刷新，否则要等下一次轮询才看得见
-        onRestored={refreshSessions}
       />
       <ConfirmDialog
         open={!!pendingDeleteSessionId}

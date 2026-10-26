@@ -56,9 +56,25 @@ vi.mock('@/hooks/useApi', () => ({
   useBatchDeleteSessions: () => ({ mutateAsync: mutateBatchDeleteSessions }),
   useSessionTemplates: () => ({ data: { templates: [] } }),
 }))
-vi.mock('@/hooks/usePreferences', () => ({
-  usePreferences: () => ({ preferences: { showQuickActions: false } }),
+// 有状态 preferences：新开关（隐藏工作区分组/排序）都靠 updatePreferences 落盘再回读，
+// 只返回常量的 mock 会把开关点击变成空操作，测不出行为
+const preferencesState = vi.hoisted(() => ({
+  initial: { showQuickActions: false } as Record<string, unknown>,
+  updatePreferences: vi.fn(),
 }))
+vi.mock('@/hooks/usePreferences', async () => {
+  const React = await import('react')
+  return {
+    usePreferences: () => {
+      const [preferences, setPreferences] = React.useState(preferencesState.initial)
+      const updatePreferences = (patch: Record<string, unknown>) => {
+        preferencesState.updatePreferences(patch)
+        setPreferences((prev) => ({ ...prev, ...patch }))
+      }
+      return { preferences, updatePreferences }
+    },
+  }
+})
 vi.mock('@/hooks/useOrderedSessions', () => ({
   useOrderedSessions: () => orderedSessionQueryState,
 }))
@@ -96,6 +112,14 @@ vi.mock('@/i18n', () => ({
       if (key === 'workspace.current') return 'Current workspace'
       if (key === 'workspace.choose') return 'Choose workspace'
       if (key === 'workspace.add') return 'Add workspace'
+      if (key === 'sidebar.sort') return 'Sort'
+      if (key === 'sidebar.toggleWorkspaceGroups') return 'Grouping'
+      if (key === 'sidebar.sortManual') return 'Manual'
+      if (key === 'sidebar.sortCreatedAt') return 'Created'
+      if (key === 'sidebar.sortLastActiveAt') return 'Last active'
+      if (key === 'sidebar.sortName') return 'Name'
+      if (key === 'sidebar.sortAttention') return 'Work state'
+      if (key === 'sidebar.sortDragHint') return 'Dragging disabled'
       return key
     },
   }),
@@ -178,45 +202,81 @@ vi.mock('@/hooks/usePrompt', () => ({
 vi.mock('./HostSwitcher', () => ({
   HostSwitcher: () => React.createElement('div'),
 }))
-vi.mock('./SessionSortableList', () => ({
-  SessionSortableList: ({
-    sessions,
-    renderItem,
-  }: {
-    sessions: Session[]
-    renderItem: (args: { session: Session; isDragging: boolean; isOverlay: boolean }) => React.ReactNode
-  }) =>
-    React.createElement(
-      'div',
-      null,
-      sessions.map((session) =>
-        React.createElement('div', { key: session.id }, renderItem({ session, isDragging: false, isOverlay: false })),
-      ),
-    ),
-  SessionGroupedSortableList: ({
-    groups,
-    renderItem,
-  }: {
-    groups: { key: string; header: React.ReactNode; sessions: Session[] }[]
-    renderItem: (args: { session: Session; isDragging: boolean; isOverlay: boolean }) => React.ReactNode
-  }) =>
-    React.createElement(
-      'div',
-      null,
-      groups.flatMap((group) => [
-        React.createElement('div', { key: `group-drop:${group.key || 'unclassified'}` }, group.header),
-        ...group.sessions.map((session) =>
-          React.createElement('div', { key: session.id }, renderItem({ session, isDragging: false, isOverlay: false })),
-        ),
-      ]),
-    ),
-  SessionGroupDropZone: ({ children }: { children: React.ReactNode }) => React.createElement('div', null, children),
-  orderByIds: (sessions: Session[], ids: string[]) => {
-    const map = new Map(sessions.map((session) => [session.id, session]))
-    return ids.map((id) => map.get(id)).filter(Boolean)
+// 拖拽链路：真实 DndContext 只能靠指针手势激活，jsdom 里点不出来。换成捕获回调的壳，
+// 测试直接按 active/over 调 onDragStart → onDragOver → onDragEnd，断言落盘入参
+type DragEventLike = { active?: { id?: string } | null; over?: { id?: string } | null }
+const dndHandlers = vi.hoisted(() => ({
+  current: {} as {
+    onDragStart?: (event: DragEventLike) => void
+    onDragOver?: (event: DragEventLike) => void
+    onDragEnd?: (event: DragEventLike) => void
+    onDragCancel?: () => void
+    sensors?: unknown[]
   },
 }))
-
+vi.mock('@dnd-kit/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dnd-kit/core')>()
+  return {
+    ...actual,
+    DndContext: (props: { children?: React.ReactNode } & Record<string, unknown>) => {
+      dndHandlers.current = {
+        onDragStart: props.onDragStart as (event: DragEventLike) => void,
+        onDragOver: props.onDragOver as (event: DragEventLike) => void,
+        onDragEnd: props.onDragEnd as (event: DragEventLike) => void,
+        onDragCancel: props.onDragCancel as (() => void) | undefined,
+        sensors: props.sensors as unknown[],
+      }
+      return React.createElement(React.Fragment, null, props.children)
+    },
+    // 覆盖层只在真拖拽时渲染，测试里不需要
+    DragOverlay: () => null,
+  }
+})
+vi.mock('./SessionSortableList', async (importOriginal) => {
+  // 预览序助手（findPreviewGroup/movePreviewBetweenGroups/orderByIds）用真实现，
+  // 只把两个列表组件换成同步渲染的壳——拖拽回调才是本组用例的被测面
+  const actual = await importOriginal<typeof import('./SessionSortableList')>()
+  return {
+    ...actual,
+    // flat（隐藏工作区分组）模式走单列表：无组头，只按传入序渲染行
+    SessionSortableList: ({
+      sessions,
+      renderItem,
+    }: {
+      sessions: Session[]
+      renderItem: (args: { session: Session; isDragging: boolean; isOverlay: boolean }) => React.ReactNode
+    }) =>
+      React.createElement(
+        'div',
+        null,
+        sessions.map((session) =>
+          React.createElement('div', { key: session.id }, renderItem({ session, isDragging: false, isOverlay: false })),
+        ),
+      ),
+    SessionGroupedSortableList: ({
+      groups,
+      renderItem,
+    }: {
+      groups: { key: string; header: React.ReactNode; sessions: Session[] }[]
+      renderItem: (args: { session: Session; isDragging: boolean; isOverlay: boolean }) => React.ReactNode
+    }) =>
+      React.createElement(
+        'div',
+        null,
+        groups.flatMap((group) => [
+          React.createElement('div', { key: `group-drop:${group.key || 'unclassified'}` }, group.header),
+          ...group.sessions.map((session) =>
+            React.createElement(
+              'div',
+              { key: session.id },
+              renderItem({ session, isDragging: false, isOverlay: false }),
+            ),
+          ),
+        ]),
+      ),
+    SessionGroupDropZone: ({ children }: { children: React.ReactNode }) => React.createElement('div', null, children),
+  }
+})
 describe('SessionPanel session actions', () => {
   beforeEach(() => {
     mutateCreateSession.mockReset()
@@ -877,5 +937,316 @@ describe('SessionPanel session actions', () => {
     // Promise 真正传给弹窗 → 弹窗据此 busy 防重复提交（旧写法 void 丢弃时拿不到）
     expect(typeof (result as PromiseLike<unknown>)?.then).toBe('function')
     await act(async () => resolveRemove({ success: true }))
+  })
+})
+
+// —— Task D：快照入口移除 / 隐藏工作区分组 / 排序 chip ——
+// 断言全为行为级：不认组件内部状态字段，只认「点哪个 chip、列表变成什么顺序」
+describe('SessionPanel grouping and sorting controls', () => {
+  beforeEach(() => {
+    preferencesState.initial = { showQuickActions: false }
+    preferencesState.updatePreferences.mockReset()
+    workspacesState.data = []
+    sessionWorkspacesState.data = []
+    orderedSessionQueryState.data = []
+    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: null, toasts: [] })
+  })
+
+  const mkWs = (id: string, name: string): WorkspaceEntry => ({
+    id,
+    name,
+    hostId: 'local',
+    path: `/workspace/${id}`,
+    rootId: 'root-workspace',
+    rootPath: '/workspace',
+    rootLabel: 'workspace',
+    relativePath: id,
+    templateId: null,
+    createdAt: '',
+    updatedAt: '',
+  })
+  const bind = (sessionId: string, ws: WorkspaceEntry): SessionWorkspaceEntry => ({
+    sessionId,
+    hostId: 'local',
+    workspaceId: ws.id,
+    workspacePath: ws.path,
+    rootId: ws.rootId,
+    rootPath: ws.rootPath,
+    rootLabel: ws.rootLabel,
+    relativePath: ws.relativePath,
+    updatedAt: '',
+  })
+  type SortSession = PanelSession & { createdAt?: string; lastActiveAt?: string }
+  const mkSess = (
+    id: string,
+    name: string,
+    extra: { createdAt?: string; lastActiveAt?: string; agentSummary?: AgentSummary } = {},
+  ): SortSession => ({ id, name, windowCount: 1, ...extra })
+  const domBefore = (a: HTMLElement, b: HTMLElement) =>
+    (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+  // 顶栏 chip 行：以 Sessions 标题同级、New chip 所在容器为准（组头里的 New 不算）
+  const chipRow = () =>
+    within(screen.getByText('Sessions').parentElement as HTMLElement).getByRole('button', { name: 'New' })
+      .parentElement as HTMLElement
+  const chipLabel = (el: HTMLElement) =>
+    (el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent || '').trim()
+  const chips = () => within(chipRow()).getAllByRole('button')
+  const findChip = (pattern: RegExp) => {
+    const all = chips()
+    const found = all.find((el) => pattern.test(chipLabel(el)))
+    if (!found) throw new Error(`chip ${pattern} not found; chips = [${all.map(chipLabel).join(' | ')}]`)
+    return found
+  }
+  // 菜单项 = 点击后新出现的 button（不依赖菜单 class/文案 key）
+  const clickToNewButtons = (chip: HTMLElement) => {
+    const before = new Set(within(document.body).getAllByRole('button'))
+    fireEvent.click(chip)
+    return within(document.body)
+      .getAllByRole('button')
+      .filter((el) => !before.has(el))
+  }
+  const sortOptions = () => clickToNewButtons(findChip(/sort/i))
+  const pickSort = (label: string) => {
+    const options = sortOptions()
+    // 菜单顺序即产品规格：手动 / 创建时间 / 最近活跃 / 名称 / 工作状态
+    expect(options.map((el) => el.textContent)).toEqual(['Manual', 'Created', 'Last active', 'Name', 'Work state'])
+    fireEvent.click(options.find((el) => el.textContent === label) as HTMLElement)
+  }
+  const expectDomOrder = (names: string[]) => {
+    const nodes = names.map((name) => screen.getByText(name))
+    for (let i = 0; i + 1 < nodes.length; i++) expect(domBefore(nodes[i], nodes[i + 1])).toBe(true)
+  }
+
+  it('drops the snapshots entry chip from the sessions header', () => {
+    orderedSessionQueryState.data = [mkSess('s-1', 'only')]
+    render(<SessionPanel />)
+    expect(screen.queryByLabelText('snapshot.entry')).not.toBeInTheDocument()
+    // 顶栏 chip：New / 导入布局 / 隐藏分组 / 排序 / 批量
+    expect(chips()).toHaveLength(5)
+  })
+
+  it('flattens the list when workspace grouping is hidden and restores it on toggle', () => {
+    const ws = mkWs('ws-1', 'alpha-ws')
+    workspacesState.data = [ws]
+    orderedSessionQueryState.data = [mkSess('s-in', 'in-ws'), mkSess('s-loose', 'loose')]
+    sessionWorkspacesState.data = [bind('s-in', ws)]
+    render(<SessionPanel />)
+    // 分组态：有 workspace 组头与未分类组头
+    expect(screen.getAllByText('alpha-ws')).toHaveLength(1)
+    expect(screen.getByText('workspace.unclassified')).toBeInTheDocument()
+
+    fireEvent.click(findChip(/hide|group|flat|分组/i))
+    // 拍平：两层组头都消失，也没有空占位留下
+    expect(screen.queryByText('workspace.unclassified')).not.toBeInTheDocument()
+    expect(screen.queryByText('alpha-ws')).not.toBeInTheDocument()
+    expect(screen.getByText('in-ws')).toBeInTheDocument()
+    expect(screen.getByText('loose')).toBeInTheDocument()
+
+    fireEvent.click(findChip(/hide|group|flat|分组/i))
+    expect(screen.getByText('workspace.unclassified')).toBeInTheDocument()
+  })
+
+  it('sorts all sessions in flat mode by the chosen rule', () => {
+    const ws = mkWs('ws-1', 'alpha-ws')
+    workspacesState.data = [ws]
+    orderedSessionQueryState.data = [
+      mkSess('s-b', 'zzz', {
+        createdAt: '2026-05-01T00:00:00Z',
+        lastActiveAt: '2026-09-01T00:00:00Z',
+        agentSummary: { idle: 1, working: 0, blocked: 0, done: 0, unknown: 0, total: 1 },
+      }),
+      mkSess('s-a', 'aaa', {
+        createdAt: '2026-01-01T00:00:00Z',
+        lastActiveAt: '2026-10-20T00:00:00Z',
+        agentSummary: { idle: 0, working: 0, blocked: 1, done: 0, unknown: 0, total: 1 },
+      }),
+      mkSess('s-c', 'mmm', {
+        createdAt: '2026-03-01T00:00:00Z',
+        lastActiveAt: '2026-08-01T00:00:00Z',
+        agentSummary: { idle: 0, working: 1, blocked: 0, done: 0, unknown: 0, total: 1 },
+      }),
+    ]
+    sessionWorkspacesState.data = [bind('s-b', ws), bind('s-a', ws), bind('s-c', ws)]
+    render(<SessionPanel />)
+    fireEvent.click(findChip(/hide|group|flat|分组/i))
+
+    // 菜单 5 项：手动 / 创建时间 / 最近活跃 / 名称 / 工作状态
+    const options = sortOptions()
+    expect(options.map((el) => el.textContent)).toEqual(['Manual', 'Created', 'Last active', 'Name', 'Work state'])
+    fireEvent.click(findChip(/sort/i)) // 关掉菜单，避免残留项干扰下一轮
+
+    pickSort('Created')
+    expectDomOrder(['zzz', 'mmm', 'aaa']) // createdAt 新→旧
+    // 非手动排序下拖拽被禁用：菜单里给出提示，chip 进入激活态
+    fireEvent.click(findChip(/sort/i))
+    expect(screen.getByText('Dragging disabled')).toBeInTheDocument()
+    expect(findChip(/sort/i).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByText('Last active'))
+    expectDomOrder(['aaa', 'zzz', 'mmm']) // lastActiveAt 新→旧
+    pickSort('Name')
+    expectDomOrder(['aaa', 'mmm', 'zzz']) // 名称 localeCompare
+    pickSort('Work state')
+    expectDomOrder(['aaa', 'mmm', 'zzz']) // blocked > working > idle
+  })
+
+  it('sorts groups by aggregate and within groups while keeping unclassified last', () => {
+    const alpha = mkWs('ws-alpha', 'alpha-ws')
+    const beta = mkWs('ws-beta', 'beta-ws')
+    workspacesState.data = [alpha, beta]
+    orderedSessionQueryState.data = [
+      mkSess('s-alpha-old', 'alpha-old', { createdAt: '2026-01-01T00:00:00Z' }),
+      mkSess('s-beta-old', 'beta-old', { createdAt: '2026-02-01T00:00:00Z' }),
+      mkSess('s-beta-new', 'beta-new', { createdAt: '2026-08-01T00:00:00Z' }),
+      mkSess('s-loose', 'loose-newest', { createdAt: '2026-09-01T00:00:00Z' }),
+    ]
+    sessionWorkspacesState.data = [bind('s-alpha-old', alpha), bind('s-beta-old', beta), bind('s-beta-new', beta)]
+    render(<SessionPanel />)
+
+    pickSort('Created')
+    // 组间按组内最新 createdAt：beta(08) 先于 alpha(01)；组内 beta-new 在 beta-old 前
+    expectDomOrder(['beta-ws', 'beta-new', 'beta-old', 'alpha-ws', 'alpha-old'])
+    // 未分类组即便含最新 session 也沉底
+    expect(domBefore(screen.getByText('alpha-old'), screen.getByText('workspace.unclassified'))).toBe(true)
+    expect(domBefore(screen.getByText('workspace.unclassified'), screen.getByText('loose-newest'))).toBe(true)
+
+    pickSort('Name')
+    // 名称排序在组间用 workspace.name：alpha 先于 beta，未分类仍沉底
+    expectDomOrder(['alpha-ws', 'alpha-old', 'beta-ws'])
+    expect(domBefore(screen.getByText('beta-old'), screen.getByText('workspace.unclassified'))).toBe(true)
+  })
+})
+
+// —— Task F-13：拖拽落盘链路（flat 全量序 / 原地松手守卫 / 跨组归属）——
+describe('SessionPanel drag ordering', () => {
+  beforeEach(() => {
+    preferencesState.initial = { showQuickActions: false }
+    preferencesState.updatePreferences.mockReset()
+    workspacesState.data = []
+    sessionWorkspacesState.data = []
+    orderedSessionQueryState.data = []
+    moveSessionMock.mockReset()
+    mutateSetSessionWorkspace.mockReset()
+    mutateRemoveSessionWorkspaces.mockReset()
+    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: null, toasts: [] })
+  })
+
+  const mkWs = (id: string, name: string): WorkspaceEntry => ({
+    id,
+    name,
+    hostId: 'local',
+    path: `/workspace/${id}`,
+    rootId: 'root-workspace',
+    rootPath: '/workspace',
+    rootLabel: 'workspace',
+    relativePath: id,
+    templateId: null,
+    createdAt: '',
+    updatedAt: '',
+  })
+  const bind = (sessionId: string, ws: WorkspaceEntry): SessionWorkspaceEntry => ({
+    sessionId,
+    hostId: 'local',
+    workspaceId: ws.id,
+    workspacePath: ws.path,
+    rootId: ws.rootId,
+    rootPath: ws.rootPath,
+    rootLabel: ws.rootLabel,
+    relativePath: ws.relativePath,
+    updatedAt: '',
+  })
+  const mkSess = (id: string, name: string): PanelSession => ({ id, name, windowCount: 1 })
+  const domBefore = (a: HTMLElement, b: HTMLElement) =>
+    (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+  const handlers = () => dndHandlers.current
+  const dragStart = (activeId: string) => act(() => handlers().onDragStart?.({ active: { id: activeId } }))
+  const dragOver = (activeId: string, overId: string) =>
+    act(() => handlers().onDragOver?.({ active: { id: activeId }, over: { id: overId } }))
+  const dragEnd = (activeId: string, overId: string | null) =>
+    act(() => handlers().onDragEnd?.({ active: { id: activeId }, over: overId ? { id: overId } : null }))
+
+  it('moves a session in the flat list and commits the full id order', () => {
+    preferencesState.initial = { showQuickActions: false, hideWorkspaceGroups: true }
+    // 持久序 alpha,gamma,beta：flat(manual) 按持久序展示（不套 attention 展示序）
+    orderedSessionQueryState.data = [mkSess('s-a', 'alpha'), mkSess('s-c', 'gamma'), mkSess('s-b', 'beta')]
+    render(<SessionPanel />)
+    expect(domBefore(screen.getByText('gamma'), screen.getByText('beta'))).toBe(true)
+
+    dragStart('s-b')
+    dragOver('s-b', 's-c')
+    // 预览序即时生效：beta 插到 gamma 前
+    expect(domBefore(screen.getByText('beta'), screen.getByText('gamma'))).toBe(true)
+    dragEnd('s-b', 's-c')
+
+    expect(moveSessionMock).toHaveBeenCalledTimes(1)
+    expect(moveSessionMock).toHaveBeenCalledWith(['s-a', 's-b', 's-c'])
+    // flat 无跨组语义：不写归属
+    expect(mutateSetSessionWorkspace).not.toHaveBeenCalled()
+    expect(mutateRemoveSessionWorkspaces).not.toHaveBeenCalled()
+  })
+
+  it('skips the write when the flat preview equals the persisted order', () => {
+    preferencesState.initial = { showQuickActions: false, hideWorkspaceGroups: true }
+    orderedSessionQueryState.data = [mkSess('s-a', 'alpha'), mkSess('s-b', 'beta'), mkSess('s-c', 'gamma')]
+    render(<SessionPanel />)
+
+    // 行上按下又原地松手（DragOver 因 activeId===overId 提前返回，预览序 == 持久序）
+    dragStart('s-b')
+    dragEnd('s-b', 's-b')
+    expect(moveSessionMock).not.toHaveBeenCalled()
+    expect(mutateSetSessionWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('writes workspace ownership and group order when dropping across groups', async () => {
+    const ws = mkWs('ws-1', 'alpha-ws')
+    workspacesState.data = [ws]
+    orderedSessionQueryState.data = [mkSess('s-a', 'alpha'), mkSess('s-b', 'beta'), mkSess('s-c', 'gamma')]
+    sessionWorkspacesState.data = [bind('s-a', ws), bind('s-c', ws)]
+    mutateSetSessionWorkspace.mockResolvedValue({ ok: true })
+    render(<SessionPanel />)
+
+    // 未分类的 beta 拖到 ws-1 的 alpha 之前
+    dragStart('s-b')
+    dragOver('s-b', 's-a')
+    dragEnd('s-b', 's-a')
+
+    await waitFor(() =>
+      expect(mutateSetSessionWorkspace).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: 's-b',
+          hostId: 'local',
+          workspaceId: 'ws-1',
+          workspacePath: '/workspace/ws-1',
+          relativePath: 'ws-1',
+        }),
+      ),
+    )
+    // 全局序 = 各组预览序按显示顺序拼接（ws-1 在前，未分类沉底）
+    expect(moveSessionMock).toHaveBeenCalledWith(['s-b', 's-a', 's-c'])
+  })
+
+  it('detaches workspace ownership when dropping into the unclassified group', async () => {
+    const ws = mkWs('ws-1', 'alpha-ws')
+    workspacesState.data = [ws]
+    orderedSessionQueryState.data = [mkSess('s-a', 'alpha'), mkSess('s-c', 'gamma')]
+    sessionWorkspacesState.data = [bind('s-a', ws), bind('s-c', ws)]
+    mutateRemoveSessionWorkspaces.mockResolvedValue({ ok: true })
+    render(<SessionPanel />)
+
+    // 组容器 dropzone 的 id 形如 group:<key>，未分类组 key 为空串
+    dragStart('s-a')
+    dragOver('s-a', 'group:')
+    dragEnd('s-a', 'group:')
+
+    await waitFor(() => expect(mutateRemoveSessionWorkspaces).toHaveBeenCalledWith(['s-a']))
+    expect(mutateSetSessionWorkspace).not.toHaveBeenCalled()
+    expect(moveSessionMock).toHaveBeenCalledWith(['s-c', 's-a'])
+  })
+
+  it('passes no drag sensors when sorting is not manual', () => {
+    preferencesState.initial = { showQuickActions: false, hideWorkspaceGroups: true, sessionSortMode: 'createdAt' }
+    orderedSessionQueryState.data = [mkSess('s-a', 'alpha'), mkSess('s-c', 'gamma')]
+    render(<SessionPanel />)
+    // 非手动排序下拖拽禁用：sensors 传空数组，dnd 不会激活任何手势
+    expect(handlers().sensors).toEqual([])
   })
 })

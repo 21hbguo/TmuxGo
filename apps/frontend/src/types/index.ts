@@ -471,6 +471,8 @@ export interface UiPreferences {
   language?: string
   attachExclusive?: boolean
   activityBarOrder?: string[]
+  hideWorkspaceGroups?: boolean
+  sessionSortMode?: string
 }
 export type SessionCaptureMode = 'none' | 'visible' | 'history'
 export interface SessionResumePoint {

@@ -85,6 +85,8 @@ type UiPreferences = {
   attachExclusive?: boolean
   showShortcutBar?: boolean
   activityBarOrder?: string[]
+  hideWorkspaceGroups?: boolean
+  sessionSortMode?: string
 }
 type PreferencesStore = {
   version: 1
@@ -148,6 +150,7 @@ const MAX_FAVORITE_TARGET_LEN = 1024
 const VALID_THEMES = ['dark', 'light', 'high-contrast', 'dracula', 'nord', 'catppuccin', 'sage']
 const VALID_SIDEBAR = ['left', 'right']
 const VALID_LANGUAGE = ['zh', 'en']
+const SESSION_SORT_MODES = ['manual', 'createdAt', 'lastActiveAt', 'name', 'attention']
 const VALID_CAPTURE_MODES = ['none', 'visible', 'history']
 const DEFAULT_UPLOAD_RATE_LIMIT_KBPS = 5120
 const MAX_UPLOAD_RATE_LIMIT_KBPS = 10 * 1024
@@ -528,6 +531,10 @@ function normalizeUiPreferences(input: unknown): UiPreferences {
     }
     result.activityBarOrder = order
   }
+  if (typeof raw.hideWorkspaceGroups === 'boolean') result.hideWorkspaceGroups = raw.hideWorkspaceGroups
+  // 会话排序规则白名单；未知值丢弃，前端回落 manual
+  if (typeof raw.sessionSortMode === 'string' && SESSION_SORT_MODES.includes(raw.sessionSortMode))
+    result.sessionSortMode = raw.sessionSortMode
   return result
 }
 function normalizeUploadRateLimitKBps(input: unknown) {
