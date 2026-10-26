@@ -38,3 +38,4 @@ apps/gateway/DINOTTY_LEARNING.md
 apps/gateway/herdr-*.md
 docs/stream-transport-opt/results-*.tsv
 /tmp/autoresearch
+TmuxGo.worktrees/
