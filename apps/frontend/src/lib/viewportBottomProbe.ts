@@ -41,11 +41,19 @@
 //   dead=true + deep=false would prove IO-v2 can binary-search the edge.
 //   Spec delay is >=100ms, so it only describes steady state, never animations.
 import { recordMobileDiagnostic } from './mobile-diagnostics'
+import {
+  createVkGeometrySampler,
+  estimateVkBottom,
+  isVkOverlayActive,
+  readVkRect,
+  UrlbarCalibrator,
+  type VkGeometrySampler,
+} from './viewportVkOverlay'
 
 type VirtualKeyboardLike = {
-  // Read-only on purpose: never assign overlaysContent from here.
+  // Read here only; turning it on belongs to the flag-gated viewportVkOverlay.
   overlaysContent?: boolean
-  boundingRect?: { x?: number; y?: number; width?: number; height?: number } | null
+  boundingRect?: { x?: number; y?: number; width?: number; height?: number; top?: number; bottom?: number } | null
 }
 
 export type BottomProbeSample = {
@@ -62,8 +70,20 @@ export type BottomProbeSample = {
   vvBottom: number | null
   // probeVisibleBottom - vvBottom; the Edge dead band shows up as ~+138.
   vvVsProbeDelta: number | null
+  // Raw virtual-keyboard rect, straight from the platform (top/bottom carry the
+  // known chrome offset; recorded as-is).
+  vkRectX: number | null
+  vkRectY: number | null
+  vkRectWidth: number | null
   vkRectHeight: number | null
   vkRectTop: number | null
+  vkRectBottom: number | null
+  // Estimated keyboard top derived from stable screen height, not from the
+  // offset-buggy rect coordinates.
+  vkBottomEst: number | null
+  // Session-calibrated URL-bar height (max-min innerHeight while closed).
+  urlbarEst: number | null
+  vkOverlayEnabled: boolean
   innerHeight: number
   vvHeight: number | null
   probeMethod: 'elementFromPoint' | 'none' | 'budget'
@@ -98,6 +118,7 @@ export type BottomProbeInput = {
   clock?: () => number
   getVirtualKeyboard?: () => VirtualKeyboardLike | undefined
   iov2?: Iov2State
+  urlbarEst?: number | null
 }
 
 export type BottomProbeOptions = {
@@ -151,6 +172,9 @@ function readScreenMetrics(): {
 
 const round1 = (value: number) => Math.round(value * 10) / 10
 
+const asFinite = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? round1(value) : null
+
 // Gate keeps the probe cheap: run while the keyboard is open or shortly after
 // the visual viewport moved (animations settle in a few frames), and only on a
 // slow cadence when everything is steady.
@@ -197,14 +221,32 @@ export function probeBottomEdge(input: BottomProbeInput, options: BottomProbeOpt
 
   const vvBottom = input.vv ? round1(input.vv.height + input.vv.offsetTop) : null
   const keyboard = (input.getVirtualKeyboard ?? defaultVirtualKeyboard)()
-  const rect = keyboard?.boundingRect ?? null
+  const rect = keyboard
+    ? {
+        x: asFinite(keyboard.boundingRect?.x),
+        y: asFinite(keyboard.boundingRect?.y),
+        width: asFinite(keyboard.boundingRect?.width),
+        height: asFinite(keyboard.boundingRect?.height),
+        top: asFinite(keyboard.boundingRect?.top),
+        bottom: asFinite(keyboard.boundingRect?.bottom),
+      }
+    : readVkRect()
+  const screenMetrics = readScreenMetrics()
+  const urlbarEst = input.urlbarEst ?? null
   const base = {
     innerHeight: Math.round(input.innerHeight),
     vvHeight: input.vv ? round1(input.vv.height) : null,
     vvBottom,
-    vkRectHeight: rect && typeof rect.height === 'number' ? round1(rect.height) : null,
-    vkRectTop: rect && typeof rect.y === 'number' ? round1(rect.y) : null,
-    ...readScreenMetrics(),
+    vkRectX: rect.x,
+    vkRectY: rect.y,
+    vkRectWidth: rect.width,
+    vkRectHeight: rect.height,
+    vkRectTop: rect.top,
+    vkRectBottom: rect.bottom,
+    vkBottomEst: estimateVkBottom(rect.height, screenMetrics.screenHeight, urlbarEst),
+    urlbarEst,
+    vkOverlayEnabled: keyboard ? keyboard.overlaysContent === true : isVkOverlayActive(),
+    ...screenMetrics,
     iov2DeadBandVisible: input.iov2?.deadBandVisible ?? null,
     iov2DeepVisible: input.iov2?.deepVisible ?? null,
     iov2Supported: input.iov2?.supported ?? false,
@@ -367,6 +409,8 @@ export function createViewportBottomProbeRunner(options: BottomProbeOptions = {}
   const record =
     options.record ?? ((sample: BottomProbeSample) => recordMobileDiagnostic('viewport-bottom-probe', { ...sample }))
   let iov2: Iov2Probe | null = null
+  let geometry: VkGeometrySampler | null = null
+  const calibrator = new UrlbarCalibrator()
   const ensureIov2 = (doc: Document | undefined): Iov2Probe => {
     iov2 ??= options.iov2 ?? createIov2Probe({ doc })
     return iov2
@@ -381,7 +425,10 @@ export function createViewportBottomProbeRunner(options: BottomProbeOptions = {}
           vvBottom: input.vv ? input.vv.height + input.vv.offsetTop : null,
           innerHeight: input.innerHeight,
         })
-        const sample = probeBottomEdge({ ...input, iov2: iov2State }, options)
+        // geometrychange captures the open animation too, including overshoot.
+        geometry ??= createVkGeometrySampler()
+        calibrator.observe(input.innerHeight, input.keyboardOpen)
+        const sample = probeBottomEdge({ ...input, iov2: iov2State, urlbarEst: calibrator.estimate }, options)
         record(sample)
         return sample
       } catch {
@@ -395,6 +442,9 @@ export function createViewportBottomProbeRunner(options: BottomProbeOptions = {}
     dispose() {
       iov2?.dispose()
       iov2 = null
+      geometry?.dispose()
+      geometry = null
+      calibrator.reset()
     },
   }
 }
