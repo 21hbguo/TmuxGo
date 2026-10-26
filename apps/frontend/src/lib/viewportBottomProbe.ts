@@ -14,10 +14,18 @@
 //
 // Probe method notes (non-obvious, kept here on purpose):
 // - elementFromPoint hit-testing: we sample y below vv.bottom and ask what is
-//   painted there. A non-root element means the point is actually visible; the
-//   html/body root is what browsers return for "nothing is there", i.e. covered.
-//   How keyboard areas answer varies per vendor — that is exactly what we
-//   measure, so every hit/miss is recorded rather than inferred.
+//   painted there. Two readings are kept, because they answer different
+//   questions and the Edge dead band only shows up in the second one:
+//     * probeVisibleBottom: max y returning a non-root element (real content).
+//       A keyboard/chrome area can answer null or the root, so this is the
+//       conservative "is app content painted here" reading.
+//     * probeCanvasBottom: max y returning ANY element, root included. Browsers
+//       answer with html/body where nothing else is painted, which is exactly
+//       the "page canvas is visible but empty" case of the dead band. Treating
+//       root hits as covered alone would report delta 0 and hide the bug.
+//   Hit codes keep the identity instead of collapsing them: E = element,
+//   B = html/body root, N = null. Vendor differences in keyboard areas are what
+//   we measure, so every point is recorded verbatim.
 // - IntersectionObserver v2 trackVisibility has a >=100ms delay by spec, so it
 //   could only validate steady state, not animations; elementFromPoint is
 //   synchronous and cheap enough for every tick, so it ships first.
@@ -33,9 +41,14 @@ type VirtualKeyboardLike = {
 }
 
 export type BottomProbeSample = {
-  // Max y (CSS px) proven visible below vv.bottom; null = method unavailable.
+  // Max y (CSS px) where real (non-root) content is painted below vv.bottom;
+  // null = method unavailable.
   probeVisibleBottom: number | null
-  // Compact hit list: "y:1" = element hit, "y:0" = covered (null or root).
+  // Max y where ANY element is painted, html/body included: "canvas visible but
+  // empty" still counts. Delta 0 here means genuinely covered chrome.
+  probeCanvasBottom: number | null
+  // Compact hit list with hit identity: "y:E" element, "y:B" html/body root,
+  // "y:N" null. Collapsing B and N would hide the dead band.
   probeHits: string
   // Reference value: vv.height + vv.offsetTop.
   vvBottom: number | null
@@ -157,6 +170,7 @@ export function probeBottomEdge(input: BottomProbeInput, options: BottomProbeOpt
     return {
       ...base,
       probeVisibleBottom: null,
+      probeCanvasBottom: null,
       probeHits: '',
       vvVsProbeDelta: null,
       probeMethod: 'none',
@@ -164,33 +178,37 @@ export function probeBottomEdge(input: BottomProbeInput, options: BottomProbeOpt
     }
 
   const hits: string[] = []
-  let visibleBottom = Math.min(vvBottom, base.innerHeight)
+  const baseline = Math.min(vvBottom, base.innerHeight)
+  let visibleBottom = baseline
+  let canvasBottom = baseline
   for (let y = vvBottom + startGapPx; y <= base.innerHeight - edgePx && hits.length < maxPoints; y += stepPx) {
     if (clock() - started > budgetMs)
       return {
         ...base,
         probeVisibleBottom: null,
+        probeCanvasBottom: null,
         probeHits: hits.join(';'),
         vvVsProbeDelta: null,
         probeMethod: 'budget',
         probeCostMs: cost(),
       }
     const sampleY = Math.round(y)
-    let hit = 0
+    let code: 'N' | 'B' | 'E' = 'N'
     try {
       const el = doc.elementFromPoint(PROBE_X, sampleY)
-      // Root means "nothing painted here" (covered by chrome/keyboard).
-      if (el && !ROOT_TAGS.has(el.tagName)) hit = 1
+      if (el) code = ROOT_TAGS.has(el.tagName) ? 'B' : 'E'
     } catch {
-      hit = 0
+      code = 'N'
     }
-    hits.push(`${sampleY}:${hit}`)
-    if (hit) visibleBottom = sampleY
+    hits.push(`${sampleY}:${code}`)
+    if (code !== 'N') canvasBottom = sampleY
+    if (code === 'E') visibleBottom = sampleY
   }
 
   return {
     ...base,
     probeVisibleBottom: visibleBottom,
+    probeCanvasBottom: canvasBottom,
     probeHits: hits.join(';'),
     vvVsProbeDelta: round1(visibleBottom - vvBottom),
     probeMethod: 'elementFromPoint',

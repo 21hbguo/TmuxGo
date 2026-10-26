@@ -41,17 +41,31 @@ describe('probeBottomEdge — elementFromPoint', () => {
     expect(sample.probeVisibleBottom).toBe(464)
     expect(sample.vvBottom).toBe(336.2)
     expect(sample.vvVsProbeDelta).toBeCloseTo(127.8, 1)
-    expect(sample.probeHits).toBe('344:1;368:1;392:1;416:1;440:1;464:1;488:0;512:0')
+    expect(sample.probeHits).toBe('344:E;368:E;392:E;416:E;440:E;464:E;488:N;512:N')
+    expect(sample.probeCanvasBottom).toBe(464)
     expect(sample.innerHeight).toBe(658)
     expect(sample.vvHeight).toBe(336.2)
   })
 
-  it('counts root html/body hits as covered, not visible', () => {
+  it('keeps root hits out of probeVisibleBottom but counts them as canvas', () => {
     stubElementFromPoint((y) => (y === 344 ? document.body : y === 368 ? document.documentElement : null))
     const sample = probeBottomEdge(baseInput())
-    expect(sample.probeHits).toBe('344:0;368:0;392:0;416:0;440:0;464:0;488:0;512:0')
+    expect(sample.probeHits).toBe('344:B;368:B;392:N;416:N;440:N;464:N;488:N;512:N')
+    // 根节点可能只是「画布可见但空」，不冒充应用内容
     expect(sample.probeVisibleBottom).toBe(336.2)
     expect(sample.vvVsProbeDelta).toBe(0)
+    // …但 canvas 语义把这段已绘制区域照出来
+    expect(sample.probeCanvasBottom).toBe(368)
+  })
+
+  it('separates content bottom from canvas bottom in the dead-band shape', () => {
+    // 应用内容到 400 为止，其下全是 html/body 画布：Edge 死区的真实形态
+    stubElementFromPoint((y) => (y <= 400 ? elementAt() : document.body))
+    const sample = probeBottomEdge(baseInput())
+    expect(sample.probeHits).toBe('344:E;368:E;392:E;416:B;440:B;464:B;488:B;512:B')
+    expect(sample.probeVisibleBottom).toBe(392)
+    expect(sample.probeCanvasBottom).toBe(512)
+    expect(sample.vvVsProbeDelta).toBeCloseTo(55.8, 1)
   })
 
   it('reports the Edge dead band as a positive vv-vs-probe delta', () => {
@@ -75,6 +89,7 @@ describe('probeBottomEdge — elementFromPoint', () => {
     const sample = probeBottomEdge(baseInput({ vv: null }))
     expect(sample.probeMethod).toBe('none')
     expect(sample.probeVisibleBottom).toBeNull()
+    expect(sample.probeCanvasBottom).toBeNull()
     expect(sample.vvBottom).toBeNull()
     expect(sample.vvVsProbeDelta).toBeNull()
   })
@@ -83,6 +98,7 @@ describe('probeBottomEdge — elementFromPoint', () => {
     const sample = probeBottomEdge(baseInput())
     expect(sample.probeMethod).toBe('none')
     expect(sample.probeVisibleBottom).toBeNull()
+    expect(sample.probeCanvasBottom).toBeNull()
   })
 
   it('aborts over budget and says so', () => {
@@ -91,6 +107,7 @@ describe('probeBottomEdge — elementFromPoint', () => {
     const sample = probeBottomEdge(baseInput(), { clock: () => (t += 1) })
     expect(sample.probeMethod).toBe('budget')
     expect(sample.probeVisibleBottom).toBeNull()
+    expect(sample.probeCanvasBottom).toBeNull()
     expect(sample.vvVsProbeDelta).toBeNull()
     expect(sample.probeCostMs).toBeGreaterThan(2)
     // Partial hit list is kept so the attempt is auditable.
@@ -169,6 +186,7 @@ describe('bottom probe runner — diagnostics channel', () => {
     expect(event).toMatchObject({
       probeMethod: 'elementFromPoint',
       probeVisibleBottom: 464,
+      probeCanvasBottom: 464,
       vvBottom: 336.2,
       vvVsProbeDelta: 127.8,
       innerHeight: 658,
@@ -177,7 +195,7 @@ describe('bottom probe runner — diagnostics channel', () => {
       vkRectTop: null,
     })
     expect(typeof event?.probeCostMs).toBe('number')
-    expect(typeof event?.probeHits).toBe('string')
+    expect(event?.probeHits).toBe('344:E;368:E;392:E;416:E;440:E;464:E;488:N;512:N')
   })
 
   it('returns null and records nothing when the gate is closed', () => {
