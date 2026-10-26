@@ -52,6 +52,7 @@ import {
   type ViewportShadowWire,
 } from '@/lib/viewportShadowWire'
 import { writeViewportOcclusion } from '@/lib/viewportOcclusion'
+import { maybeRecordViewportBottomProbe } from '@/lib/viewportBottomProbe'
 import { useTranslation } from '@/i18n'
 import { readActiveHostId, readActiveSessionId } from '@/lib/console-device-state'
 import { FiX } from 'react-icons/fi'
@@ -492,6 +493,14 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         keyboardOpen: keyboardStateRef.current.open,
         keyboardInset: keyboardStateRef.current.inset,
         bodyKeyboardOpen: byClass,
+      })
+      // G1 只读证据通道：只测「vv.bottom 以下哪段还真实可见」并写诊断，不参与任何布局判定
+      maybeRecordViewportBottomProbe({
+        mobile: isMobileViewport,
+        keyboardOpen: keyboardStateRef.current.open,
+        now: performance.now(),
+        vv: vv ? { height: vv.height, offsetTop: vv.offsetTop } : null,
+        innerHeight: window.innerHeight,
       })
       // legacy 机器自己推进自己的一套状态（stable/base/applied/width）。
       // currentAppHeight 必须取 legacy 自己上次施加的高度，不能取 appHeightNumRef：
