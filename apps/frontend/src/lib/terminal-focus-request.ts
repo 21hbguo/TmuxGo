@@ -18,10 +18,20 @@ export function requestTerminalFocus(hostId: string, sessionName: string) {
   window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal', { detail: { hostId, sessionName } }))
 }
 
-export function consumePendingTerminalFocus(hostId: string, sessionName: string | null | undefined) {
+function matchesPending(hostId: string, sessionName: string | null | undefined) {
   const pending = pendingTerminalFocus
   if (!pending || !sessionName || pending.expiresAt < Date.now()) return false
-  if (pending.hostId !== hostId || pending.sessionName !== sessionName) return false
+  return pending.hostId === hostId && pending.sessionName === sessionName
+}
+
+// 只查看不消费：组字中/换帧中聚焦会失败，挂单必须留着给重试，否则一次落空
+// 就丢掉整个聚焦意图（表现为"建完会话要再点一下才输入"）
+export function peekPendingTerminalFocus(hostId: string, sessionName: string | null | undefined) {
+  return matchesPending(hostId, sessionName)
+}
+
+export function consumePendingTerminalFocus(hostId: string, sessionName: string | null | undefined) {
+  if (!matchesPending(hostId, sessionName)) return false
   pendingTerminalFocus = null
   return true
 }

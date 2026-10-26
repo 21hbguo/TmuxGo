@@ -4,6 +4,8 @@ import type { UiPreferences } from '@/types'
 
 export type Language = 'zh' | 'en'
 export type AppFontId = 'jetbrains'
+// 侧栏会话排序规则：manual = 用户拖拽序（现状），其余按字段派生（不回写持久序）
+export type SessionSortMode = 'manual' | 'createdAt' | 'lastActiveAt' | 'name' | 'attention'
 export const PREFERENCES_VERSION = 4
 const STORAGE_KEY = 'tmuxgo-preferences'
 const STORAGE_UPDATED_AT_KEY = 'tmuxgo-preferences-updated-at'
@@ -36,6 +38,9 @@ export interface Preferences {
   downloadRateLimitKBps: number
   // ActivityBar 图标排序：固定项 id + plugin:{pluginId}:{viewId}
   activityBarOrder: string[]
+  // SessionPanel：隐藏工作区分组（列表拍平）与会话排序规则
+  hideWorkspaceGroups: boolean
+  sessionSortMode: SessionSortMode
 }
 
 const defaultPreferences: Preferences = {
@@ -59,6 +64,8 @@ const defaultPreferences: Preferences = {
   uploadRateLimitKBps: 5120,
   downloadRateLimitKBps: 5120,
   activityBarOrder: [],
+  hideWorkspaceGroups: false,
+  sessionSortMode: 'manual',
 }
 
 export function resolveFontId(_fontFamily?: string): AppFontId {
@@ -120,6 +127,8 @@ function toUiPreferences(p: Preferences): UiPreferences {
     language: p.language,
     attachExclusive: p.attachExclusive,
     activityBarOrder: p.activityBarOrder,
+    hideWorkspaceGroups: p.hideWorkspaceGroups,
+    sessionSortMode: p.sessionSortMode,
   }
 }
 

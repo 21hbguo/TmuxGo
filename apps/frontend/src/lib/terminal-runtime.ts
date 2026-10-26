@@ -6,7 +6,7 @@ import { createTerminalCore } from './terminal-core'
 import { createTerminalLayout } from './terminal-layout'
 import { createTerminalResizeMask } from './terminal-resize-mask'
 import { createTerminalFocus } from './terminal-focus'
-import { consumePendingTerminalFocus } from './terminal-focus-request'
+import { consumePendingTerminalFocus, peekPendingTerminalFocus } from './terminal-focus-request'
 import { createDeleteWordRepeat } from './terminal-key-repeat'
 import { createSessionSnapshotLoader } from './terminal-snapshot'
 import { createTerminalSizeState, type TerminalSizeState } from './terminal-size-state'
@@ -162,6 +162,15 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
   let readyNotified = false
   let attachEventCount = 0
   let helperTextarea: HTMLTextAreaElement | null | undefined = null
+  // 绑定在 helper textarea 上的 composition/键盘/粘贴监听器；xterm 重建 textarea 时整体重绑
+  let clipboardIme: ReturnType<typeof createTerminalClipboardIme> | null = null
+  let helperBindingObserver: MutationObserver | null = null
+  // 聚焦重试：新建 session 时弹窗还在关、attach 换帧未完成、组字未收尾都会让
+  // 第一次聚焦落空。旧实现一次失败就放弃（且先把挂单消费掉），表现为
+  // "建完会话要再点一下才能输入中文"
+  const FOCUS_RETRY_DELAYS = [60, 200, 500, 1200]
+  let focusRetryTimer: ReturnType<typeof setTimeout> | null = null
+  let focusAttemptGeneration = 0
   let switchAttachedSeen = false
   let switchBeganAt = 0
   let switchAttachedAt = 0
@@ -271,7 +280,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     getTerminal,
     pushOutput: pushTerminalOutput,
     disposeOutput: disposeTerminalOutput,
-    isDesktopImeComposing: focus.isDesktopImeComposing,
+    isDesktopImeComposing: focus.isDesktopImeComposingActive,
     isMobile: isMobileDevice,
     getHostId: () => activeHostIdRef.current || 'local',
     getSessionName: () => sessionNameRef.current,
@@ -532,19 +541,48 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     )
     // detail 命中校验：分屏/共享网格并存多个终端实例，聚焦请求只归目标
     // session 的那个；无 detail 的旧式广播（测试/e2e）视为命中，保持兼容
+    const cancelFocusAttempts = () => {
+      focusAttemptGeneration += 1
+      if (focusRetryTimer) {
+        clearTimeout(focusRetryTimer)
+        focusRetryTimer = null
+      }
+    }
+    const terminalFocusLanded = () => {
+      const input = terminal?.textarea
+      return !!input && document.activeElement === input
+    }
+    // 重试期间用户可能已经点进编辑器/搜索框：只在没人接手焦点时继续补焦，
+    // 否则延迟补焦会把用户正在输入的框抢走
+    const focusTakenElsewhere = () => {
+      const active = document.activeElement
+      if (!(active instanceof HTMLElement) || active === document.body || container.contains(active)) return false
+      return active.matches('input, textarea, [contenteditable=""], [contenteditable="true"]')
+    }
     const handleFocusTerminal = (event?: Event) => {
       const detail = (event as CustomEvent | undefined)?.detail as { hostId?: string; sessionName?: string } | undefined
       if (detail?.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
       if (detail?.sessionName && detail.sessionName !== sessionNameRef.current) return
-      consumePendingTerminalFocus(activeHostIdRef.current || 'local', sessionNameRef.current)
-      if (focus.isDesktopImeComposing()) return
-      focus.focusTerminalInput()
-      requestAnimationFrame(() => {
-        if (!focus.isDesktopImeComposing()) focus.focusTerminalInput()
-      })
-      setTimeout(() => {
-        if (!focus.isDesktopImeComposing()) focus.focusTerminalInput()
-      }, 0)
+      cancelFocusAttempts()
+      const generation = focusAttemptGeneration
+      // 组字期不抢焦点（会把 IME 上下文掰断），由 ime 看门狗复位陈旧组字态后
+      // 重试接上；挂单只在真正聚焦到 helper textarea 后才消费
+      const attempt = (retryIndex: number) => {
+        focusRetryTimer = null
+        if (disposed || generation !== focusAttemptGeneration) return
+        if (retryIndex > 0 && focusTakenElsewhere()) return
+        ensureHelperTextareaBound()
+        focus.focusTerminalInput()
+        if (terminalFocusLanded()) {
+          consumePendingTerminalFocus(activeHostIdRef.current || 'local', sessionNameRef.current)
+          recordImeDebug('focus-terminal-landed', { retryIndex })
+          return
+        }
+        const delay = FOCUS_RETRY_DELAYS[retryIndex]
+        if (delay == null) return
+        focusRetryTimer = setTimeout(() => attempt(retryIndex + 1), delay)
+      }
+      attempt(0)
     }
     let unsubscribeOutput = () => {}
     const subscribeTerminalOutput = () => {
@@ -556,7 +594,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
         : () => {}
       // 新建 session 时 TerminalPane 挂载晚于聚焦事件派发：订阅重建意味着
       // sessionNameRef 已指向新会话，在此消费挂单补焦
-      if (consumePendingTerminalFocus(hostId, sessionNameRef.current)) handleFocusTerminal()
+      if (peekPendingTerminalFocus(hostId, sessionNameRef.current)) handleFocusTerminal()
     }
     resubscribeOutputRef.current = subscribeTerminalOutput
     subscribeTerminalOutput()
@@ -800,7 +838,8 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     const handlePointerSync = (event?: MouseEvent | TouchEvent) => {
       if (!outputInput.isPointerSyncActive()) return
       outputInput.disarmPointerSync()
-      if (focus.isDesktopImeComposing()) return
+      focus.resetStaleComposing()
+      if (focus.isDesktopImeComposingActive()) return
       outputInput.flushWriteBuffer()
       selectionSync.clearCopySelectionTimer()
       selectionSync.runCopySelection(
@@ -824,9 +863,8 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       void syncActivePane()
       if (!getSelectionText()) outputInput.releaseSelection()
     }
-    const clipboardIme = createTerminalClipboardIme({
+    const imeClipboardOptions = {
       container,
-      helperTextarea,
       handleCopy,
       handleCompositionStart: imeHandlers.handleCompositionStart,
       handleCompositionUpdate: imeHandlers.handleCompositionUpdate,
@@ -843,8 +881,32 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       handlePointerSync: handlePointerSync as (event?: MouseEvent | TouchEvent) => void,
       clearPointerSync: outputInput.clearPointerSync,
       handleFocusTerminal: handleFocusTerminal as EventListener,
-    })
-    clipboardIme.attach()
+    }
+    // helper textarea 被 xterm 重建（open/renderer 回退/dispose 重建）后，旧元素上的
+    // composition/键盘/粘贴监听全部落空：组字标志、候选窗兜底、粘贴桥一起失效。
+    // 绑定与重绑走同一条路径，新元素立刻重新挂上
+    function bindHelperTextarea(target: HTMLTextAreaElement | null | undefined) {
+      clipboardIme?.dispose()
+      helperTextarea = target
+      focus.setHelperTextarea(target)
+      clipboardIme = createTerminalClipboardIme({ ...imeClipboardOptions, helperTextarea: target })
+      clipboardIme.attach()
+    }
+    function ensureHelperTextareaBound() {
+      // 初次绑定前（subscribe 早于本段代码）不做任何事，避免半初始化重绑
+      if (!clipboardIme || disposed) return
+      const current = terminal?.textarea
+      if (!current || current === helperTextarea) return
+      recordImeDebug('helper-textarea-rebind', { previous: helperTextarea ? 'stale' : 'missing' })
+      bindHelperTextarea(current)
+    }
+    bindHelperTextarea(helperTextarea)
+    // 重绑只在重建后靠事件触发太被动（静默 session 没有任何事件），用 childList
+    // 观察兜住 xterm 换 DOM 的那一拍；正常输出只改文本节点，噪声可忽略
+    if (typeof MutationObserver !== 'undefined') {
+      helperBindingObserver = new MutationObserver(() => ensureHelperTextareaBound())
+      helperBindingObserver.observe(container, { childList: true, subtree: true })
+    }
     disposables.push({
       dispose: () => {
         for (const unsub of streamEventUnsubs) unsub()
@@ -864,7 +926,9 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
         container.removeEventListener('dragover', dropState.handleDragOver)
         container.removeEventListener('dragleave', handleDragLeave)
         container.removeEventListener('drop', dropState.handleDrop)
-        clipboardIme.dispose()
+        helperBindingObserver?.disconnect()
+        helperBindingObserver = null
+        clipboardIme?.dispose()
         selectionSync.clearCopySelectionTimer()
         pasteBridge.dispose()
         selectionSync.dispose()
@@ -933,6 +997,11 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
   void initTerminal().catch(console.error)
   const dispose = () => {
     disposed = true
+    if (focusRetryTimer) {
+      clearTimeout(focusRetryTimer)
+      focusRetryTimer = null
+    }
+    focusAttemptGeneration += 1
     if (switchFlushTimer) {
       clearTimeout(switchFlushTimer)
       switchFlushTimer = null
