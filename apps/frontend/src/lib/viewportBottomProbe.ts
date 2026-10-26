@@ -32,6 +32,14 @@
 // - navigator.virtualKeyboard.boundingRect has a known chrome-offset bug in
 //   its y/top/bottom, but its height is comparatively trustworthy (it overshoots
 //   during animation). We record the raw values, unrounded semantics included.
+// - elementFromPoint turns out to be blind to chrome: on the field device the
+//   whole 344→632 band answered body, URL bar and keyboard included, so canvas
+//   bottom equals the layout bottom and cannot bound the real edge. The last
+//   candidate is IntersectionObserver v2 trackVisibility, which asks the
+//   compositor whether the element is actually visible (IME/URL-bar occlusion
+//   included). Two 1px probes sit in the dead band and deep in the chrome area;
+//   dead=true + deep=false would prove IO-v2 can binary-search the edge.
+//   Spec delay is >=100ms, so it only describes steady state, never animations.
 import { recordMobileDiagnostic } from './mobile-diagnostics'
 
 type VirtualKeyboardLike = {
@@ -65,6 +73,18 @@ export type BottomProbeSample = {
   screenHeight: number | null
   screenAvailHeight: number | null
   outerHeight: number | null
+  // IO v2 trackVisibility readings: compositor-level visibility, not hit
+  // testing. null = not measured yet / unsupported.
+  iov2DeadBandVisible: boolean | null
+  iov2DeepVisible: boolean | null
+  iov2Supported: boolean
+}
+
+// IO v2 state as tracked by the probe elements; passed into each sample.
+export type Iov2State = {
+  deadBandVisible: boolean | null
+  deepVisible: boolean | null
+  supported: boolean
 }
 
 export type BottomProbeInput = {
@@ -77,6 +97,7 @@ export type BottomProbeInput = {
   doc?: Document
   clock?: () => number
   getVirtualKeyboard?: () => VirtualKeyboardLike | undefined
+  iov2?: Iov2State
 }
 
 export type BottomProbeOptions = {
@@ -88,6 +109,8 @@ export type BottomProbeOptions = {
   record?: (sample: BottomProbeSample) => void
   gate?: ViewportBottomProbeGate
   clock?: () => number
+  // Inject a prepared IO-v2 probe (tests) instead of creating one lazily.
+  iov2?: Iov2Probe
 }
 
 const DEFAULT_STEP_PX = 24
@@ -182,6 +205,9 @@ export function probeBottomEdge(input: BottomProbeInput, options: BottomProbeOpt
     vkRectHeight: rect && typeof rect.height === 'number' ? round1(rect.height) : null,
     vkRectTop: rect && typeof rect.y === 'number' ? round1(rect.y) : null,
     ...readScreenMetrics(),
+    iov2DeadBandVisible: input.iov2?.deadBandVisible ?? null,
+    iov2DeepVisible: input.iov2?.deepVisible ?? null,
+    iov2Supported: input.iov2?.supported ?? false,
   }
   const cost = () => round1(clock() - started)
 
@@ -244,22 +270,118 @@ export function probeBottomEdge(input: BottomProbeInput, options: BottomProbeOpt
   }
 }
 
+// --- IO v2 (trackVisibility) route ---------------------------------------
+// Two 1px fixed probes: one in the dead band (vv.bottom + 60) and one deep in
+// the chrome area (innerHeight - 30). Dead visible + deep invisible proves the
+// compositor sees the edge and IO-v2 can binary-search it; both true or both
+// false means this route cannot decide and G2 must estimate instead.
+const IOV2_DEAD_BAND_OFFSET_PX = 60
+const IOV2_DEEP_OFFSET_PX = 30
+
+type Iov2EntryLike = { isVisible?: boolean }
+type Iov2ObserverLike = { observe(target: Element): void; disconnect(): void }
+type Iov2ObserverCtor = new (
+  callback: (entries: Iov2EntryLike[]) => void,
+  options: { threshold?: number; trackVisibility?: boolean; delay?: number },
+) => Iov2ObserverLike
+
+export type Iov2Probe = {
+  readonly state: Iov2State
+  update(input: { vvBottom: number | null; innerHeight: number }): Iov2State
+  dispose(): void
+}
+
+function isIov2Supported(ctor: unknown): boolean {
+  if (typeof ctor !== 'function') return false
+  // IO v2 ships as entry.isVisible; the init option alone is accepted silently
+  // by browsers without the feature, so detect on the entry, not the options.
+  const entryProto = typeof IntersectionObserverEntry !== 'undefined' ? IntersectionObserverEntry.prototype : null
+  return !!entryProto && 'isVisible' in entryProto
+}
+
+function createProbeElement(doc: Document): HTMLElement {
+  const el = doc.createElement('div')
+  // opacity:0 would be reported as not visible; a nearly transparent fill is
+  // required. pointer-events:none keeps the element out of hit testing, and
+  // left:0 keeps it clear of the elementFromPoint column (x=4).
+  el.style.cssText =
+    'position:fixed;left:0;top:0;width:1px;height:1px;background:rgba(0,0,0,0.01);pointer-events:none;z-index:-1;'
+  el.setAttribute('aria-hidden', 'true')
+  el.setAttribute('data-viewport-probe', '')
+  return el
+}
+
+export function createIov2Probe(options: { doc?: Document; observerCtor?: Iov2ObserverCtor | null } = {}): Iov2Probe {
+  const doc = options.doc ?? (typeof document !== 'undefined' ? document : null)
+  const ctor =
+    options.observerCtor !== undefined
+      ? options.observerCtor
+      : (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver
+  const state: Iov2State = { deadBandVisible: null, deepVisible: null, supported: isIov2Supported(ctor) }
+  if (!doc || !state.supported) return { state, update: () => state, dispose: () => {} }
+
+  const deadBand = createProbeElement(doc)
+  const deep = createProbeElement(doc)
+  const observer = new (ctor as Iov2ObserverCtor)(
+    (entries) => {
+      for (const entry of entries) {
+        const el = (entry as unknown as { target: Element }).target
+        // No isVisible key = the browser ignored trackVisibility; record
+        // "unknown" instead of inventing false.
+        const visible = typeof entry.isVisible === 'boolean' ? entry.isVisible : null
+        if (el === deadBand) state.deadBandVisible = visible
+        else if (el === deep) state.deepVisible = visible
+      }
+    },
+    // delay is a spec minimum of 100ms: steady state only, never animations.
+    { threshold: 0, trackVisibility: true, delay: 100 },
+  )
+  doc.body.append(deadBand, deep)
+  observer.observe(deadBand)
+  observer.observe(deep)
+
+  return {
+    state,
+    update({ vvBottom, innerHeight }) {
+      if (vvBottom !== null) deadBand.style.top = `${Math.round(vvBottom + IOV2_DEAD_BAND_OFFSET_PX)}px`
+      deep.style.top = `${Math.round(innerHeight - IOV2_DEEP_OFFSET_PX)}px`
+      return state
+    },
+    dispose() {
+      observer.disconnect()
+      deadBand.remove()
+      deep.remove()
+    },
+  }
+}
+
 export type BottomProbeRunner = {
   // Returns the sample when this tick was probed, null when gated off.
   tick(input: BottomProbeInput): BottomProbeSample | null
   reset(): void
+  dispose(): void
 }
 
 export function createViewportBottomProbeRunner(options: BottomProbeOptions = {}): BottomProbeRunner {
   const gate = options.gate ?? new ViewportBottomProbeGate()
   const record =
     options.record ?? ((sample: BottomProbeSample) => recordMobileDiagnostic('viewport-bottom-probe', { ...sample }))
+  let iov2: Iov2Probe | null = null
+  const ensureIov2 = (doc: Document | undefined): Iov2Probe => {
+    iov2 ??= options.iov2 ?? createIov2Probe({ doc })
+    return iov2
+  }
   return {
     tick(input) {
       const vvHeight = input.vv ? input.vv.height : null
       if (!gate.shouldRun({ mobile: input.mobile, keyboardOpen: input.keyboardOpen, vvHeight })) return null
       try {
-        const sample = probeBottomEdge(input, options)
+        const doc = input.doc ?? (typeof document !== 'undefined' ? document : undefined)
+        const iov2State = ensureIov2(doc).update({
+          vvBottom: input.vv ? input.vv.height + input.vv.offsetTop : null,
+          innerHeight: input.innerHeight,
+        })
+        const sample = probeBottomEdge({ ...input, iov2: iov2State }, options)
         record(sample)
         return sample
       } catch {
@@ -269,6 +391,10 @@ export function createViewportBottomProbeRunner(options: BottomProbeOptions = {}
     },
     reset() {
       gate.reset()
+    },
+    dispose() {
+      iov2?.dispose()
+      iov2 = null
     },
   }
 }
@@ -283,6 +409,6 @@ export function maybeRecordViewportBottomProbe(input: BottomProbeInput): BottomP
 
 // Test seam: drop the shared gate/runner state between cases.
 export function resetSharedBottomProbe(): void {
-  sharedRunner?.reset()
+  sharedRunner?.dispose()
   sharedRunner = null
 }

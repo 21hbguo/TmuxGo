@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  createIov2Probe,
   createViewportBottomProbeRunner,
   probeBottomEdge,
   ViewportBottomProbeGate,
@@ -25,7 +26,61 @@ function elementAt(tag = 'DIV'): HTMLElement {
   return document.createElement(tag)
 }
 
+type FakeEntry = { target: Element; isVisible?: boolean }
+
+class FakeIntersectionObserver {
+  static instances: FakeIntersectionObserver[] = []
+  readonly options: { threshold?: number; trackVisibility?: boolean; delay?: number }
+  readonly observed: Element[] = []
+  disconnected = false
+  private readonly callback: (entries: FakeEntry[]) => void
+
+  constructor(
+    callback: (entries: FakeEntry[]) => void,
+    options: { threshold?: number; trackVisibility?: boolean; delay?: number },
+  ) {
+    this.callback = callback
+    this.options = options
+    FakeIntersectionObserver.instances.push(this)
+  }
+
+  observe(target: Element) {
+    this.observed.push(target)
+  }
+
+  disconnect() {
+    this.disconnected = true
+  }
+
+  emit(entries: FakeEntry[]) {
+    this.callback(entries)
+  }
+}
+
+function enableIov2() {
+  class FakeIntersectionObserverEntry {}
+  Object.defineProperty(FakeIntersectionObserverEntry.prototype, 'isVisible', { value: true, configurable: true })
+  Object.defineProperty(globalThis, 'IntersectionObserver', {
+    value: FakeIntersectionObserver,
+    configurable: true,
+    writable: true,
+  })
+  Object.defineProperty(globalThis, 'IntersectionObserverEntry', {
+    value: FakeIntersectionObserverEntry,
+    configurable: true,
+    writable: true,
+  })
+}
+
+function disableIov2() {
+  Reflect.deleteProperty(globalThis, 'IntersectionObserver')
+  Reflect.deleteProperty(globalThis, 'IntersectionObserverEntry')
+  FakeIntersectionObserver.instances = []
+}
+
 afterEach(() => {
+  disableIov2()
+  document.querySelectorAll('[data-viewport-probe]').forEach((el) => el.remove())
   Reflect.deleteProperty(document, 'elementFromPoint')
   window.localStorage.removeItem('tmuxgo-debug-mobile')
   delete (window as typeof window & { __tmuxgoMobileDiagnostics?: unknown }).__tmuxgoMobileDiagnostics
@@ -254,5 +309,92 @@ describe('bottom probe runner — diagnostics channel', () => {
     })
     stubElementFromPoint(() => elementAt())
     expect(runner.tick(baseInput())).toBeNull()
+  })
+})
+
+describe('IO v2 trackVisibility probe', () => {
+  it('reports unsupported and creates nothing when the API is absent', () => {
+    disableIov2()
+    const probe = createIov2Probe({ doc: document })
+    expect(probe.state.supported).toBe(false)
+    expect(probe.update({ vvBottom: 336, innerHeight: 658 })).toEqual({
+      deadBandVisible: null,
+      deepVisible: null,
+      supported: false,
+    })
+    expect(document.querySelectorAll('[data-viewport-probe]')).toHaveLength(0)
+    probe.dispose()
+  })
+
+  it('positions the dead-band and deep probes and reads isVisible', () => {
+    enableIov2()
+    const probe = createIov2Probe({ doc: document })
+    expect(probe.state.supported).toBe(true)
+    const observer = FakeIntersectionObserver.instances[0]
+    // delay is a spec minimum; trackVisibility must be on.
+    expect(observer.options).toMatchObject({ trackVisibility: true, delay: 100, threshold: 0 })
+    const els = Array.from(document.querySelectorAll<HTMLElement>('[data-viewport-probe]'))
+    expect(els).toHaveLength(2)
+    expect(observer.observed).toEqual(els)
+
+    probe.update({ vvBottom: 336.2, innerHeight: 658 })
+    expect(els[0].style.top).toBe('396px') // 死区：vvBottom + 60
+    expect(els[1].style.top).toBe('628px') // chrome：innerHeight - 30
+    expect(els[0].style.cssText).toContain('position: fixed')
+    expect(els[0].style.cssText).toContain('pointer-events: none')
+    expect(els[0].style.cssText).not.toContain('opacity: 0')
+
+    observer.emit([
+      { target: els[0], isVisible: true },
+      { target: els[1], isVisible: false },
+    ])
+    expect(probe.state.deadBandVisible).toBe(true)
+    expect(probe.state.deepVisible).toBe(false)
+    probe.dispose()
+  })
+
+  it('records unknown instead of false when the browser ignores trackVisibility', () => {
+    enableIov2()
+    const probe = createIov2Probe({ doc: document })
+    const els = Array.from(document.querySelectorAll<HTMLElement>('[data-viewport-probe]'))
+    FakeIntersectionObserver.instances[0].emit([{ target: els[0] }, { target: els[1] }])
+    expect(probe.state.deadBandVisible).toBeNull()
+    expect(probe.state.deepVisible).toBeNull()
+    probe.dispose()
+  })
+
+  it('removes the probes and disconnects on dispose', () => {
+    enableIov2()
+    const probe = createIov2Probe({ doc: document })
+    probe.dispose()
+    expect(FakeIntersectionObserver.instances[0].disconnected).toBe(true)
+    expect(document.querySelectorAll('[data-viewport-probe]')).toHaveLength(0)
+  })
+
+  it('carries the readings into the sample and the diagnostics event', () => {
+    enableIov2()
+    window.localStorage.setItem('tmuxgo-debug-mobile', '1')
+    stubElementFromPoint((y) => (y <= 470 ? elementAt() : null))
+    const probe = createIov2Probe({ doc: document })
+    const runner = createViewportBottomProbeRunner({ gate: new ViewportBottomProbeGate(5, 1), iov2: probe })
+    const sample = runner.tick(baseInput())
+    const els = Array.from(document.querySelectorAll<HTMLElement>('[data-viewport-probe]'))
+    FakeIntersectionObserver.instances[0].emit([
+      { target: els[0], isVisible: true },
+      { target: els[1], isVisible: false },
+    ])
+    const next = runner.tick(baseInput())
+    expect(sample?.iov2Supported).toBe(true)
+    expect(sample?.iov2DeadBandVisible).toBeNull() // 首个回调还没到
+    expect(next?.iov2DeadBandVisible).toBe(true)
+    expect(next?.iov2DeepVisible).toBe(false)
+    const state = (window as typeof window & { __tmuxgoMobileDiagnostics?: { events: Array<Record<string, unknown>> } })
+      .__tmuxgoMobileDiagnostics
+    expect(state?.events.at(-1)).toMatchObject({
+      iov2Supported: true,
+      iov2DeadBandVisible: true,
+      iov2DeepVisible: false,
+    })
+    runner.dispose()
   })
 })
