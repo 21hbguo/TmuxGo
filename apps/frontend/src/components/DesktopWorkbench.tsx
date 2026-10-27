@@ -176,7 +176,10 @@ export function DesktopWorkbench() {
     return () => {
       observer?.disconnect()
     }
-  }, [])
+    // mounted 前渲染的是无 containerRef 的占位树，[] 依赖会让 observer 永远不挂——
+    // containerSize 停在 {0,0}，viewportWidth/Height 恒为 1440/820 fallback，
+    // 终端/侧栏拖拽上限全被钉死在错误值上
+  }, [mounted])
   useEffect(() => {
     const handleMove = (event: MouseEvent) => {
       if (resizingRef.current === 'session') {
