@@ -100,6 +100,9 @@ export async function openFileInEditor(
     openPanel?: boolean
     // 拖拽等显式打开：钉住新 tab，且不顶掉组内已有预览 tab
     pinned?: boolean
+    // 拖到分栏的中转打开：只落进组、不抢组内/全局活动 tab——分栏动作自己激活目标组；
+    // 抢占会让源组回退到 editorIds.at(-1)（左栏被换成别的文件）
+    preserveActive?: boolean
     // 定义跳转/导航回退：已打开的干净文档不重载（loading 门会卸载 Monaco,rAF 落位打到已 dispose 死实例）
     skipReload?: boolean
     // 历史回退：携带选区/视口快照，落位走恢复而非居中
@@ -108,13 +111,15 @@ export async function openFileInEditor(
     onError?: (message: string) => void
   },
 ) {
-  const { t, pushToast, position, openPanel = true, pinned, skipReload, restore, onError } = options
+  const { t, pushToast, position, openPanel = true, pinned, preserveActive, skipReload, restore, onError } = options
   const store = useConsoleStore.getState()
   if (openPanel) store.setFilePanelOpen(true)
   const existing = store.openEditors.find((item) => item.id === file.id)
   store.openEditor(
     { ...file, language: existing?.language || getEditorLanguage(file.path) },
-    pinned ? { preview: false, replacePreview: false } : undefined,
+    pinned || preserveActive
+      ? { preview: pinned ? false : undefined, replacePreview: pinned ? false : undefined, preserveActive }
+      : undefined,
   )
   dispatchOpenEditorLocation(file.id, position?.line, position?.column, restore)
   if (existing?.dirty) return file.id

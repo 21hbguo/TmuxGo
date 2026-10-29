@@ -303,22 +303,29 @@ export function DesktopWorkbench() {
     [pushToast, t],
   )
   const handleOpenFileForDrop = useCallback(
-    async (file: FileDocumentHandle) => {
+    async (file: FileDocumentHandle, options?: { preserveActive?: boolean }) => {
       if (file.type === 'directory') return ''
       const existing = useConsoleStore.getState().openEditors.find((item) => item.id === file.id)
       if (existing && !existing.loading) {
-        useConsoleStore.getState().setActiveEditor(existing.id)
+        // preserveActive（分栏中转）：不抢活动——落地动作会激活目标组
+        if (!options?.preserveActive) useConsoleStore.getState().setActiveEditor(existing.id)
         return existing.id
       }
       // 拖拽打开视为显式打开：钉住新 tab，保留目标组已有预览 tab
-      await openFileInEditor(file, { t, pushToast, openPanel: true, pinned: true })
+      await openFileInEditor(file, {
+        t,
+        pushToast,
+        openPanel: true,
+        pinned: true,
+        preserveActive: options?.preserveActive,
+      })
       return useConsoleStore.getState().openEditors.find((item) => item.id === file.id)?.id || file.id
     },
     [pushToast, t],
   )
   const handleOpenFileAtPosition = useCallback(
     async (file: FileDocumentHandle, placement: 'center' | 'left' | 'right' | 'top' | 'bottom') => {
-      const id = await handleOpenFileForDrop(file)
+      const id = await handleOpenFileForDrop(file, { preserveActive: placement !== 'center' })
       placeEditorInSplit(id, placement)
       return id
     },

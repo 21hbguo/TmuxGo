@@ -166,7 +166,7 @@ export function EditorWorkbench({
   onCreateCompare,
 }: {
   onSaveEditor: (editor: FileEditorDocument) => Promise<void>
-  onOpenFile: (file: FileDocumentHandle) => Promise<string>
+  onOpenFile: (file: FileDocumentHandle, options?: { preserveActive?: boolean }) => Promise<string>
   onOpenFileAtPosition?: (file: FileDocumentHandle, placement: DropPlacement) => Promise<string>
   onCreateCompare: (source: FileDocumentHandle, targetId: string) => Promise<void>
 }) {
@@ -324,8 +324,18 @@ export function EditorWorkbench({
         ? activeEditorGroupId
         : orderedGroupIds[0] || editorGroups[0]?.id || null
   const isOpenEditorId = (id: string) => openEditors.some((item) => item.id === id)
-  const getDragDropEffect = (dragged: FileDocumentHandle | null) =>
-    dragged && isOpenEditorId(dragged.id) ? 'move' : 'copy'
+  // 已打开文件提示 'move' 仅在源端允许 move 时合法：文件树单拖只声明
+  // effectAllowed=copy，此时回 'move' 会让 dropEffect 与 effectAllowed 不兼容，
+  // 浏览器 veto 后 drop 事件根本不派发——表现为拖已打开文件进编辑区毫无反应
+  const getDragDropEffect = (dragged: FileDocumentHandle | null, effectAllowed?: string) => {
+    const moveAllowed =
+      !effectAllowed ||
+      effectAllowed === 'uninitialized' ||
+      effectAllowed === 'all' ||
+      effectAllowed.includes('Move') ||
+      effectAllowed === 'move'
+    return dragged && isOpenEditorId(dragged.id) && moveAllowed ? 'move' : 'copy'
+  }
   // 三段落区：左右各 30% 维持 before/after 插入，中段 40% 是「生成对比」落区（产品方案 A）。
   // 中段不放宽到整条 tab：拖拽换位是高频操作，误落换位比误落对比更难撤销
   const TAB_INSERT_EDGE_RATIO = 0.3
@@ -667,7 +677,9 @@ export function EditorWorkbench({
     return targetIndex >= 0 ? baseIds[targetIndex + 1] || null : null
   }
   const openDraggedFileInGroup = async (dragged: FileDocumentHandle, groupId: string, targetId?: string | null) => {
-    const id = await onOpenFile(dragged)
+    // preserveActive：moveEditorToGroup 自己激活目标组；中转打开抢活动会让
+    // 活动组的 active 掉到 editorIds.at(-1)（组内正在看的 tab 被换掉）
+    const id = await onOpenFile(dragged, { preserveActive: true })
     moveEditorToGroup(id, groupId, targetId)
   }
   const openDraggedFileAtPlacement = async (
@@ -684,7 +696,7 @@ export function EditorWorkbench({
       await openDraggedFileInGroup(dragged, resolvedGroupId)
       return
     }
-    const id = await onOpenFile(dragged)
+    const id = await onOpenFile(dragged, { preserveActive: true })
     placeEditorInSplit(id, placement, resolvedGroupId)
   }
   const handleGroupDrop = async (dragged: FileDocumentHandle, placement: DropPlacement, groupId?: string | null) => {
@@ -1124,7 +1136,7 @@ export function EditorWorkbench({
           )
           event.preventDefault()
           event.stopPropagation()
-          event.dataTransfer.dropEffect = getDragDropEffect(dragged)
+          event.dataTransfer.dropEffect = getDragDropEffect(dragged, event.dataTransfer.effectAllowed)
           setPaneDropTarget(null)
           setTabDropTarget(null)
           setTabInsertionTarget({ groupId, editorId: editor.id, side })
@@ -1223,7 +1235,7 @@ export function EditorWorkbench({
         if (!hasDraggedFile(event)) return
         const dragged = decodeDraggedFile(event)
         event.preventDefault()
-        event.dataTransfer.dropEffect = getDragDropEffect(dragged)
+        event.dataTransfer.dropEffect = getDragDropEffect(dragged, event.dataTransfer.effectAllowed)
         setPaneDropTarget(null)
         setTabInsertionTarget(null)
         setTabDropTarget({
@@ -1280,7 +1292,7 @@ export function EditorWorkbench({
             const dragged = decodeDraggedFile(event)
             event.preventDefault()
             event.stopPropagation()
-            event.dataTransfer.dropEffect = getDragDropEffect(dragged)
+            event.dataTransfer.dropEffect = getDragDropEffect(dragged, event.dataTransfer.effectAllowed)
             setDropTarget(null)
             setTabDropTarget(null)
             setTabInsertionTarget(null)
@@ -1842,7 +1854,7 @@ export function EditorWorkbench({
           if (!hasDraggedFile(event)) return
           const dragged = decodeDraggedFile(event)
           event.preventDefault()
-          event.dataTransfer.dropEffect = getDragDropEffect(dragged)
+          event.dataTransfer.dropEffect = getDragDropEffect(dragged, event.dataTransfer.effectAllowed)
           setPaneDropTarget(null)
           setDropTarget(
             getDropPlacement(

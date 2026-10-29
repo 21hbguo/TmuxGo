@@ -896,7 +896,9 @@ describe('EditorWorkbench', () => {
     )
     await dispatchDragEvent(button, 'drop', dataTransfer, { clientX: 0, clientY: 0 })
     await vi.waitFor(() =>
-      expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-4', name: 'drop-tab.ts' })),
+      expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-4', name: 'drop-tab.ts' }), {
+        preserveActive: true,
+      }),
     )
     expect(useConsoleStore.getState().editorPrimaryGroupIds).toEqual(['editor-4', editor1.id])
   })
@@ -1105,9 +1107,48 @@ describe('EditorWorkbench', () => {
     )
     await dispatchDragEvent(dropZone, 'drop', dataTransfer, { clientX: 500, clientY: 300 })
     await vi.waitFor(() =>
-      expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-4', name: 'drop.ts' })),
+      expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-4', name: 'drop.ts' }), {
+        preserveActive: true,
+      }),
     )
     expect(useConsoleStore.getState().editorPrimaryGroupIds).toEqual([editor1.id, 'editor-4'])
+  })
+  it('activates an already-open file when it is dropped on the editor area center', async () => {
+    // 场景：A/B 已开同组，正在看 B；把文件夹区的 A 再拖到编辑区中央应切回 A
+    setWorkbenchState({
+      openEditors: [editor1, editor2],
+      activeEditorId: editor2.id,
+      editorGroups: [createGroup('group-1', [editor1.id, editor2.id], editor2.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
+    const dropZone = document.querySelector('section > .relative.min-h-0.flex-1.bg-bg-0') as Element
+    ;(dropZone as HTMLDivElement).getBoundingClientRect = vi.fn(() => createRect())
+    const dataTransfer = createFileDataTransfer(editor1.id, 'src/index.ts')
+    await dispatchDragEvent(dropZone, 'drop', dataTransfer, { clientX: 500, clientY: 300 })
+    await vi.waitFor(() => expect(useConsoleStore.getState().activeEditorId).toBe(editor1.id))
+  })
+  it('reports copy (not move) for an already-open file dragged with effectAllowed=copy', async () => {
+    // 文件树单拖 effectAllowed=copy；对已打开文件回 'move' 会被浏览器 veto，
+    // drop 事件不派发——回归固定 dropEffect=copy 保证 drop 能到达 handler
+    setWorkbenchState({
+      openEditors: [editor1, editor2],
+      activeEditorId: editor2.id,
+      editorGroups: [createGroup('group-1', [editor1.id, editor2.id], editor2.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
+    const dropZone = document.querySelector('section > .relative.min-h-0.flex-1.bg-bg-0') as Element
+    ;(dropZone as HTMLDivElement).getBoundingClientRect = vi.fn(() => createRect())
+    const dataTransfer = createFileDataTransfer(editor1.id, 'src/index.ts')
+    dataTransfer.effectAllowed = 'copy'
+    await dispatchDragEvent(dropZone, 'dragover', dataTransfer, { clientX: 500, clientY: 300 })
+    expect(dataTransfer.dropEffect).toBe('copy')
+    dataTransfer.effectAllowed = 'copyMove'
+    await dispatchDragEvent(dropZone, 'dragover', dataTransfer, { clientX: 500, clientY: 300 })
+    expect(dataTransfer.dropEffect).toBe('move')
   })
   it('does not insert a dragged file path into editor content when dropping on the editor surface', async () => {
     const onOpenFile = createOpenFileHandler()
@@ -1130,7 +1171,9 @@ describe('EditorWorkbench', () => {
     })
     await dispatchDragEvent(textarea, 'drop', dataTransfer, { clientX: 500, clientY: 300 })
     await vi.waitFor(() =>
-      expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-12', name: 'surface.ts' })),
+      expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-12', name: 'surface.ts' }), {
+        preserveActive: true,
+      }),
     )
     expect(useConsoleStore.getState().openEditors.find((item) => item.id === editor1.id)?.content).toBe('const value=1')
     expect(useConsoleStore.getState().openEditors.find((item) => item.id === editor1.id)?.dirty).toBe(false)
@@ -1183,7 +1226,9 @@ describe('EditorWorkbench', () => {
     })
     await dispatchDragEvent(strip, 'drop', dataTransfer, { clientX: 500, clientY: 21 })
     await vi.waitFor(() =>
-      expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-4', name: 'strip.ts' })),
+      expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-4', name: 'strip.ts' }), {
+        preserveActive: true,
+      }),
     )
     expect(useConsoleStore.getState().editorSecondaryGroupIds).toEqual([editor2.id, 'editor-4'])
   })
@@ -1195,7 +1240,9 @@ describe('EditorWorkbench', () => {
     const dataTransfer = createFileDataTransfer('editor-4', 'src/left.ts')
     await dispatchDragEvent(dropZone, 'drop', dataTransfer, { clientX: 40, clientY: 300 })
     await vi.waitFor(() =>
-      expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-4', name: 'left.ts' })),
+      expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-4', name: 'left.ts' }), {
+        preserveActive: true,
+      }),
     )
     expect(useConsoleStore.getState().editorSplitDirection).toBe('horizontal')
     expect(useConsoleStore.getState().editorPrimaryGroupIds).toEqual(['editor-4'])
@@ -1241,7 +1288,9 @@ describe('EditorWorkbench', () => {
       dropZone.getBoundingClientRect = vi.fn(() => createRect())
       await dispatchDragEvent(dropZone, 'drop', createFileDataTransfer(id, path), { clientX, clientY })
       await vi.waitFor(() =>
-        expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id, name: path.split('/').pop() })),
+        expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id, name: path.split('/').pop() }), {
+          preserveActive: true,
+        }),
       )
       const state = useConsoleStore.getState()
       const newGroupId = state.editorGroups.find((group) => group.editorIds.includes(id))?.id
@@ -1310,7 +1359,9 @@ describe('EditorWorkbench', () => {
     })
     await dispatchDragEvent(pane, 'drop', dataTransfer, { clientX: 500, clientY: 40 })
     await vi.waitFor(() =>
-      expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-5', name: 'top.ts' })),
+      expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-5', name: 'top.ts' }), {
+        preserveActive: true,
+      }),
     )
     const state = useConsoleStore.getState()
     const newGroupId = state.editorGroups.find((group) => group.editorIds.includes('editor-5'))?.id
@@ -1389,7 +1440,9 @@ describe('EditorWorkbench', () => {
     })
     await dispatchDragEvent(pane, 'drop', dataTransfer, { clientX: 500, clientY: 560 })
     await vi.waitFor(() =>
-      expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-6', name: 'bottom.ts' })),
+      expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-6', name: 'bottom.ts' }), {
+        preserveActive: true,
+      }),
     )
     const state = useConsoleStore.getState()
     const newGroupId = state.editorGroups.find((group) => group.editorIds.includes('editor-6'))?.id
@@ -1444,7 +1497,9 @@ describe('EditorWorkbench', () => {
       clientY: 40,
     })
     await vi.waitFor(() =>
-      expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-10', name: 'nested-top.ts' })),
+      expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-10', name: 'nested-top.ts' }), {
+        preserveActive: true,
+      }),
     )
     const state = useConsoleStore.getState()
     const newGroupId = state.editorGroups.find((group) => group.editorIds.includes('editor-10'))?.id
@@ -1504,7 +1559,9 @@ describe('EditorWorkbench', () => {
       clientY: 300,
     })
     await vi.waitFor(() =>
-      expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-11', name: 'nested-right.ts' })),
+      expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-11', name: 'nested-right.ts' }), {
+        preserveActive: true,
+      }),
     )
     const state = useConsoleStore.getState()
     const newGroupId = state.editorGroups.find((group) => group.editorIds.includes('editor-11'))?.id

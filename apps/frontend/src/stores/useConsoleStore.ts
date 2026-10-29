@@ -503,7 +503,7 @@ interface ConsoleState {
   setTerminalDock: (dock: TerminalDockPosition) => void
   openEditor: (
     file: FileDocumentHandle & { language: string },
-    options?: { preview?: boolean; replacePreview?: boolean },
+    options?: { preview?: boolean; replacePreview?: boolean; preserveActive?: boolean },
   ) => void
   openCompareEditor: (leftId: string, rightId: string) => string | null
   placeEditorInSplit: (
@@ -992,6 +992,10 @@ export const useConsoleStore = create<ConsoleState>()(
       setTerminalDock: (dock) => set({ terminalDock: dock }),
       openEditor: (file, options) =>
         set((state) => {
+          // preserveActive：拖文件到分栏前先把文件落进组，但不抢走组内正在看的 tab——
+          // 分栏动作随后自己会激活目标组；抢占会让源组 active 掉到 editorIds.at(-1)（最后开的），
+          // 用户看到的是左栏被换成别的文件
+          const focus = !options?.preserveActive
           const existing = state.openEditors.find((item) => item.id === file.id)
           if (existing) {
             // 持久化恢复的旧数据可能缺 language（optional 字段），重新打开时按调用方计算值回填
@@ -1005,11 +1009,13 @@ export const useConsoleStore = create<ConsoleState>()(
               const nextState = withLegacyEditorState(
                 finalizeEditorWorkspace({
                   ...state,
-                  editorGroups: editorGroups.map((group) =>
-                    group.id === existingGroupId ? { ...group, activeEditorId: existing.id } : group,
-                  ),
-                  activeEditorId: existing.id,
-                  activeEditorGroupId: existingGroupId,
+                  editorGroups: focus
+                    ? editorGroups.map((group) =>
+                        group.id === existingGroupId ? { ...group, activeEditorId: existing.id } : group,
+                      )
+                    : editorGroups,
+                  activeEditorId: focus ? existing.id : state.activeEditorId,
+                  activeEditorGroupId: focus ? existingGroupId : state.activeEditorGroupId,
                 }),
               )
               return exitFullDock(state, { openEditors, ...nextState })
@@ -1023,11 +1029,15 @@ export const useConsoleStore = create<ConsoleState>()(
                 openEditors,
                 editorGroups: editorGroups.map((group) =>
                   group.id === targetGroupId
-                    ? { ...group, editorIds: [...group.editorIds, existing.id], activeEditorId: existing.id }
+                    ? {
+                        ...group,
+                        editorIds: [...group.editorIds, existing.id],
+                        activeEditorId: focus ? existing.id : group.activeEditorId,
+                      }
                     : group,
                 ),
-                activeEditorId: existing.id,
-                activeEditorGroupId: targetGroupId,
+                activeEditorId: focus ? existing.id : state.activeEditorId,
+                activeEditorGroupId: focus ? targetGroupId : state.activeEditorGroupId,
               }),
             )
             return exitFullDock(state, { openEditors, ...nextState })
@@ -1071,7 +1081,7 @@ export const useConsoleStore = create<ConsoleState>()(
                     editorIds: previewId
                       ? group.editorIds.map((id) => (id === previewId ? file.id : id))
                       : [...group.editorIds, file.id],
-                    activeEditorId: file.id,
+                    activeEditorId: focus ? file.id : group.activeEditorId,
                   }
                 : group,
             )
@@ -1080,8 +1090,8 @@ export const useConsoleStore = create<ConsoleState>()(
               ...state,
               openEditors: nextOpenEditors,
               editorGroups,
-              activeEditorId: file.id,
-              activeEditorGroupId: targetGroupId,
+              activeEditorId: focus ? file.id : state.activeEditorId,
+              activeEditorGroupId: focus ? targetGroupId : state.activeEditorGroupId,
             }),
           )
           return exitFullDock(state, { openEditors: nextOpenEditors, ...nextState })

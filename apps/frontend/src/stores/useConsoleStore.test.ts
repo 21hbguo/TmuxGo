@@ -297,6 +297,28 @@ describe('useConsoleStore editor persistence', () => {
     const leafGroupIds = collectGroupIds(useConsoleStore.getState().editorLayout)
     expect(new Set(leafGroupIds).size).toBe(leafGroupIds.length)
   })
+  it('keeps the source group active editor when a dropped file steals focus before splitting', async () => {
+    const { useConsoleStore } = await import('./useConsoleStore')
+    const editorA = createEditor('local:root-workspace:src/a.ts', 'src/a.ts')
+    const editorB = createEditor('local:root-workspace:src/b.ts', 'src/b.ts')
+    const editorC = createEditor('local:root-workspace:src/c.ts', 'src/c.ts')
+    const dragged = createEditor('local:root-workspace:src/d.ts', 'src/d.ts')
+    // tab 顺序 [B,A,C]、活动为 A：拖 D 到右侧分栏前 A 不是最后一个 tab
+    useConsoleStore.getState().openEditor(editorB, { preview: false })
+    useConsoleStore.getState().openEditor(editorA, { preview: false })
+    useConsoleStore.getState().openEditor(editorC, { preview: false })
+    useConsoleStore.getState().setActiveEditor(editorA.id)
+    const groupId = useConsoleStore.getState().editorGroups[0]?.id
+    // drop 打开链路：preserveActive 打开 D（不抢活动），再分栏
+    useConsoleStore.getState().openEditor(dragged, { preview: false, preserveActive: true })
+    useConsoleStore.getState().placeEditorInSplit(dragged.id, 'right', groupId)
+    const state = useConsoleStore.getState()
+    const sourceGroup = state.editorGroups.find((group) => group.id === groupId)
+    expect(sourceGroup?.activeEditorId).toBe(editorA.id)
+    expect(state.activeEditorId).toBe(dragged.id)
+    const draggedGroup = state.editorGroups.find((group) => group.editorIds.includes(dragged.id))
+    expect(state.activeEditorGroupId).toBe(draggedGroup?.id)
+  })
   it('collapses empty groups after moving the last editor out', async () => {
     const { useConsoleStore } = await import('./useConsoleStore')
     const editor2 = createEditor('local:root-workspace:src/other.ts', 'src/other.ts')
