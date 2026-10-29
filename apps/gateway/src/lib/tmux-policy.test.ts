@@ -4,7 +4,8 @@ import test from 'node:test'
 
 // allowlist 是模块加载时读 env 的常量：必须先设再动态 import
 process.env.TMUX_WEB_ALLOWED_SESSIONS = 'work'
-const { assertTargetAllowed, setExecTmuxForTest } = await import('./tmux-policy.js')
+const { assertTargetAllowed, ensureGlobalRemainOnExit, setExecTmuxForTest, _resetRemainOnExitForTest } =
+  await import('./tmux-policy.js')
 
 const seen: { hostId: string; args: string[] }[] = []
 function stubSession(sessionName: string) {
@@ -46,4 +47,44 @@ test('remote target assertions resolve the session through the host channel', as
   // 解析不出 session 名时仍然是「目标不可用」，不是策略拒绝
   setExecTmuxForTest((async () => ({ stdout: '\n', stderr: '', host: { id: 'devbox' } })) as never)
   await assert.rejects(() => assertTargetAllowed('devbox', '%6'), /Unable to resolve session/)
+})
+
+test('ensureGlobalRemainOnExit pins setw -g failed once per host', async (t) => {
+  t.after(() => {
+    setExecTmuxForTest(null)
+    _resetRemainOnExitForTest()
+  })
+  _resetRemainOnExitForTest()
+  const calls: { hostId: string; args: string[] }[] = []
+  setExecTmuxForTest((async (hostId: string, args: string[]) => {
+    calls.push({ hostId, args })
+    return { stdout: '', stderr: '', host: { id: hostId } }
+  }) as never)
+
+  await ensureGlobalRemainOnExit('local')
+  await ensureGlobalRemainOnExit('local') // 幂等：已钉过的 host 不重复 exec
+  await ensureGlobalRemainOnExit('devbox')
+
+  assert.deepEqual(
+    calls.map((c) => c.hostId),
+    ['local', 'devbox'],
+  )
+  assert.deepEqual(calls[0].args, ['set-window-option', '-g', 'remain-on-exit', 'failed'])
+})
+
+test('ensureGlobalRemainOnExit skips hosts whose tmux rejects failed', async (t) => {
+  t.after(() => {
+    setExecTmuxForTest(null)
+    _resetRemainOnExitForTest()
+  })
+  _resetRemainOnExitForTest()
+  let calls = 0
+  setExecTmuxForTest((async () => {
+    calls += 1
+    throw new Error('bad value')
+  }) as never)
+
+  await ensureGlobalRemainOnExit('old-tmux-host')
+  await ensureGlobalRemainOnExit('old-tmux-host')
+  assert.equal(calls, 1) // 老 tmux 探测失败后标记跳过，不随每次 attach 重放
 })

@@ -54,6 +54,7 @@ async function defaultPrepareSessionAttach(hostId: string, sessionName: string) 
   assertSessionAllowed(sessionName)
   await execTmux(hostId, ['set-option', '-t', sessionName, 'destroy-unattached', 'off'])
   await execTmux(hostId, ['set-option', '-t', sessionName, '-g', 'mouse', 'on'])
+  await ensureGlobalRemainOnExit(hostId)
 }
 let prepareSessionAttachImpl: PrepareSessionAttach = defaultPrepareSessionAttach
 // 测试缝：单测 attach 路径不触真实 tmux set-option
@@ -68,6 +69,26 @@ let execTmuxImpl: TmuxExecRunner = execTmux
 // 测试缝：策略断言的用例不该触真实 tmux/ssh（与本文件 setPrepareSessionAttachForTest 同款）
 export function setExecTmuxForTest(fn: TmuxExecRunner | null) {
   execTmuxImpl = fn ?? execTmux
+}
+// remain-on-exit failed（'failed' 值是 tmux 3.4 新增）：pane 根进程被信号/非零退出
+// 杀掉时留下死 pane（tmux 渲染 "Pane is dead" 框）而不是整窗静默消失——裸命令 pane
+// （new-session/new-window 直带 shell-command）按 Ctrl+C 正是这种死法，曾吃掉用户
+// 正在跑代码的 train session；干净退出 exit 0 照常关窗不留僵尸。
+// 只钉 -g 全局：window 选项对「后建 window」的查找走 window 自身表→全局，-t <session>
+// 层实测（tmux 3.4）不覆盖新 window；全局一次设置对已存在/未来 window 同时兜底。
+// 按 host 缓存探测结果：老 tmux 不认 'failed'，失败一次即跳过，不随每次 attach 重放。
+const remainOnExitFailed = new Map<string, boolean>()
+export async function ensureGlobalRemainOnExit(hostId: string) {
+  if (remainOnExitFailed.has(hostId)) return
+  try {
+    await execTmuxImpl(hostId, ['set-window-option', '-g', 'remain-on-exit', 'failed'])
+    remainOnExitFailed.set(hostId, true)
+  } catch {
+    remainOnExitFailed.set(hostId, false)
+  }
+}
+export function _resetRemainOnExitForTest() {
+  remainOnExitFailed.clear()
 }
 // 经 execTmux 路由：local 直跑本机 tmux，远端走 agent/ssh 通道。策略断言因此对远端
 // 也成立——早先用本机 execFile 解析 pane→session，远端拿不到结果，只能整段放行。
