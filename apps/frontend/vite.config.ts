@@ -50,7 +50,13 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': { target: process.env.VITE_API_URL || 'http://127.0.0.1:3001', changeOrigin: true, ws: true },
+      // TMUXGO_DEV_API_TARGET 只影响 dev proxy，不会被 Vite 注入客户端（VITE_ 前缀才会），
+      // 用来把 dev server 指到隔离 gateway 而不让前端改用绝对地址、绕开同源代理
+      '/api': {
+        target: process.env.TMUXGO_DEV_API_TARGET || process.env.VITE_API_URL || 'http://127.0.0.1:3001',
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
 })

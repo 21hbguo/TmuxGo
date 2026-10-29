@@ -2757,20 +2757,8 @@ export function FilePanel({
                 </div>
               }
             />
-            {/* 根切换 + 面包屑共用一行：根本身就是第一段路径，拆成两行会白吃一行树高 */}
-            <div className="flex items-center gap-1 px-3 pb-2">
-              <div className="w-[7.5rem] max-w-[52%] shrink-0">
-                <Select
-                  value={selectedRootId}
-                  onChange={(v) => {
-                    setFollowSuspended(true)
-                    switchRoot(v)
-                  }}
-                  options={rootOptions.map((item) => ({ value: item.id, label: item.label }))}
-                  title={activeSourceRootPath}
-                  className="tmuxgo-control tmuxgo-input h-7 w-full rounded-apple px-2 text-xs"
-                />
-              </div>
+            {/* 面包屑独占一行：根切换已移入搜索行，这里只回答「我在哪」 */}
+            <div className="flex items-center gap-1 px-3 pb-1.5">
               {!showSearchResults && (parentDirectory || currentPath || activeFavorite) && (
                 <div
                   ref={bindHorizontalWheelScroll}
@@ -2811,7 +2799,17 @@ export function FilePanel({
           </div>
           {(!isMobile || mobileView === 'list') && (
             <div className="shrink-0 border-b border-[var(--line)] px-2 py-2">
-              <div className="flex items-center gap-1">
+              <div className="flex flex-wrap items-center gap-1">
+                <Select
+                  value={selectedRootId}
+                  onChange={(v) => {
+                    setFollowSuspended(true)
+                    switchRoot(v)
+                  }}
+                  options={rootOptions.map((item) => ({ value: item.id, label: item.label }))}
+                  title={activeSourceRootPath}
+                  className="tmuxgo-control tmuxgo-input h-7 w-[6.75rem] shrink-0 rounded-apple px-2 text-xs"
+                />
                 <div className="relative min-w-0 flex-1">
                   <FiSearch
                     size={13}
@@ -2869,10 +2867,10 @@ export function FilePanel({
                 </div>
               </div>
               {!isPicker && (
-                // 过滤段与操作按钮固定两行：窄面板下单行会裁掉右侧按钮
+                // 过滤段与操作按钮同一行：宽度不足时整体换行，不再固定吃两行
                 <>
-                  <div className="mt-1 flex items-center gap-1">
-                    <div className="tmuxgo-segment">
+                  <div className="tmuxgo-file-tools mt-1 flex flex-wrap items-center gap-0">
+                    <div className="tmuxgo-segment shrink-0">
                       {(['all', 'file', 'directory'] as FileTypeFilter[]).map((item) => (
                         <button
                           key={item}
@@ -2892,8 +2890,7 @@ export function FilePanel({
                         </button>
                       ))}
                     </div>
-                  </div>
-                  <div className="mt-1 flex items-center gap-1">
+                    <span aria-hidden="true" className="mx-1.5 h-4 w-px shrink-0 bg-[var(--line)]" />
                     <button
                       onClick={() => void createEntry('file', currentPath)}
                       title={t('file.newFile')}

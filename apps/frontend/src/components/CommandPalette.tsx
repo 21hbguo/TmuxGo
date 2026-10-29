@@ -478,7 +478,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
             )}
           </div>
 
-          <div className="hidden lg:flex p-2 border-t border-[var(--line)] items-center justify-between text-text-3 text-xs">
+          <div className="tmuxgo-palette-hints hidden lg:flex p-2 border-t border-[var(--line)] items-center justify-between text-text-3 text-xs">
             <span>{t('palette.navigate')}</span>
             <span>{t('palette.select')}</span>
             <span>{t('palette.close')}</span>

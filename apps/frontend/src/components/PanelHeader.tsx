@@ -26,11 +26,18 @@ export interface PanelHeaderProps extends PanelHeaderBase {
  */
 export function PanelHeader({ icon, title, subtitle, actions, onClose, closeLabel, className }: PanelHeaderProps) {
   return (
-    <header className={cn('flex h-11 shrink-0 items-center gap-2 border-b border-[var(--line)] px-3', className)}>
+    <header
+      className={cn(
+        'tmuxgo-panel-header flex h-11 shrink-0 items-center gap-2 border-b border-[var(--line)] px-3',
+        className,
+      )}
+    >
       {icon !== undefined && <IconTile>{icon}</IconTile>}
       <div className="min-w-0 flex-1">
-        <div className="truncate text-xs font-medium text-text-1">{title}</div>
-        {subtitle !== undefined && <div className="truncate text-caption text-text-3">{subtitle}</div>}
+        <div className="truncate text-xs font-semibold tracking-[0.01em] text-text-1">{title}</div>
+        {subtitle !== undefined && (
+          <div className="truncate text-caption tracking-[0.01em] text-text-3">{subtitle}</div>
+        )}
       </div>
       {actions}
       {onClose && (

@@ -1,5 +1,14 @@
 export const en = {
   'common.refresh': 'Refresh',
+  'auth.brandHeadline1': 'Your tmux,',
+  'auth.brandHeadline2': 'still running in the browser',
+  'auth.brandSub':
+    'Terminal, files, editor, git and session state on one screen. Switch devices without reopening tmux.',
+  'auth.brandPoint1': 'Multi-host · multi-session · reconnect',
+  'auth.brandPoint2': 'Terminal beside editor, drop a file to open',
+  'auth.brandPoint3': 'Installable PWA, usable on mobile',
+  'auth.checking': 'Checking gateway state…',
+  'auth.secure': 'Secure connection',
   'auth.title': 'Sign in to TmuxGo',
   'auth.subtitle': 'Terminal workspace',
   'auth.username': 'Username',
@@ -137,6 +146,7 @@ export const en = {
     'End {count} selected sessions? Their programs will be terminated and cannot be restored.',
   'sidebar.batchDeleteSuccess': 'Ended {count} sessions',
   'sidebar.windows': '{count} windows',
+  'hostSwitcher.localTag': 'LOCAL',
   'hostSwitcher.label': 'Host',
 
   // StatusBar
@@ -1014,6 +1024,7 @@ export const en = {
   'paste.send': 'Send',
 
   // UploadConfirmDialog
+  'upload.selectFiles': 'Select files to upload',
   'upload.title': 'Confirm upload',
   'upload.file': '{count} file(s)',
   'upload.renameConflict': 'Rename on conflict',
@@ -1288,6 +1299,15 @@ export const en = {
   'common.retry': 'Retry',
 
   // Workspaces
+  'workspace.empty.title': 'Workspace ready',
+  'workspace.empty.desc':
+    'Double-click a file in the tree, or drop one here to edit it. Your terminal keeps running; switch tabs to get back.',
+  'workspace.empty.dropTitle': 'Drop to open',
+  'workspace.empty.dropDesc': 'The file opens as a pinned tab, so you can keep opening others to compare.',
+  'workspace.empty.browse': 'Browse files',
+  'workspace.empty.newSession': 'New session',
+  'workspace.empty.paletteHint': ' command palette',
+  'workspace.empty.dragHint': 'drop files',
   'workspace.unclassified': 'Unclassified',
   'workspace.createNew': 'New workspace from directory…',
   'workspace.createTitle': 'New workspace name',

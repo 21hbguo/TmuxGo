@@ -1100,7 +1100,7 @@ export function EditorWorkbench({
   const renderTab = (editor: FileEditorDocument, groupEditors: FileEditorDocument[], groupId: string) => (
     <div
       key={editor.id}
-      className={`group relative flex h-6 w-40 shrink-0 items-center border-r border-[var(--line-subtle)] ${editor.id === activeEditor?.id ? 'bg-bg-0 text-text-1 shadow-[inset_1px_0_0_0_var(--line),inset_-1px_0_0_0_var(--line),inset_0_1px_0_0_0_var(--line)]' : 'bg-bg-1'}`}
+      className={`tmuxgo-editor-tab group relative flex min-w-[7.5rem] max-w-[15rem] shrink-0 items-center ${editor.id === activeEditor?.id ? 'tmuxgo-editor-tab--active' : ''}`}
     >
       <button
         draggable={editor.kind !== 'compare'}
@@ -1233,7 +1233,7 @@ export function EditorWorkbench({
       ref={bindHorizontalWheelScroll}
       data-testid={`editor-group-${getLegacyGroupName(groupId)}`}
       data-editor-group-id={groupId}
-      className={`tmuxgo-scrollbar-subtle relative flex min-h-6 items-stretch overflow-x-auto border-b border-[var(--line)] bg-bg-1 ${tabDropTarget?.groupId === groupId ? 'ring-1 ring-accent/40 ring-inset' : ''}`}
+      className={`tmuxgo-scrollbar-subtle relative flex min-h-[30px] items-stretch overflow-x-auto border-b border-[var(--line)] bg-bg-1 ${tabDropTarget?.groupId === groupId ? 'ring-1 ring-accent/40 ring-inset' : ''}`}
       onDragOver={(event) => {
         if (!hasDraggedFile(event)) return
         const dragged = decodeDraggedFile(event)
@@ -1334,7 +1334,9 @@ export function EditorWorkbench({
               {t('editor.drop.center' as never)}
             </div>
           )}
-          {editor && activeEditor?.id === editor.id && (
+          {/* 单栏时不画整圈强调色描边（像给整个编辑区套了个焦点框）；
+              分屏时才需要它回答「哪一栏是激活的」 */}
+          {editor && activeEditor?.id === editor.id && editorLayout !== null && isEditorLayoutSplit(editorLayout) && (
             <span className="pointer-events-none absolute inset-0 border border-accent/35" />
           )}
           {paneDropTarget?.groupId === groupId && renderDropOverlay(paneDropTarget.placement)}
@@ -1716,11 +1718,13 @@ export function EditorWorkbench({
   if (!activeEditor) return null
   return (
     <section data-editor-drop className="flex h-full min-h-0 flex-col bg-bg-0">
-      <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.04)] bg-bg-1/70 px-3 py-1">
+      <div className="tmuxgo-editor-head flex items-center justify-between gap-3 border-b border-[var(--line)] px-3">
         <div className="min-w-0">
-          <div className="truncate text-sm text-text-1">{activeEditor.absolutePath}</div>
+          <div className="truncate font-mono text-[11px] leading-4 text-text-3" title={activeEditor.absolutePath}>
+            {activeEditor.absolutePath}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="tmuxgo-editor-tools flex shrink-0 items-center gap-0.5">
           {!gitDiff && (
             <>
               <Button

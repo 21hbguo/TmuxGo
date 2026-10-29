@@ -36,6 +36,7 @@ export function GlobalFilePicker() {
       ref={inputRef}
       type="file"
       multiple
+      aria-label={t('upload.selectFiles')}
       className="sr-only"
       onChange={(event) => {
         const files = Array.from(event.target.files || [])

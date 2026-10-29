@@ -761,7 +761,7 @@ describe('EditorWorkbench', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
     expect(useConsoleStore.getState().openEditors).toHaveLength(0)
   })
-  it('renders compact tab strip height for single and split groups', () => {
+  it('renders 30px tab strip height for single and split groups', () => {
     setWorkbenchState({
       openEditors: [editor1, editor2],
       activeEditorId: editor2.id,
@@ -783,13 +783,14 @@ describe('EditorWorkbench', () => {
       screen.getByTestId('editor-group-secondary') as HTMLDivElement,
     ]
     for (const strip of strips) {
-      expect(strip.className).toContain('min-h-6')
+      // 标签条与终端窗口标签同高（30px），不再是早期的 24px 紧凑档
+      expect(strip.className).toContain('min-h-[30px]')
     }
     const tabs = ['index.ts', 'other.ts'].map(
       (name) => screen.getByRole('button', { name }).parentElement as HTMLDivElement,
     )
     for (const tab of tabs) {
-      expect(tab.className).toContain('h-6')
+      expect(tab.className).toContain('tmuxgo-editor-tab')
     }
   })
   it('scrolls the tab strip horizontally with the mouse wheel', () => {

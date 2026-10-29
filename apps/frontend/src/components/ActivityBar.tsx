@@ -119,12 +119,7 @@ function ActivityButton({ item }: { item: ActivityItem }) {
       className={`tmuxgo-toolbar-icon relative focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60 ${item.active ? 'tmuxgo-toolbar-icon--active' : ''} disabled:cursor-not-allowed disabled:opacity-40`}
     >
       {/* active 左侧竖条：图标列只有 40px 宽，用贴边的细条标记当前位置，不额外加背景块 */}
-      {item.active && (
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute -left-2 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-full bg-accent"
-        />
-      )}
+      {item.active && <span aria-hidden="true" className="tmuxgo-rail-spine" />}
       <ActivityIconBody item={item} />
     </button>
   )
@@ -144,7 +139,10 @@ function SortableActivityItem({ item }: { item: ActivityItem }) {
       ref={setNodeRef}
       style={style}
       className={`touch-pan-y select-none cursor-grab active:cursor-grabbing ${isDragging ? 'opacity-40' : ''}`}
+      // dnd-kit 默认 role="button"，而 wrapper 里就是真按钮 → axe nested-interactive 会逐项报错。
+      // 改 role="group"，tabIndex / aria-roledescription 仍由 attributes 提供，键盘拖拽不受影响。
       {...attributes}
+      role="group"
       {...listeners}
     >
       <ActivityButton item={item} />
@@ -189,6 +187,16 @@ export function ActivityBar() {
   const pluginViews = (data?.plugins || [])
     .filter((plugin) => plugin.enabled && plugin.state === 'active')
     .flatMap((plugin) => (plugin.manifest.contributes?.views || []).map((view) => ({ plugin, view })))
+  // 设置固定在 rail 底部：不参与拖拽排序，避免用户把它拖到导航中间
+  const settingsItem: ActivityItem = {
+    id: 'settings',
+    label: t('activity.settings'),
+    icon: FiSettings,
+    onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-open-settings')),
+    active: false,
+    unread: 0,
+    plugin: false,
+  }
   const items: ActivityItem[] = [
     {
       id: 'sessions',
@@ -291,15 +299,6 @@ export function ActivityBar() {
       unread: 0,
       plugin: false,
     },
-    {
-      id: 'settings',
-      label: t('activity.settings'),
-      icon: FiSettings,
-      onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-open-settings')),
-      active: false,
-      unread: 0,
-      plugin: false,
-    },
     // 插件视图并入同一排序序列：id 前缀 plugin: 与固定项区分
     ...pluginViews.map(({ plugin, view }): ActivityItem => {
       const Icon = pluginIcons[(view.icon || plugin.manifest.icon || 'box') as keyof typeof pluginIcons] || FiBox
@@ -353,8 +352,10 @@ export function ActivityBar() {
     if (next.length && !arraysEqual(next, savedIds)) updatePreferences({ activityBarOrder: next })
   }
   return (
-    <aside className="flex h-full w-14 shrink-0 flex-col items-center gap-2 overflow-hidden border-r border-[var(--line)] bg-bg-0 py-3 scrollbar-none">
-      <img src="/app-icon.svg" alt="" className="mb-1 h-9 w-9" />
+    <aside className="tmuxgo-shell-rail flex h-full shrink-0 flex-col items-center overflow-hidden scrollbar-none">
+      <span className="tmuxgo-rail-brand">
+        <img src="/app-icon.svg" alt="" className="h-7 w-7" />
+      </span>
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -386,6 +387,10 @@ export function ActivityBar() {
           </DragOverlay>
         </ModalPortal>
       </DndContext>
+      <div className="tmuxgo-rail-footer">
+        <span aria-hidden="true" className="tmuxgo-rail-divider" />
+        <ActivityButton item={settingsItem} />
+      </div>
     </aside>
   )
 }

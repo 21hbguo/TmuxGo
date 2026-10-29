@@ -3,24 +3,38 @@
 @tailwind utilities;
 
 :root {
-  --bg-0: 12 13 15;
-  --bg-1: 24 25 28;
-  --bg-2: 42 43 48;
+  /* 表面 4 级台阶：canvas → panel → raised → hover。层次靠明度，不靠描边堆叠 */
+  --bg-0: 10 11 13;
+  --bg-1: 18 20 24;
+  --bg-2: 32 35 42;
+  --bg-3: 44 49 59;
   --accent: 10 132 255;
   --accent-2: 48 209 88;
   --warn: 255 159 10;
   --danger: 255 69 58;
-  --text-1: 245 245 247;
-  --text-2: 174 174 178;
-  --text-3: 150 150 155;
+  --text-1: 240 243 248;
+  --text-2: 160 168 181;
+  --text-3: 124 133 148;
   --on-accent: 255 255 255;
   --on-danger: 255 255 255;
-  --line: rgba(255, 255, 255, 0.1);
+  --line: rgba(255, 255, 255, 0.075);
+  --line-strong: rgba(255, 255, 255, 0.14);
+  /* 小字号蓝字单独一档：#0A84FF 在 bg-1 上 12px 时对比不足 4.5:1 */
+  --accent-text: 106 168 255;
+  /* 从 --accent 推导：7 个主题自动跟随，不逐主题手写 */
+  --accent-soft: rgb(var(--accent) / 0.14);
+  --radius-control: 8px;
+  --radius-surface: 10px;
+  --radius-panel: 14px;
+  --row-h: 34px;
+  --control-h: 30px;
+  --tab-h: 30px;
+  --fs-micro: 10px;
   --glow: 0 10px 32px rgba(0, 0, 0, 0.24);
   --glass-blur: 14px;
   --glass-saturate: 180%;
   --glass-fill: rgb(255 255 255 / 8%);
-  --glass-fill-strong: rgb(255 255 255 / 14%);
+  --glass-fill-strong: rgb(var(--bg-2) / 0.86);
   --glass-fill-hover: rgb(255 255 255 / 14%);
   --glass-rim: var(--line);
   --glass-highlight: rgb(255 255 255 / 14%);
@@ -28,21 +42,24 @@
   --glass-shadow-hover: none;
   /* 原语层共享 token（设计简报 §1.2）：表面态 / 细分隔 / focus / 面板上沿 / 浮层阴影 / 时长缓动。
      只扩展现有体系，不改名不推翻；面板与 components/* 共用，别再各写一套 160ms ease */
-  --surface-hover: rgb(var(--bg-2) / 0.55);
+  --surface-hover: rgb(var(--bg-2) / 0.45);
   --surface-pressed: rgb(var(--bg-2) / 0.8);
-  --surface-selected: rgb(var(--accent) / 0.1);
+  --surface-selected: var(--accent-soft);
   /* --line 已是完整颜色，不能按 RGB 三元组加透明度，细分隔单独出变量 */
   --line-subtle: color-mix(in srgb, var(--line) 60%, transparent);
   --focus-ring: rgb(var(--accent) / 0.65);
   --shadow-panel: inset 0 1px 0 rgb(var(--text-1) / 0.04);
-  --shadow-popover: 0 8px 24px rgb(0 0 0 / 0.2);
+  --shadow-popover: 0 12px 32px -12px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.04);
+  /* 3 级投影：面板顶沿高光 / 抬起卡片 / 浮层 */
+  --elev-1: inset 0 1px 0 rgb(255 255 255 / 0.05);
+  --elev-2: 0 1px 2px rgb(0 0 0 / 0.35), 0 8px 20px -12px rgb(0 0 0 / 0.5);
   --duration-fast: 120ms;
   --duration-normal: 160ms;
   --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
   /* VSCode 风格：JetBrains Mono 拉丁 + 系统 CJK 回退（Linux/macOS/Windows 顺序） */
   --font-ui: 'JetBrains Mono', 'Noto Sans Mono CJK SC', 'PingFang SC', 'Microsoft YaHei', monospace;
   --font-mono: 'JetBrains Mono', 'Noto Sans Mono CJK SC', 'PingFang SC', 'Microsoft YaHei', monospace;
-  --radius-apple: 16px;
+  --radius-apple: 12px;
   --fs-caption: 10px;
   --fs-meta: 12px;
   --fs-body: 14px;
@@ -53,19 +70,25 @@
 
 [data-theme='light'] {
   color-scheme: light;
-  --bg-0: 232 234 238;
+  --bg-0: 226 229 234;
   --bg-1: 248 249 251;
   --bg-2: 224 226 231;
+  --bg-3: 210 214 221;
   --accent: 0 90 200;
-  --accent-2: 40 190 105;
-  --warn: 220 130 0;
-  --danger: 215 45 38;
+  /* 浅色下 accent-2 / warn 作小字号文字时必须 ≥4.5:1，不能沿用深色主题的高亮值 */
+  --accent-2: 0 128 72;
+  --warn: 168 96 0;
+  --danger: 200 36 30;
   --text-1: 28 28 30;
   --text-2: 72 72 76;
   --text-3: 90 90 95;
   --on-accent: 12 13 15;
   --on-danger: 12 13 15;
-  --line: rgba(60, 60, 67, 0.16);
+  --line: rgba(60, 60, 67, 0.14);
+  --line-strong: rgba(60, 60, 67, 0.28);
+  --accent-text: 0 82 184;
+  --elev-1: inset 0 1px 0 rgb(255 255 255 / 0.9);
+  --elev-2: 0 1px 2px rgb(28 28 30 / 0.06), 0 8px 20px -12px rgb(28 28 30 / 0.18);
   --glow: 0 12px 34px rgba(48, 52, 60, 0.12);
   --glass-fill: rgb(255 255 255 / 55%);
   --glass-fill-strong: rgb(255 255 255 / 75%);
@@ -94,6 +117,9 @@
   --on-accent: 0 0 0;
   --on-danger: 255 255 255;
   --line: rgba(0, 255, 255, 0.4);
+  --line-strong: rgba(255, 255, 255, 0.8);
+  --accent-text: 0 255 255;
+  --bg-3: 40 40 40;
   --glow: 0 0 20px rgba(0, 255, 255, 0.3);
   --glass-blur: 0px;
   --glass-fill: rgba(10, 10, 10, 1);
@@ -108,6 +134,7 @@
   --bg-1: 40 42 54;
   --bg-2: 52 55 70;
   --accent: 189 147 249;
+  --accent-text: var(--accent);
   --accent-2: 255 121 198;
   --warn: 255 184 108;
   --danger: 255 85 85;
@@ -128,6 +155,7 @@
 
 [data-theme='nord'] {
   --bg-0: 46 52 64;
+  --accent-text: 130 185 255;
   --bg-1: 59 66 82;
   --bg-2: 67 76 94;
   --accent: 152 208 224;
@@ -154,6 +182,7 @@
   --bg-1: 24 24 37;
   --bg-2: 49 50 68;
   --accent: 137 180 250;
+  --accent-text: var(--accent);
   --accent-2: 166 227 161;
   --warn: 250 179 135;
   --danger: 243 139 168;
@@ -178,12 +207,13 @@
   --bg-1: 26 43 35;
   --bg-2: 42 63 54;
   --accent: 91 168 130;
+  --accent-text: var(--accent);
   --accent-2: 107 160 184;
   --warn: 196 149 106;
-  --danger: 212 112 112;
+  --danger: 218 120 120;
   --text-1: 224 235 228;
   --text-2: 139 163 152;
-  --text-3: 106 127 116;
+  --text-3: 136 150 140;
   --on-accent: 255 255 255;
   --on-danger: 255 255 255;
   --line: rgba(139, 163, 152, 0.16);
@@ -230,8 +260,8 @@ body {
   overflow: hidden;
   background-color: rgb(var(--bg-0));
   background-image:
-    linear-gradient(135deg, rgb(var(--accent) / 0.1) 0%, transparent 38%),
-    linear-gradient(315deg, rgb(var(--accent-2) / 0.07) 0%, transparent 42%);
+    radial-gradient(120% 80% at 12% -10%, rgb(var(--accent) / 0.06) 0%, transparent 55%),
+    radial-gradient(90% 70% at 100% 110%, rgb(var(--accent-2) / 0.04) 0%, transparent 60%);
   color: rgb(var(--text-1));
   font-family: var(--font-ui);
   font-weight: 400;
@@ -377,22 +407,22 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 2.5rem;
-  width: 2.5rem;
+  height: var(--control-h);
+  width: var(--control-h);
   flex-shrink: 0;
-  border-radius: var(--radius-apple, 12px);
+  border-radius: var(--radius-control);
   border: 1px solid transparent;
   background: transparent;
-  color: rgb(var(--text-3));
+  color: rgb(var(--text-2));
+  cursor: pointer;
   transition:
-    color 160ms ease,
-    background-color 160ms ease,
-    border-color 160ms ease,
-    box-shadow 160ms ease,
-    transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
 }
 .tmuxgo-toolbar-icon:hover:not(:disabled) {
-  background: rgb(var(--bg-2) / 0.65);
+  background: rgb(var(--bg-2) / 0.7);
   color: rgb(var(--text-1));
 }
 .tmuxgo-toolbar-icon:active:not(:disabled) {
@@ -403,18 +433,19 @@ a {
   opacity: 0.5;
 }
 .tmuxgo-toolbar-icon--active {
-  border-color: rgb(var(--accent) / 0.42);
-  background: rgb(var(--accent) / 0.1);
-  color: rgb(var(--text-1));
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: rgb(var(--accent-text));
 }
 .tmuxgo-toolbar-icon--sm {
-  height: 1.75rem;
-  width: 1.75rem;
+  height: 26px;
+  width: 26px;
+  border-radius: 6px;
 }
 .tmuxgo-toolbar-icon--lg {
-  height: 2.75rem;
-  width: 2.75rem;
+  height: 44px;
+  width: 44px;
+  border-radius: 10px;
 }
 .tmuxgo-list-row {
   /* 原语层统一时长/缓动（设计简报 §1.2），值与原 160ms ease 等价 */
@@ -425,7 +456,7 @@ a {
     box-shadow var(--duration-normal) var(--ease-standard);
 }
 .tmuxgo-list-row--active {
-  border-color: rgb(var(--accent) / 0.45);
+  border-color: transparent;
   background: var(--surface-selected);
   color: rgb(var(--text-1));
 }
@@ -444,7 +475,7 @@ a {
   gap: 2px;
   padding: 2px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-apple, 12px);
+  border-radius: var(--radius-control);
   background: rgb(var(--bg-2) / 0.5);
 }
 .tmuxgo-segment__item {
@@ -452,11 +483,11 @@ a {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  min-width: 28px;
-  height: 24px;
+  min-width: 26px;
+  height: 22px;
   padding: 0 8px;
   border: 0;
-  border-radius: calc(var(--radius-apple, 12px) - 4px);
+  border-radius: 6px;
   background: transparent;
   font-size: var(--fs-meta);
   color: rgb(var(--text-3));
@@ -470,8 +501,8 @@ a {
 }
 .tmuxgo-segment__item--active,
 .tmuxgo-segment__item[aria-pressed='true'] {
-  background: rgb(var(--accent) / 0.15);
-  color: rgb(var(--accent));
+  background: var(--accent-soft);
+  color: rgb(var(--accent-text));
 }
 .tmuxgo-float-surface {
   border: 1px solid var(--line);
@@ -488,8 +519,8 @@ a {
 }
 .tmuxgo-menu {
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 20px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
   background: rgb(var(--bg-1));
   /* 菜单是浮层：主题的 --glass-shadow-hover 多为 none，这里补 elevation 让层级看得出来 */
   box-shadow: var(--glass-shadow-hover), var(--shadow-popover);
@@ -507,7 +538,7 @@ a {
     color 160ms ease;
 }
 .tmuxgo-menu-item:hover {
-  background: rgb(var(--bg-2));
+  background: rgb(var(--bg-2) / 0.8);
   color: rgb(var(--text-1));
 }
 .tmuxgo-menu-item:disabled {
@@ -557,8 +588,9 @@ a {
   color: rgb(var(--accent-2));
 }
 .tmuxgo-mobile-nav-button--active {
-  background: rgb(var(--accent) / 0.12);
-  color: rgb(var(--text-1));
+  /* 与桌面 rail 同一套选中语义：accent-soft 底 + accent-text 字，不再只提亮到 text-1 */
+  background: var(--accent-soft);
+  color: rgb(var(--accent-text));
 }
 .tmuxgo-mobile-dock {
   --glass-blur: 14px;
@@ -1104,6 +1136,9 @@ a {
   display: flex;
   align-items: center;
   gap: 4px;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   /* 宽度随窗口名收缩（上限 160px，超出由名字 span truncate），避免短名也占满整格 */
   min-width: 80px;
   max-width: 160px;
@@ -1142,12 +1177,10 @@ a {
   background: rgb(var(--bg-0));
   color: rgb(var(--text-1));
   /* 向下投 1px 与内容面同色的阴影盖住 strip 的 border-b，实现 tab 与 PaneGrid 视觉连通；
-     侧/顶边用 inset shadow 描边而非 border，避免激活切换时宽度抖动 */
+     顶部 2px 强调线替代四面描边：激活态只靠一条线定位，切换时宽度不抖 */
   box-shadow:
     0 1px 0 0 rgb(var(--bg-0)),
-    inset 1px 0 0 0 var(--line),
-    inset -1px 0 0 0 var(--line),
-    inset 0 1px 0 0 var(--line);
+    inset 0 2px 0 0 rgb(var(--accent));
 }
 .tmuxgo-window-tab--dragging {
   opacity: 0.5;
@@ -1509,4 +1542,685 @@ a {
   gap: 8px;
   padding: 32px 12px;
   text-align: center;
+}
+
+/* =========================================================
+   Shell v3 · Calibrated Console
+   - 层次靠 4 级明度台阶，不靠四边框；强调色只给焦点/选中/主操作
+   - 所有新类只做「壳」的排布与材质，不改既有原语语义
+   ========================================================= */
+
+/* 微观标签：分组标题、字段名。9.5px 下必须靠字距而非字重拉开辨识度 */
+.tmuxgo-micro {
+  font-size: var(--fs-micro);
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgb(var(--text-3));
+}
+
+/* ---- 左侧导航条 ---- */
+.tmuxgo-shell-rail {
+  width: 56px;
+  background: linear-gradient(180deg, rgb(var(--text-1) / 0.03) 0%, transparent 120px), rgb(var(--bg-0));
+  border-right: 1px solid var(--line);
+  padding: 10px 8px;
+  gap: 6px;
+}
+.tmuxgo-shell-rail .tmuxgo-toolbar-icon {
+  position: relative;
+  height: 40px;
+  width: 40px;
+  border-radius: var(--radius-surface);
+  color: rgb(var(--text-3));
+}
+.tmuxgo-shell-rail .tmuxgo-toolbar-icon:hover:not(:disabled) {
+  background: rgb(var(--bg-2) / 0.55);
+  color: rgb(var(--text-1));
+}
+.tmuxgo-shell-rail .tmuxgo-toolbar-icon--active {
+  background: var(--accent-soft);
+  color: rgb(var(--accent-text));
+}
+.tmuxgo-shell-rail .tmuxgo-toolbar-icon--active:hover:not(:disabled) {
+  background: color-mix(in srgb, rgb(var(--accent)) 20%, transparent);
+  color: rgb(var(--accent-text));
+}
+/* 选中态左侧 spine：贴 rail 内缘，替代「整块描边」 */
+.tmuxgo-rail-spine {
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  height: 18px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  transform: translateY(-50%);
+  background: rgb(var(--accent));
+}
+.tmuxgo-rail-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 6px;
+  border-radius: var(--radius-surface);
+}
+.tmuxgo-rail-divider {
+  height: 1px;
+  width: 24px;
+  margin: 2px auto;
+  background: var(--line);
+  flex-shrink: 0;
+}
+.tmuxgo-rail-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+/* ---- 侧栏 ---- */
+.tmuxgo-shell-sidebar {
+  background: rgb(var(--bg-1));
+}
+.tmuxgo-shell-sidebar__header {
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgb(var(--text-1) / 0.02), transparent);
+}
+/* 主机条：一行装下状态点 / 名称 / 切换，不再给每个控件配标题行 */
+.tmuxgo-host-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--control-h);
+  padding: 0 8px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--line);
+  background: rgb(var(--bg-2) / 0.35);
+  color: rgb(var(--text-1));
+  font-size: var(--fs-meta);
+  min-width: 0;
+}
+.tmuxgo-host-bar:hover {
+  border-color: var(--line-strong);
+  background: rgb(var(--bg-2) / 0.55);
+}
+.tmuxgo-host-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgb(var(--text-1) / 0.07);
+}
+.tmuxgo-shell-sidebar__tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 8px;
+}
+/* 会话行：整行 hover 底 + 选中 spine，去掉每行下边框 */
+.tmuxgo-shell-sidebar .tmuxgo-list-row {
+  border-bottom: 0;
+  position: relative;
+}
+.tmuxgo-shell-sidebar .tmuxgo-list-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: transparent;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+.tmuxgo-shell-sidebar .tmuxgo-list-row--active::before {
+  background: rgb(var(--accent));
+}
+.tmuxgo-shell-sidebar .tmuxgo-list-row--active .tmuxgo-session-name {
+  font-weight: 600;
+}
+.tmuxgo-session-meta {
+  font-size: 10.5px;
+  letter-spacing: 0.01em;
+  color: rgb(var(--text-3));
+  font-variant-numeric: tabular-nums;
+}
+.tmuxgo-group-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px 4px;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgb(var(--text-3));
+}
+
+/* ---- 状态栏 ---- */
+.tmuxgo-statusbar {
+  height: 30px;
+  border-top: 1px solid var(--line);
+  background: rgb(var(--bg-1));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  font-size: 11px;
+}
+.tmuxgo-statusbar__section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.tmuxgo-statusbar__divider {
+  width: 1px;
+  height: 12px;
+  flex-shrink: 0;
+  background: var(--line);
+}
+.tmuxgo-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgb(var(--bg-2) / 0.35);
+  font-size: 10.5px;
+  color: rgb(var(--text-2));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tmuxgo-status-pill--live {
+  border-color: rgb(var(--accent-2) / 0.35);
+  color: rgb(var(--accent-2));
+  background: rgb(var(--accent-2) / 0.08);
+}
+.tmuxgo-status-pill--dead {
+  border-color: rgb(var(--danger) / 0.4);
+  color: rgb(var(--danger));
+  background: rgb(var(--danger) / 0.08);
+}
+
+/* ---- 快捷键盘（侧栏底部 dock） ---- */
+.tmuxgo-quick-panel {
+  border-top: 1px solid var(--line);
+  background: rgb(var(--bg-1));
+  padding: 8px 10px 10px;
+  /* 侧栏是 flex 列：不锁 flex-shrink 时矮窗口会把键盘区压扁裁掉最后一行；
+     超过 46vh 时内部滚动，把空间让回会话列表 */
+  flex-shrink: 0;
+  max-height: min(46vh, 340px);
+  overflow-y: auto;
+}
+.tmuxgo-quick-panel .tmuxgo-keycap {
+  height: 30px;
+  min-height: 30px;
+  padding: 0 8px;
+  border-radius: 7px;
+  border-color: var(--line);
+  background: rgb(var(--bg-2) / 0.4);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: rgb(var(--text-2));
+  box-shadow: none;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+.tmuxgo-quick-panel .tmuxgo-keycap:hover:not(:disabled) {
+  background: rgb(var(--bg-3) / 0.9);
+  border-color: var(--line-strong);
+  color: rgb(var(--text-1));
+}
+.tmuxgo-quick-panel .tmuxgo-keycap:active:not(:disabled) {
+  transform: translateY(1px);
+}
+/* 强调/危险键在矮键帽上只留描边与文字色，填色会让整块花掉 */
+.tmuxgo-quick-panel .tmuxgo-keycap--accent {
+  border-color: rgb(var(--accent) / 0.4);
+  background: rgb(var(--accent) / 0.08);
+  color: rgb(var(--accent-text));
+}
+.tmuxgo-quick-panel .tmuxgo-keycap--accent:hover:not(:disabled) {
+  background: rgb(var(--accent) / 0.16);
+  border-color: rgb(var(--accent) / 0.55);
+  color: rgb(var(--accent-text));
+}
+.tmuxgo-quick-panel .tmuxgo-keycap--danger {
+  border-color: rgb(var(--danger) / 0.38);
+  background: transparent;
+  color: rgb(var(--danger));
+}
+.tmuxgo-quick-panel .tmuxgo-keycap--danger:hover:not(:disabled) {
+  background: rgb(var(--danger) / 0.12);
+  border-color: rgb(var(--danger) / 0.6);
+  color: rgb(var(--danger));
+}
+.tmuxgo-quick-panel .tmuxgo-keycap--arrow {
+  border-color: var(--line-strong);
+  background: rgb(var(--bg-3) / 0.5);
+  color: rgb(var(--text-1));
+}
+.tmuxgo-quick-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+/* ---- 工作区空态 ---- */
+.tmuxgo-workspace-empty {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 100%;
+  padding: 32px;
+  text-align: center;
+  /* 点阵底纹：只给空态，密度 24px、2.5% 白，避免大块纯黑显得没做完 */
+  background-image: radial-gradient(rgb(var(--text-1) / 0.03) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: center;
+  /* 点阵向四周淡出：满屏均质底纹会和空态文字抢注意力 */
+  -webkit-mask-image: radial-gradient(closest-side at 50% 45%, #000 35%, transparent 100%);
+  mask-image: radial-gradient(closest-side at 50% 45%, #000 35%, transparent 100%);
+}
+.tmuxgo-workspace-empty__glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 10px;
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line);
+  background: rgb(var(--bg-2) / 0.5);
+  color: rgb(var(--accent-text));
+  box-shadow: var(--elev-1);
+}
+.tmuxgo-workspace-empty__title {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: rgb(var(--text-1));
+}
+.tmuxgo-workspace-empty__desc {
+  max-width: 44ch;
+  font-size: var(--fs-meta);
+  line-height: 1.6;
+  color: rgb(var(--text-3));
+}
+.tmuxgo-workspace-empty__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+.tmuxgo-workspace-empty__hint {
+  margin-top: 12px;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: rgb(var(--text-3) / 0.85);
+}
+.tmuxgo-workspace-empty__hint kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 5px;
+  margin: 0 2px;
+  border-radius: 4px;
+  border: 1px solid var(--line-strong);
+  background: rgb(var(--bg-2) / 0.6);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: rgb(var(--text-2));
+}
+
+/* ---- 登录 / 认证页 ---- */
+.tmuxgo-auth {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 1fr;
+  background: rgb(var(--bg-0));
+}
+@media (min-width: 1024px) {
+  .tmuxgo-auth {
+    grid-template-columns: minmax(0, 1fr) minmax(400px, 480px);
+  }
+}
+.tmuxgo-auth__brand {
+  display: none;
+  position: relative;
+  padding: clamp(32px, 4vw, 64px);
+  border-right: 1px solid var(--line);
+  background-color: rgb(var(--bg-1));
+  background-image:
+    radial-gradient(90% 70% at 0% 0%, rgb(var(--accent) / 0.1), transparent 60%),
+    radial-gradient(rgb(var(--text-1) / 0.05) 1px, transparent 1px);
+  background-size:
+    auto,
+    26px 26px;
+  overflow: hidden;
+}
+@media (min-width: 1024px) {
+  .tmuxgo-auth__brand {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+}
+.tmuxgo-auth__brand-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tmuxgo-auth__brand-name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgb(var(--text-1));
+}
+.tmuxgo-auth__brand-body {
+  max-width: 40ch;
+  /* 品牌区比表单区宽得多：把文案压在左半侧，右侧留给底纹呼吸 */
+  margin-block: auto;
+}
+.tmuxgo-auth__headline {
+  font-size: clamp(28px, 2.9vw, 40px);
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: rgb(var(--text-1));
+}
+.tmuxgo-auth__sub {
+  margin-top: 14px;
+  font-size: var(--fs-meta);
+  line-height: 1.7;
+  color: rgb(var(--text-2));
+}
+.tmuxgo-auth__points {
+  margin-top: 26px;
+  display: grid;
+  gap: 8px;
+  font-size: 11.5px;
+  color: rgb(var(--text-3));
+}
+.tmuxgo-auth__point {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tmuxgo-auth__point::before {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgb(var(--accent));
+  flex-shrink: 0;
+}
+.tmuxgo-auth__brand-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgb(var(--text-3));
+}
+.tmuxgo-auth__panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px;
+  background: rgb(var(--bg-0));
+}
+.tmuxgo-auth__form {
+  width: 100%;
+  max-width: 360px;
+}
+.tmuxgo-auth__form h1 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: rgb(var(--text-1));
+}
+.tmuxgo-auth__form .tmuxgo-control {
+  height: 40px;
+  border-radius: var(--radius-control);
+  background: rgb(var(--bg-2) / 0.45);
+  border-color: var(--line);
+}
+.tmuxgo-auth__form .tmuxgo-control:focus,
+.tmuxgo-auth__form .tmuxgo-control:focus-within {
+  border-color: rgb(var(--accent) / 0.7);
+  background: rgb(var(--bg-2) / 0.6);
+  box-shadow: 0 0 0 3px rgb(var(--accent) / 0.14);
+}
+.tmuxgo-auth__rule {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 22px 0 14px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgb(var(--text-3));
+}
+.tmuxgo-auth__rule::after {
+  content: '';
+  height: 1px;
+  flex: 1;
+  background: var(--line);
+}
+
+/* 状态栏内的 metric chip：统一 20px 胶囊，hover 才提亮；数字全部 tabular */
+.tmuxgo-statusbar .tmuxgo-chip {
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgb(var(--text-2));
+  font-size: 10.5px;
+}
+.tmuxgo-statusbar .tmuxgo-chip:hover {
+  border-color: var(--line);
+  background: rgb(var(--bg-2) / 0.55);
+  color: rgb(var(--text-1));
+}
+.tmuxgo-statusbar .tmuxgo-chip--accent {
+  border-color: rgb(var(--accent) / 0.4);
+  background: var(--accent-soft);
+  color: rgb(var(--accent-text));
+}
+/* 侧栏工具行：chip 退成安静图标，边框只在 hover/pressed 出现 */
+.tmuxgo-shell-sidebar__tools .tmuxgo-chip {
+  height: 26px;
+  min-height: 26px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border-color: transparent;
+  background: transparent;
+  color: rgb(var(--text-3));
+  font-size: 11px;
+}
+.tmuxgo-shell-sidebar__tools .tmuxgo-chip:hover:not(:disabled) {
+  border-color: transparent;
+  background: rgb(var(--bg-2) / 0.7);
+  color: rgb(var(--text-1));
+}
+.tmuxgo-shell-sidebar__tools .tmuxgo-chip--accent {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: rgb(var(--accent-text));
+}
+.tmuxgo-shell-sidebar__tools .tmuxgo-chip--danger {
+  background: transparent;
+  border-color: transparent;
+  color: rgb(var(--danger));
+}
+.tmuxgo-shell-sidebar__header .tmuxgo-control {
+  height: var(--control-h);
+  border-radius: var(--radius-control);
+  background: rgb(var(--bg-2) / 0.35);
+  border-color: var(--line);
+}
+.tmuxgo-shell-sidebar__header .tmuxgo-control:hover {
+  border-color: var(--line-strong);
+  background: rgb(var(--bg-2) / 0.55);
+}
+
+/* 侧栏主操作：实心强调色方块，和安静工具行形成主次 */
+.tmuxgo-shell-sidebar__header .tmuxgo-chip--accent {
+  border-radius: var(--radius-control);
+  border-color: transparent;
+  background: rgb(var(--accent));
+  color: rgb(var(--on-accent));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+}
+.tmuxgo-shell-sidebar__header .tmuxgo-chip--accent:hover:not(:disabled) {
+  background: color-mix(in srgb, rgb(var(--accent)) 86%, white);
+  border-color: transparent;
+  color: rgb(var(--on-accent));
+}
+
+/* 主操作按钮与相邻控件同高，避免 32/30 混排 */
+.tmuxgo-shell-sidebar__header .tmuxgo-chip--accent {
+  height: var(--control-h);
+  width: var(--control-h);
+  min-height: var(--control-h);
+}
+
+/* 矮窗口（≤820px 高）压缩键盘区：8 行键帽在 768 高度下会顶到状态栏 */
+@media (max-height: 820px) {
+  .tmuxgo-quick-panel {
+    padding: 6px 8px 8px;
+  }
+  .tmuxgo-quick-panel .tmuxgo-keycap {
+    height: 26px;
+    min-height: 26px;
+    font-size: 10.5px;
+  }
+  .tmuxgo-quick-panel .grid {
+    gap: 3px;
+  }
+}
+
+/* 侧栏面板共用标题栏：顶沿微光 + 实底，和 shell 的明度台阶对齐 */
+.tmuxgo-panel-header {
+  background: linear-gradient(180deg, rgb(var(--text-1) / 0.025), transparent 70%), rgb(var(--bg-1));
+}
+
+/* 文件面板工具栏：260px 侧栏里 9 个控件必须落在一行，图标键收窄到 24px */
+.tmuxgo-file-tools .tmuxgo-toolbar-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+}
+.tmuxgo-file-tools .tmuxgo-segment__item {
+  width: 24px;
+  min-width: 24px;
+  height: 20px;
+  padding: 0;
+}
+
+/* 编辑区：标签与终端窗口标签同一套语言（30px、顶部 2px 强调线、无四边框） */
+.tmuxgo-editor-tab {
+  height: 30px;
+  gap: 6px;
+  padding: 0 8px 0 10px;
+  border-radius: 8px 8px 0 0;
+  color: rgb(var(--text-2));
+  font-size: 11.5px;
+  transition: background-color 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.tmuxgo-editor-tab:hover {
+  background: rgb(var(--bg-2) / 0.5);
+  color: rgb(var(--text-1));
+}
+.tmuxgo-editor-tab--active {
+  background: rgb(var(--bg-0));
+  color: rgb(var(--text-1));
+  font-weight: 500;
+  box-shadow: inset 0 2px 0 0 rgb(var(--accent));
+}
+.tmuxgo-editor-tab--active:hover {
+  background: rgb(var(--bg-0));
+}
+
+/* 编辑区顶栏：30px 实底，路径是辅助信息不是标题 */
+.tmuxgo-editor-head {
+  height: 30px;
+  flex-shrink: 0;
+  background: rgb(var(--bg-1));
+}
+/* Button 组件恒带 tmuxgo-icon-button（基类给了 24px 定宽），文字按钮必须显式放开宽度 */
+.tmuxgo-editor-tools .tmuxgo-button:not(.tmuxgo-button--icon-sm):not(.tmuxgo-button--icon) {
+  flex-shrink: 0;
+  width: auto;
+  height: 22px;
+  padding: 0 7px;
+  white-space: nowrap;
+  border-color: transparent;
+  background: transparent;
+  color: rgb(var(--text-2));
+  font-size: 11px;
+}
+.tmuxgo-editor-tools .tmuxgo-button--icon-sm {
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: rgb(var(--text-2));
+}
+.tmuxgo-editor-tools .tmuxgo-button:hover:not(:disabled) {
+  background: rgb(var(--bg-2) / 0.7);
+  color: rgb(var(--text-1));
+}
+.tmuxgo-editor-tools .tmuxgo-button--accent {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.tmuxgo-editor-tools .tmuxgo-button:disabled {
+  color: rgb(var(--text-3) / 0.7);
+}
+
+/* 设置面板：分组标题退为 micro 标签 + 发丝线，行距收紧；避免和行标签同字号导致层级扁平 */
+.tmuxgo-settings h3 {
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgb(var(--line));
+  color: rgb(var(--text-3));
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.tmuxgo-settings h3 + * {
+  margin-top: 2px;
+}
+
+/* 选中行的底色是 accent-soft，10.5px 元信息压在上面只有 4.2；选中态升一档到 text-2 */
+.tmuxgo-list-row--active .tmuxgo-session-meta,
+.tmuxgo-list-row--active .tmuxgo-session-meta span {
+  color: rgb(var(--text-2));
+}
+
+/* 命令面板底部的按键提示：text-3 在 modal 底色上 4.3，提示属于「要读」的信息，升到 text-2 */
+.tmuxgo-palette-hints {
+  color: rgb(var(--text-2));
 }

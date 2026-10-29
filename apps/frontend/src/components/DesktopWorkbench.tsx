@@ -11,6 +11,7 @@ import dynamic from '@/lib/dynamic'
 import { SessionPanel } from './SessionPanel'
 import { SessionRail } from './SessionRail'
 import { EditorWorkbench } from './EditorWorkbench'
+import { WorkspaceEmptyState } from './WorkspaceEmptyState'
 import { TerminalDock } from './TerminalDock'
 import { SessionSplitView } from './SessionSplitView'
 import { useSplitGroups } from '@/hooks/useSplitGroups'
@@ -558,7 +559,7 @@ export function DesktopWorkbench() {
                     // 落点即打开文件（pinned），与 EditorWorkbench 外圈 drop 语义一致
                     <div
                       data-editor-drop
-                      className={`flex h-full items-center justify-center text-sm ${emptyAreaDropActive ? 'text-accent' : 'text-text-3'}`}
+                      className="h-full"
                       onDragOver={(event) => {
                         const types = event.dataTransfer?.types ? Array.from(event.dataTransfer.types) : []
                         if (!types.includes(FILE_DRAG_MIME) && !getActiveDraggedFile()) return
@@ -579,7 +580,7 @@ export function DesktopWorkbench() {
                         void handleOpenFileForDrop(dragged)
                       }}
                     >
-                      {t('editor.emptyArea')}
+                      <WorkspaceEmptyState dropActive={emptyAreaDropActive} />
                     </div>
                   )}
                 </div>

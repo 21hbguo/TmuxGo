@@ -754,9 +754,9 @@ export function QuickActions({
   if (mode === 'dock') {
     return (
       <>
-        {/* compact：h-7 落在带 border-t 的外层（border-box 含边框=28px），与 footer 同高 */}
+        {/* compact：30px 与 StatusBar 同高（border-box 含 1px 上边框），两者切换不跳版 */}
         <div
-          className={`mobile-nav-landscape-hide relative z-40 flex-shrink-0 bg-bg-1 border-t border-[var(--line)] ${compact ? 'flex h-7 items-center' : ''}`}
+          className={`mobile-nav-landscape-hide relative z-40 flex-shrink-0 bg-bg-1 border-t border-[var(--line)] ${compact ? 'flex h-[30px] items-center' : ''}`}
         >
           {/* compact 底栏左侧的 dock/状态栏切换：与 SessionPanel 开关同一偏好，固定在滚动区外不被横向滚动带走 */}
           {compact && (

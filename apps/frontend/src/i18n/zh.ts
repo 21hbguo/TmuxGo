@@ -1,5 +1,13 @@
 export const zh = {
   'common.refresh': '刷新',
+  'auth.brandHeadline1': '你的 tmux',
+  'auth.brandHeadline2': '在浏览器里继续跑',
+  'auth.brandSub': '终端、文件、编辑器、Git 与会话状态同步在同一屏，切设备不用重开 tmux。',
+  'auth.brandPoint1': '多主机 · 多会话 · 断线重连',
+  'auth.brandPoint2': '终端与编辑器同屏，文件拖拽即开',
+  'auth.brandPoint3': 'PWA 可安装，移动端也能接管',
+  'auth.checking': '正在检查网关状态…',
+  'auth.secure': '安全连接',
   'auth.title': '登录 TmuxGo',
   'auth.subtitle': '终端工作台',
   'auth.username': '账号',
@@ -135,6 +143,7 @@ export const zh = {
   'sidebar.batchDeleteConfirm': '将结束选中的 {count} 个会话，其中程序会被终止，不能撤销。',
   'sidebar.batchDeleteSuccess': '已结束 {count} 个会话',
   'sidebar.windows': '{count} 个窗口',
+  'hostSwitcher.localTag': '本机',
   'hostSwitcher.label': '主机',
 
   // StatusBar
@@ -1006,6 +1015,7 @@ export const zh = {
   'paste.send': '发送',
 
   // UploadConfirmDialog
+  'upload.selectFiles': '选择要上传的文件',
   'upload.title': '确认上传',
   'upload.file': '{count} 个文件',
   'upload.renameConflict': '冲突时重命名',
@@ -1278,6 +1288,14 @@ export const zh = {
   'common.retry': '重试',
 
   // Workspaces
+  'workspace.empty.title': '工作区已就绪',
+  'workspace.empty.desc': '双击左侧文件树，或把文件拖到这里直接编辑。终端一直在跑，切回标签页即可继续。',
+  'workspace.empty.dropTitle': '松开即可打开',
+  'workspace.empty.dropDesc': '文件会以固定标签页打开，之后可以继续打开其它文件对比。',
+  'workspace.empty.browse': '浏览文件',
+  'workspace.empty.newSession': '新建会话',
+  'workspace.empty.paletteHint': ' 打开命令面板',
+  'workspace.empty.dragHint': '拖入文件',
   'workspace.unclassified': '未分类',
   'workspace.createNew': '从目录新建工作区…',
   'workspace.createTitle': '新建工作区名称',

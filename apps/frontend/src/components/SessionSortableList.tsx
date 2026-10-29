@@ -71,7 +71,11 @@ function SortableSessionItem({
       ref={setNodeRef}
       style={style}
       className={`touch-pan-y select-none cursor-grab active:cursor-grabbing ${className ?? ''}`}
+      // dnd-kit 默认给 role="button"，而行内还有「重命名 / 关闭」等真按钮 →
+      // axe nested-interactive 会连报 16 处。改为 role="group"，保留 tabIndex 与键盘拖拽
+      // （KeyboardSensor 监听 keydown，不依赖 role），屏幕阅读器仍读 aria-roledescription。
       {...attributes}
+      role="group"
       {...listeners}
     >
       {renderItem({ session, isDragging, isOverlay: false })}

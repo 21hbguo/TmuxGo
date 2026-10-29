@@ -492,7 +492,7 @@ export function Settings({ onClose }: SettingsProps) {
       onClick={onClose}
     >
       <div
-        className="tmuxgo-glass tmuxgo-glass-dialog flex h-[70vh] md:h-[600px] w-full max-w-[700px] flex-col overflow-hidden rounded-apple border shadow-[var(--shadow-popover)]"
+        className="tmuxgo-settings tmuxgo-glass tmuxgo-glass-dialog flex h-[70vh] md:h-[600px] w-full max-w-[700px] flex-col overflow-hidden rounded-apple border shadow-[var(--shadow-popover)]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 标题与 28px 关闭控件同基线对齐；浮层 elevation 只在这一层，内容组不再叠阴影 */}
@@ -539,6 +539,7 @@ export function Settings({ onClose }: SettingsProps) {
                     { value: 'zh', label: '中文' },
                     { value: 'en', label: 'English' },
                   ]}
+                  aria-label={t('settings.language')}
                   className="rounded-apple px-3 py-2 text-sm"
                 />
               </div>

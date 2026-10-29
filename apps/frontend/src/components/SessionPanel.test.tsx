@@ -386,7 +386,7 @@ describe('SessionPanel session actions', () => {
     render(<SessionPanel />)
     // 顶栏 New 已图标化（aria-label），与未分类组头的同名按钮区分需按 Sessions 行定界
     fireEvent.click(
-      within(screen.getByText('Sessions').parentElement as HTMLElement).getByRole('button', { name: 'New' }),
+      within(screen.getByTestId('session-panel-header') as HTMLElement).getByRole('button', { name: 'New' }),
     )
     fireEvent.click(screen.getByText('select-template'))
     fireEvent.click(screen.getByText('create-session'))
@@ -431,7 +431,7 @@ describe('SessionPanel session actions', () => {
     ]
     render(<SessionPanel />)
     fireEvent.click(
-      within(screen.getByText('Sessions').parentElement as HTMLElement).getByRole('button', { name: 'New' }),
+      within(screen.getByTestId('session-panel-header') as HTMLElement).getByRole('button', { name: 'New' }),
     )
     expect(screen.getByText('create-session')).toBeInTheDocument()
     expect(screen.queryByText('select-template')).not.toBeInTheDocument()
@@ -984,13 +984,15 @@ describe('SessionPanel grouping and sorting controls', () => {
   ): SortSession => ({ id, name, windowCount: 1, ...extra })
   const domBefore = (a: HTMLElement, b: HTMLElement) =>
     (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
-  // 顶栏 chip 行：以 Sessions 标题同级、New chip 所在容器为准（组头里的 New 不算）
-  const chipRow = () =>
-    within(screen.getByText('Sessions').parentElement as HTMLElement).getByRole('button', { name: 'New' })
-      .parentElement as HTMLElement
+  // 顶栏动作：本轮改版把「新建」提到工作区行，其余四个仍是工具行，
+  // 顺序不再同排，改用 data-session-action 标记在顶栏范围内定界（组头里的同名按钮不算）
+  const chipRow = () => screen.getByTestId('session-panel-header') as HTMLElement
   const chipLabel = (el: HTMLElement) =>
     (el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent || '').trim()
-  const chips = () => within(chipRow()).getAllByRole('button')
+  const chips = () =>
+    within(chipRow())
+      .getAllByRole('button')
+      .filter((el) => el.hasAttribute('data-session-action'))
   const findChip = (pattern: RegExp) => {
     const all = chips()
     const found = all.find((el) => pattern.test(chipLabel(el)))

@@ -251,7 +251,8 @@ describe('DesktopWorkbench', () => {
     const { container } = render(React.createElement(DesktopWorkbench))
     const dropArea = container.querySelector('[data-editor-drop]') as HTMLElement
     expect(dropArea).toBeTruthy()
-    expect(dropArea.textContent).toBe('editor.emptyArea')
+    // 空态从单行文案升级为引导面板：断言标题键，动作按钮另在 WorkspaceEmptyState 单测覆盖
+    expect(dropArea.textContent).toContain('workspace.empty.title')
     const file = {
       id: 'local:root-workspace:src/dropped.ts',
       hostId: 'local',

@@ -746,7 +746,7 @@ export function SessionPanel() {
     setCreateDialogOpen(true)
   }
   const sessionItemClassName = ({ session, isDragging, isOverlay }: GetClassNameArgs) =>
-    `group tmuxgo-list-row border-b border-[var(--line)] ${batchMode ? (selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : 'tmuxgo-list-row--hover') : activeSessionId === session.id ? 'tmuxgo-list-row--active' : 'tmuxgo-list-row--hover'} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'rounded-apple border border-accent bg-bg-1' : ''}`
+    `group tmuxgo-list-row ${batchMode ? (selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : 'tmuxgo-list-row--hover') : activeSessionId === session.id ? 'tmuxgo-list-row--active' : 'tmuxgo-list-row--hover'} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'rounded-apple border border-accent bg-bg-1' : ''}`
   const renderSessionItem = ({ session }: RenderSessionArgs) => (
     <div
       className="flex items-center gap-1 pr-2"
@@ -769,10 +769,10 @@ export function SessionPanel() {
       <button
         onClick={() => (batchMode ? toggleBatchSession(session.id) : setActiveSession(session.id))}
         onDoubleClick={() => !batchMode && void handleRenameSession(session.id)}
-        className={`min-w-0 flex-1 border-l-2 px-3 py-2 text-left ${batchMode ? (selectedSessionIds.includes(session.id) ? 'border-danger' : 'border-transparent') : activeSessionId === session.id ? 'border-accent' : 'border-transparent'}`}
+        className={`min-w-0 flex-1 px-3 py-2 text-left ${batchMode && selectedSessionIds.includes(session.id) ? 'border-l-2 border-danger' : ''}`}
       >
-        <div className="truncate text-sm text-text-1">{session.name}</div>
-        <div className="mt-0.5 flex min-w-0 items-center gap-2 text-meta text-text-3">
+        <div className="tmuxgo-session-name truncate text-[13px] text-text-1">{session.name}</div>
+        <div className="tmuxgo-session-meta mt-1 flex min-w-0 items-center gap-2">
           <span className="shrink-0 whitespace-nowrap">{t('sidebar.windows', { count: session.windowCount })}</span>
           <AgentStatusBadge
             summary={session.agentSummary}
@@ -815,11 +815,13 @@ export function SessionPanel() {
   // 组头容器样式直接落在 SessionGroupDropZone 上（见 SessionGroupedSortableList 注释：
   // sticky 需要列表容器作包含块，不能再套只包组头的中间层），这里只产出内部内容
   const groupHeaderClassName =
-    'group sticky top-0 z-10 relative flex items-center gap-1 border-b border-[var(--line)] bg-bg-0/95 px-2 py-1 backdrop-blur'
+    'group sticky top-0 z-10 relative flex items-center gap-1 border-b border-[var(--line)] bg-[rgb(var(--bg-1))] px-3 py-1.5'
   const renderGroupHeader = (workspace: WorkspaceEntry | null) =>
     workspace ? (
       <>
-        <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text-1">{workspace.name}</span>
+        <span className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-text-3">
+          {workspace.name}
+        </span>
         {!batchMode && (
           <button
             onClick={() => handleWorkspaceCreateSession(workspace)}
@@ -889,7 +891,9 @@ export function SessionPanel() {
       </>
     ) : (
       <>
-        <span className="min-w-0 flex-1 truncate text-xs text-text-3">{t('workspace.unclassified')}</span>
+        <span className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-text-3">
+          {t('workspace.unclassified')}
+        </span>
         {!batchMode && (
           <button
             onClick={handleUnclassifiedCreateSession}
@@ -952,12 +956,10 @@ export function SessionPanel() {
   return (
     <>
       <div className="flex h-full min-h-0 flex-col bg-transparent">
-        <div className="border-b border-[var(--line)] px-3 py-2">
-          {/* 主机与工作区并排一行：HostSwitcher 自带 label 行（控件 h-8），items-end 让两个控件底对齐 */}
-          <div className="flex items-end gap-2">
-            <div className="min-w-0 flex-1">
-              <HostSwitcher />
-            </div>
+        <div data-testid="session-panel-header" className="tmuxgo-shell-sidebar__header">
+          {/* 主机条独占一行（名称不再被工作区挤成 truncate），工作区 + 主操作在第二行 */}
+          <HostSwitcher />
+          <div className="mt-2 flex items-center gap-2">
             <div ref={workspaceMenuRef} className="relative min-w-0 flex-1">
               <button
                 onClick={() => {
@@ -1021,8 +1023,21 @@ export function SessionPanel() {
                 </div>
               )}
             </div>
+            {!batchMode && (
+              <Chip
+                tone="accent"
+                data-session-action="true"
+                onClick={handleNewSession}
+                className="shrink-0 justify-center px-0"
+                title={t('sidebar.newAction')}
+                aria-label={t('sidebar.newAction')}
+              >
+                <FiPlus aria-hidden="true" size={16} strokeWidth={2.4} />
+              </Chip>
+            )}
           </div>
-          <div className="mt-2 flex items-center gap-1">
+          <div className="tmuxgo-shell-sidebar__tools">
+            {!batchMode && <span className="tmuxgo-micro min-w-0 truncate">{t('sidebar.sessions')}</span>}
             {batchMode && (
               <span className="min-w-0 flex-1 truncate text-xs font-medium text-text-3">
                 {t('sidebar.batchSelectedCount', { count: selectedSessionIds.length })}
@@ -1048,17 +1063,9 @@ export function SessionPanel() {
                 </>
               ) : (
                 <>
-                  {/* 图标化按钮：文字版三个 Chip 挤占标题栏空间，悬停看 title */}
+                  {/* 次要工具：新建已提到工作区行的主操作位，这里只留低频动作 */}
                   <Chip
-                    tone="accent"
-                    onClick={handleNewSession}
-                    className="px-2 py-1"
-                    title={t('sidebar.newAction')}
-                    aria-label={t('sidebar.newAction')}
-                  >
-                    <FiPlus aria-hidden="true" size={13} />
-                  </Chip>
-                  <Chip
+                    data-session-action="true"
                     onClick={() => setShowLayoutImport(true)}
                     disabled={!activeHostId}
                     className="px-2 py-1"
@@ -1068,6 +1075,7 @@ export function SessionPanel() {
                     <FiUpload aria-hidden="true" size={13} />
                   </Chip>
                   <Chip
+                    data-session-action="true"
                     tone={sortRule === 'manual' ? 'default' : 'accent'}
                     onMouseDown={(event) => event.stopPropagation()}
                     onClick={(event) => {
@@ -1083,6 +1091,7 @@ export function SessionPanel() {
                     <FiChevronsDown aria-hidden="true" size={13} />
                   </Chip>
                   <Chip
+                    data-session-action="true"
                     tone={hideWorkspaceGroups ? 'accent' : 'default'}
                     onClick={() => updatePreferences({ hideWorkspaceGroups: !hideWorkspaceGroups })}
                     className="px-2 py-1"
@@ -1093,6 +1102,7 @@ export function SessionPanel() {
                     <FiLayers aria-hidden="true" size={13} />
                   </Chip>
                   <Chip
+                    data-session-action="true"
                     onClick={toggleBatchMode}
                     className="px-2 py-1"
                     title={t('sidebar.batchDeleteAction')}
@@ -1162,9 +1172,9 @@ export function SessionPanel() {
           )}
         </div>
         {preferences.showQuickActions && (
-          <div className="border-t border-[var(--line)] p-3">
+          <div className="tmuxgo-quick-panel">
             <div className="mb-2 flex items-center justify-between">
-              <div className="text-caption uppercase tracking-[0.18em] text-text-3">{t('sidebar.quickActions')}</div>
+              <div className="tmuxgo-micro">{t('sidebar.quickActions')}</div>
               {/* 桌面端快捷键栏开关：开启后 dock 栏占用底部状态栏位置，见 ConsoleLayout */}
               <button
                 type="button"

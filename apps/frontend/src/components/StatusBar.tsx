@@ -49,7 +49,14 @@ function ResourceChip({
       title={title}
       className={`inline-flex h-5 items-center gap-1.5 rounded-apple px-1.5 font-mono tabular-nums ${chipTone[tone]} ${className}`}
     >
-      <span className="text-caption font-medium uppercase tracking-[0.16em] text-text-3">{label}</span>
+      {/* 有色调的 chip 底色本身被着色，标签再用 text-3 会掉到 4.2；跟随当前色 + 降透明更稳 */}
+      <span
+        className={`text-caption font-medium uppercase tracking-[0.16em] ${
+          tone === 'neutral' ? 'text-text-3' : 'text-current opacity-80'
+        }`}
+      >
+        {label}
+      </span>
       <span className="text-caption font-semibold">{value}</span>
     </span>
   )
@@ -199,7 +206,7 @@ export function StatusBar() {
 
   return (
     <footer
-      className="tmuxgo-glass tmuxgo-glass-chrome relative z-40 h-7 shrink-0 overflow-visible border-t px-3 text-meta text-text-3"
+      className="tmuxgo-statusbar relative z-40 shrink-0 overflow-visible px-3 text-text-3"
       style={{ borderTopColor: 'var(--line)', boxShadow: 'none' }}
     >
       {/* z-40：backdrop-filter 使 footer 成为层叠上下文且默认按 0 排序，终端的
@@ -244,7 +251,8 @@ export function StatusBar() {
                 </span>
               )}
             {activeHost && (
-              <span className="min-w-0 truncate border-l border-[var(--line)] pl-2 text-caption text-text-2">
+              // 窄屏优先保指标：主机名在 1200px 以下隐藏，否则会被 flex 压成 8px 残影
+              <span className="hidden min-w-0 truncate border-l border-[var(--line)] pl-2 text-caption text-text-2 min-[1200px]:inline">
                 {activeHost.name}
               </span>
             )}
