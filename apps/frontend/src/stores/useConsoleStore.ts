@@ -515,6 +515,7 @@ interface ConsoleState {
   setEditorSplitRatio: (splitId: string, ratio: number) => void
   closeEditor: (id: string) => void
   setActiveEditor: (id: string | null) => void
+  pinEditor: (id: string) => void
   setEditorLoaded: (id: string, patch: Partial<FileEditorDocument>) => void
   setEditorContent: (id: string, content: string) => void
   setEditorSaving: (id: string, saving: boolean) => void
@@ -1259,6 +1260,15 @@ export const useConsoleStore = create<ConsoleState>()(
             }),
           )
           return { openEditors: nextEditors, ...nextState }
+        }),
+      pinEditor: (id) =>
+        set((state) => {
+          const doc = state.openEditors.find((item) => item.id === id)
+          if (!doc?.preview) return state
+          // 导航跳离即视为「使用」：preview 钉住，目标文件才会新开 tab 而非原位替换
+          return {
+            openEditors: state.openEditors.map((item) => (item.id === id ? { ...item, preview: false } : item)),
+          }
         }),
       setActiveEditor: (id) =>
         set((state) => {

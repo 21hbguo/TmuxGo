@@ -474,6 +474,19 @@ describe('useConsoleStore editor persistence', () => {
     expect(state.openEditors[0].preview).toBe(false)
     expect(state.openEditors[0].dirty).toBe(true)
   })
+  it('pins a preview tab via pinEditor so the next open appends a tab', async () => {
+    const { useConsoleStore } = await import('./useConsoleStore')
+    const editor2 = createEditor('local:root-workspace:src/other.ts', 'src/other.ts')
+    useConsoleStore.getState().openEditor(sampleEditor)
+    // 导航跳离走的钉法（jump to definition）：preview 变常驻且不脏
+    useConsoleStore.getState().pinEditor(sampleEditor.id)
+    useConsoleStore.getState().openEditor(editor2)
+    const state = useConsoleStore.getState()
+    expect(state.openEditors).toHaveLength(2)
+    expect(state.openEditors.map((item) => item.id)).toEqual([sampleEditor.id, editor2.id])
+    expect(state.openEditors[0].preview).toBe(false)
+    expect(state.openEditors[0].dirty).toBe(false)
+  })
   it('opens a non-preview tab when requested', async () => {
     const { useConsoleStore } = await import('./useConsoleStore')
     const editor2 = createEditor('local:root-workspace:src/other.ts', 'src/other.ts')

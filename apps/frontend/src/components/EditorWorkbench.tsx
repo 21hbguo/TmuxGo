@@ -556,6 +556,9 @@ export function EditorWorkbench({
         sourceEntry &&
         !sameNavigationEntry(navigationBackRef.current[navigationBackRef.current.length - 1], sourceEntry)
       if (pushedSource) navigationBackRef.current.push(sourceEntry)
+      // 跳离即把源 preview tab 钉住：否则 openEditor 的预览替换会把目标文件
+      // 原位盖掉源 tab（用户在 A 里跳定义到 B，结果 A 的 tab 被 B 覆盖）
+      if (sourceEntry) useConsoleStore.getState().pinEditor(sourceEntry.id)
       const forwardSnapshot = navigationForwardRef.current
       navigationForwardRef.current = []
       // 打开失败（删除/权限/读取错误）时回滚栈，历史不丢

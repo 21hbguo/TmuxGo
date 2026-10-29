@@ -1685,6 +1685,24 @@ describe('EditorWorkbench', () => {
     await vi.waitFor(() => expect(useConsoleStore.getState().activeEditorId).toBe(editor1.id))
     expect(screen.getByRole('button', { name: 'Forward' })).not.toBeDisabled()
   })
+  it('pins the source preview tab when jumping to a definition', async () => {
+    // 回归：preview 态 A 跳定义到 B 时，A 必须钉住——否则 B 原位替换把 A 的 tab 盖掉
+    setWorkbenchState({
+      openEditors: [{ ...editor1, preview: true }],
+      activeEditorId: editor1.id,
+      editorGroups: [createGroup('group-1', [editor1.id], editor1.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    resolveDefinitionMock.mockResolvedValue({
+      status: 'success',
+      target: { ...editor2, type: 'file', line: 1, column: 7 },
+    })
+    renderWorkbench()
+    fireEvent.keyDown(window, { key: 'F12' })
+    await vi.waitFor(() => expect(openFileInEditorMock).toHaveBeenCalled())
+    expect(useConsoleStore.getState().openEditors.find((item) => item.id === editor1.id)?.preview).toBe(false)
+  })
   it('jumps to a definition from a Monaco ctrl-click', async () => {
     setWorkbenchState({
       openEditors: [editor1, editor2],
