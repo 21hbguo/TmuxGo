@@ -21,6 +21,7 @@ import {
   writeActiveSessionId,
 } from '@/lib/console-device-state'
 import { createDebouncedStorage } from '@/lib/persist-storage'
+import { pushClosedEntry, takeClosedEntry } from '@/lib/editor-tab-actions'
 import { readVncPort } from '@/lib/vnc-tuning'
 
 const DEVICE_KIND: DeviceKind = detectDeviceKind()
@@ -44,6 +45,20 @@ export interface EditorLayoutSplit {
   second: EditorLayoutNode
 }
 export type EditorLayoutNode = EditorLayoutLeaf | EditorLayoutSplit
+// 重开已关闭编辑器：只记「怎么重新打开」，不存内容——内容一律回后端重读，
+// 避免栈里的旧内容盖掉磁盘上的新版本（与 VSCode 的行为一致）
+export interface ClosedEditorEntry {
+  id: string
+  hostId: string
+  rootId: string
+  rootLabel: string
+  rootPath: string
+  path: string
+  name: string
+  absolutePath: string
+  language: string
+  position?: { line: number; column: number }
+}
 export type TerminalDockPosition = 'bottom' | 'left' | 'right' | 'full'
 export const TERMINAL_DOCK_POSITIONS: TerminalDockPosition[] = ['bottom', 'left', 'right', 'full']
 export type DesktopViewMode = 'full' | 'window'
@@ -514,6 +529,12 @@ interface ConsoleState {
   moveEditorToGroup: (id: string, targetGroupId: string, targetId?: string | null) => void
   setEditorSplitRatio: (splitId: string, ratio: number) => void
   closeEditor: (id: string) => void
+  // 批量关闭：一次 set 内完成，close others/to the right/all 因此只触发一次渲染
+  closeEditors: (ids: string[]) => void
+  closedEditors: ClosedEditorEntry[]
+  pushClosedEditor: (entry: ClosedEditorEntry) => void
+  takeClosedEditor: () => ClosedEditorEntry | null
+  clearClosedEditors: () => void
   setActiveEditor: (id: string | null) => void
   pinEditor: (id: string) => void
   setEditorLoaded: (id: string, patch: Partial<FileEditorDocument>) => void
@@ -661,6 +682,7 @@ export const useConsoleStore = create<ConsoleState>()(
       terminalPanelWidth: 480,
       terminalDock: 'bottom',
       openEditors: [],
+      closedEditors: [] as ClosedEditorEntry[],
       ...createEmptyEditorWorkspace(),
       editorsHydrated: true,
       uploadRequest: null,
@@ -1261,6 +1283,41 @@ export const useConsoleStore = create<ConsoleState>()(
           )
           return { openEditors: nextEditors, ...nextState }
         }),
+      closeEditors: (ids) =>
+        set((state) => {
+          const removing = new Set(ids)
+          if (!removing.size) return state
+          const openEditors = state.openEditors.filter((item) => !removing.has(item.id))
+          if (openEditors.length === state.openEditors.length) return state
+          const nextState = withLegacyEditorState(
+            finalizeEditorWorkspace({
+              ...state,
+              openEditors,
+              editorGroups: state.editorGroups.map((group) => ({
+                ...group,
+                editorIds: group.editorIds.filter((id) => !removing.has(id)),
+                activeEditorId: group.activeEditorId && removing.has(group.activeEditorId) ? null : group.activeEditorId,
+              })),
+              activeEditorId: state.activeEditorId && removing.has(state.activeEditorId) ? null : state.activeEditorId,
+            }),
+          )
+          return { openEditors, ...nextState }
+        }),
+      // 栈上限与去重规则在 lib/editor-tab-actions 里单测，这里只做状态写入
+      pushClosedEditor: (entry) =>
+        set((state) => ({ closedEditors: pushClosedEntry(state.closedEditors, entry) })),
+      takeClosedEditor: () => {
+        // 不能在 store 创建期引用 useConsoleStore 自身（TDZ），用 set 的函数式入参取当前栈
+        let taken: ClosedEditorEntry | null = null
+        set((state) => {
+          const { entry, rest } = takeClosedEntry(state.closedEditors)
+          if (!entry) return state
+          taken = entry
+          return { closedEditors: rest }
+        })
+        return taken
+      },
+      clearClosedEditors: () => set({ closedEditors: [] }),
       pinEditor: (id) =>
         set((state) => {
           const doc = state.openEditors.find((item) => item.id === id)

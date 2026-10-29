@@ -39,6 +39,8 @@
     "test:fast": "npx tsx scripts/run-tests.ts --fast",
     "test:smoke": "tsx scripts/run-e2e.ts e2e/pr-smoke.spec.ts && TMUXGO_AUTH_E2E_TESTS=e2e/auth-smoke.spec.ts tsx scripts/run-auth-e2e.ts",
     "measure:perf": "tsx scripts/measure-perf.ts",
+    "measure:editor": "tsx scripts/measure-editor-latency.ts",
+    "measure:editor:browser": "tsx scripts/measure-editor-latency-browser.ts",
     "postinstall": "bash scripts/fix-native-perms.sh && simple-git-hooks",
     "smoke:pty": "node scripts/smoke-node-pty.mjs",
     "lint": "eslint .",

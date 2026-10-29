@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from 'react'
 import type { FileDocumentHandle, FileEditorDocument } from '@/types'
 import type { EditorLayoutNode, EditorLayoutSplit } from '@/stores/useConsoleStore'
@@ -29,13 +29,44 @@ import { ZoomSurface } from './ZoomSurface'
 import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
 import { DiffViewer } from './DiffViewer'
+import { EditorBreadcrumbs } from './EditorBreadcrumbs'
+import { EditorStatusBar } from './EditorStatusBar'
+import { EditorQuickPick } from './EditorQuickPick'
+import { EditorContextMenu, type EditorMenuAction } from './EditorContextMenu'
+import { EditorShortcutsDialog } from './EditorShortcutsDialog'
+import { getEditorCursor, pruneEditorCursors, setEditorCursor, subscribeEditorCursor } from '@/lib/editor-cursor'
+import {
+  computeSelectionStats,
+  convertEol,
+  detectEol,
+  detectIndent,
+  type EditorEol,
+  type EditorIndentInfo,
+} from '@/lib/editor-status'
+import { extractOutline, isOutlineSupported } from '@/lib/editor-outline'
+import { parseGotoLine } from '@/lib/editor-quickpick'
+import { idsToCloseOthers, idsToCloseSaved, idsToCloseToRight } from '@/lib/editor-tab-actions'
+import {
+  EDITOR_COMMANDS_BY_ID,
+  MONACO_ACTIONS,
+  formatKeybinding,
+  resolveEditorKey,
+  CHORD_TIMEOUT_MS,
+  type EditorChord,
+  type EditorCommandId,
+} from '@/lib/editor-commands'
+import { useEditorViewPrefs } from '@/lib/editor-view-prefs'
+import { isApplePlatform } from '@/lib/terminal-platform'
+import { registerEditorCommandHandler } from '@/lib/editor-command-bus'
 import dynamic from '@/lib/dynamic'
-import { FiArrowLeft, FiArrowRight, FiCode } from 'react-icons/fi'
+import { FiArrowLeft, FiArrowRight, FiCode, FiMoreHorizontal } from 'react-icons/fi'
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react').then((mod) => ({ default: mod.default })))
 const MonacoDiffEditor = dynamic(() => import('@monaco-editor/react').then((mod) => ({ default: mod.DiffEditor })))
 // CSV 预览仅在打开 csv 预览时用，懒加载避免进主入口静态依赖
 const CsvTable = dynamic(() => import('./CsvTable').then((mod) => ({ default: mod.CsvTable })))
+// 预览防抖阈值：小文档保持同步渲染（打开即见），超过它就防抖，避免每键重解析卡输入
+const PREVIEW_DEBOUNCE_THRESHOLD = 16_384
 const AUTO_SCROLL_DEADZONE = 10
 const AUTO_SCROLL_MAX_STEP = 42
 const EDGE_DROP_RATIO = 0.22
@@ -181,6 +212,10 @@ export function EditorWorkbench({
   const setActiveEditor = useConsoleStore((state) => state.setActiveEditor)
   const moveEditorToGroup = useConsoleStore((state) => state.moveEditorToGroup)
   const closeEditor = useConsoleStore((state) => state.closeEditor)
+  const closeEditors = useConsoleStore((state) => state.closeEditors)
+  const pushClosedEditor = useConsoleStore((state) => state.pushClosedEditor)
+  const takeClosedEditor = useConsoleStore((state) => state.takeClosedEditor)
+  const pinEditor = useConsoleStore((state) => state.pinEditor)
   const setEditorContent = useConsoleStore((state) => state.setEditorContent)
   const setEditorSaveError = useConsoleStore((state) => state.setEditorSaveError)
   const ensureGitHostState = useConsoleStore((state) => state.ensureGitHostState)
@@ -188,6 +223,9 @@ export function EditorWorkbench({
   const gitByHost = useConsoleStore((state) => state.gitByHost)
   const pushToast = useConsoleStore((state) => state.pushToast)
   const { preferences } = usePreferences()
+  // 编辑器视图偏好（换行/缩略图/吸顶/行号/面包屑/状态栏/缩放/自动保存）：
+  // 与全局 preferences 分开，改动频繁且无需服务端同步
+  const viewPrefs = useEditorViewPrefs()
   const { t } = useTranslation()
   const editorRefs = useRef<Record<string, monacoEditor.IStandaloneCodeEditor>>({})
   const monacoRef = useRef<Monaco | null>(null)
@@ -246,7 +284,20 @@ export function EditorWorkbench({
   const [previewModeById, setPreviewModeById] = useState<Record<string, EditorPreviewMode>>({})
   // 左右分栏里编辑器侧的宽度占比，拖中间分隔条调整
   const [previewSplitRatio, setPreviewSplitRatio] = useState(0.5)
-  const [cursorById, setCursorById] = useState<Record<string, { line: number; column: number }>>({})
+  // 光标不再进 React state：高频移动走 lib/editor-cursor 的 rAF 合并订阅，
+  // 只有状态栏/面包屑这类小组件重渲染，工作台本体不参与
+  const [quickPickMode, setQuickPickMode] = useState<null | 'goto-line' | 'symbol'>(null)
+  const [tabMenu, setTabMenu] = useState<{ x: number; y: number; editorId: string } | null>(null)
+  const [toolbarMenu, setToolbarMenu] = useState<{ x: number; y: number } | null>(null)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [chord, setChord] = useState<EditorChord | null>(null)
+  const chordTimerRef = useRef<number | null>(null)
+  const [outline, setOutline] = useState<ReturnType<typeof extractOutline>>([])
+  // 用户手改的缩进 / 行尾优先于探测结果，按编辑器 id 记（VSCode 同语义：只影响本文件）
+  const [indentOverride, setIndentOverride] = useState<Record<string, EditorIndentInfo>>({})
+  const [eolOverride, setEolOverride] = useState<Record<string, EditorEol>>({})
+  const [statsInput, setStatsInput] = useState<{ id: string; content: string } | null>(null)
+  const [markdownHtml, setMarkdownHtml] = useState<Record<string, string>>({})
   const [autoScrollIndicator, setAutoScrollIndicator] = useState<{ active: boolean; x: number; y: number }>({
     active: false,
     x: 0,
@@ -260,7 +311,8 @@ export function EditorWorkbench({
     editorId: string
     side: TabInsertSide
   } | null>(null)
-  const [navigationVersion, setNavigationVersion] = useState(0)
+  // 只用于触发重渲染（工具栏前进/后退的 disabled 读 ref，不读值）
+  const [_navigationVersion, setNavigationVersion] = useState(0)
   const [previewSyncEnabled, setPreviewSyncEnabled] = useState(true)
   // onMount/onScroll 回调里读最新值，避免闭包快照
   const previewSyncEnabledRef = useRef(previewSyncEnabled)
@@ -292,7 +344,6 @@ export function EditorWorkbench({
   const followFilePath = !gitDiff && activeEditor?.absolutePath ? getParentDir(activeEditor.absolutePath) : ''
   const gitMode = activeHostId ? gitByHost[activeHostId]?.mode || 'follow-editor' : 'follow-editor'
   const { data: detectResult } = useGitDetect(activeHostId || '', followFilePath)
-  const cursor = activeEditor ? cursorById[activeEditor.id] : null
   // 主题切换：CSS 变量已由 usePreferences 落到 data-theme，重定义同名主题再 setTheme 生效
   useEffect(() => {
     const monaco = monacoRef.current
@@ -346,10 +397,11 @@ export function EditorWorkbench({
     return 'compare'
   }
   const getNavigationPosition = (editorId: string) => {
-    // 存活实例优先：cursorById 是 React 提交后的快照，连续操作时可能滞后一拍
+    // 存活实例优先：cursor store 是 rAF 合并后的快照，连续操作时可能滞后一拍
     const position = editorRefs.current[editorId]?.getPosition?.()
     if (position) return { line: position.lineNumber, column: position.column }
-    return cursorById[editorId] || null
+    const snapshot = getEditorCursor(editorId)
+    return snapshot ? { line: snapshot.line, column: snapshot.column } : null
   }
   const syncPreviewToLine = (editorId: string, line: number) => {
     const previewEl = previewElRefs.current[editorId]
@@ -442,13 +494,81 @@ export function EditorWorkbench({
     if (guard?.side === 'preview' && Date.now() - guard.ts < 120) return
     syncEditorScrollToPreview(editorId)
   }
-  // md 预览跟随光标：cursor 变化、content 重渲（新 DOM 需重打高亮）、开关/编辑器切换都走这里
-  useEffect(() => {
+  // md 预览跟随光标：content 重渲（新 DOM 需重打高亮）、开关/编辑器切换都走这里；
+  // 光标变化改走 store 订阅（见下），否则每次移动光标都要重渲染整个工作台
+  const previewFollowRef = useRef<() => void>(() => {})
+  previewFollowRef.current = () => {
     if (!previewSyncEnabled || !activeEditor || activeEditor.language !== 'markdown') return
     if ((previewModeById[activeEditor.id] ?? 'preview') === 'edit') return
-    syncPreviewToLine(activeEditor.id, cursor?.line || 1)
+    syncPreviewToLine(activeEditor.id, getEditorCursor(activeEditor.id)?.line || 1)
+  }
+  useEffect(() => {
+    previewFollowRef.current()
+  }, [previewSyncEnabled, activeEditor?.id, activeEditor?.language, activeEditor?.content, previewModeById])
+  useEffect(() => subscribeEditorCursor(() => previewFollowRef.current()), [])
+  // 大纲（面包屑/符号面板）：300ms 防抖，不跟着每次按键重算
+  useEffect(() => {
+    const target = activeEditor
+    if (!target || !isOutlineSupported(target.language)) {
+      setOutline((current) => (current.length ? [] : current))
+      return
+    }
+    const timer = window.setTimeout(() => setOutline(extractOutline(target.language, target.content)), 300)
+    return () => window.clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewSyncEnabled, activeEditor?.id, activeEditor?.language, activeEditor?.content, previewModeById, cursor])
+  }, [activeEditor?.id, activeEditor?.language, activeEditor?.content])
+  // 行尾/缩进要扫内容，同样防抖；统计结果按 id 落到 statsInput，切换文件时立刻重算
+  useEffect(() => {
+    if (!activeEditor) {
+      setStatsInput(null)
+      return
+    }
+    const target = activeEditor
+    const timer = window.setTimeout(() => setStatsInput({ id: target.id, content: target.content }), 250)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeEditor?.id, activeEditor?.content])
+  const detectedStats = useMemo(() => {
+    if (!statsInput) return null
+    return { eol: detectEol(statsInput.content), indent: detectIndent(statsInput.content) }
+  }, [statsInput])
+  // 预览 HTML：小文档同步渲染（保持「开箱即见」），大文档 220ms 防抖避免每键重解析
+  useEffect(() => {
+    if (!activeEditor || activeEditor.language !== 'markdown') return
+    const { id, content } = activeEditor
+    const apply = () => {
+      const html = renderMarkdown(content)
+      setMarkdownHtml((current) => (current[id] === html ? current : { ...current, [id]: html }))
+    }
+    if (content.length <= PREVIEW_DEBOUNCE_THRESHOLD) {
+      apply()
+      return
+    }
+    const timer = window.setTimeout(apply, 220)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeEditor?.id, activeEditor?.language, activeEditor?.content])
+  // 自动保存：只跟随当前编辑器，抖动窗口内连续输入只落一次盘
+  useEffect(() => {
+    if (!viewPrefs.autoSave || !activeEditor?.dirty) return
+    if (activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated) return
+    if (activeEditor.kind === 'compare' || activeEditor.id.startsWith('git-diff?')) return
+    const id = activeEditor.id
+    const timer = window.setTimeout(() => {
+      const latest = useConsoleStore.getState().openEditors.find((item) => item.id === id)
+      if (latest?.dirty && !latest.saving) void onSaveEditor(latest)
+    }, viewPrefs.autoSaveDelayMs)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    viewPrefs.autoSave,
+    viewPrefs.autoSaveDelayMs,
+    activeEditor?.id,
+    activeEditor?.content,
+    activeEditor?.dirty,
+    activeEditor?.saving,
+    activeEditor?.loading,
+  ])
   // 刚切进左右分栏时按编辑器当前可见行对齐一次；之后由双向滚动监听接管
   useEffect(() => {
     if (!previewSyncEnabled || !activeEditor || activeEditor.language !== 'markdown') return
@@ -797,59 +917,6 @@ export function EditorWorkbench({
     startAutoScroll(editorId, event.clientX, event.clientY)
   }
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target
-      if (target instanceof Element && target.closest('[data-terminal],.xterm,.xterm-screen')) return
-      if (event.key === 'F12' && activeEditor && !gitDiff) {
-        // stopPropagation：防止 Monaco 原生按键/外层处理对同一动作二次响应
-        event.preventDefault()
-        event.stopPropagation()
-        const handlers = navigationHandlersRef.current
-        const position = handlers.getNavigationPosition(activeEditor.id)
-        if (position) void handlers.goToDefinition(activeEditor, position)
-        return
-      }
-      if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key === 'ArrowLeft') {
-        event.preventDefault()
-        event.stopPropagation()
-        void navigationHandlersRef.current.goBackInNavigation()
-        return
-      }
-      if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key === 'ArrowRight') {
-        event.preventDefault()
-        event.stopPropagation()
-        void navigationHandlersRef.current.goForwardInNavigation()
-        return
-      }
-      if (!(event.metaKey || event.ctrlKey) || !activeEditor) return
-      if (event.key.toLowerCase() === 's') {
-        event.preventDefault()
-        if (
-          !gitDiff &&
-          !activeEditor.loading &&
-          !activeEditor.saving &&
-          !activeEditor.binary &&
-          !activeEditor.truncated
-        )
-          void onSaveEditor(activeEditor)
-        return
-      }
-      if (event.key.toLowerCase() === 'w') {
-        event.preventDefault()
-        event.stopPropagation()
-        event.stopImmediatePropagation?.()
-        cancelPendingDefinition()
-        if (activeEditor.dirty) {
-          setPendingCloseEditorId(activeEditor.id)
-          return
-        }
-        closeEditor(activeEditor.id)
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown, true)
-    return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [activeEditor, closeEditor, cursorById, gitDiff, navigationVersion, onSaveEditor, openEditors])
-  useEffect(() => {
     if (!autoScrollIndicator.active) return
     const handlePointerMove = (event: PointerEvent) => {
       autoScrollStateRef.current.pointerX = event.clientX
@@ -1090,12 +1157,7 @@ export function EditorWorkbench({
       if (!openEditors.some((item) => item.id === id)) delete pendingLocationRef.current[id]
     for (const id of Object.keys(viewStateRef.current))
       if (!openEditors.some((item) => item.id === id)) delete viewStateRef.current[id]
-    setCursorById((current) => {
-      const kept = Object.fromEntries(
-        Object.entries(current).filter(([id]) => openEditors.some((item) => item.id === id)),
-      )
-      return Object.keys(kept).length === Object.keys(current).length ? current : kept
-    })
+    pruneEditorCursors((id) => openEditors.some((item) => item.id === id))
   }, [openEditors])
   const renderTab = (editor: FileEditorDocument, groupEditors: FileEditorDocument[], groupId: string) => (
     <div
@@ -1166,6 +1228,13 @@ export function EditorWorkbench({
         onClick={() => {
           cancelPendingDefinition()
           setActiveEditor(editor.id)
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          cancelPendingDefinition()
+          setActiveEditor(editor.id)
+          setTabMenu({ x: event.clientX, y: event.clientY, editorId: editor.id })
         }}
         className={`flex min-w-0 flex-1 items-center gap-1.5 px-2 text-meta ${editor.id === activeEditor?.id ? 'text-text-1' : 'text-text-2 hover:text-text-1'}`}
       >
@@ -1276,12 +1345,243 @@ export function EditorWorkbench({
       {editors.map((editor) => renderTab(editor, editors, groupId))}
     </div>
   )
+  const baseMonacoOptions = useMemo(
+    () => ({
+      automaticLayout: true as const,
+      minimap: { enabled: viewPrefs.minimap, renderCharacters: false, maxColumn: 90, scale: 1 },
+      fontFamily: preferences.fontFamily,
+      fontSize: Math.max(12, Math.round(preferences.fontSize * viewPrefs.fontScale)),
+      lineNumbers: viewPrefs.lineNumbers ? ('on' as const) : ('off' as const),
+      lineNumbersMinChars: 2,
+      lineDecorationsWidth: 0,
+      glyphMargin: false,
+      folding: true,
+      guides: { indentation: true as const, bracketPairs: true },
+      bracketPairColorization: { enabled: true },
+      matchBrackets: 'always' as const,
+      renderLineHighlight: 'line' as const,
+      renderValidationDecorations: 'on' as const,
+      occurrencesHighlight: 'singleFile' as const,
+      selectionHighlight: true,
+      codeLens: false,
+      contextmenu: true,
+      links: true,
+      // 编辑器内 Ctrl+滚轮缩放由我们的 fontScale 接管，避免两套缩放互相覆盖
+      mouseWheelZoom: false,
+      cursorSmoothCaretAnimation: 'on' as const,
+      scrollBeyondLastLine: false,
+      stickyScroll: { enabled: viewPrefs.stickyScroll, maxLineCount: 3, defaultModel: 'outlineModel' as const },
+      scrollbar: {
+        verticalScrollbarSize: 8,
+        horizontalScrollbarSize: 8,
+        alwaysConsumeMouseWheel: false,
+        useShadows: false,
+        verticalHasArrows: false,
+        horizontalHasArrows: false,
+      },
+      overviewRulerBorder: false,
+      wordWrap: viewPrefs.wordWrap ? ('on' as const) : ('off' as const),
+      wordWrapColumn: 120,
+      wrappingIndent: 'same' as const,
+      detectIndentation: true,
+      formatOnPaste: true,
+      formatOnType: true,
+      trimAutoWhitespace: true,
+      renderWhitespace: (viewPrefs.renderWhitespace === 'none' ? 'none' : viewPrefs.renderWhitespace) as
+        | 'none'
+        | 'boundary'
+        | 'all',
+      renderControlCharacters: false,
+      smoothScrolling: true,
+      cursorBlinking: preferences.cursorBlink ? ('blink' as const) : ('solid' as const),
+      cursorStyle: 'line' as const,
+      dragAndDrop: false,
+      dropIntoEditor: { enabled: false },
+      readOnlyMessage: { value: t('editor.readOnly') },
+      padding: { top: 16, bottom: 16 },
+    }),
+    [
+      preferences.fontFamily,
+      preferences.fontSize,
+      preferences.cursorBlink,
+      viewPrefs.fontScale,
+      viewPrefs.lineNumbers,
+      viewPrefs.minimap,
+      viewPrefs.renderWhitespace,
+      viewPrefs.stickyScroll,
+      viewPrefs.wordWrap,
+      t,
+    ],
+  )
+  // 按语言缓存完整 options：Monaco 的 options 是引用比较，每次渲染新建对象会导致每键一次 updateOptions
+  const optionsCacheRef = useRef<{
+    base: typeof baseMonacoOptions | null
+    byLanguage: Map<string, typeof baseMonacoOptions & { tabSize: number; insertSpaces: boolean }>
+  }>({ base: null, byLanguage: new Map() })
+  const optionsForEditor = (target: FileEditorDocument) => {
+    const cache = optionsCacheRef.current
+    if (cache.base !== baseMonacoOptions) optionsCacheRef.current = { base: baseMonacoOptions, byLanguage: new Map() }
+    const override = indentOverride[target.id]
+    const tabSize = override?.tabSize ?? getTabSize(target.language)
+    const insertSpaces = override?.insertSpaces ?? target.language !== 'go'
+    // key 带上缩进：手改缩进后要重建 options，同一语言的不同文件也能各自生效
+    const key = `${target.language}:${tabSize}:${insertSpaces}`
+    const map = optionsCacheRef.current.byLanguage
+    let options = map.get(key)
+    if (!options) {
+      options = { ...baseMonacoOptions, tabSize, insertSpaces }
+      map.set(key, options)
+    }
+    return options
+  }
+  // 工具栏「⋯」：把不常用但必须能被发现的能力收进来（命令面板里同样能搜到）
+  const buildToolbarMenuActions = (): EditorMenuAction[] => {
+    const command = (
+      id: EditorCommandId,
+      label: string,
+      extra?: { separatorBefore?: boolean; disabled?: boolean },
+    ): EditorMenuAction => ({
+      id,
+      label,
+      shortcut: shortcutLabel(id),
+      disabled: extra?.disabled,
+      separatorBefore: extra?.separatorBefore,
+      onSelect: () => runEditorCommand(id),
+    })
+    return [
+      command('goto-line', t('editor.cmd.gotoLine')),
+      command('goto-symbol', t('editor.cmd.gotoSymbol')),
+      command('goto-definition', t('editor.cmd.gotoDefinition'), { disabled: !activeEditor || !!gitDiff }),
+      command('save-all', t('editor.cmd.saveAll'), { separatorBefore: true }),
+      command('reopen-closed', t('editor.cmd.reopenClosed')),
+      command('format-document', t('editor.cmd.formatDocument'), {
+        separatorBefore: true,
+        disabled: !activeEditor || !!gitDiff,
+      }),
+      command('replace', t('editor.cmd.replace')),
+      command('toggle-word-wrap', t('editor.cmd.toggleWordWrap'), { separatorBefore: true }),
+      command('toggle-minimap', t('editor.cmd.toggleMinimap')),
+      command('toggle-sticky-scroll', t('editor.cmd.toggleStickyScroll')),
+      command('toggle-breadcrumbs', t('editor.cmd.toggleBreadcrumbs')),
+      command('toggle-status-bar', t('editor.cmd.toggleStatusBar')),
+      command('toggle-auto-save', t('editor.cmd.toggleAutoSave')),
+      command('split-down', t('editor.cmd.splitDown'), { separatorBefore: true }),
+      command('show-shortcuts', t('editor.cmd.showShortcuts'), { separatorBefore: true }),
+    ]
+  }
+  // 状态栏展示口径：用户手改优先，其次防抖探测结果，最后是按语言推断的默认缩进
+  const displayedEol = (target: FileEditorDocument): EditorEol =>
+    eolOverride[target.id] ??
+    (statsInput?.id === target.id && detectedStats ? detectedStats.eol.eol : '\n')
+  const displayedEolMixed = (target: FileEditorDocument) =>
+    !eolOverride[target.id] && statsInput?.id === target.id && detectedStats ? detectedStats.eol.mixed : false
+  const displayedIndent = (target: FileEditorDocument): EditorIndentInfo =>
+    indentOverride[target.id] ??
+    (statsInput?.id === target.id && detectedStats
+      ? detectedStats.indent
+      : { tabSize: getTabSize(target.language), insertSpaces: target.language !== 'go' })
+  const directorySegments = (path: string) => path.split('/').slice(0, -1).filter(Boolean)
+  const isMac = isApplePlatform()
+  const shortcutLabel = (commandId: EditorCommandId) =>
+    formatKeybinding(EDITOR_COMMANDS_BY_ID.get(commandId)?.keybinding, isMac)
+  const buildTabMenuActions = (editorId: string): EditorMenuAction[] => {
+    const target = editorById.get(editorId)
+    const ids = orderedEditorIds()
+    const relative = target ? relativePathOf(target) : null
+    const revealInFiles = () => useConsoleStore.getState().setFilePanelOpen(true)
+    return [
+      {
+        id: 'keep-open',
+        label: t('editor.menu.keepOpen'),
+        disabled: !target?.preview,
+        onSelect: () => pinEditor(editorId),
+      },
+      {
+        id: 'copy-path',
+        label: t('editor.menu.copyPath'),
+        onSelect: () => target && void copyToClipboard(target.absolutePath),
+      },
+      {
+        id: 'copy-relative',
+        label: t('editor.menu.copyRelativePath'),
+        disabled: !relative,
+        onSelect: () => relative && void copyToClipboard(relative),
+      },
+      { id: 'reveal', label: t('editor.menu.revealInFiles'), onSelect: revealInFiles },
+      {
+        id: 'split-right',
+        label: t('editor.menu.splitRight'),
+        shortcut: shortcutLabel('split-right'),
+        separatorBefore: true,
+        onSelect: () => {
+          setActiveEditor(editorId)
+          runEditorCommand('split-right')
+        },
+      },
+      {
+        id: 'split-down',
+        label: t('editor.menu.splitDown'),
+        onSelect: () => {
+          setActiveEditor(editorId)
+          runEditorCommand('split-down')
+        },
+      },
+      {
+        id: 'close',
+        label: t('editor.menu.close'),
+        shortcut: shortcutLabel('close'),
+        separatorBefore: true,
+        onSelect: () => {
+          const doc = editorById.get(editorId)
+          if (doc?.dirty) setPendingCloseEditorId(editorId)
+          else closeEditorsSafely([editorId])
+        },
+      },
+      {
+        id: 'close-others',
+        label: t('editor.menu.closeOthers'),
+        shortcut: shortcutLabel('close-others'),
+        onSelect: () => closeEditorsSafely(idsToCloseOthers(ids, editorId)),
+      },
+      {
+        id: 'close-right',
+        label: t('editor.menu.closeToRight'),
+        disabled: idsToCloseToRight(ids, editorId).length === 0,
+        onSelect: () => closeEditorsSafely(idsToCloseToRight(ids, editorId)),
+      },
+      {
+        id: 'close-saved',
+        label: t('editor.menu.closeSaved'),
+        onSelect: () =>
+          closeEditorsSafely(idsToCloseSaved(openEditors.map((item) => item.id), (id) => !!editorById.get(id)?.dirty)),
+      },
+      {
+        id: 'close-all',
+        label: t('editor.menu.closeAll'),
+        shortcut: shortcutLabel('close-all'),
+        danger: true,
+        onSelect: () => closeEditorsSafely(openEditors.map((item) => item.id)),
+      },
+    ]
+  }
   const renderPane = (groupId: string) => {
     const groupEditors = getGroupEditors(groupId)
     const editor = getGroupActiveEditor(groupId)
     return (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {renderTabStrip(groupEditors, groupId)}
+        {editor && viewPrefs.breadcrumbs && editor.id === activeEditor?.id && (
+          <EditorBreadcrumbs
+            editorId={editor.id}
+            rootLabel={editor.rootLabel}
+            directories={directorySegments(editor.path)}
+            fileName={editor.name}
+            symbols={outline}
+            onOpenSymbolPicker={() => setQuickPickMode('symbol')}
+            onRevealDirectory={() => useConsoleStore.getState().setFilePanelOpen(true)}
+            onJumpToSymbol={(symbol) => revealPosition(editor.id, symbol.line, symbol.column)}
+          />
+        )}
         <button
           onClick={(event) => {
             if (!editor) return
@@ -1289,6 +1589,7 @@ export function EditorWorkbench({
             if (!event.ctrlKey && !event.metaKey) cancelPendingDefinition()
             setActiveEditor(editor.id)
           }}
+          data-testid={`editor-pane-${getLegacyGroupName(groupId)}`}
           className="relative min-h-0 min-w-0 flex-1 overflow-hidden text-left"
           onDragOverCapture={(event) => {
             if (!hasDraggedFile(event)) return
@@ -1341,6 +1642,39 @@ export function EditorWorkbench({
           )}
           {paneDropTarget?.groupId === groupId && renderDropOverlay(paneDropTarget.placement)}
         </button>
+        {editor && viewPrefs.statusBar && (
+          <EditorStatusBar
+            editorId={editor.id}
+            language={editor.language}
+            dirty={editor.dirty}
+            readOnly={editor.binary || editor.truncated}
+            eol={displayedEol(editor)}
+            eolMixed={displayedEolMixed(editor)}
+            indent={displayedIndent(editor)}
+            chordHint={chord ? formatKeybinding(chord, isMac) : null}
+            view={{
+              wordWrap: viewPrefs.wordWrap,
+              whitespace: viewPrefs.renderWhitespace,
+              minimap: viewPrefs.minimap,
+              stickyScroll: viewPrefs.stickyScroll,
+              autoSave: viewPrefs.autoSave,
+              zoomPercent: Math.round(viewPrefs.fontScale * 100),
+            }}
+            actions={{
+              gotoLine: () => setQuickPickMode('goto-line'),
+              setIndent: applyIndent,
+              toggleEol,
+              toggleWordWrap: () => viewPrefs.toggle('wordWrap'),
+              cycleWhitespace: viewPrefs.cycleWhitespace,
+              toggleMinimap: () => viewPrefs.toggle('minimap'),
+              toggleStickyScroll: () => viewPrefs.toggle('stickyScroll'),
+              toggleAutoSave: () => runEditorCommand('toggle-auto-save'),
+              zoomIn: viewPrefs.zoomIn,
+              zoomOut: viewPrefs.zoomOut,
+              resetZoom: viewPrefs.zoomReset,
+            }}
+          />
+        )}
       </div>
     )
   }
@@ -1508,19 +1842,34 @@ export function EditorWorkbench({
               // 快照已有位置时不能被新实例的初始 1:1 覆盖，否则 remount 恢复丢掉用户位置
               if (position && !snapshot.position)
                 snapshot.position = { line: position.lineNumber, column: position.column }
-              if (position)
-                setCursorById((current) => ({
-                  ...current,
-                  [editor.id]: { line: position.lineNumber, column: position.column },
-                }))
+              const publishCursor = (line: number, column: number) => {
+                const selections = instance.getSelections?.() || []
+                const primary = selections[0]
+                setEditorCursor(editor.id, {
+                  line,
+                  column,
+                  lineCount: instance.getModel?.()?.getLineCount?.() || 0,
+                  selections: selections.length || 1,
+                  selection:
+                    primary && !primary.isEmpty?.()
+                      ? computeSelectionStats(
+                          {
+                            startLineNumber: primary.startLineNumber,
+                            startColumn: primary.startColumn,
+                            endLineNumber: primary.endLineNumber,
+                            endColumn: primary.endColumn,
+                          },
+                          (lineNumber) => instance.getModel?.()?.getLineContent?.(lineNumber)?.length || 0,
+                        )
+                      : null,
+                })
+              }
+              if (position) publishCursor(position.lineNumber, position.column)
               instance.onDidChangeCursorPosition?.((event) => {
                 snapshot.position = { line: event.position.lineNumber, column: event.position.column }
                 snapshot.selection = instance.getSelection?.() || null
-                setCursorById((current) => ({
-                  ...current,
-                  [editor.id]: { line: event.position.lineNumber, column: event.position.column },
-                }))
-                // 预览跟随由下方 effect 统一驱动（cursorById 变化即触发）
+                publishCursor(event.position.lineNumber, event.position.column)
+                // 预览跟随由上面的 store 订阅统一驱动
               })
               instance.onDidScrollChange?.((event) => {
                 snapshot.scrollTop = Number(event?.scrollTop ?? instance.getScrollTop?.() ?? 0)
@@ -1597,57 +1946,7 @@ export function EditorWorkbench({
               }
             }}
             onChange={(value) => setEditorContent(editor.id, value || '')}
-            options={{
-              automaticLayout: true,
-              minimap: { enabled: false },
-              fontFamily: preferences.fontFamily,
-              fontSize: Math.max(12, preferences.fontSize),
-              lineNumbers: 'on',
-              lineNumbersMinChars: 2,
-              lineDecorationsWidth: 0,
-              glyphMargin: false,
-              folding: true,
-              guides: { indentation: true, bracketPairs: true },
-              bracketPairColorization: { enabled: true },
-              matchBrackets: 'always',
-              renderLineHighlight: 'line',
-              renderValidationDecorations: 'on',
-              occurrencesHighlight: 'singleFile',
-              selectionHighlight: true,
-              codeLens: false,
-              contextmenu: true,
-              links: true,
-              mouseWheelZoom: true,
-              cursorSmoothCaretAnimation: 'on',
-              scrollBeyondLastLine: false,
-              scrollbar: {
-                verticalScrollbarSize: 8,
-                horizontalScrollbarSize: 8,
-                alwaysConsumeMouseWheel: false,
-                useShadows: false,
-                verticalHasArrows: false,
-                horizontalHasArrows: false,
-              },
-              overviewRulerBorder: false,
-              wordWrap: 'off',
-              wordWrapColumn: 120,
-              wrappingIndent: 'same',
-              tabSize: getTabSize(editor.language),
-              insertSpaces: editor.language !== 'go',
-              detectIndentation: true,
-              formatOnPaste: true,
-              formatOnType: true,
-              trimAutoWhitespace: true,
-              renderWhitespace: 'boundary',
-              renderControlCharacters: false,
-              smoothScrolling: true,
-              cursorBlinking: preferences.cursorBlink ? 'blink' : 'solid',
-              cursorStyle: 'line',
-              dragAndDrop: false,
-              dropIntoEditor: { enabled: false },
-              readOnlyMessage: { value: t('editor.readOnly') },
-              padding: { top: 16, bottom: 16 },
-            }}
+            options={optionsForEditor(editor)}
           />
           {autoScrollIndicator.active && autoScrollStateRef.current.editorId === editor.id && (
             <span
@@ -1693,7 +1992,10 @@ export function EditorWorkbench({
                   previewElRefs.current[editor.id] = node
                 }}
                 dangerouslySetInnerHTML={{
-                  __html: renderMarkdown(editor.content) || `<p>${t('editor.nothingToPreview')}</p>`,
+                  __html:
+                    markdownHtml[editor.id] ||
+                    renderMarkdown(editor.content) ||
+                    `<p>${t('editor.nothingToPreview')}</p>`,
                 }}
                 className={MARKDOWN_PROSE_CLASS}
                 onDoubleClick={jumpPreviewToEditor(editor.id)}
@@ -1711,13 +2013,363 @@ export function EditorWorkbench({
       </div>
     )
   }
+  // —— 命令层 ——
+  // 快捷键、工具栏、tab 右键菜单、命令面板都收敛到 runEditorCommand 一个入口：
+  // 键位表在 lib/editor-commands 里单测，这里只做「命令 → 现有能力」的接线
+  const notify = (message: string, type: 'success' | 'error' | 'info' = 'info') =>
+    pushToast({ type, message })
+  const revealPosition = (editorId: string, line: number, column = 1) => {
+    const instance = editorRefs.current[editorId]
+    if (!instance) return
+    instance.revealLineInCenterIfOutsideViewport?.(line)
+    instance.setPosition?.({ lineNumber: line, column })
+    instance.focus?.()
+  }
+  const orderedEditorIds = () => orderedGroupIds.flatMap((groupId) => getGroupEditors(groupId).map((item) => item.id))
+  const saveAllEditors = async () => {
+    const targets = useConsoleStore
+      .getState()
+      .openEditors.filter(
+        (item) =>
+          item.dirty &&
+          !item.loading &&
+          !item.saving &&
+          !item.binary &&
+          !item.truncated &&
+          item.kind !== 'compare' &&
+          !item.id.startsWith('git-diff?'),
+      )
+    if (!targets.length) {
+      notify(t('editor.toast.nothingToSave'))
+      return
+    }
+    let failed = 0
+    // 串行保存：并行写同一 host 会打满 /files/content 通道，保存态提示也会乱跳
+    for (const target of targets) {
+      await onSaveEditor(target)
+      const latest = useConsoleStore.getState().openEditors.find((item) => item.id === target.id)
+      if (latest?.dirty || latest?.saveError) failed += 1
+    }
+    if (failed) notify(t('editor.toast.saveAllFailed', { count: failed }), 'error')
+    else notify(t('editor.toast.savedAll', { count: targets.length }), 'success')
+  }
+  const closeEditorsSafely = (ids: string[]) => {
+    if (!ids.length) return
+    const dirty = ids.filter((id) => editorById.get(id)?.dirty)
+    const clean = ids.filter((id) => !dirty.includes(id))
+    // 关闭前入重开栈（Ctrl+Shift+T 能捞回来）；脏 tab 一律保留，避免静默丢改动
+    for (const id of ids) {
+      const target = editorById.get(id)
+      if (!target || target.kind === 'compare' || id.startsWith('git-diff?')) continue
+      const cursor = getEditorCursor(id)
+      pushClosedEditor({
+        id: target.id,
+        hostId: target.hostId,
+        rootId: target.rootId,
+        rootLabel: target.rootLabel,
+        rootPath: target.rootPath,
+        path: target.path,
+        name: target.name,
+        absolutePath: target.absolutePath,
+        language: target.language,
+        position: cursor ? { line: cursor.line, column: cursor.column } : undefined,
+      })
+    }
+    if (clean.length) closeEditors(clean)
+    if (dirty.length) notify(t('editor.toast.dirtyKept', { count: dirty.length }))
+    else notify(t('editor.toast.closedEditors', { count: ids.length }))
+  }
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      notify(t('editor.toast.copyDone'), 'success')
+    } catch {
+      notify(t('editor.toast.copyFailed'), 'error')
+    }
+  }
+  const relativePathOf = (target: FileEditorDocument) => {
+    const base = (target.rootPath || '').replace(/\/+$/, '')
+    if (base && target.absolutePath.startsWith(`${base}/`)) return target.absolutePath.slice(base.length + 1)
+    return null
+  }
+  const reopenLastClosed = () => {
+    const entry = takeClosedEditor()
+    if (!entry) {
+      notify(t('editor.toast.reopenNone'))
+      return
+    }
+    void openFileInEditor(
+      {
+        id: entry.id,
+        hostId: entry.hostId,
+        rootId: entry.rootId,
+        rootLabel: entry.rootLabel,
+        rootPath: entry.rootPath,
+        path: entry.path,
+        name: entry.name,
+        absolutePath: entry.absolutePath,
+        type: 'file',
+      },
+      {
+        t,
+        pushToast,
+        position: entry.position,
+        openPanel: false,
+        pinned: true,
+        onError: (message) => notify(message || t('editor.toast.reopenFailed'), 'error'),
+      },
+    )
+  }
+  const applyIndent = (indent: EditorIndentInfo) => {
+    if (!activeEditor) return
+    // 写进 Monaco model：后续 tab 复用同一 model 时缩进一致，格式化也按它走
+    const model = editorRefs.current[activeEditor.id]?.getModel?.()
+    model?.updateOptions?.({ tabSize: indent.tabSize, insertSpaces: indent.insertSpaces })
+    setIndentOverride((current) => ({ ...current, [activeEditor.id]: indent }))
+  }
+  const toggleEol = () => {
+    if (!activeEditor || activeEditor.loading || activeEditor.binary || activeEditor.truncated) return
+    const id = activeEditor.id
+    const current = eolOverride[id] ?? detectEol(activeEditor.content).eol
+    const next: EditorEol = current === '\n' ? '\r\n' : '\n'
+    const converted = convertEol(activeEditor.content, next)
+    const instance = editorRefs.current[id]
+    const model = instance?.getModel?.()
+    if (instance && model) {
+      // 走 pushEditOperations 而不是 setEditorContent：整篇替换也能一次 Ctrl+Z 退回
+      instance.pushUndoStop?.()
+      model.pushEditOperations?.([], [{ range: model.getFullModelRange(), text: converted }], () => null)
+      instance.pushUndoStop?.()
+    } else setEditorContent(id, converted)
+    setEolOverride((value) => ({ ...value, [id]: next }))
+  }
+  const runMonacoAction = (actionId: string | undefined, fallbackMessage?: string) => {
+    if (!activeEditor || !actionId) return false
+    const instance = editorRefs.current[activeEditor.id]
+    const action = instance?.getAction?.(actionId)
+    if (!action) {
+      if (fallbackMessage) notify(fallbackMessage)
+      return false
+    }
+    void Promise.resolve(action.run?.()).catch(() => notify(fallbackMessage || t('editor.toast.formatFailed'), 'error'))
+    return true
+  }
+  const runEditorCommand = (id: EditorCommandId) => {
+    switch (id) {
+      case 'goto-line':
+        setQuickPickMode('goto-line')
+        return
+      case 'goto-symbol':
+        // 自研 outline 解析不到（方言/超大文件）时退回 Monaco 原生 symbols 面板
+        if (outline.length) setQuickPickMode('symbol')
+        else if (!runMonacoAction(MONACO_ACTIONS['quick-outline'])) notify(t('editor.quickpick.noSymbols'))
+        return
+      case 'goto-definition': {
+        if (!activeEditor || gitDiff) return
+        const position = getNavigationPosition(activeEditor.id)
+        if (position) void goToDefinition(activeEditor, position)
+        return
+      }
+      case 'navigate-back':
+        void goBackInNavigation()
+        return
+      case 'navigate-forward':
+        void goForwardInNavigation()
+        return
+      case 'toggle-word-wrap':
+        viewPrefs.toggle('wordWrap')
+        return
+      case 'toggle-minimap':
+        viewPrefs.toggle('minimap')
+        return
+      case 'toggle-whitespace':
+        viewPrefs.cycleWhitespace()
+        return
+      case 'toggle-sticky-scroll':
+        viewPrefs.toggle('stickyScroll')
+        return
+      case 'toggle-breadcrumbs':
+        viewPrefs.toggle('breadcrumbs')
+        return
+      case 'toggle-status-bar':
+        viewPrefs.toggle('statusBar')
+        return
+      case 'toggle-auto-save': {
+        const next = !viewPrefs.autoSave
+        viewPrefs.setPref('autoSave', next)
+        notify(next ? t('editor.toast.autoSaveOn', { delay: viewPrefs.autoSaveDelayMs }) : t('editor.toast.autoSaveOff'))
+        return
+      }
+      case 'format-document':
+        if (!runMonacoAction(MONACO_ACTIONS['format-document'], t('editor.toast.formatUnavailable')))
+          notify(t('editor.toast.formatUnavailable'))
+        return
+      case 'find':
+        runMonacoAction(MONACO_ACTIONS.find)
+        return
+      case 'replace':
+        runMonacoAction(MONACO_ACTIONS.replace)
+        return
+      case 'save':
+        if (
+          activeEditor &&
+          !gitDiff &&
+          !activeEditor.loading &&
+          !activeEditor.saving &&
+          !activeEditor.binary &&
+          !activeEditor.truncated
+        )
+          void onSaveEditor(activeEditor)
+        return
+      case 'save-all':
+        void saveAllEditors()
+        return
+      case 'close':
+        if (!activeEditor) return
+        cancelPendingDefinition()
+        if (activeEditor.dirty) setPendingCloseEditorId(activeEditor.id)
+        else closeEditorsSafely([activeEditor.id])
+        return
+      case 'close-all': {
+        const ids = editorById.get(activeEditor?.id || '') ? getGroupEditors(activeEditorGroupId || '') : []
+        closeEditorsSafely((ids.length ? ids : openEditors).map((item) => item.id))
+        return
+      }
+      case 'reopen-closed':
+        reopenLastClosed()
+        return
+      case 'split-right':
+      case 'split-down': {
+        if (!activeEditor) return
+        if (orderedGroupIds.length >= 4) {
+          notify(t('editor.toast.groupLimit', { count: 4 }))
+          return
+        }
+        placeEditorInSplit(activeEditor.id, id === 'split-right' ? 'right' : 'bottom')
+        return
+      }
+      case 'zoom-in':
+        viewPrefs.zoomIn()
+        return
+      case 'zoom-out':
+        viewPrefs.zoomOut()
+        return
+      case 'zoom-reset':
+        viewPrefs.zoomReset()
+        return
+      case 'select-next-occurrence':
+        runMonacoAction(MONACO_ACTIONS['select-next-occurrence'])
+        return
+      case 'select-all-occurrences':
+        runMonacoAction(MONACO_ACTIONS['select-all-occurrences'])
+        return
+      case 'add-cursor-above':
+        runMonacoAction(MONACO_ACTIONS['add-cursor-above'])
+        return
+      case 'add-cursor-below':
+        runMonacoAction(MONACO_ACTIONS['add-cursor-below'])
+        return
+      case 'next-editor':
+      case 'previous-editor': {
+        const ids = orderedEditorIds()
+        if (!activeEditor || ids.length < 2) return
+        const index = ids.indexOf(activeEditor.id)
+        const next = ids[(index + (id === 'next-editor' ? 1 : -1) + ids.length) % ids.length]
+        if (next) setActiveEditor(next)
+        return
+      }
+      case 'copy-path':
+        if (activeEditor) void copyToClipboard(activeEditor.absolutePath)
+        return
+      case 'copy-relative-path': {
+        if (!activeEditor) return
+        const relative = relativePathOf(activeEditor)
+        if (relative) void copyToClipboard(relative)
+        else notify(t('editor.toast.noRelativePath'))
+        return
+      }
+      case 'reveal-in-files':
+        useConsoleStore.getState().setFilePanelOpen(true)
+        return
+      case 'keep-open':
+        if (activeEditor) pinEditor(activeEditor.id)
+        return
+      case 'close-others':
+        if (activeEditor) closeEditorsSafely(idsToCloseOthers(orderedEditorIds(), activeEditor.id))
+        return
+      case 'close-to-right':
+        if (activeEditor) closeEditorsSafely(idsToCloseToRight(orderedEditorIds(), activeEditor.id))
+        return
+      case 'close-saved':
+        closeEditorsSafely(idsToCloseSaved(openEditors.map((item) => item.id), (editorId) => !!editorById.get(editorId)?.dirty))
+        return
+      case 'show-shortcuts':
+        setShortcutsOpen(true)
+        return
+      default:
+        return
+    }
+  }
+  const commandRef = useRef(runEditorCommand)
+  commandRef.current = runEditorCommand
+  // 命令面板通过总线投递命令：面板是兄弟组件，拿不到这里的闭包
+  useEffect(() => registerEditorCommandHandler((command) => commandRef.current(command)), [])
+  const chordRef = useRef<EditorChord | null>(null)
+  chordRef.current = chord
+  const clearChord = () => {
+    if (chordTimerRef.current) window.clearTimeout(chordTimerRef.current)
+    chordTimerRef.current = null
+    if (chordRef.current) setChord(null)
+  }
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target
+      if (target instanceof Element && target.closest('[data-terminal],.xterm,.xterm-screen')) return
+      // 浮层自己处理 Esc/Enter/↑↓：开着时全局键位让路，避免 Enter 同时触发跳转和原生命令
+      if (quickPickMode || shortcutsOpen || tabMenu) return
+      const resolution = resolveEditorKey(
+        {
+          key: event.key,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          altKey: event.altKey,
+          shiftKey: event.shiftKey,
+        },
+        chordRef.current,
+      )
+      if (!resolution) {
+        if (chordRef.current) clearChord()
+        return
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      if (resolution.type === 'chord') {
+        setChord(resolution.chord)
+        if (chordTimerRef.current) window.clearTimeout(chordTimerRef.current)
+        chordTimerRef.current = window.setTimeout(() => clearChord(), CHORD_TIMEOUT_MS)
+        return
+      }
+      clearChord()
+      if (resolution.type === 'focus-group') {
+        const groupId = orderedGroupIds[resolution.index]
+        const focusTarget = groupId ? getGroupActiveEditor(groupId) : null
+        if (focusTarget) setActiveEditor(focusTarget.id)
+        return
+      }
+      commandRef.current(resolution.id)
+    }
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => window.removeEventListener('keydown', handleKeyDown, true)
+    // 只依赖「是否开着浮层」：命令、分组、编辑器都由 ref 读最新值，避免每次输入重挂监听
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickPickMode, shortcutsOpen, tabMenu])
   const closeAllEditors = () => {
     cancelPendingDefinition()
     for (const editor of [...openEditors]) closeEditor(editor.id)
   }
   if (!activeEditor) return null
   return (
-    <section data-editor-drop className="flex h-full min-h-0 flex-col bg-bg-0">
+    <section data-editor-drop className="relative flex h-full min-h-0 flex-col bg-bg-0">
       <div className="tmuxgo-editor-head flex items-center justify-between gap-3 border-b border-[var(--line)] px-3">
         <div className="min-w-0">
           <div className="truncate font-mono text-[11px] leading-4 text-text-3" title={activeEditor.absolutePath}>
@@ -1832,6 +2484,18 @@ export function EditorWorkbench({
               </Button>
             </>
           )}
+          <Button
+            size="icon-sm"
+            aria-label={t('editor.cmd.showShortcuts')}
+            title={`${t('editor.cmd.showShortcuts')} (Ctrl+K Ctrl+S)`}
+            data-testid="editor-more-actions"
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect()
+              setToolbarMenu({ x: rect.right - 232, y: rect.bottom + 4 })
+            }}
+          >
+            <FiMoreHorizontal aria-hidden="true" size={14} />
+          </Button>
         </div>
       </div>
       {activeEditor?.saveError && (
@@ -1891,6 +2555,67 @@ export function EditorWorkbench({
         {dropTarget && renderDropOverlay(dropTarget)}
         <div className="flex h-full min-h-0 flex-col">{renderLayout(editorLayout)}</div>
       </div>
+      {quickPickMode === 'goto-line' && (
+        <EditorQuickPick
+          title={t('editor.quickpick.gotoLineTitle')}
+          placeholder={t('editor.quickpick.gotoLinePlaceholder')}
+          items={[]}
+          emptyLabel=""
+          hint={t('editor.quickpick.hint')}
+          onSubmitText={(text) => {
+            if (!activeEditor) return false
+            const lineCount =
+              editorRefs.current[activeEditor.id]?.getModel?.()?.getLineCount?.() ||
+              activeEditor.content.split('\n').length
+            const parsed = parseGotoLine(text, lineCount)
+            if (!parsed) return false
+            revealPosition(activeEditor.id, parsed.line, parsed.column)
+            setQuickPickMode(null)
+            return true
+          }}
+          onSelect={() => setQuickPickMode(null)}
+          onClose={() => setQuickPickMode(null)}
+        />
+      )}
+      {quickPickMode === 'symbol' && (
+        <EditorQuickPick
+          title={t('editor.quickpick.symbolTitle')}
+          placeholder={t('editor.quickpick.symbolPlaceholder')}
+          items={outline.map((symbol) => ({
+            id: `${symbol.line}:${symbol.column}:${symbol.name}`,
+            label: symbol.name,
+            detail: `L${symbol.line}`,
+            description: symbol.kind,
+          }))}
+          emptyLabel={t('editor.quickpick.empty')}
+          hint={t('editor.quickpick.hint')}
+          onSelect={(item) => {
+            const [line, column] = item.id.split(':')
+            if (activeEditor) revealPosition(activeEditor.id, Number(line), Number(column))
+            setQuickPickMode(null)
+          }}
+          onClose={() => setQuickPickMode(null)}
+        />
+      )}
+      {tabMenu && (
+        <EditorContextMenu
+          x={tabMenu.x}
+          y={tabMenu.y}
+          title={t('editor.menu.title')}
+          actions={buildTabMenuActions(tabMenu.editorId)}
+          onClose={() => setTabMenu(null)}
+        />
+      )}
+      {toolbarMenu && (
+        <EditorContextMenu
+          x={toolbarMenu.x}
+          y={toolbarMenu.y}
+          title={t('editor.menu.title')}
+          actions={buildToolbarMenuActions()}
+          onClose={() => setToolbarMenu(null)}
+        />
+      )}
+      <EditorShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <ConfirmDialog
         open={!!pendingCloseEditorId}
         title={t('editor.closeConfirm', { name: openEditors.find((e) => e.id === pendingCloseEditorId)?.name || '' })}

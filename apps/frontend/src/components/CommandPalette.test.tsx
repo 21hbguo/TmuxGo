@@ -1,10 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { vi } from 'vitest'
 import { CommandPalette } from './CommandPalette'
 import { I18nProvider } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import { registerEditorCommandHandler } from '@/lib/editor-command-bus'
 
 const selectWindow = vi.fn()
 const killWindow = vi.fn()
@@ -215,4 +216,30 @@ describe('CommandPalette', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled())
     expect(useConsoleStore.getState().activeSessionId).toBe('session-dev')
   })
+  it('exposes editor commands only while an editor workbench is mounted', async () => {
+    const user = userEvent.setup()
+    render(React.createElement(I18nProvider, null, React.createElement(CommandPalette, { onClose: () => {} })))
+    const input = screen.getByPlaceholderText('Search hosts, sessions, windows...')
+    await user.type(input, 'go to line')
+    expect(screen.queryByText('Go to Line/Column…')).toBeNull()
+    cleanup()
+    const handler = vi.fn()
+    const dispose = registerEditorCommandHandler(handler)
+    render(React.createElement(I18nProvider, null, React.createElement(CommandPalette, { onClose: () => {} })))
+    const nextInput = screen.getByPlaceholderText('Search hosts, sessions, windows...')
+    await user.type(nextInput, 'go to line')
+    fireEvent.keyDown(nextInput, { key: 'Enter' })
+    await waitFor(() => expect(handler).toHaveBeenCalledWith('goto-line'))
+    dispose()
+  })
+  it('matches editor commands by their English keywords', async () => {
+    const user = userEvent.setup()
+    const dispose = registerEditorCommandHandler(vi.fn())
+    render(React.createElement(I18nProvider, null, React.createElement(CommandPalette, { onClose: () => {} })))
+    const input = screen.getByPlaceholderText('Search hosts, sessions, windows...')
+    await user.type(input, 'breadcrumbs')
+    expect(screen.getByText('View: Toggle Breadcrumbs')).toBeTruthy()
+    dispose()
+  })
+
 })

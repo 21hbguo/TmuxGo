@@ -3,6 +3,7 @@ import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EditorWorkbench } from './EditorWorkbench'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import { useEditorViewPrefs } from '@/lib/editor-view-prefs'
 import type { EditorGroupState, EditorLayoutNode, EditorLayoutSplit } from '@/stores/useConsoleStore'
 import type { CodeNavigationResult } from '@/lib/code-navigation'
 import type { EditorLocationRestore } from '@/lib/editor-open'
@@ -12,6 +13,12 @@ import type { FileDocumentHandle, FileEditorDocument } from '@/types'
 interface StubPosition {
   lineNumber: number
   column: number
+}
+interface StubRange {
+  startLineNumber: number
+  startColumn: number
+  endLineNumber: number
+  endColumn: number
 }
 interface StubSelection {
   startLineNumber: number
@@ -50,12 +57,19 @@ interface StubEditor {
   getPosition: () => StubPosition | null
   setPosition: (next: StubPosition) => void
   getSelection: () => StubSelection | null
+  getSelections: () => StubSelection[]
   setSelection: (next: StubSelection) => void
   getScrollTop: () => number
   setScrollTop: (next: number) => void
   getScrollLeft: () => number
   setScrollLeft: (next: number) => void
-  getModel: () => { getLineCount: () => number; getLineMaxColumn: (line: number) => number }
+  getModel: () => {
+    getLineCount: () => number
+    getLineMaxColumn: (line: number) => number
+    getLineContent: (line: number) => string
+    updateOptions: ReturnType<typeof vi.fn>
+    getFullModelRange: () => StubRange
+  }
   revealPositionInCenter: ReturnType<typeof vi.fn>
   revealLineInCenter: (line: number) => void
   focus: () => void
@@ -163,6 +177,7 @@ vi.mock('@/lib/dynamic', async () => {
           findState.change({ ...newState, isRevealed: true }, false)
         }),
       }
+      const modelUpdateOptions = vi.fn()
       const instance = {
         getPosition: () => (disposed ? null : { ...position }),
         setPosition: (next: StubPosition) => {
@@ -171,6 +186,7 @@ vi.mock('@/lib/dynamic', async () => {
           cursorHandler?.({ position })
         },
         getSelection: () => (disposed ? null : selection ? { ...selection } : null),
+        getSelections: () => (disposed || !selection ? [] : [{ ...selection }]),
         setSelection: (next: StubSelection) => {
           selection = { ...next }
           position = { lineNumber: next.endLineNumber, column: next.endColumn }
@@ -192,6 +208,17 @@ vi.mock('@/lib/dynamic', async () => {
         getModel: () => ({
           getLineCount: () => valueRef.current.split('\n').length,
           getLineMaxColumn: (line: number) => (valueRef.current.split('\n')[line - 1] || '').length + 1,
+          getLineContent: (line: number) => valueRef.current.split('\n')[line - 1] || '',
+          updateOptions: modelUpdateOptions,
+          getFullModelRange: () => {
+            const lines = valueRef.current.split('\n')
+            return {
+              startLineNumber: 1,
+              startColumn: 1,
+              endLineNumber: lines.length,
+              endColumn: lines[lines.length - 1].length + 1,
+            }
+          },
         }),
         revealPositionInCenter: vi.fn(),
         revealLineInCenter: (line: number) => editorInstanceMocks.revealLineInCenter(line),
@@ -265,30 +292,40 @@ vi.mock('@/hooks/usePreferences', () => ({
 vi.mock('@/hooks/useApi', () => ({
   useGitDetect: () => ({ data: { isGitRepo: false } }),
 }))
-vi.mock('@/i18n', () => ({
-  useTranslation: () => ({
-    t: (key: string) => {
-      if (key === 'editor.clear') return 'Clear'
-      if (key === 'editor.find') return 'Find'
-      if (key === 'editor.back') return 'Back'
-      if (key === 'editor.forward') return 'Forward'
-      if (key === 'editor.definition') return 'Go to definition'
-      if (key === 'editor.preview') return 'Preview'
-      if (key === 'editor.syncPreview') return 'Sync preview'
-      if (key === 'editor.saved') return 'Saved'
-      if (key === 'editor.save') return 'Save'
-      if (key === 'editor.saving') return 'Saving'
-      if (key === 'common.confirm') return 'Confirm'
-      if (key === 'common.cancel') return 'Cancel'
-      if (key === 'editor.closeDiscard') return "Don't Save"
-      if (key === 'editor.saveAndClose') return 'Save & Close'
-      if (key === 'common.retry') return 'Retry'
-      if (key === 'common.close') return 'Close'
-      if (key === 'editor.saveFailedKept') return 'Save failed; changes are kept'
-      return key
-    },
-  }),
-}))
+vi.mock('@/i18n', async () => {
+  // 老键位保留显式覆盖（既有断言依赖这些文案），其余走真实英文字典，
+  // 新增的编辑器命令/状态栏文案不必在这里再抄一份
+  const { en } = await import('@/i18n/en')
+  const overrides: Record<string, string> = {
+    'editor.clear': 'Clear',
+    'editor.find': 'Find',
+    'editor.back': 'Back',
+    'editor.forward': 'Forward',
+    'editor.definition': 'Go to definition',
+    'editor.preview': 'Preview',
+    'editor.syncPreview': 'Sync preview',
+    'editor.saved': 'Saved',
+    'editor.save': 'Save',
+    'editor.saving': 'Saving',
+    'common.confirm': 'Confirm',
+    'common.cancel': 'Cancel',
+    'editor.closeDiscard': "Don't Save",
+    'editor.saveAndClose': 'Save & Close',
+    'common.retry': 'Retry',
+    'common.close': 'Close',
+    'editor.saveFailedKept': 'Save failed; changes are kept',
+  }
+  return {
+    useTranslation: () => ({
+      t: (key: string, params?: Record<string, string | number>) => {
+        let text = overrides[key] ?? (en as Record<string, string>)[key] ?? key
+        if (params)
+          for (const [name, value] of Object.entries(params)) text = text.replace(`{${name}}`, String(value))
+        return text
+      },
+    }),
+  }
+})
 
 function createEditor(
   id: string,
@@ -460,6 +497,7 @@ describe('EditorWorkbench', () => {
   const editor4 = createEditor('editor-4', 'src/fourth.ts', 'const value=4')
   beforeEach(() => {
     vi.useFakeTimers()
+    useEditorViewPrefs.getState().reset()
     resolveDefinitionMock.mockReset()
     openFileInEditorMock.mockReset()
     openFileInEditorMock.mockImplementation(async (file: FileDocumentHandle) => {
@@ -1329,8 +1367,7 @@ describe('EditorWorkbench', () => {
       activeEditorGroupId: 'group-2',
     })
     const { container } = renderWorkbench({ onOpenFile })
-    const strip = screen.getByTestId('editor-group-secondary') as HTMLDivElement
-    const pane = strip.nextElementSibling as HTMLButtonElement
+    const pane = screen.getByTestId('editor-pane-secondary') as HTMLButtonElement
     pane.getBoundingClientRect = vi.fn(
       () =>
         ({
@@ -1410,8 +1447,7 @@ describe('EditorWorkbench', () => {
       activeEditorGroupId: 'group-2',
     })
     renderWorkbench({ onOpenFile })
-    const strip = screen.getByTestId('editor-group-secondary') as HTMLDivElement
-    const pane = strip.nextElementSibling as HTMLButtonElement
+    const pane = screen.getByTestId('editor-pane-secondary') as HTMLButtonElement
     pane.getBoundingClientRect = vi.fn(
       () =>
         ({
@@ -1490,8 +1526,7 @@ describe('EditorWorkbench', () => {
       activeEditorGroupId: 'group-3',
     })
     const { container } = renderWorkbench({ onOpenFile })
-    const strip = screen.getByTestId('editor-group-secondary') as HTMLDivElement
-    const pane = strip.nextElementSibling as HTMLButtonElement
+    const pane = screen.getByTestId('editor-pane-secondary') as HTMLButtonElement
     pane.getBoundingClientRect = vi.fn(() => createRect())
     await dispatchDragEvent(pane, 'drop', createFileDataTransfer('editor-10', 'src/nested-top.ts'), {
       clientX: 500,
@@ -1552,8 +1587,7 @@ describe('EditorWorkbench', () => {
       activeEditorGroupId: 'group-3',
     })
     const { container } = renderWorkbench({ onOpenFile })
-    const strip = screen.getByTestId('editor-group-group-3') as HTMLDivElement
-    const pane = strip.nextElementSibling as HTMLButtonElement
+    const pane = screen.getByTestId('editor-pane-group-3') as HTMLButtonElement
     pane.getBoundingClientRect = vi.fn(() => createRect())
     await dispatchDragEvent(pane, 'drop', createFileDataTransfer('editor-11', 'src/nested-right.ts'), {
       clientX: 960,
@@ -1782,12 +1816,15 @@ describe('EditorWorkbench', () => {
     renderWorkbench()
     const paragraph = document.querySelector('article p')
     if (!paragraph) throw new Error('markdown preview not rendered')
+    // 光标走 rAF 合并的 store：驱动一帧后才落到预览高亮（打字不再整树重渲染的代价）
     await act(async () => {
       monacoCursorHandlerRef.current?.({ position: { lineNumber: 3, column: 1 } })
+      await vi.advanceTimersByTimeAsync(32)
     })
     expect(paragraph.classList.contains('md-source-loc')).toBe(true)
     await act(async () => {
       monacoCursorHandlerRef.current?.({ position: { lineNumber: 1, column: 1 } })
+      await vi.advanceTimersByTimeAsync(32)
     })
     expect(paragraph.classList.contains('md-source-loc')).toBe(false)
     expect(document.querySelector('article h1')?.classList.contains('md-source-loc')).toBe(true)
@@ -2246,4 +2283,265 @@ describe('EditorWorkbench', () => {
     expect(next.findController.start).not.toHaveBeenCalled()
     expect(next.findState.isRevealed).toBe(false)
   })
+  // —— VSCode 式编辑器增强：命令层 / 状态栏 / 面包屑 / 标签菜单 / 自动保存 ——
+  describe('editor ergonomics', () => {
+    const press = (key: string, patch: Partial<KeyboardEventInit> = {}) =>
+      fireEvent.keyDown(window, { key, ...patch })
+    const openMenu = () => screen.queryByTestId('editor-context-menu')
+    const singleEditorState = (content: string, language = 'typescript') => {
+      const target = { ...editor1, content, language }
+      setWorkbenchState({
+        openEditors: [target],
+        activeEditorId: target.id,
+        editorGroups: [createGroup('group-1', [target.id], target.id)],
+        editorLayout: createLeaf('layout-1', 'group-1'),
+        activeEditorGroupId: 'group-1',
+      })
+      return target
+    }
+
+    it('opens the go-to-line picker with Ctrl+G and jumps to line:column', async () => {
+      singleEditorState('a\nb\nc\nd')
+      renderWorkbench()
+      press('g', { ctrlKey: true })
+      expect(screen.getByTestId('editor-quickpick')).toBeTruthy()
+      fireEvent.change(screen.getByTestId('editor-quickpick-input'), { target: { value: '3:2' } })
+      fireEvent.keyDown(screen.getByTestId('editor-quickpick-input'), { key: 'Enter' })
+      expect(editorInstanceMocks.setPosition).toHaveBeenCalledWith({ lineNumber: 3, column: 2 })
+      expect(screen.queryByTestId('editor-quickpick')).toBeNull()
+    })
+
+    it('keeps the picker open for an unparsable line and closes on Escape', async () => {
+      singleEditorState('a\nb')
+      renderWorkbench()
+      press('g', { ctrlKey: true })
+      const input = screen.getByTestId('editor-quickpick-input')
+      fireEvent.change(input, { target: { value: 'abc' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(screen.getByTestId('editor-quickpick')).toBeTruthy()
+      fireEvent.keyDown(input, { key: 'Escape' })
+      expect(screen.queryByTestId('editor-quickpick')).toBeNull()
+    })
+
+    it('lists outline symbols behind Ctrl+Shift+O and jumps on Enter', async () => {
+      singleEditorState(['export function alpha() {', '  return 1', '}', '', 'export function beta() {', '}'].join('\n'))
+      renderWorkbench()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(360)
+      })
+      press('O', { ctrlKey: true, shiftKey: true })
+      const items = screen.getAllByRole('option')
+      expect(items).toHaveLength(2)
+      expect(items[0].textContent?.startsWith('alpha')).toBe(true)
+      expect(items[1].textContent?.startsWith('beta')).toBe(true)
+      fireEvent.keyDown(screen.getByTestId('editor-quickpick-input'), { key: 'Enter' })
+      expect(editorInstanceMocks.setPosition).toHaveBeenCalledWith({ lineNumber: 1, column: 1 })
+    })
+
+    it('reports the cursor position and selection in the status bar', async () => {
+      singleEditorState('const value=1')
+      renderWorkbench()
+      expect(screen.getByTestId('editor-status')).toBeTruthy()
+      expect(screen.getByTestId('editor-status-position').textContent).toBe('Ln 1, Col 1')
+      await act(async () => {
+        liveEditor(editor1.absolutePath).setSelection({
+          startLineNumber: 1,
+          startColumn: 1,
+          endLineNumber: 1,
+          endColumn: 6,
+        })
+        await vi.advanceTimersByTimeAsync(40)
+      })
+      expect(screen.getByTestId('editor-status-position').textContent).toBe('Ln 1, Col 6')
+      expect(screen.getByTestId('editor-status-selection').textContent).toBe('5 selected')
+    })
+
+    it('applies an indent choice to the Monaco model and the status bar', async () => {
+      singleEditorState('a\n  b')
+      renderWorkbench()
+      fireEvent.click(screen.getByTestId('editor-status-indent'))
+      const option = [...openMenu()!.querySelectorAll('button')].find((button) => button.textContent === 'Spaces: 4')
+      fireEvent.click(option!)
+      expect(liveEditor(editor1.absolutePath).getModel().updateOptions).toHaveBeenCalledWith({
+        tabSize: 4,
+        insertSpaces: true,
+      })
+      expect(screen.getByTestId('editor-status-indent').textContent).toBe('Spaces: 4')
+    })
+
+    it('toggles word wrap and editor zoom from the status bar and keys', async () => {
+      singleEditorState('a')
+      renderWorkbench()
+      press('z', { altKey: true })
+      expect(useEditorViewPrefs.getState().wordWrap).toBe(true)
+      press('=', { ctrlKey: true })
+      expect(useEditorViewPrefs.getState().fontScale).toBe(1.1)
+      fireEvent.click(screen.getByTestId('editor-status-zoom'))
+      fireEvent.click(screen.getByText('Editor Font Zoom Reset'))
+      expect(useEditorViewPrefs.getState().fontScale).toBe(1)
+      expect(screen.getByTestId('editor-status-zoom').textContent).toBe('Zoom 100%')
+    })
+
+    it('routes Ctrl+1..9 to the matching editor group', async () => {
+      setWorkbenchState({
+        openEditors: [editor1, editor2],
+        activeEditorId: editor2.id,
+        editorGroups: [
+          createGroup('group-1', [editor1.id], editor1.id),
+          createGroup('group-2', [editor2.id], editor2.id),
+        ],
+        editorLayout: createSplit(
+          'layout-1',
+          'horizontal',
+          createLeaf('layout-2', 'group-1'),
+          createLeaf('layout-3', 'group-2'),
+        ),
+        activeEditorGroupId: 'group-2',
+      })
+      renderWorkbench()
+      press('1', { ctrlKey: true })
+      expect(useConsoleStore.getState().activeEditorId).toBe(editor1.id)
+      press('2', { ctrlKey: true })
+      expect(useConsoleStore.getState().activeEditorId).toBe(editor2.id)
+    })
+
+    it('saves every dirty editor through the Alt+K S chord', async () => {
+      const onSaveEditor = vi.fn(async () => {})
+      singleEditorState('const value=1')
+      renderWorkbench({ onSaveEditor })
+      await act(async () => {
+        useConsoleStore.getState().setEditorContent(editor1.id, 'const value=2')
+      })
+      press('k', { altKey: true })
+      expect(useConsoleStore.getState().openEditors[0].dirty).toBe(true)
+      press('s', { altKey: true })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30)
+      })
+      expect(onSaveEditor).toHaveBeenCalledTimes(1)
+    })
+
+    it('opens a tab context menu with close/copy/split actions', async () => {
+      singleEditorState('a')
+      renderWorkbench()
+      fireEvent.contextMenu(screen.getByRole('button', { name: 'index.ts' }))
+      const menu = openMenu()
+      expect(menu).toBeTruthy()
+      for (const label of ['Close', 'Close Others', 'Close to the Right', 'Close All', 'Copy Path', 'Split Right']) {
+        expect(menu!.textContent).toContain(label)
+      }
+      // 单 tab 时「关闭右侧」无目标，置灰不可点
+      const closeRight = [...menu!.querySelectorAll('button')].find(
+        (button) => button.textContent === 'Close to the Right',
+      )
+      expect(closeRight?.disabled).toBe(true)
+      press('Escape')
+      expect(openMenu()).toBeNull()
+    })
+
+    it('closes other tabs from the tab menu', async () => {
+      setWorkbenchState({
+        openEditors: [editor1, editor2],
+        activeEditorId: editor1.id,
+        editorGroups: [createGroup('group-1', [editor1.id, editor2.id], editor1.id)],
+        editorLayout: createLeaf('layout-1', 'group-1'),
+        activeEditorGroupId: 'group-1',
+      })
+      renderWorkbench()
+      fireEvent.contextMenu(screen.getByRole('button', { name: 'index.ts' }))
+      fireEvent.click(screen.getByText('Close Others'))
+      expect(useConsoleStore.getState().openEditors.map((item) => item.id)).toEqual([editor1.id])
+    })
+
+    it('reopens the last closed editor with Ctrl+Shift+T', async () => {
+      singleEditorState('a')
+      renderWorkbench()
+      press('w', { ctrlKey: true })
+      expect(useConsoleStore.getState().openEditors).toHaveLength(0)
+      press('T', { ctrlKey: true, shiftKey: true })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10)
+      })
+      expect(openFileInEditorMock).toHaveBeenCalledWith(
+        expect.objectContaining({ id: editor1.id, path: editor1.path }),
+        expect.objectContaining({ openPanel: false, pinned: true }),
+      )
+    })
+
+    it('auto-saves the active editor after the debounce window', async () => {
+      const onSaveEditor = vi.fn(async () => {})
+      useEditorViewPrefs.getState().setPref('autoSave', true)
+      useEditorViewPrefs.getState().setPref('autoSaveDelayMs', 500)
+      singleEditorState('a')
+      renderWorkbench({ onSaveEditor })
+      await act(async () => {
+        useConsoleStore.getState().setEditorContent(editor1.id, 'a2')
+      })
+      expect(onSaveEditor).not.toHaveBeenCalled()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600)
+      })
+      expect(onSaveEditor).toHaveBeenCalledTimes(1)
+    })
+
+    it('renders breadcrumbs with the symbol trail for the cursor', async () => {
+      const target = singleEditorState(['export function alpha() {', '  return 1', '}'].join('\n'))
+      renderWorkbench()
+      await act(async () => {
+        liveEditor(editor1.absolutePath).setSelection({
+          startLineNumber: 2,
+          startColumn: 3,
+          endLineNumber: 2,
+          endColumn: 3,
+        })
+        await vi.advanceTimersByTimeAsync(360)
+      })
+      expect(screen.getByTestId('editor-breadcrumbs')).toBeTruthy()
+      expect(screen.getByTestId('editor-breadcrumb-file').textContent).toBe(target.name)
+      expect(screen.getByTestId('editor-breadcrumb-symbol-0').textContent).toBe('alpha')
+    })
+
+    it('hides breadcrumbs and the status bar when the view prefs say so', async () => {
+      useEditorViewPrefs.getState().setPref('breadcrumbs', false)
+      useEditorViewPrefs.getState().setPref('statusBar', false)
+      singleEditorState('a')
+      renderWorkbench()
+      expect(screen.queryByTestId('editor-breadcrumbs')).toBeNull()
+      expect(screen.queryByTestId('editor-status')).toBeNull()
+    })
+
+    it('opens the keybinding sheet from the toolbar overflow menu', async () => {
+      singleEditorState('a')
+      renderWorkbench()
+      fireEvent.click(screen.getByTestId('editor-more-actions'))
+      fireEvent.click(screen.getByText('Show Editor Keybindings'))
+      expect(screen.getByTestId('editor-shortcuts')).toBeTruthy()
+    })
+
+    it('does not swallow editor-native Ctrl+F / Ctrl+D', async () => {
+      singleEditorState('a')
+      renderWorkbench()
+      const before = useEditorViewPrefs.getState()
+      press('f', { ctrlKey: true })
+      press('d', { ctrlKey: true })
+      expect(screen.queryByTestId('editor-quickpick')).toBeNull()
+      expect(useEditorViewPrefs.getState()).toMatchObject({
+        wordWrap: before.wordWrap,
+        fontScale: before.fontScale,
+      })
+    })
+    it('shows the pending chord in the status bar and clears it on timeout', async () => {
+      singleEditorState('a')
+      renderWorkbench()
+      press('k', { altKey: true })
+      // jsdom 默认非 mac 平台：Alt 渲染成 Alt（mac 上是 Option）
+      expect(screen.getByTestId('editor-status-chord').textContent).toMatch(/Alt|Option/)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1600)
+      })
+      expect(screen.queryByTestId('editor-status-chord')).toBeNull()
+    })
+
+  })
+
 })

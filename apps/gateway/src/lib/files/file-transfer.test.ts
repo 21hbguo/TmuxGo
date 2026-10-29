@@ -173,8 +173,10 @@ test('resolveUploadDestination gives up after 1000 conflicts instead of looping 
   await assert.rejects(resolveUploadDestination(dir, 'x.txt'), /Too many conflicting files/)
 })
 
-test('resolveInside refuses relative traversal and symlink escapes', async (t) => {
-  // 上传目标来自 rootId+相对路径，越界检查是路径穿越的唯一屏障
+test('resolveInside refuses lexical traversal but follows symlinks (c57eeba)', async (t) => {
+  // 上传目标来自 rootId+相对路径，词法越界是这里唯一要挡的东西：
+  // c57eeba 起刻意不做 realpath 检查——home -> /data 这类链接目录要能进（文件管理器语义），
+  // 所以「链接指向根外」不再算逃逸，只有 '..' 段和绝对路径越界才拒绝
   const roots = await getRoots()
   const root = roots[0]
   const outside = await withTempDir(t, 'outside')
@@ -183,8 +185,9 @@ test('resolveInside refuses relative traversal and symlink escapes', async (t) =
   t.after(async () => {
     await rm(path.join(root.path, 'escape-link'), { force: true })
   })
-  // 符号链接本身在根内，但 realpath 指向根外 → 必须拒绝
-  await assert.rejects(resolveInside(root.id, 'escape-link'), /Path escapes root/)
+  // 链接原地跟随：解析结果就是链接路径本身，不再 realpath 展开
+  const linked = await resolveInside(root.id, 'escape-link')
+  assert.equal(linked.absolutePath, path.join(root.path, 'escape-link'))
   const inside = await resolveInside(root.id, '.')
   assert.equal(inside.absolutePath, root.path)
 })

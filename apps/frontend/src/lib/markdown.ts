@@ -24,16 +24,30 @@ function splitMarkdownSegments(content: string) {
   segments.push({ text: content.slice(last), offset: last, code: false })
   return segments
 }
-function countLines(text: string) {
-  let count = 0
-  for (let i = 0; i < text.length; i++) if (text[i] === '\n') count++
-  return count
+// 行号查询器：块级 token 的绝对 offset → 行号。
+// 旧实现每个块都 countLines(content.slice(0, offset))，200KB 文档下是 O(n²)
+// （实测 3.8s），这里改成单指针顺序推进 + 回退重扫兜底，整体 O(n)。
+function createLineCounter(content: string) {
+  let scanned = 0
+  let lines = 1
+  return (offset: number) => {
+    if (offset < scanned) {
+      scanned = 0
+      lines = 1
+    }
+    while (scanned < offset) {
+      if (content.charCodeAt(scanned) === 10) lines += 1
+      scanned += 1
+    }
+    return lines
+  }
 }
 const LINE_BLOCK_TYPES = new Set(['heading', 'paragraph', 'list', 'list_item', 'blockquote', 'code', 'table', 'hr'])
 function collectBlockLines(content: string) {
   const lines: number[] = []
   ;(globalThis as MdCollectGlobal).__mdCollect = []
   const segments = splitMarkdownSegments(content)
+  const lineOf = createLineCounter(content)
   const walk = (tokens: Token[], text: string, baseOffset: number) => {
     let from = 0
     for (const token of tokens) {
@@ -44,7 +58,7 @@ function collectBlockLines(content: string) {
       const index = text.indexOf(token.raw, from)
       const start = index === -1 ? from : index
       if (LINE_BLOCK_TYPES.has(token.type)) {
-        const l = 1 + countLines(content.slice(0, baseOffset + start))
+        const l = lineOf(baseOffset + start)
         lines.push(l)
         ;(globalThis as MdCollectGlobal).__mdCollect!.push({
           t: token.type,

@@ -17,6 +17,8 @@ import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import type { Host, Session, Window } from '@/types'
 import { ModalPortal } from './ModalPortal'
+import { EDITOR_COMMANDS, formatKeybinding } from '@/lib/editor-commands'
+import { dispatchEditorCommand, isEditorCommandAvailable } from '@/lib/editor-command-bus'
 
 interface CommandPaletteProps {
   onClose: () => void
@@ -331,6 +333,23 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
         },
       })),
     ...actionItems,
+    // 编辑器命令：工作台挂载时才注入（否则点了没反应），标题/键位与命令表同源
+    ...(isEditorCommandAvailable()
+      ? EDITOR_COMMANDS.map(
+          (command): PaletteItem => ({
+            key: `editor-${command.id}`,
+            type: 'action',
+            title: t(command.titleKey),
+            meta: formatKeybinding(command.keybinding, isApplePlatform()) || t('palette.editorCommands'),
+            keywords: [...command.keywords, '编辑器', 'editor'],
+            action: async () => {
+              // 先关面板再把命令投给工作台：命令里的 focus 调用不能被面板卸载抢焦点
+              setCommandPalette(false)
+              dispatchEditorCommand(command.id)
+            },
+          }),
+        )
+      : []),
   ]
   // 空查询时按 会话→窗口→动作→主机→插件 排序（最近入口优先）；危险动作
   // 永远沉底，不会成为默认首选项

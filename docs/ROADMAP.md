@@ -25,13 +25,16 @@
 
 服务层的深度红线：
 
-- editor 不做 IDE：不接全量 LSP、不做 debug、不做项目管理面板
+- editor 不做 IDE：不接全量 LSP、不做 debug、不做项目管理面板、不做扩展宿主
+  （2026-10 例外已定界：只补「编辑人体工学」——命令/键位、状态栏、面包屑、大纲、标签管理、视图开关，
+  全部基于 Monaco 内置 API，零新增依赖；见 `docs/design/editor-vscode-ux.md`）
 - git panel 不长成 Git GUI：交互式 rebase、stage hunk、merge 工具 → 回终端做
 - preview 不做浏览器：外链跳转回真浏览器，不内嵌导航
 
 ## 越界信号（出现就该砍需求）
 
-- 功能讨论里出现「像 VSCode / JetBrains 那样…」——那是 code-server 的地盘
+- 功能讨论里出现「像 VSCode / JetBrains 那样…」，且需求指向语义/调试/插件生态——那是 code-server 的地盘
+  （仅指编辑行为与键位则属于已定界的编辑人体工学范围）
 - 外围功能的代码量增速超过核心层
 - 新需求无法在两句话内说清「它怎么服务 tmux 工作流」
 

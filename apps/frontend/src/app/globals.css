@@ -2161,6 +2161,21 @@ a {
   background: rgb(var(--bg-0));
 }
 
+/* 编辑区状态栏/面包屑：发丝线、等宽数字、可横向滚但不显示滚动条 */
+.tmuxgo-editor-status {
+  font-variant-numeric: tabular-nums;
+}
+.tmuxgo-editor-breadcrumbs {
+  scrollbar-width: none;
+}
+.tmuxgo-editor-breadcrumbs::-webkit-scrollbar {
+  display: none;
+}
+/* 动作菜单可能比视口高（标签菜单 10 项），限高后可滚，不裁掉末尾项 */
+.tmuxgo-menu {
+  max-height: calc(100vh - 12px);
+  overflow-y: auto;
+}
 /* 编辑区顶栏：30px 实底，路径是辅助信息不是标题 */
 .tmuxgo-editor-head {
   height: 30px;
