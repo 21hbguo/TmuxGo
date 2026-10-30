@@ -10,6 +10,7 @@ import { applyTmuxGoEnv, cleanupMultiplexSockets } from './lib/tmux-executor.js'
 import { clearSharedTerminalGraceTimers } from './lib/stream/shared-terminal.js'
 import { hostRoutes } from './routes/hosts.js'
 import { listAllHosts } from './lib/hosts.js'
+import { sweepViewSessions, viewsEnabled } from './lib/view-sessions.js'
 import { sessionRoutes } from './routes/sessions.js'
 import { windowRoutes } from './routes/windows.js'
 import { streamRoutes } from './routes/stream.js'
@@ -189,6 +190,33 @@ fastify.get('/health', async () => {
   return { status: 'ok', timestamp: new Date().toISOString() }
 })
 
+// view session 的清理不挂在 hub destroy 上（会与并发 re-attach 竞态），
+// 统一由启动 + 定时 sweep 兜底：base 已消失立即清，无附着且空闲超 TTL 再清。
+const VIEW_SWEEP_INTERVAL_MS = 5 * 60 * 1000
+async function sweepOrphanViews() {
+  if (!viewsEnabled()) return
+  let hostIds = ['local']
+  try {
+    hostIds = [...new Set((await listAllHosts()).map((host) => host.id))]
+  } catch {
+    // hosts 配置读不出来时至少清本机，不能因为远端配置坏了就漏掉本地孤儿
+  }
+  for (const hostId of hostIds) {
+    try {
+      const killed = await sweepViewSessions(hostId)
+      if (killed.length) console.log('Swept orphan view sessions', { hostId, count: killed.length })
+    } catch (err) {
+      // 单个 host 离线/无 tmux server 不影响其它 host；下一轮再试
+      console.warn('View session sweep failed', { hostId, error: String(err) })
+    }
+  }
+}
+function startViewSweeper() {
+  void sweepOrphanViews()
+  const timer = setInterval(() => void sweepOrphanViews(), VIEW_SWEEP_INTERVAL_MS)
+  timer.unref?.()
+}
+
 const start = async () => {
   try {
     const port = parseInt(process.env.PORT || '3001')
@@ -209,6 +237,7 @@ const start = async () => {
     })
     await fastify.listen({ port, host })
     void agentMonitor.start()
+    startViewSweeper()
     // token 轮换/重启后 tmux 全局环境仍是旧值：启动时重断言 setenv -g，
     // 之后新建的 pane 才能继承当前 token（既有 pane 保留各自快照）
     applyTmuxGoEnv('local', {}).catch(() => {})
