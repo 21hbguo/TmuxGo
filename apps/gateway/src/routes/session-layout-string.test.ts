@@ -187,6 +187,35 @@ test('GET rejects windows outside the session and unknown sessions', async () =>
   }
 })
 
+test('vertical (bracket) layouts round-trip through GET and cross-window apply', async () => {
+  const fastify = await makeApp()
+  try {
+    await startSession()
+    // tmux 3.4 竖向分割的 window_layout 用 []：GET 必须能读回、解析器必须认
+    const vertical = await createWindow('vertical', ['-v'])
+    const response = await fastify.inject({ method: 'GET', url: `${layoutUrl}?windowId=${vertical}` })
+    assert.equal(response.statusCode, 200, response.body)
+    const body = response.json()
+    assert.match(body.layout, /\[/, body.layout)
+    assert.equal(body.panes, 2)
+    assert.equal(countLayoutPanes(body.layout), 2)
+    // 套到横向窗口上：几何要变成源窗口那种上下堆叠
+    const horizontal = await createWindow('horizontal', ['-h'])
+    assert.notDeepEqual(await windowGeometry(horizontal), await windowGeometry(vertical))
+    const applied = await fastify.inject({
+      method: 'POST',
+      url: `${layoutUrl}/apply`,
+      payload: { windowId: horizontal, layout: body.layout },
+    })
+    assert.equal(applied.statusCode, 200, applied.body)
+    assert.deepEqual(applied.json(), { ok: true, windowId: horizontal, panes: 2 })
+    assert.deepEqual(await windowGeometry(horizontal), await windowGeometry(vertical))
+  } finally {
+    await fastify.close()
+    await killTestTmuxSession()
+  }
+})
+
 test('restricted principals cannot read or apply layouts outside their scope', async () => {
   const denied = await makeApp({ hosts: ['local'], sessions: ['other'] })
   const allowed = await makeApp({ hosts: ['local'], sessions: [TEST_TMUX_SESSION] })

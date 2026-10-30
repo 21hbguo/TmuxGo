@@ -1,9 +1,12 @@
 // tmux 原生 layout string（`#{window_layout}`）的纯逻辑层：校验、叶子数、根尺寸。
 //
 // 语法来自 tmux layout_dump（`tmux list-windows -F '#{window_layout}'`）：
-//   <4 位十六进制校验和>,<WxH>,<x>,<y>[{<cell>,<cell>,...}]
+//   <4 位十六进制校验和>,<WxH>,<x>,<y>({…}|[…]|)
 //   cell   = <WxH>,<x>,<y>[,<paneIndex>]        ← 叶子（正好一个 pane）
-//          | <WxH>,<x>,<y>{…}                    ← 分割节点（左右或上下）
+//          | <WxH>,<x>,<y>{<cell>,<cell>,…}     ← 左右分割（left/right）
+//          | <WxH>,<x>,<y>[<cell>,<cell>,…]     ← 上下分割（top/bottom）
+// 两种括号是 tmux 的语义标记而非装饰：`{}` = 横向并排、`[]` = 竖向堆叠（tmux 3.4 实测
+// `0ed4,120x30,0,0[120x24,0,0,3,120x5,0,25,0]` 就是上下两栏），且可以任意混用嵌套。
 // 例：709c,120x30,0,0{60x30,0,0,0,59x30,61,0,2}
 // 叶子的 paneIndex 是**可选**的：老版本/手写布局只有 4 个数字，现代 tmux 会多带一位
 // pane 序号，所以解析按「数字后跟 , 且下一个 token 不以 'x' 形态出现」来区分
@@ -15,7 +18,7 @@ export const LAYOUT_STRING_MIN_LENGTH = 16
 export const LAYOUT_STRING_MAX_LENGTH = 4096
 // tmux layout string 只会出现十六进制校验和、小写 x、花括号、逗号和数字；
 // 白名单收窄比黑名单稳（顺带挡住空白、引号、换行等注入面）
-const LAYOUT_CHARSET = /^[0-9a-fx{},]+$/
+const LAYOUT_CHARSET = /^[0-9a-fx{}[\],]+$/
 const CHECKSUM = /^[0-9a-f]{4},/
 // 单个维度/坐标的合理上限：正常终端不会到 6 位数，超了基本是垃圾输入
 const MAX_DIMENSION = 100_000
@@ -77,8 +80,11 @@ function parseCell(src: string, cursor: number): CellParseResult {
   cursor = expectChar(src, xoff.next, ',')
   const yoff = readNumber(src, cursor, 'y offset')
   cursor = yoff.next
-  if (src[cursor] === '{') {
-    // 分割节点：`{child,child,…}`
+  const opener = src[cursor]
+  if (opener === '{' || opener === '[') {
+    // 分割节点：`{child,child,…}`（左右）或 `[child,child,…]`（上下）。
+    // 括号必须按类型配对，但内层可以随便换：横向里的某一栏再上下切就是 {…[…]}。
+    const closer = opener === '{' ? '}' : ']'
     cursor++
     let panes = 0
     let children = 0
@@ -94,7 +100,7 @@ function parseCell(src: string, cursor: number): CellParseResult {
       break
     }
     if (children < 2) invalid('split node must hold at least two cells')
-    if (src[cursor] !== '}') invalid(`expected "}" at offset ${cursor}`)
+    if (src[cursor] !== closer) invalid(`expected "${closer}" at offset ${cursor}`)
     return { panes, next: cursor + 1 }
   }
   // 叶子：可选 pane 序号（老格式没有）。仅当后面紧跟纯数字 token 且其后是分隔符时才算序号，
@@ -102,7 +108,10 @@ function parseCell(src: string, cursor: number): CellParseResult {
   if (src[cursor] === ',') {
     let probe = cursor + 1
     while (probe < src.length && src[probe] >= '0' && src[probe] <= '9') probe++
-    const looksLikePaneIndex = probe > cursor + 1 && (src[probe] === ',' || src[probe] === '}' || probe >= src.length)
+    // 序号后面可能紧跟兄弟分隔符、任一收尾括号，或者到头（单 pane 窗口）
+    const terminator = src[probe]
+    const looksLikePaneIndex =
+      probe > cursor + 1 && (terminator === ',' || terminator === '}' || terminator === ']' || probe >= src.length)
     if (looksLikePaneIndex) cursor = probe
   }
   return { panes: 1, next: cursor }
@@ -114,7 +123,7 @@ function parseLayout(input: unknown): ParsedLayoutString {
   if (!layout) invalid('layout is empty')
   if (layout.length < LAYOUT_STRING_MIN_LENGTH) invalid(`layout is shorter than ${LAYOUT_STRING_MIN_LENGTH} chars`)
   if (layout.length > LAYOUT_STRING_MAX_LENGTH) invalid(`layout is longer than ${LAYOUT_STRING_MAX_LENGTH} chars`)
-  if (!LAYOUT_CHARSET.test(layout)) invalid('layout contains characters outside [0-9a-fx{},]')
+  if (!LAYOUT_CHARSET.test(layout)) invalid('layout contains characters outside [0-9a-fx{},[]]')
   const checksumMatch = CHECKSUM.exec(layout)
   if (!checksumMatch) invalid('layout must start with a 4-digit hex checksum followed by ","')
   const root = parseCell(layout, checksumMatch[0].length)
