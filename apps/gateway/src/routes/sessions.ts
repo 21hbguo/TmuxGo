@@ -15,6 +15,7 @@ import {
 } from '../lib/tmux-policy.js'
 import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
 import { execTmux, execHostShell } from '../lib/tmux-executor.js'
+import { listUserSessions } from '../lib/session-list.js'
 import {
   applyTemplateLayout,
   buildSessionCreateArgs,
@@ -146,43 +147,16 @@ async function getHostTmuxSessions(hostId: string): Promise<HostTmuxSession[]> {
 }
 async function listHostTmuxSessions(hostId: string): Promise<HostTmuxSession[]> {
   try {
-    const { stdout } = await execTmux(hostId, [
-      'list-sessions',
-      '-F',
-      '#{session_id}|#{session_name}|#{session_windows}|#{session_created}|#{session_activity}|#{session_attached}',
-    ])
-    return stdout
-      .trim()
-      .split('\n')
-      .filter(Boolean)
-      .filter((line) => {
-        const [, name] = line.split('|')
-        try {
-          assertSessionAllowed(name)
-          return true
-        } catch {
-          return false
-        }
-      })
-      .map((line) => {
-        const [, name, windows, created, activity, attached] = line.split('|')
-        const createdAtUnix = parseInt(created, 10)
-        const activityUnix = parseInt(activity, 10)
-        const attachedCount = parseInt(attached, 10)
-        const createdAt = Number.isFinite(createdAtUnix)
-          ? new Date(createdAtUnix * 1000).toISOString()
-          : new Date().toISOString()
-        const lastActiveAt = Number.isFinite(activityUnix) ? new Date(activityUnix * 1000).toISOString() : createdAt
-        return {
-          id: buildSessionId(hostId, name),
-          hostId,
-          name,
-          createdAt,
-          lastActiveAt,
-          windowCount: parseInt(windows, 10),
-          attached: Number.isFinite(attachedCount) && attachedCount > 0,
-        }
-      })
+    // listUserSessions 已按 @tmuxgo_view_base 去掉 grouped view session；
+    // 这里只保留原有的 allowlist 过滤，别让 view 绕过 session scope。
+    return (await listUserSessions(hostId)).filter((session) => {
+      try {
+        assertSessionAllowed(session.name)
+        return true
+      } catch {
+        return false
+      }
+    })
   } catch (err) {
     const message = errorMessage(err).toLowerCase()
     if (
