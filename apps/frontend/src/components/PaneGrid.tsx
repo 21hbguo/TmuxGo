@@ -20,6 +20,7 @@ import { SnapshotResumeHint } from './SnapshotResumeHint'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { api } from '@/lib/api'
 import { parseSessionName } from '@/lib/session-id'
+import { getViewId } from '@/lib/view-identity'
 import { pickRecentSessionId } from '@/lib/recent-session'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
@@ -889,6 +890,9 @@ export function PaneGrid({
       type: 'attach',
       hostId: activeHostId || 'local',
       sessionName: targetSessionName,
+      // 浏览器视角：网关切 tmux grouped session，让每个浏览器有自己的 current window。
+      // 不在 attachKey 里——同一浏览器内该值恒定，不影响去重。
+      viewId: getViewId(),
       cols: size?.cols || 120,
       rows: size?.rows || 36,
       exclusive,

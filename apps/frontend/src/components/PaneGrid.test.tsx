@@ -305,18 +305,36 @@ describe('PaneGrid', () => {
     // 没有可信序号时报 0/undefined 都不行：服务端只有 >0 才有意义，缺字段才是「整快照」
     expect(attachPayload).not.toHaveProperty('lastSeq')
   })
+  // 每个浏览器一个稳定 viewId：网关切 grouped session 隔离 current window，切 session 不变
+  it('sends a stable per-browser viewId on attach', async () => {
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach' })))
+    const attachPayloads = () =>
+      sendMock.mock.calls.map(([message]) => message).filter((message) => message?.type === 'attach')
+    const first = attachPayloads().at(-1)
+    expect(first?.viewId).toMatch(/^[0-9a-f]{32}$/)
+    expect(window.localStorage.getItem('tmuxgo.viewId.v1')).toBe(first?.viewId)
+    act(() => {
+      useConsoleStore.setState({ activeSessionId: 'session-dev2' })
+    })
+    await waitFor(() => expect(attachPayloads().some((message) => message?.sessionName === 'dev2')).toBe(true))
+    expect(attachPayloads().at(-1)?.viewId).toBe(first?.viewId)
+  })
   it('waits for the new terminal instance before attaching after session switch', async () => {
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
     await waitFor(() =>
-      expect(sendMock).toHaveBeenCalledWith({
-        type: 'attach',
-        hostId: 'local',
-        sessionName: 'dev1',
-        cols: 120,
-        rows: 36,
-        exclusive: true,
-      }),
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'attach',
+          hostId: 'local',
+          sessionName: 'dev1',
+          cols: 120,
+          rows: 36,
+          exclusive: true,
+        }),
+      ),
     )
     expect(subscribeOutputMock).toHaveBeenCalledWith('local', 'dev1', expect.any(Function))
     const attachCallsBeforeSwitch = sendMock.mock.calls.filter(([message]) => message?.type === 'attach').length
@@ -325,14 +343,16 @@ describe('PaneGrid', () => {
     })
     expect(screen.getByRole('button', { name: 'dev2' })).toBeInTheDocument()
     await waitFor(() =>
-      expect(sendMock).toHaveBeenCalledWith({
-        type: 'attach',
-        hostId: 'local',
-        sessionName: 'dev2',
-        cols: 120,
-        rows: 36,
-        exclusive: true,
-      }),
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'attach',
+          hostId: 'local',
+          sessionName: 'dev2',
+          cols: 120,
+          rows: 36,
+          exclusive: true,
+        }),
+      ),
     )
     expect(sendMock.mock.calls.filter(([message]) => message?.type === 'attach').length).toBe(
       attachCallsBeforeSwitch + 1,
@@ -392,14 +412,16 @@ describe('PaneGrid', () => {
     render(<PaneGrid sessionId="session-dev2" />)
     fireEvent.click(screen.getByRole('button', { name: 'dev2' }))
     await waitFor(() =>
-      expect(sendMock).toHaveBeenCalledWith({
-        type: 'attach',
-        hostId: 'local',
-        sessionName: 'dev2',
-        cols: 120,
-        rows: 36,
-        exclusive: true,
-      }),
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'attach',
+          hostId: 'local',
+          sessionName: 'dev2',
+          cols: 120,
+          rows: 36,
+          exclusive: true,
+        }),
+      ),
     )
     expect(useConsoleStore.getState().activeSessionId).toBe('session-dev1')
   })
@@ -433,15 +455,17 @@ describe('PaneGrid', () => {
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
     await waitFor(() =>
-      expect(sendMock).toHaveBeenCalledWith({
-        type: 'attach',
-        hostId: 'local',
-        sessionName: 'dev1',
-        cols: 120,
-        rows: 36,
-        exclusive: true,
-        passive: true,
-      }),
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'attach',
+          hostId: 'local',
+          sessionName: 'dev1',
+          cols: 120,
+          rows: 36,
+          exclusive: true,
+          passive: true,
+        }),
+      ),
     )
   })
   it('re-attaches exclusive after the page regains focus', async () => {
@@ -471,28 +495,32 @@ describe('PaneGrid', () => {
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
     await waitFor(() =>
-      expect(sendMock).toHaveBeenCalledWith({
-        type: 'attach',
-        hostId: 'local',
-        sessionName: 'dev1',
-        cols: 120,
-        rows: 36,
-        exclusive: true,
-      }),
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'attach',
+          hostId: 'local',
+          sessionName: 'dev1',
+          cols: 120,
+          rows: 36,
+          exclusive: true,
+        }),
+      ),
     )
     act(() => {
       useConsoleStore.setState({ activeSessionId: 'session-dev2' })
     })
     expect(screen.getByRole('button', { name: 'dev2' })).toBeInTheDocument()
     await waitFor(() =>
-      expect(sendMock).toHaveBeenCalledWith({
-        type: 'attach',
-        hostId: 'local',
-        sessionName: 'dev2',
-        cols: 120,
-        rows: 36,
-        exclusive: true,
-      }),
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'attach',
+          hostId: 'local',
+          sessionName: 'dev2',
+          cols: 120,
+          rows: 36,
+          exclusive: true,
+        }),
+      ),
     )
     act(() => {
       emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev2', cols: 120, rows: 36, hostId: 'local' })
@@ -504,14 +532,16 @@ describe('PaneGrid', () => {
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
     await waitFor(() =>
-      expect(sendMock).toHaveBeenCalledWith({
-        type: 'attach',
-        hostId: 'local',
-        sessionName: 'dev1',
-        cols: 120,
-        rows: 36,
-        exclusive: true,
-      }),
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'attach',
+          hostId: 'local',
+          sessionName: 'dev1',
+          cols: 120,
+          rows: 36,
+          exclusive: true,
+        }),
+      ),
     )
     act(() => {
       emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 120, rows: 36 })
@@ -534,14 +564,16 @@ describe('PaneGrid', () => {
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
     await waitFor(() =>
-      expect(sendMock).toHaveBeenCalledWith({
-        type: 'attach',
-        hostId: 'local',
-        sessionName: 'dev1',
-        cols: 120,
-        rows: 36,
-        exclusive: true,
-      }),
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'attach',
+          hostId: 'local',
+          sessionName: 'dev1',
+          cols: 120,
+          rows: 36,
+          exclusive: true,
+        }),
+      ),
     )
     act(() => {
       emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' })
@@ -558,14 +590,16 @@ describe('PaneGrid', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
     await waitFor(() =>
-      expect(sendMock).toHaveBeenCalledWith({
-        type: 'attach',
-        hostId: 'local',
-        sessionName: 'dev1',
-        cols: 121,
-        rows: 40,
-        exclusive: true,
-      }),
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'attach',
+          hostId: 'local',
+          sessionName: 'dev1',
+          cols: 121,
+          rows: 40,
+          exclusive: true,
+        }),
+      ),
     )
     sendMock.mockClear()
     act(() => {
@@ -580,14 +614,16 @@ describe('PaneGrid', () => {
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
     await waitFor(() =>
-      expect(sendMock).toHaveBeenCalledWith({
-        type: 'attach',
-        hostId: 'local',
-        sessionName: 'dev1',
-        cols: 120,
-        rows: 36,
-        exclusive: true,
-      }),
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'attach',
+          hostId: 'local',
+          sessionName: 'dev1',
+          cols: 120,
+          rows: 36,
+          exclusive: true,
+        }),
+      ),
     )
     act(() => {
       emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' })
@@ -664,14 +700,16 @@ describe('PaneGrid', () => {
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
     await waitFor(() =>
-      expect(sendMock).toHaveBeenCalledWith({
-        type: 'attach',
-        hostId: 'local',
-        sessionName: 'dev1',
-        cols: 120,
-        rows: 36,
-        exclusive: true,
-      }),
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'attach',
+          hostId: 'local',
+          sessionName: 'dev1',
+          cols: 120,
+          rows: 36,
+          exclusive: true,
+        }),
+      ),
     )
     act(() => {
       emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' })
@@ -683,14 +721,16 @@ describe('PaneGrid', () => {
     expect(sendMock.mock.calls.filter(([message]) => message?.type === 'attach')).toHaveLength(0)
     await waitFor(
       () =>
-        expect(sendMock).toHaveBeenCalledWith({
-          type: 'attach',
-          hostId: 'local',
-          sessionName: 'dev1',
-          cols: 120,
-          rows: 36,
-          exclusive: true,
-        }),
+        expect(sendMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'attach',
+            hostId: 'local',
+            sessionName: 'dev1',
+            cols: 120,
+            rows: 36,
+            exclusive: true,
+          }),
+        ),
       { timeout: 1600 },
     )
     sendMock.mockClear()
@@ -708,14 +748,16 @@ describe('PaneGrid', () => {
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
     await waitFor(() =>
-      expect(sendMock).toHaveBeenCalledWith({
-        type: 'attach',
-        hostId: 'local',
-        sessionName: 'dev1',
-        cols: 120,
-        rows: 36,
-        exclusive: true,
-      }),
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'attach',
+          hostId: 'local',
+          sessionName: 'dev1',
+          cols: 120,
+          rows: 36,
+          exclusive: true,
+        }),
+      ),
     )
     act(() => {
       for (let i = 0; i < 30; i += 1) terminalProps.current?.onInput?.(`input-${i}`)
@@ -744,14 +786,16 @@ describe('PaneGrid', () => {
     vi.useFakeTimers()
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
-    expect(sendMock).toHaveBeenCalledWith({
-      type: 'attach',
-      hostId: 'local',
-      sessionName: 'dev1',
-      cols: 120,
-      rows: 36,
-      exclusive: true,
-    })
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'attach',
+        hostId: 'local',
+        sessionName: 'dev1',
+        cols: 120,
+        rows: 36,
+        exclusive: true,
+      }),
+    )
     act(() => {
       emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' })
     })
@@ -760,14 +804,16 @@ describe('PaneGrid', () => {
     act(() => {
       useConsoleStore.setState({ activeSessionId: 'session-dev2' })
     })
-    expect(sendMock).toHaveBeenCalledWith({
-      type: 'attach',
-      hostId: 'local',
-      sessionName: 'dev2',
-      cols: 120,
-      rows: 36,
-      exclusive: true,
-    })
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'attach',
+        hostId: 'local',
+        sessionName: 'dev2',
+        cols: 120,
+        rows: 36,
+        exclusive: true,
+      }),
+    )
     act(() => {
       emitStreamEvent(STREAM_EVENT.error, { hostId: 'local', sessionName: 'dev2', message: 'Session not found' })
     })
@@ -778,14 +824,16 @@ describe('PaneGrid', () => {
     act(() => {
       vi.advanceTimersByTime(7000)
     })
-    expect(sendMock).not.toHaveBeenCalledWith({
-      type: 'attach',
-      hostId: 'local',
-      sessionName: 'dev2',
-      cols: 120,
-      rows: 36,
-      exclusive: true,
-    })
+    expect(sendMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'attach',
+        hostId: 'local',
+        sessionName: 'dev2',
+        cols: 120,
+        rows: 36,
+        exclusive: true,
+      }),
+    )
   })
   it('merges continuous drags into one trailing send of the final size', () => {
     vi.useFakeTimers()
