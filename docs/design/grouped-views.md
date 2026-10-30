@@ -1,7 +1,7 @@
 # 多端视角（grouped sessions）设计
 
-> 状态：设计冻结，待实施
-> 实测环境：tmux 3.4，隔离 socket；基线 master `95697a1`
+> 状态：已实施（2026-10-30）
+> 实测环境：tmux 3.4，隔离 socket；设计起点 master `95697a1`
 > 目标：同一 workspace 允许多个浏览器各自停在不同的 window，互不抢「当前窗口」。
 
 ## 1. 语义与实测
@@ -27,31 +27,32 @@ $ tmux list-windows -t viewB -F '#{window_index} #{window_id} active=#{window_ac
 
 - `kill-session -t test` 之后 `viewA/viewB` 仍存活（窗口还在），会变孤儿，必须显式清理。
 - grouped 只隔离「当前窗口」，**不隔离 window 尺寸**；多端尺寸仍由现有的 ignore-size / 仲裁逻辑处理。
+- 新建 grouped view 的 current window **不继承** base，总是窗口表第一项；创建后必须显式对齐到 base 当时的 `#{window_index}`，否则第二台设备首次打开会跳窗。
+- `<view>:@n` 在 select 目标里不可靠（tmux 会按 index 数字解析）；必须先用 base 查出 `@n` 的真实 index，再切 `<view>:<index>`。
 
 ## 2. 模型
 
 - **base session**：用户创建的真实会话，UI 里唯一可见的 session。
 - **view session**：`new-session -d -t <base> -s tmuxgo-view-<hash>`，只为某个客户端视角存在。
-  - hash = `sha1(hostId + '\0' + base + '\0' + viewId)` 前 12 位，避免非法字符与长度问题。
+  - hash = `sha1(hostId + '\0' + base + '\0' + viewId)` 前 16 位，避免非法字符与长度问题。
   - 在 view 上写 session option：`@tmuxgo_view_base=<base>`、`@tmuxgo_view_client=<viewId>`。
-  - **过滤依据用 option，不靠名字前缀**：用户完全可以自己建同名 session；option 是权威标记。
-- `viewId`：前端 localStorage 生成的稳定随机 id（每设备/浏览器一份），随 attach 消息发送。
+  - **过滤依据用 option，不靠名字前缀**：用户完全可以自己建同名前缀 session；option 是权威标记。
+- `viewId`：前端 localStorage 生成的稳定随机 id（每设备/浏览器一份，`tmuxgo.viewId.v1`，32 hex），随 attach / 读请求 / select 发送。
 
 ## 3. 数据流
 
 ```
 浏览器 attach {hostId, sessionName, viewId}
-  → resolveAttachTarget 得到 base
-  → ensureViewSession(host, base, viewId)  // 幂等：已存在则复用
-  → StreamSession 记录 baseName（展示）+ attachName=view（真实 PTY 目标）
-  → acquireSharedTerminal(host, attachName)  // hub key 自然按 view 隔离
-  → mirror 抓取 attachName 当前窗口
+  → resolveAttachTarget 得到 base（scope 校验仍按 base）
+  → ensureViewSession(host, base, viewId)  // 幂等；同名但 option 不匹配 = collision，绝不 kill
+  → StreamSession 记录 attachedSessionName=base（协议/peer/日志）+ attachedViewName=view（PTY/hub/refresh）
+  → acquireSharedTerminal(host, view)      // hub key 按 view 隔离
+  → mirror / capture / copy-mode 全部打到 view
 ```
 
-`shared-terminal.ts` 的 key 不需要改结构：把 view 名当 session 名传进去即可；需要改的是
-`StreamSession` 里所有「用 attachedSessionName 做业务判断」的地方，拆成 base 与 attach 两个字段。
+`shared-terminal.ts` 结构未改：把 view 名当 session 名传入即可。所有 tmux 寻址经 `tmuxTargetName()` 替换；对外消息、peer 仲裁、exclusive 所有权、audit target 仍是 base。
 
-## 4. 选择路由
+## 4. 选择与读路径
 
 | 操作           | 目标                      | 说明                                             |
 | -------------- | ------------------------- | ------------------------------------------------ |
@@ -60,40 +61,52 @@ $ tmux list-windows -t viewB -F '#{window_index} #{window_id} active=#{window_ac
 | 新建/关闭窗口  | base                      | 结构变更对所有 view 可见                         |
 | 拖 pane 跨窗口 | base 的 window id         | 拓扑共享                                         |
 
-`routes/windows.ts:375`、`routes/sessions.ts:337` 的 `select-window` 需要接受可选 `viewId`；
-缺省（老客户端/CLI/REST）走 base，行为不变。
+- `GET /windows`、`GET /snapshot`、`GET /panes` 接受 `?viewId=`：tmux 查询用 view，`active/zoomed/activeWindowId` 从 view 算；`sessionId/sessionName` 与 agent 状态查询始终用 base。
+- `POST /windows/select` body 扩为 `{windowId, viewId?}`：先用 `list-windows -t base` 精确匹配 `@n` 拿 index，再 `select-window -t <view>:<index>`。
+- `viewId` 非法 → 400；读路径 view 尚未创建 → 回退 base（前端 attach 与首屏读并发，不能 404）；**select 不回退 base**——直接 `ensureViewSession` 把 view 建出来再切，否则 attach/首点竞态会把 base 切走而 view 停在旧窗口；同名但 option 为空/不匹配 → 404 `VIEW_CONFLICT`；`TMUXGO_VIEWS=0` → 完全旧路径。
 
 ## 5. 枚举过滤
 
-新增 `listUserSessions(hostId)`：`list-sessions -F '#{session_name}|#{@tmuxgo_view_base}|...'`，
-丢掉 `@tmuxgo_view_base` 非空的项。替换：
+`lib/session-list.ts` 用 tab 分隔的 `list-sessions -F` 统一解析：
 
-- `routes/sessions.ts:145` 会话列表
-- `lib/agent-state.ts` 的会话扫描（否则同一批 pane 被 base 和 view 各算一次）
-- 机队/巡检/快照里所有 `list-sessions` 调用
+- `listUserSessions(hostId)`：丢掉 `@tmuxgo_view_base` 非空的行；替换会话列表、机队/巡检调用方。
+- `getViewSessionNames(hostId)` / `parseViewSessionNames`：给 `list-panes -a` 去重（grouped 会让同一 pane 按 session 重复出现）。
+- `parseUserSessionNames`：快照恢复判断「已存在」只认用户会话。
+- agent 全量扫描（本地/远端/explain）都排除 view 名；per-session 分支查 base 本尊，不需要过滤。
 
 ## 6. 生命周期
 
-- **创建**：首次 attach 时 `ensureViewSession`；并发 attach 用现有 `pendingAcquires` 同款串行化。
-- **销毁**：该 view 的 hub 宽限期结束（现有 `DEFAULT_HUB_GRACE_MS`）后 `kill-session -t view`；
-  `kill-session` 失败不重试（幂等）。
-- **清扫**：gateway 启动后与每 5 分钟一次，杀掉满足任一条件的 view：
-  1. `@tmuxgo_view_base` 对应的 base 已不存在；
-  2. `#{session_attached}=0` 且 `#{session_activity}` 超过 10 分钟。
+- **创建**：首次 attach 时 `ensureViewSession`；同进程并发用 in-flight Map 合并，进程外同名冲突重读一次，归属正确则复用。
+- **销毁**：**不做 hub destroy 即杀**——destroy 与并发 re-attach 的 ensure 有竞态，ensure 复用旧 view 后 kill 落地会打死新 PTY。
+- **清扫**：gateway 启动扫一次 + 每 5 分钟一次，`sweepViewSessions` 只动带 `@tmuxgo_view_base` 的 session：
+  1. option 指向的 base 已不存在；
+  2. `#{session_attached}=0` 且 `#{session_activity}` 超过 10 分钟（`DEFAULT_VIEW_TTL_MS`）。
+- 有附着者的 live view 绝不清；kill 前重新读 option 校验归属；kill 失败/目标消失按幂等处理。
 - **禁止** `destroy-unattached`：它会在断线瞬间销毁 view，重连丢当前窗口；清扫必须走自己的 TTL。
+
+这样浏览器 10 分钟内重连仍能保住自己的 current window；孤儿最多滞留一个 TTL。
 
 ## 7. 兼容与开关
 
-- 环境变量 `TMUXGO_VIEWS=1` 开启；默认关闭，先灰度。
-- 未开启或未带 `viewId`：完全走现有单 hub 路径，零行为变化。
+- 默认开启；`TMUXGO_VIEWS=0` 是一键回退：忽略 `viewId`、不建 view、不查 option，hub key 仍是 base。
+- 未带 `viewId`：完全走现有单 hub 路径，零行为变化。
 - 控制面/CLI 不暴露 view；view 是 UI 传输层概念，不是用户可操作对象。
+- 老前端（不带 `viewId`）与新网关、新前端与老网关（未知字段/查询参数被忽略）均可工作。
 
 ## 8. 风险
 
-| 风险                                                      | 处置                                                                         |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `StreamSession` 里 base/attach 混用导致消息里出现 view 名 | 只允许 `attachedBaseName` 进消息与 UI；加测试断言                            |
-| 会话枚举漏过滤 → 侧栏/机队出现幽灵 session                | 用 option 过滤的单一 helper，替换后加一条「session 列表不含 view」的路由测试 |
-| view 泄漏（进程崩溃/网关重启）                            | 启动清扫 + 5 分钟定时清扫；孤儿 kill 幂等                                    |
-| 尺寸争抢被误认为 bug                                      | UI 文案说明「视角独立，尺寸跟随窗口」；文档写清                              |
-| 24 小时长跑下 view 数量膨胀                               | 单 IP/单 viewId 上限 + 全局 view 数量上限（如 64），超限拒绝并提示           |
+| 风险                                                    | 处置                                                                                |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `StreamSession` 里 base/view 混用导致消息里出现 view 名 | 只允许 base 进消息与 UI；`stream-session.view.test.ts` 断言                         |
+| 会话枚举漏过滤 → 侧栏/机队出现幽灵 session              | 用 option 过滤的单一 helper；路由测试覆盖同前缀 decoy                               |
+| view 泄漏（进程崩溃/网关重启）                          | 启动清扫 + 5 分钟定时清扫；孤儿 kill 幂等                                           |
+| view 创建瞬间 option 空窗 → 读请求 404                  | 窗口极窄；读路径对「session 不存在」回退 base；select 走 ensure，只有同名冲突才 404 |
+| 每个带 viewId 的读多一次 `list-sessions`                | 本地开销小，远端多一次 SSH；后续可做 host 级短 TTL 缓存                             |
+| 尺寸争抢被误认为 bug                                    | UI 文案说明「视角独立，尺寸跟随窗口」；文档写清                                     |
+| 24 小时长跑下 view 数量膨胀                             | 单 IP/单 viewId 上限 + 全局 view 数量上限（如 64），超限拒绝并提示（未实施）        |
+
+## 9. 验收
+
+- 单测：`pnpm test view-sessions stream-session.view session-list sessions-view windows agent-state session-snapshot`。
+- 真机冒烟：`npx tsx scripts/grouped-view-smoke.ts`（隔离 server + 真 gateway + 两个 WS view；验证独立 current window、base 不变、列表隐藏、snapshot 身份、detach 保留、TTL 清扫）。
+- 全量：`pnpm test`、前端 `vitest run`、`pnpm typecheck`、`pnpm build:gateway`、`pnpm build:frontend`。
