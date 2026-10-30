@@ -30,6 +30,7 @@ import { emitStreamEvent, subscribeStreamEvent, STREAM_EVENT } from '@/lib/strea
 import { createTerminalSizeState, type TerminalSizeState } from '@/lib/terminal-size-state'
 import { shouldUsePasteBinary } from '@/lib/paste-safety'
 import { withHostPrefix } from '@/lib/tmux-host-id'
+import { zoomCssPoint } from '@/lib/workspace-zoom'
 import type { Pane, Session, Window } from '@/types'
 
 const ATTACH_TIMEOUT = 5000
@@ -1526,6 +1527,7 @@ export function PaneGrid({
   return (
     <div
       data-sync-member={currentSyncMember ? 'true' : undefined}
+      data-terminal-pane
       className={`tmuxgo-content-surface relative h-full w-full min-h-0 min-w-0 overflow-hidden ${
         currentSyncMember ? 'ring-2 ring-inset ring-accent/60' : ''
       }`}
@@ -1606,7 +1608,7 @@ export function PaneGrid({
             className="pointer-events-auto flex min-w-0 items-center gap-1"
             onContextMenu={(event) => {
               event.preventDefault()
-              setPaneMenu({ x: event.clientX, y: event.clientY })
+              setPaneMenu({ ...zoomCssPoint(event.clientX, event.clientY) })
             }}
           >
             <button

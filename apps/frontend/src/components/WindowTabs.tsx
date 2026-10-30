@@ -30,6 +30,7 @@ import { setTerminalDockDragActive, TERMINAL_DOCK_DRAG_MIME, WINDOW_TAB_DRAG_MIM
 import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
 import { endPaneDrag, isPaneDrag, readPaneDragPayload } from '@/lib/pane-drag'
 import { writeClipboardText } from '@/lib/clipboard-text'
+import { zoomCssPoint } from '@/lib/workspace-zoom'
 import { LayoutStringDialog } from './LayoutStringDialog'
 import { tmuxWindowIdOf, withHostPrefix } from '@/lib/tmux-host-id'
 import type { Window } from '@/types'
@@ -407,7 +408,7 @@ export function WindowTabs() {
               onDoubleClick={() => setRenameTarget({ id: window.id, name: window.name })}
               onContextMenu={(event) => {
                 event.preventDefault()
-                setTabMenu({ x: event.clientX, y: event.clientY, id: window.id })
+                setTabMenu({ ...zoomCssPoint(event.clientX, event.clientY), id: window.id })
               }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') void handleSelect(window.id)

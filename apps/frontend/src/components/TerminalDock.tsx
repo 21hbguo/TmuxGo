@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import { useWorkspaceZoom } from '@/lib/workspace-zoom'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import type { TerminalDockPosition } from '@/stores/useConsoleStore'
 import { WindowTabs } from './WindowTabs'
@@ -40,16 +41,23 @@ export function TerminalDock({
   const [previewSize, setPreviewSize] = useState<number | null>(null)
   const getResizeSize = (event: MouseEvent) => {
     const rect = panelRef.current?.getBoundingClientRect()
+    // UI zoom 后 rect/client 都是物理 px，面板宽度 state 是 CSS px：差值先除回 zoom
+    const zoom = useWorkspaceZoom.getState().uiScale
+    const toCss = (value: number) => (zoom === 1 ? value : value / zoom)
     if (side) {
       // 右侧停靠时手柄在面板左缘，宽度 = 面板右边 - 鼠标 X；左侧停靠镜像
       if (rect)
-        return clampValue(dock === 'right' ? rect.right - event.clientX : event.clientX - rect.left, minWidth, maxWidth)
+        return clampValue(
+          toCss(dock === 'right' ? rect.right - event.clientX : event.clientX - rect.left),
+          minWidth,
+          maxWidth,
+        )
       const viewport = dragViewportWidth || window.innerWidth
-      return clampValue(dock === 'right' ? viewport - event.clientX : event.clientX, minWidth, maxWidth)
+      return clampValue(toCss(dock === 'right' ? viewport - event.clientX : event.clientX), minWidth, maxWidth)
     }
     const bottom = rect?.bottom
-    if (bottom && Number.isFinite(bottom)) return clampValue(bottom - event.clientY, minHeight, maxHeight)
-    return clampValue((dragViewportHeight || window.innerHeight) - event.clientY - 28, minHeight, maxHeight)
+    if (bottom && Number.isFinite(bottom)) return clampValue(toCss(bottom - event.clientY), minHeight, maxHeight)
+    return clampValue(toCss((dragViewportHeight || window.innerHeight) - event.clientY) - 28, minHeight, maxHeight)
   }
   useEffect(() => {
     if (fill) return

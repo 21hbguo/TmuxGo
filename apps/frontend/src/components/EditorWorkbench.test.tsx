@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EditorWorkbench } from './EditorWorkbench'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useEditorViewPrefs } from '@/lib/editor-view-prefs'
+import { DEFAULT_WORKSPACE_ZOOM, useWorkspaceZoom } from '@/lib/workspace-zoom'
 import type { EditorGroupState, EditorLayoutNode, EditorLayoutSplit } from '@/stores/useConsoleStore'
 import type { CodeNavigationResult } from '@/lib/code-navigation'
 import type { EditorLocationRestore } from '@/lib/editor-open'
@@ -779,7 +780,7 @@ describe('EditorWorkbench', () => {
     expect(screen.queryByRole('heading', { name: 'Live title' })).not.toBeInTheDocument()
     expect(liveMarkdownPropsRef.current.at(-1)?.fontSize).toBe(14)
     // live 模式也要跟 fontScale 走：Ctrl+= 后 CM6 字号同步放大，而不是只有状态栏百分比变
-    fireEvent.keyDown(window, { key: '=', ctrlKey: true })
+    fireEvent.keyDown(screen.getByTestId('editor-live-markdown'), { key: '=', ctrlKey: true })
     expect(liveMarkdownPropsRef.current.at(-1)?.fontSize).toBe(15)
     fireEvent.change(screen.getByLabelText('live-markdown'), { target: { value: '# Changed' } })
     expect(useConsoleStore.getState().openEditors[0].content).toBe('# Changed')
@@ -2430,20 +2431,25 @@ describe('EditorWorkbench', () => {
       renderWorkbench()
       press('z', { altKey: true })
       expect(useEditorViewPrefs.getState().wordWrap).toBe(true)
-      press('=', { ctrlKey: true })
+      const pressInEditor = (key: string, patch: Partial<KeyboardEventInit> = {}) =>
+        fireEvent.keyDown(screen.getByTestId('editor-content'), { key, ...patch })
+      pressInEditor('=', { ctrlKey: true })
       expect(useEditorViewPrefs.getState().fontScale).toBe(1.1)
       // 美式键盘 Ctrl++ = Ctrl+Shift+=，必须和 Ctrl+= 等价
-      press('+', { ctrlKey: true, shiftKey: true })
+      pressInEditor('+', { ctrlKey: true, shiftKey: true })
       expect(useEditorViewPrefs.getState().fontScale).toBe(1.25)
-      // Ctrl+滚轮：只缩放编辑区，不落到浏览器整页缩放
-      const wheel = new WheelEvent('wheel', { ctrlKey: true, deltaY: -100, bubbles: true, cancelable: true })
-      screen.getByLabelText('editor').dispatchEvent(wheel)
-      expect(wheel.defaultPrevented).toBe(true)
-      expect(useEditorViewPrefs.getState().fontScale).toBe(1.4)
       fireEvent.click(screen.getByTestId('editor-status-zoom'))
       fireEvent.click(screen.getByText('Editor Font Zoom Reset'))
       expect(useEditorViewPrefs.getState().fontScale).toBe(1)
       expect(screen.getByTestId('editor-status-zoom').textContent).toBe('Zoom 100%')
+    })
+
+    it('counter-zooms editor content so UI zoom does not resize the text', () => {
+      singleEditorState('a')
+      useWorkspaceZoom.setState({ uiScale: 1.25 })
+      renderWorkbench()
+      expect(screen.getByTestId('editor-content').style.zoom).toBe('0.8')
+      useWorkspaceZoom.setState({ ...DEFAULT_WORKSPACE_ZOOM })
     })
 
     it('routes Ctrl+1..9 to the matching editor group', async () => {

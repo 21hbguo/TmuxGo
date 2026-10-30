@@ -15,6 +15,7 @@ import { WorkspaceEmptyState } from './WorkspaceEmptyState'
 import { TerminalDock } from './TerminalDock'
 import { SessionSplitView } from './SessionSplitView'
 import { useSplitGroups } from '@/hooks/useSplitGroups'
+import { useWorkspaceZoom } from '@/lib/workspace-zoom'
 import { useTranslation } from '@/i18n'
 import {
   isOutsideWindowStrip,
@@ -183,8 +184,11 @@ export function DesktopWorkbench() {
   }, [mounted])
   useEffect(() => {
     const handleMove = (event: MouseEvent) => {
+      // 外壳 UI zoom 后 clientX 是物理像素，内部宽度全是 CSS px；先除回 zoom 再算，拖拽才跟手
+      const zoom = useWorkspaceZoom.getState().uiScale
+      const pointerX = zoom === 1 ? event.clientX : event.clientX / zoom
       if (resizingRef.current === 'session') {
-        const raw = event.clientX - ACTIVITY_BAR_WIDTH
+        const raw = pointerX - ACTIVITY_BAR_WIDTH
         const armed = raw < sessionPanelMin - SESSION_COLLAPSE_DELTA
         if (armed !== sessionCollapseArmedRef.current) {
           sessionCollapseArmedRef.current = armed
@@ -199,14 +203,10 @@ export function DesktopWorkbench() {
         return
       }
       if (resizingRef.current === 'rail') {
-        if (event.clientX - ACTIVITY_BAR_WIDTH > compactSessionWidth + SESSION_EXPAND_DELTA) {
+        if (pointerX - ACTIVITY_BAR_WIDTH > compactSessionWidth + SESSION_EXPAND_DELTA) {
           resizingRef.current = 'session'
           setSessionPanelExpanded(true)
-          pendingSessionWidthRef.current = clampValue(
-            event.clientX - ACTIVITY_BAR_WIDTH,
-            sessionPanelMin,
-            sessionPanelMax,
-          )
+          pendingSessionWidthRef.current = clampValue(pointerX - ACTIVITY_BAR_WIDTH, sessionPanelMin, sessionPanelMax)
           if (!frameRef.current) {
             frameRef.current = requestAnimationFrame(() => {
               frameRef.current = null
@@ -230,7 +230,7 @@ export function DesktopWorkbench() {
             : compactSessionWidth)
         const panelsBefore = Math.max(0, openSidePanels.indexOf(resizingRef.current))
         const panelOffset = sessionOffset + panelsBefore * renderedSidePanelWidth
-        pendingSideWidthRef.current = clampValue(event.clientX - panelOffset, sidePanelMin, sidePanelMax)
+        pendingSideWidthRef.current = clampValue(pointerX - panelOffset, sidePanelMin, sidePanelMax)
         if (frameRef.current) return
         frameRef.current = requestAnimationFrame(() => {
           frameRef.current = null

@@ -3,6 +3,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import type { LayoutTerminal } from '@/lib/terminal-layout'
 import '@xterm/xterm/css/xterm.css'
 import { usePreferences, ensureAppFontLoaded } from '@/hooks/usePreferences'
+import { useWorkspaceZoom } from '@/lib/workspace-zoom'
 import { useMobileKeyboard } from '@/hooks/useMobileKeyboard'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -83,6 +84,10 @@ export function TerminalPane({
   onSwipeRight,
 }: TerminalPaneProps) {
   const { preferences, updatePreferences, isReady: preferencesReady = true } = usePreferences()
+  const terminalScale = useWorkspaceZoom((state) => state.terminalScale)
+  const uiScale = useWorkspaceZoom((state) => state.uiScale)
+  // 终端区独立字号：最终字号 = 全局 preferences.fontSize × terminalScale，不受编辑区 fontScale 影响
+  const terminalFontSize = Math.max(6, Math.round(preferences.fontSize * terminalScale))
   const { t } = useTranslation()
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const pushToast = useConsoleStore((s) => s.pushToast)
@@ -432,10 +437,10 @@ export function TerminalPane({
     if (!terminal) return
     let cancelled = false
     void (async () => {
-      await ensureAppFontLoaded(preferences.fontFamily, preferences.fontSize)
+      await ensureAppFontLoaded(preferences.fontFamily, terminalFontSize)
       if (cancelled || !terminalInstance.current) return
       const active = terminalInstance.current
-      active.options.fontSize = preferences.fontSize
+      active.options.fontSize = terminalFontSize
       active.options.fontFamily = preferences.fontFamily
       try {
         active.clearTextureAtlas?.()
@@ -451,7 +456,7 @@ export function TerminalPane({
     return () => {
       cancelled = true
     }
-  }, [preferences.fontSize, preferences.fontFamily])
+  }, [preferences.fontFamily, terminalFontSize])
   // runtime 只在创建时快照这几个调用方回调：它们每次 render 都可能重建（dropState 还随拖拽态变化），
   // 直接进 deps 会导致 xterm 实例每 render 重建、丢输出订阅。用 latest-ref 持有最新值，
   // 让 effect 只按 mount-once/稳定值触发，同时运行时仍能读到本帧的最新实现
@@ -585,6 +590,8 @@ export function TerminalPane({
         ['--terminal-padding' as string]: `${preferences.terminalPadding}px`,
         ['--terminal-padding-bottom' as string]: `${preferences.terminalPadding}px`,
         touchAction: isMobileDevice ? 'none' : 'auto',
+        // 外壳 UI zoom 反向抵消：终端字号只由 terminalScale 决定，不跟 UI 缩放
+        zoom: uiScale === 1 ? undefined : 1 / uiScale,
       }}
       onContextMenu={(e) => {
         if (!isMobileDevice) return

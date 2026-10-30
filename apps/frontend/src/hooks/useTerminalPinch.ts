@@ -15,6 +15,8 @@ interface UseTerminalPinchOptions {
   updatePreferencesRef: React.MutableRefObject<(value: { fontSize: number }) => void>
   scheduleLayoutRef: React.MutableRefObject<(delay?: number, force?: boolean, resetFont?: boolean) => void>
   touchMovedRef: React.MutableRefObject<boolean>
+  // 终端区独立字号倍率：手势调的是视觉字号，写回 preferences 前要除回倍率，避免逐次放大
+  fontScale?: number
 }
 
 export function useTerminalPinch({
@@ -24,6 +26,7 @@ export function useTerminalPinch({
   updatePreferencesRef,
   scheduleLayoutRef,
   touchMovedRef,
+  fontScale = 1,
 }: UseTerminalPinchOptions) {
   const stateRef = useRef({
     active: false,
@@ -71,9 +74,10 @@ export function useTerminalPinch({
     state.startDistance = 0
     state.startFontSize = nextFontSize
     state.lastFontSize = nextFontSize
-    if (Math.abs(nextFontSize - preferencesRef.current.fontSize) >= FONT_SIZE_EPSILON)
-      updatePreferencesRef.current({ fontSize: nextFontSize })
-  }, [clamp, preferencesRef, updatePreferencesRef])
+    const nextBase = clamp(nextFontSize / Math.max(0.1, fontScale))
+    if (Math.abs(nextBase - preferencesRef.current.fontSize) >= FONT_SIZE_EPSILON)
+      updatePreferencesRef.current({ fontSize: nextBase })
+  }, [clamp, fontScale, preferencesRef, updatePreferencesRef])
   const handleTouchStart = useCallback(
     (event: TouchEvent) => {
       if (isMobile && event.touches.length >= 2) begin(event.touches)

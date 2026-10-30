@@ -4,6 +4,7 @@ import { cn } from '@/lib/cn'
 import { useEditorCursor } from '@/lib/editor-cursor'
 import { eolLabel, languageLabel, type EditorEol, type EditorIndentInfo } from '@/lib/editor-status'
 import type { WhitespaceMode } from '@/lib/editor-view-prefs'
+import { zoomCssPoint } from '@/lib/workspace-zoom'
 import { useTranslation } from '@/i18n'
 import { EditorContextMenu, type EditorMenuAction } from './EditorContextMenu'
 
@@ -77,8 +78,16 @@ export function EditorStatusBar({
     ? t('editor.status.indentSpaces', { size: indent.tabSize })
     : t('editor.status.indentTabs')
   const indentActions: EditorMenuAction[] = [
-    { id: 'spaces-2', label: t('editor.status.indentSpaces', { size: 2 }), onSelect: () => actions.setIndent({ tabSize: 2, insertSpaces: true }) },
-    { id: 'spaces-4', label: t('editor.status.indentSpaces', { size: 4 }), onSelect: () => actions.setIndent({ tabSize: 4, insertSpaces: true }) },
+    {
+      id: 'spaces-2',
+      label: t('editor.status.indentSpaces', { size: 2 }),
+      onSelect: () => actions.setIndent({ tabSize: 2, insertSpaces: true }),
+    },
+    {
+      id: 'spaces-4',
+      label: t('editor.status.indentSpaces', { size: 4 }),
+      onSelect: () => actions.setIndent({ tabSize: 4, insertSpaces: true }),
+    },
     {
       id: 'tabs',
       label: t('editor.status.indentTabs'),
@@ -114,7 +123,7 @@ export function EditorStatusBar({
           aria-label={t('editor.status.indentTitle')}
           onClick={(event) => {
             const rect = event.currentTarget.getBoundingClientRect()
-            setIndentAnchor({ x: rect.left, y: rect.top })
+            setIndentAnchor(zoomCssPoint(rect.left, rect.top))
           }}
           className={STATUS_BUTTON_CLASS}
         >
@@ -163,7 +172,7 @@ export function EditorStatusBar({
           aria-label={t('editor.status.zoomTitle')}
           onClick={(event) => {
             const rect = event.currentTarget.getBoundingClientRect()
-            setZoomAnchor({ x: rect.left, y: rect.top })
+            setZoomAnchor(zoomCssPoint(rect.left, rect.top))
           }}
           className={STATUS_BUTTON_CLASS}
         >

@@ -36,6 +36,8 @@ import { useDeleteSession, useHosts, useRenameSession, useSessionSnapshot } from
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { usePreferences } from '@/hooks/usePreferences'
+import { useZoneZoom } from '@/hooks/useZoneZoom'
+import { useWorkspaceZoom } from '@/lib/workspace-zoom'
 import { usePrompt } from '@/hooks/usePrompt'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 import { useGitPreferencesSync } from '@/hooks/useGitPreferencesSync'
@@ -132,6 +134,8 @@ function recordMobileDebug(event: string, data?: Record<string, unknown>) {
 }
 
 export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: boolean }) {
+  // 全局只挂一次：Ctrl+滚轮/± 在三区之间路由，避免每个 pane 各挂一个监听互相叠加
+  useZoneZoom()
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
   // 标签标题跟随当前 attach（{host} - {session}: {window}），数据复用本组件已有的
@@ -167,6 +171,16 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
     const height = Math.round(window.visualViewport?.height || window.innerHeight || 0)
     return height ? `${height}px` : '100svh'
   })
+  const uiScale = useWorkspaceZoom((state) => state.uiScale)
+  // CSS zoom 会放大显式宽高：外壳按 1/uiScale 写，渲染回来才是满屏；
+  // 编辑区/终端内容再各自反向 zoom，三区互不影响。
+  const shellHeight =
+    uiScale === 1
+      ? appHeight
+      : /^\d+(?:\.\d+)?px$/.test(appHeight)
+        ? `${Math.round(Number.parseFloat(appHeight) / uiScale)}px`
+        : `calc(${appHeight} / ${uiScale})`
+  const shellWidth = uiScale === 1 ? '100vw' : `calc(100vw / ${uiScale})`
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerType, setDrawerType] = useState<'sessions' | 'panes' | 'windows'>('sessions')
   const [showSettings, setShowSettings] = useState(false)
@@ -977,7 +991,14 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   return (
     <div
       className="tmuxgo-app-shell flex w-screen flex-col overflow-hidden bg-bg-0"
-      style={{ height: appHeight, ['--app-height' as string]: appHeight } as CSSProperties}
+      style={
+        {
+          height: shellHeight,
+          width: shellWidth,
+          zoom: uiScale,
+          ['--app-height' as string]: shellHeight,
+        } as CSSProperties
+      }
     >
       <InstallAppBanner />
       <ImmersiveBackOrb />

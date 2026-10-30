@@ -51,7 +51,7 @@
 | 缩进探测与切换（空格 2/4、Tab） | 状态栏缩进项 | `detectIndent` + `model.updateOptions` |
 | 空白字符可视化 | 状态栏 `¶` 循环 none/boundary/all | `renderWhitespace` |
 | 自动换行 / minimap / sticky scroll | 状态栏 + `⋯` 菜单 | `lib/editor-view-prefs`（持久化） |
-| 字号缩放 | 状态栏百分比 → 放大/缩小/重置；`Ctrl+=` / `Ctrl+-` / `Ctrl+0`；编辑区内 `Ctrl+滚轮`（捕获阶段 preventDefault，只缩编辑区，不缩整页） | 同上，9 档；Monaco 字号 + CM6 live 字号 + md 预览基准字号同步 |
+| 三区独立缩放 | 编辑区：状态栏百分比 / `Ctrl+滚轮` / `Ctrl+±0`；终端区：终端内 `Ctrl+滚轮` / 焦点在终端时 `Ctrl+±0`；其他区（外壳/侧栏/标签/状态栏/弹窗）：其余位置 `Ctrl+滚轮` / `Ctrl+±0` | 三套比例独立持久化；编辑区 9 档（fontScale），终端 9 档（terminalScale），UI 9 档（uiScale）；编辑区内容随外壳 zoom 反向抵消，终端同理 |
 | 自动保存（可配延迟 400–10000ms） | `⋯` 菜单 | 同上 + 防抖 effect |
 | 面包屑（目录 + 符号路径） | 顶部条 | `EditorBreadcrumbs` |
 | 快捷键speedsheet | `Ctrl+Shift+/`、`⋯` → 显示快捷键 | `EditorShortcutsDialog` |
@@ -63,8 +63,9 @@
   单测 `resolveEditorKey({key:'k',ctrlKey:true}) === null` 锁死这一点，防止以后抢回来把面板弄哑。
 - `Ctrl+F` / `Ctrl+D` / `Ctrl+H`（查找/多光标/替换）、`Ctrl+S`、`Ctrl+W` 一律交给 Monaco 或既有逻辑，不拦截。
 - 浏览器保留键：`Ctrl+1..9`、`Ctrl+PageUp/Down`、`Ctrl+=`/`-`/`0` 在 Chrome 里可能被浏览器先处理；
-  缩放在 window 捕获阶段 `preventDefault` 并验证有效，Ctrl+滚轮另用 `passive:false` 拦住浏览器整页缩放。
-  所有能力仍保留非键盘入口（标签右键、状态栏缩放下拉、命令面板），
+  缩放在 window 捕获阶段 `preventDefault` 并验证有效，Ctrl+滚轮另用 `passive:false` 拦住浏览器整页缩放；
+  路由规则是「滚轮看指针、键盘看焦点」，编辑区/终端区/其他区各改各的 store，不联动。
+  编辑区缩放仍保留状态栏/命令面板入口；终端与 UI 缩放目前只有键盘/滚轮入口。
   键盘只是加速器——这条与 VSCode Web / code-server 的限制一致。
 
 ## 4. 性能设计（打字不改整树）

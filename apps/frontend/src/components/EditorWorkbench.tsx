@@ -61,6 +61,7 @@ import {
   type EditorCommandId,
 } from '@/lib/editor-commands'
 import { useEditorViewPrefs } from '@/lib/editor-view-prefs'
+import { applyZoneZoom, isZoomShortcut, resetZoneZoom, useWorkspaceZoom, zoomCssPoint } from '@/lib/workspace-zoom'
 import { isApplePlatform } from '@/lib/terminal-platform'
 import { registerEditorCommandHandler } from '@/lib/editor-command-bus'
 import dynamic from '@/lib/dynamic'
@@ -237,24 +238,11 @@ export function EditorWorkbench({
   // 与全局 preferences 分开，改动频繁且无需服务端同步
   const viewPrefs = useEditorViewPrefs()
   // markdown 默认进 live（Obsidian 式原地编辑）；偏好关掉则回到只读预览，html/csv 行为不变
+  // 外壳 UI zoom 时编辑内容反向抵消，标签/工具栏随 UI 缩放，正文只受 fontScale 控制
+  const uiScale = useWorkspaceZoom((state) => state.uiScale)
   const defaultPreviewModeFor = (language: string): EditorPreviewMode =>
     language === 'markdown' && viewPrefs.markdownLivePreview ? 'live' : 'preview'
-  // Ctrl/Cmd+滚轮缩放编辑器字体：Monaco 关了 mouseWheelZoom，CM6 没有内置缩放，统一走 fontScale。
-  // 必须 preventDefault，否则浏览器会连整页一起缩放（capture + passive:false 才能拦住）。
-  useEffect(() => {
-    const handleWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey && !event.metaKey) return
-      const target = event.target
-      if (!(target instanceof Element) || !target.closest('.monaco-editor, .cm-editor, [data-editor-surface]')) return
-      if (event.deltaY === 0) return
-      event.preventDefault()
-      event.stopPropagation()
-      if (event.deltaY < 0) viewPrefs.zoomIn()
-      else viewPrefs.zoomOut()
-    }
-    window.addEventListener('wheel', handleWheel, { passive: false, capture: true })
-    return () => window.removeEventListener('wheel', handleWheel, { capture: true })
-  }, [viewPrefs])
+
   const { t } = useTranslation()
   const editorRefs = useRef<Record<string, monacoEditor.IStandaloneCodeEditor>>({})
   const monacoRef = useRef<Monaco | null>(null)
@@ -1293,7 +1281,7 @@ export function EditorWorkbench({
           event.stopPropagation()
           cancelPendingDefinition()
           setActiveEditor(editor.id)
-          setTabMenu({ x: event.clientX, y: event.clientY, editorId: editor.id })
+          setTabMenu({ ...zoomCssPoint(event.clientX, event.clientY), editorId: editor.id })
         }}
         className={`flex min-w-0 flex-1 items-center gap-1.5 px-2 text-meta ${editor.id === activeEditor?.id ? 'text-text-1' : 'text-text-2 hover:text-text-1'}`}
       >
@@ -1904,7 +1892,11 @@ export function EditorWorkbench({
         </div>
       )
     return (
-      <div className={`flex h-full min-h-0 ${previewVisible ? 'flex-row' : 'flex-col'}`}>
+      <div
+        data-testid="editor-content"
+        className={`flex h-full min-h-0 ${previewVisible ? 'flex-row' : 'flex-col'}`}
+        style={uiScale === 1 ? undefined : { zoom: 1 / uiScale }}
+      >
         <div
           ref={(node) => {
             editorViewportRefs.current[editor.id] = node
@@ -2492,6 +2484,16 @@ export function EditorWorkbench({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target
+      // 缩放键三区分发：焦点在编辑区才由这里处理；终端/UI 原样放行给 ConsoleLayout 的单例监听
+      if (isZoomShortcut(event)) {
+        if (target instanceof Element && target.closest('[data-editor-pane]')) {
+          event.preventDefault()
+          event.stopPropagation()
+          if (event.key === '0') resetZoneZoom('editor')
+          else applyZoneZoom('editor', event.key === '-' || event.key === '_' ? -1 : 1)
+        }
+        return
+      }
       if (target instanceof Element && target.closest('[data-terminal],.xterm,.xterm-screen')) return
       // 浮层自己处理 Esc/Enter/↑↓：开着时全局键位让路，避免 Enter 同时触发跳转和原生命令
       if (quickPickMode || shortcutsOpen || tabMenu) return
@@ -2694,7 +2696,8 @@ export function EditorWorkbench({
             data-testid="editor-more-actions"
             onClick={(event) => {
               const rect = event.currentTarget.getBoundingClientRect()
-              setToolbarMenu({ x: rect.right - 232, y: rect.bottom + 4 })
+              const point = zoomCssPoint(rect.right, rect.bottom)
+              setToolbarMenu({ x: point.x - 232, y: point.y + 4 })
             }}
           >
             <FiMoreHorizontal aria-hidden="true" size={14} />

@@ -8,6 +8,7 @@ import { ModalPortal } from './ModalPortal'
 import { getDefaultSessionName } from '@/lib/session-template'
 import { parseSessionName } from '@/lib/session-id'
 import { requestTerminalFocus } from '@/lib/terminal-focus-request'
+import { zoomCssPoint } from '@/lib/workspace-zoom'
 import { ConfirmDialog } from './ConfirmDialog'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
@@ -130,7 +131,7 @@ export function SessionRail() {
                     onContextMenu={(e) => {
                       e.preventDefault()
                       e.stopPropagation()
-                      setContextMenu({ x: e.clientX, y: e.clientY, sessionId: session.id })
+                      setContextMenu({ ...zoomCssPoint(e.clientX, e.clientY), sessionId: session.id })
                     }}
                     className={`tmuxgo-list-row flex h-11 min-w-0 w-full items-center gap-2 rounded-apple px-2 text-left ${active ? 'tmuxgo-list-row--active' : 'bg-transparent text-text-3 tmuxgo-list-row--hover hover:text-text-1'} ${isOverlay ? 'bg-bg-1 text-text-1' : ''}`}
                   >

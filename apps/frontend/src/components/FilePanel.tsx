@@ -67,6 +67,7 @@ import { EmptyState } from './EmptyState'
 import { StatusDot } from './StatusDot'
 import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
 import { chooseFileRoot, getRootRelativePath } from '@/lib/terminal-paths'
+import { useWorkspaceZoom, zoomCssPoint } from '@/lib/workspace-zoom'
 
 type SearchMode = 'name' | 'content'
 type FileTypeFilter = 'all' | 'file' | 'directory'
@@ -1938,7 +1939,8 @@ export function FilePanel({
     }
   }
   const showContextMenu = (x: number, y: number, item: FileEntry | null, directoryPath: string) => {
-    setContextMenu({ x, y, item, directoryPath, mobile: isMobile })
+    const point = zoomCssPoint(x, y)
+    setContextMenu({ ...point, item, directoryPath, mobile: isMobile })
   }
   // 树模式下选中项可能在已展开目录的子级缓存里，需展开全量节点查找
   const selectedItem = useMemo(() => {
@@ -2928,9 +2930,11 @@ export function FilePanel({
                       <FiRefreshCw size={14} />
                     </button>
                     <button
-                      onClick={(e) =>
-                        setSortMenu({ x: Math.min(e.clientX, window.innerWidth - 176), y: e.clientY + 6 })
-                      }
+                      onClick={(e) => {
+                        const point = zoomCssPoint(e.clientX, e.clientY)
+                        const zoom = useWorkspaceZoom.getState().uiScale
+                        setSortMenu({ x: Math.min(point.x, window.innerWidth / zoom - 176), y: point.y + 6 })
+                      }}
                       title={`${t('file.sort')}: ${fileSort.field === 'name' ? t('file.sortName') : fileSort.field === 'size' ? t('file.sortSize') : t('file.sortModified')} · ${fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')}`}
                       aria-label={t('file.sort')}
                       aria-haspopup="menu"
