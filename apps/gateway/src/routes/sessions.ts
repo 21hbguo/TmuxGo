@@ -1,7 +1,9 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply } from 'fastify'
 import path from 'path'
 import { stat } from 'fs/promises'
 import type { SessionTemplateLayout } from '../lib/template-utils.js'
+import { getHostById } from '../lib/hosts.js'
+import { LayoutStringError, assertLayoutPaneCount, validateLayoutString } from '../lib/layout-string.js'
 import {
   applyCreatedSessionDefaults,
   assertSessionAllowed,
@@ -25,6 +27,7 @@ import { probeWithCooldown } from '../lib/host-probe-cooldown.js'
 import { agentMonitor } from '../lib/agent-monitor.js'
 import { emitPluginEvent } from '../lib/plugin-manager.js'
 import {
+  describeZodError,
   hostParamsSchema,
   sessionCreateBodySchema,
   sessionLayoutApplyBodySchema,
@@ -372,6 +375,106 @@ async function assertCwdExists(hostId: string, cwd: string) {
   }
   if (!exists) throw new Error(`cwd directory does not exist on host: ${cwd}`)
 }
+
+// ── 原生 layout string（#{window_layout}）────────────────────────────────────
+// 把 tmux 的布局串当字符串读取/套用：只改目标窗口的几何尺寸，不新建也不删除 pane。
+// 这类端点要区分「调用方传错」和「目标不存在」，所以用带状态码的本地错误承载，
+// 在 handler 里统一映射成 { ok:false, code, message }。
+class LayoutRouteError extends Error {
+  readonly statusCode: number
+  readonly code: string
+  constructor(statusCode: number, code: string, message: string) {
+    super(message)
+    this.name = 'LayoutRouteError'
+    this.statusCode = statusCode
+    this.code = code
+  }
+}
+const layoutWindowIdPattern = /^@\d+$/
+
+// hostId 走与既有路由同一个 zod 参数校验；失败时自己出 400，别落到全局 handler 兜成 500
+function layoutHostId(params: unknown) {
+  const parsed = hostParamsSchema.safeParse(params)
+  if (!parsed.success) throw new LayoutRouteError(400, 'INVALID_REQUEST', describeZodError(parsed.error))
+  return parsed.data.hostId
+}
+
+function sendLayoutError(reply: FastifyReply, error: unknown) {
+  if (error instanceof LayoutRouteError)
+    return reply.code(error.statusCode).send({ ok: false, code: error.code, message: error.message })
+  if (error instanceof LayoutStringError)
+    return reply.code(400).send({ ok: false, code: error.code, message: error.message })
+  // tmux 在我们校验之后仍拒绝（如串合法但几何不可用）：结构化 502，不裸抛
+  return reply
+    .code(502)
+    .send({ ok: false, code: 'LAYOUT_TMUX_FAILED', message: errorMessage(error, 'Layout request failed') })
+}
+
+// host 不存在直接 404，避免把「拼错 hostId」混进 tmux 报错
+async function assertLayoutHost(hostId: string) {
+  if (!(await getHostById(hostId))) throw new LayoutRouteError(404, 'HOST_NOT_FOUND', `Host "${hostId}" not found`)
+}
+
+// sessionId → 真实 session 名，并做 allowlist 校验（与既有 /layout 路由同一套策略）
+function layoutSessionName(hostId: string, sessionId: string) {
+  let sessionName: string
+  try {
+    sessionName = normalizeSessionName(hostId, sessionId)
+  } catch (err) {
+    throw new LayoutRouteError(400, 'INVALID_SESSION', errorMessage(err, 'Invalid session id'))
+  }
+  try {
+    assertSessionAllowed(sessionName)
+  } catch (err) {
+    const message = errorMessage(err, 'Session is not allowed')
+    const forbidden = /not allowed/i.test(message)
+    throw new LayoutRouteError(forbidden ? 403 : 400, forbidden ? 'SESSION_NOT_ALLOWED' : 'INVALID_SESSION', message)
+  }
+  return sessionName
+}
+
+// 取 session 下的窗口清单；顺带确认 session 真实存在（list-windows 失败 = 目标没了）
+async function listLayoutWindows(hostId: string, sessionName: string) {
+  let stdout: string
+  try {
+    const result = await execTmux(hostId, [
+      'list-windows',
+      '-t',
+      exactSessionTarget(sessionName),
+      '-F',
+      '#{window_id}|#{window_active}',
+    ])
+    stdout = result.stdout
+  } catch (err) {
+    throw new LayoutRouteError(404, 'SESSION_NOT_FOUND', errorMessage(err, `Session not found: ${sessionName}`))
+  }
+  return stdout
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [windowId, active] = line.split('|')
+      return { windowId, active: active === '1' }
+    })
+}
+
+// 解析目标窗口：显式 windowId 必须在 session 里（不在 → 404），缺省取 active window
+async function resolveLayoutWindow(hostId: string, sessionName: string, windowId: string | undefined) {
+  const windows = await listLayoutWindows(hostId, sessionName)
+  if (!windows.length) throw new LayoutRouteError(404, 'SESSION_NOT_FOUND', `Session not found: ${sessionName}`)
+  if (windowId && !windows.some((window) => window.windowId === windowId))
+    throw new LayoutRouteError(404, 'WINDOW_NOT_FOUND', `Window ${windowId} not found in session ${sessionName}`)
+  const target = windowId ?? windows.find((window) => window.active)?.windowId
+  if (!target) throw new LayoutRouteError(404, 'WINDOW_NOT_FOUND', `Session ${sessionName} has no active window`)
+  return target
+}
+
+// 窗口里的实际 pane 数（layout string 的叶子数必须与它一致）
+async function countWindowPanes(hostId: string, windowId: string) {
+  const { stdout } = await execTmux(hostId, ['list-panes', '-t', windowId, '-F', '#{pane_id}'])
+  return stdout.trim().split('\n').filter(Boolean).length
+}
+
 export async function sessionRoutes(fastify: FastifyInstance) {
   fastify.get('/hosts/:hostId/sessions', async (request) => {
     const { hostId } = request.params as { hostId: string }
@@ -653,6 +756,75 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       return { success: true, sessionId: buildSessionId(hostId, sessionName) }
     } catch (err) {
       throw new Error(errorMessage(err), { cause: err })
+    }
+  })
+  // 读原生 layout string：GET /layout-string?windowId=@3（缺省取 active window）。
+  // 同时给出 pane 数与窗口尺寸，前端不必再为「这串能不能套回去」单独探测。
+  fastify.get('/hosts/:hostId/sessions/:sessionId/layout-string', async (request, reply) => {
+    try {
+      const hostId = layoutHostId(request.params)
+      const { sessionId } = request.params as { sessionId: string }
+      const rawWindowId = (request.query as { windowId?: unknown }).windowId
+      if (rawWindowId !== undefined && (typeof rawWindowId !== 'string' || !layoutWindowIdPattern.test(rawWindowId)))
+        throw new LayoutRouteError(400, 'INVALID_WINDOW_ID', 'windowId must match @<number>')
+      await assertLayoutHost(hostId)
+      const sessionName = layoutSessionName(hostId, sessionId)
+      const windowId = await resolveLayoutWindow(hostId, sessionName, rawWindowId as string | undefined)
+      const { stdout: layoutOut } = await execTmux(hostId, [
+        'display-message',
+        '-p',
+        '-t',
+        windowId,
+        '#{window_layout}',
+      ])
+      const { stdout: sizeOut } = await execTmux(hostId, [
+        'display-message',
+        '-p',
+        '-t',
+        windowId,
+        '#{window_width}|#{window_height}',
+      ])
+      const layout = layoutOut.trim()
+      // tmux 给回来的串必须过同一套校验：格式假设一旦漂移，宁可报错也不把脏串发给前端
+      validateLayoutString(layout)
+      const [cols, rows] = sizeOut
+        .trim()
+        .split('|')
+        .map((value) => Number.parseInt(value, 10) || 0)
+      const panes = await countWindowPanes(hostId, windowId)
+      return { ok: true, windowId, layout, panes, cols, rows }
+    } catch (err) {
+      return sendLayoutError(reply, err)
+    }
+  })
+  // 套用 layout string：POST /layout-string/apply { windowId, layout }。
+  // 只改几何：pane 数对不上直接 400（LAYOUT_PANE_MISMATCH），不做 pane 自动补齐。
+  fastify.post('/hosts/:hostId/sessions/:sessionId/layout-string/apply', async (request, reply) => {
+    try {
+      const hostId = layoutHostId(request.params)
+      const { sessionId } = request.params as { sessionId: string }
+      const body = (request.body ?? {}) as { windowId?: unknown; layout?: unknown }
+      if (typeof body.windowId !== 'string' || !layoutWindowIdPattern.test(body.windowId))
+        throw new LayoutRouteError(400, 'INVALID_WINDOW_ID', 'windowId must match @<number>')
+      const layout = typeof body.layout === 'string' ? body.layout.trim() : ''
+      validateLayoutString(layout)
+      await assertLayoutHost(hostId)
+      const sessionName = layoutSessionName(hostId, sessionId)
+      const windowId = await resolveLayoutWindow(hostId, sessionName, body.windowId)
+      const panes = await countWindowPanes(hostId, windowId)
+      assertLayoutPaneCount(layout, panes)
+      try {
+        await execTmux(hostId, ['select-layout', '-t', windowId, layout])
+      } catch (err) {
+        // tmux 会自己复核校验和/几何可行性（报 `invalid layout: …` / `size too small …`）：
+        // 这仍属「调用方给的串不合用」，按 400 回，别让人以为是 gateway 挂了
+        const message = errorMessage(err, 'select-layout failed')
+        if (/invalid layout|size too small/i.test(message)) throw new LayoutRouteError(400, 'LAYOUT_INVALID', message)
+        throw err
+      }
+      return { ok: true, windowId, panes }
+    } catch (err) {
+      return sendLayoutError(reply, err)
     }
   })
 }
