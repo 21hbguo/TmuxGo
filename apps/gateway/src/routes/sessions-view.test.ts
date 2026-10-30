@@ -38,7 +38,12 @@ test('session list hides grouped views but keeps same-prefix user sessions', asy
     assert.equal(names.includes(viewName), false)
     assert.equal(names.includes(TEST_TMUX_SESSION), true)
     assert.equal(names.includes(decoyName), true)
-    assert.equal(sessions.length, 2)
+    // 不锁绝对条数：同一 tmux server 上可能还有其它用例留下的用户 session；
+    // 只要求本次三个目标里，base/decoy 在、view 不在。
+    assert.deepEqual(
+      names.filter((name) => name === TEST_TMUX_SESSION || name === decoyName).sort(),
+      [TEST_TMUX_SESSION, decoyName].sort(),
+    )
   } finally {
     await fastify.close()
     await kill(viewName)

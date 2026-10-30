@@ -111,6 +111,10 @@ test('a same-name session without ownership options is a collision and is never 
 
 test('killViewSession removes only the owned view, never base/windows/plain sessions', async (t) => {
   t.after(cleanupOwnSessions)
+  // 这个 plain session 用来证明「无归属 option 的普通 session 不被误杀」，
+  // 但它不属于 test 会话，测试结束必须自己收走；否则串行跑后续文件时
+  // 会作为真实用户 session 出现在列表里，污染别的用例。
+  t.after(() => tmux('kill-session', '-t', '=plain-guard').catch(() => {}))
   await resetBase()
   await tmux('new-window', '-t', TEST_TMUX_SESSION)
   const viewId = 'viewkill0001'

@@ -307,13 +307,19 @@ test('agents=0 omits agent fields while the default response still carries them'
     await execTmuxFile('tmux', ['new-session', '-d', '-s', sessionName])
     const withAgents = await fastify.inject({ method: 'GET', url: '/hosts/local/sessions' })
     assert.equal(withAgents.statusCode, 200)
-    const [withAgentFields] = withAgents.json() as { agents?: unknown[]; agentSummary?: unknown }[]
+    const withAgentFields = (withAgents.json() as { name: string; agents?: unknown[]; agentSummary?: unknown }[]).find(
+      (session) => session.name === sessionName,
+    )
+    assert.ok(withAgentFields, 'test session must be listed')
     assert.ok(Array.isArray(withAgentFields.agents), 'default response should carry agents')
     assert.ok(withAgentFields.agentSummary !== undefined, 'default response should carry agentSummary')
 
     const skipped = await fastify.inject({ method: 'GET', url: '/hosts/local/sessions?agents=0' })
     assert.equal(skipped.statusCode, 200)
-    const [withoutAgentFields] = skipped.json() as { agents?: unknown[]; agentSummary?: unknown; name: string }[]
+    const withoutAgentFields = (skipped.json() as { agents?: unknown[]; agentSummary?: unknown; name: string }[]).find(
+      (session) => session.name === sessionName,
+    )
+    assert.ok(withoutAgentFields, 'test session must be listed with agents=0')
     assert.equal('agents' in withoutAgentFields, false)
     assert.equal('agentSummary' in withoutAgentFields, false)
     // 结构字段照旧，别把会话本身也省掉
