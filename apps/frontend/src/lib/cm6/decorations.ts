@@ -15,6 +15,7 @@ import { StateEffect, StateField, type EditorState, type Extension, type Range }
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view'
 import { resolveImagePath } from './image-path'
 import { collectMarkdownScan, sortScan, type MdBlock, type MdScan } from './markdown-syntax'
+import { parseMarkdownTable, renderInlineMarkdown } from './markdown-table'
 import { isRangeRevealed } from './reveal'
 
 export interface MarkdownDecorationHost {
@@ -209,6 +210,66 @@ const MARK_CLASS: Record<string, string> = {
   link: 'cm-md-link',
 }
 
+class TableWidget extends WidgetType {
+  constructor(
+    readonly source: string,
+    readonly from: number,
+    readonly host: MarkdownDecorationHost,
+  ) {
+    super()
+  }
+
+  eq(other: WidgetType) {
+    return other instanceof TableWidget && other.source === this.source
+  }
+
+  toDOM(view: EditorView) {
+    const wrap = document.createElement('div')
+    wrap.className = 'cm-md-table-widget'
+    const model = parseMarkdownTable(this.source)
+    if (!model) {
+      wrap.textContent = this.source
+      return wrap
+    }
+    const table = document.createElement('table')
+    const head = document.createElement('thead')
+    const headRow = document.createElement('tr')
+    const alignOf = (index: number) => model.aligns[index] ?? ''
+    model.header.forEach((text, index) => {
+      const cell = document.createElement('th')
+      cell.style.textAlign = alignOf(index)
+      renderInlineMarkdown(cell, text)
+      headRow.appendChild(cell)
+    })
+    head.appendChild(headRow)
+    table.appendChild(head)
+    const body = document.createElement('tbody')
+    for (const row of model.rows) {
+      const tr = document.createElement('tr')
+      row.forEach((text, index) => {
+        const cell = document.createElement('td')
+        cell.style.textAlign = alignOf(index)
+        renderInlineMarkdown(cell, text)
+        tr.appendChild(cell)
+      })
+      body.appendChild(tr)
+    }
+    table.appendChild(body)
+    wrap.appendChild(table)
+    // 点表格回到源码：与 Obsidian 一致，表格的编辑态就是 markdown 文本
+    wrap.addEventListener('mousedown', (event) => {
+      event.preventDefault()
+      view.dispatch({ selection: { anchor: this.from }, scrollIntoView: true })
+      view.focus()
+    })
+    return wrap
+  }
+
+  ignoreEvent() {
+    return true
+  }
+}
+
 export function buildMarkdownDecorations(state: EditorState, host: MarkdownDecorationHost): DecorationSet {
   const doc = state.doc
   const scan: MdScan = { ranges: [], blocks: [], styles: [] }
@@ -233,10 +294,29 @@ export function buildMarkdownDecorations(state: EditorState, host: MarkdownDecor
     if (range.kind === 'task') taskLines.add(doc.lineAt(range.from).from)
   }
 
+  // 空光标在表格末尾（doc.length）时不能算「在表内」，否则最后一行的表格永远展不开 widget
+  const blockRevealed = (block: MdBlock) =>
+    state.selection.ranges.some((range) =>
+      range.empty ? range.from >= block.from && range.from < block.to : range.from < block.to && range.to > block.from,
+    )
   for (const block of scan.blocks) {
+    if (block.kind === 'table') {
+      // 表格整块换成 widget；光标进入任意一行就回到源码（逐行编辑单元格）
+      if (!blockRevealed(block)) {
+        const from = doc.lineAt(block.from).from
+        const to = doc.lineAt(block.to).to
+        decorations.push(
+          Decoration.replace({
+            widget: new TableWidget(doc.sliceString(from, to), from, host),
+            block: true,
+          }).range(from, to),
+        )
+      }
+      continue
+    }
     // 围栏源码保留，只加底色；语言标签由 info 串的 .cm-md-fence-lang 染色，不再重复渲染一次
     forEachLine(state, block, (from) => {
-      addLineClass(lineClasses, from, block.kind === 'table' ? 'cm-md-table' : 'cm-md-codeblock')
+      addLineClass(lineClasses, from, 'cm-md-codeblock')
     })
   }
 

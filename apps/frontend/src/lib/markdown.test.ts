@@ -20,8 +20,16 @@ describe('renderMarkdown line annotation', () => {
   })
   it('keeps rendering output stable with gfm tables and images', () => {
     const html = renderMarkdown('# 标题\n\n| 列A | 列B |\n|---|---|\n| 1 | 2 |\n\n![图](https://example.com/a.png)')
-    expect(html).toContain('<table data-line="3">')
+    expect(html).toContain('<div class="md-table-wrap"><table data-line="3">')
+    expect(html).toMatch(/<\/table>\s*<\/div>/)
     expect(html).toContain('<img src="https://example.com/a.png"')
+  })
+  it('keeps GFM column alignment on rendered cells', () => {
+    const html = renderMarkdown('| a | b | c |\n|:--|--:|:--:|\n| 1 | 2 | 3 |')
+    expect(html).toContain('<th align="left">a</th>')
+    expect(html).toContain('<th align="right">b</th>')
+    expect(html).toContain('<th align="center">c</th>')
+    expect(html).toContain('<td align="right">2</td>')
   })
   it('keeps empty-line preservation inside paragraphs', () => {
     const html = renderMarkdown('前\n\n\n中\n\n\n\n后')

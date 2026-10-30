@@ -1173,6 +1173,7 @@ export const zh = {
   'editor.csvSortAsc': '升序排序',
   'editor.csvSortDesc': '降序排序',
   'editor.csvClearSort': '取消排序',
+  'editor.csvSelectRow': '拖拽选取整行',
   'editor.pdfLoading': '正在加载 PDF…',
   'editor.pdfFailed': 'PDF 预览加载失败，可下载后查看',
   'editor.pdfOpenNew': '新窗口打开',

@@ -39,13 +39,15 @@ MarkdownPreview                                # 扫描 img[data-md-src]
   图片整段替换为 widget，标题/引用加行级样式；任务框点击改写源码 `[ ]`/`[x]`；
 - 数据：与 Monaco 共用 `editor.content`（zustand），`onChange` 走同一 dirty/save 管线；`value` 外部变化不重建 view；
 - 回退：偏好关掉 → markdown 默认仍是只读预览 + 源码编辑（旧行为）；工具栏四态：实时 / 源码 / 预览 / 分栏；
-- 明确不做（P1）：表格 WYSIWYG、mermaid/katex、代码高亮主题库、撤销跨引擎共享。
+- 表格：非光标行整块渲染成真表格（表头/对齐/斑马纹），点表格回到源码编辑；光标进入任意行即展开源码；
+  明确不做（P1）：单元格内直接改（现在是「点一下回源码」）、mermaid/katex、代码高亮主题库、撤销跨引擎共享。
 
 ## 4. CSV
 
 - 解析：RFC4180 简版；`detectDelimiter` 前 5 个非空行在引号外计数 `, ; \t |`；`.tsv/.tab` 默认制表符；BOM 剥离并记录；
 - 展示：只截 DOM（默认 5000 行 × 256 列），数据保留完整供复制；`sliceTable` 用 reduce 统计列数，杜绝 `Math.max(...spread)`；
-- 交互：单击定位、Shift+单击扩选、方向键移动、Ctrl/Cmd+A 全选、Esc 清除、Ctrl/Cmd+C 复制选区（TSV）；
+- 交互：**按下拖拽形成矩形选区**（window 级 pointermove/pointerup，拖出表格也能收尾，靠上下边缘自动滚动），
+  行号列拖动选整行；Shift+单击扩选、方向键移动、Ctrl/Cmd+A 全选、Esc 清除、Ctrl/Cmd+C 复制选区（TSV）；
   无选区时不拦截原生复制；右键菜单：复制选区/本列/整表 TSV/CSV/Markdown；
 - 排序/筛选：点表头三态（升/降/取消），筛选对全列大小写不敏感；两者只改视图，复制取当前视图；
 - 可访问性：`role=grid`、`aria-sort`、tabIndex 键盘可操作；移动端恢复 `-webkit-touch-callout`。

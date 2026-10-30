@@ -8,6 +8,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
 } from 'react'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import {
@@ -36,6 +37,7 @@ export interface CsvTableLabels {
   copyAsMarkdown?: string
   truncatedRows?: string | ((max: number, total: number) => string)
   truncatedCols?: string | ((max: number, total: number) => string)
+  selectRow?: string
   sortAsc?: string
   sortDesc?: string
   clearSort?: string
@@ -61,6 +63,12 @@ interface Selection {
 }
 type SortState = { column: number; direction: 'asc' | 'desc' } | null
 type MenuState = { x: number; y: number; point: CellPoint } | null
+type DragMode = 'cell' | 'row'
+interface DragState {
+  pointerId: number
+  mode: DragMode
+  anchor: CellPoint
+}
 function normalizeSelection(selection: Selection) {
   const rowFrom = Math.min(selection.anchor.row, selection.focus.row)
   const rowTo = Math.max(selection.anchor.row, selection.focus.row)
@@ -92,6 +100,9 @@ export function CsvTable({
   const [menu, setMenu] = useState<MenuState>(null)
   const [copied, setCopied] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<DragState | null>(null)
+  const [dragging, setDragging] = useState(false)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [headerRow, ...body] = parsed.rows
   const hasHeader = !!headerRow && parsed.rows.length > 1
@@ -109,6 +120,8 @@ export function CsvTable({
     [displayBody, displayHeader.length],
   )
   useEffect(() => {
+    dragRef.current = null
+    setDragging(false)
     setSelection(null)
     setSort(null)
     setMenu(null)
@@ -146,11 +159,72 @@ export function CsvTable({
     },
     [copy, parsed.delimiter],
   )
-  const selectCell = (point: CellPoint, extend: boolean) => {
-    setSelection((current) =>
-      extend && current ? { anchor: current.anchor, focus: point } : { anchor: point, focus: point },
-    )
+  const lastCol = Math.max(columnCount - 1, 0)
+  // 命中检测走 data-* 而不是坐标：拖拽时 pointermove 的 target 是单元格里的 span，
+  // closest 一次就能回到行列；行号列单独标记，拖行号即整行选取。
+  const hitTest = useCallback(
+    (target: EventTarget | null): { point: CellPoint; mode: DragMode } | null => {
+      const element = target instanceof Element ? target.closest<HTMLElement>('[data-csv-cell],[data-csv-row]') : null
+      if (!element) return null
+      if (element.hasAttribute('data-csv-row')) {
+        const row = Number(element.dataset.csvRow)
+        return Number.isInteger(row) ? { point: { row, col: lastCol }, mode: 'row' } : null
+      }
+      const row = Number(element.dataset.row)
+      const col = Number(element.dataset.col)
+      return Number.isInteger(row) && Number.isInteger(col) ? { point: { row, col }, mode: 'cell' } : null
+    },
+    [lastCol],
+  )
+  const beginDrag = (event: ReactPointerEvent<HTMLTableCellElement>, hit: { point: CellPoint; mode: DragMode }) => {
+    if (event.button !== 0) return
+    // 阻止浏览器原生文本拖选接管指针；表格自己的矩形选区才是唯一语义
+    event.preventDefault()
+    gridRef.current?.focus({ preventScroll: true })
+    const extend = event.shiftKey && selection
+    const anchor = extend ? selection.anchor : hit.mode === 'row' ? { row: hit.point.row, col: 0 } : hit.point
+    setSelection({ anchor, focus: hit.point })
+    dragRef.current = { pointerId: event.pointerId, mode: hit.mode, anchor }
+    setDragging(true)
   }
+  // 拖出表格/拖到窗口外也要能收尾：pointerup 挂在 window，而不是单元格
+  useEffect(() => {
+    if (!dragging) return
+    const stop = () => {
+      dragRef.current = null
+      setDragging(false)
+    }
+    const handleMove = (event: PointerEvent) => {
+      const drag = dragRef.current
+      if (!drag || event.pointerId !== drag.pointerId) return
+      const grid = gridRef.current
+      if (grid) {
+        // 靠近上下边缘自动滚动：长表拖选不必先松手再滚
+        const rect = grid.getBoundingClientRect()
+        if (event.clientY < rect.top + 24) grid.scrollTop -= 18
+        else if (event.clientY > rect.bottom - 24) grid.scrollTop += 18
+      }
+      // 指针在表格外时 target 不是单元格；优先 elementFromPoint 拿指针下方的元素
+      const under =
+        typeof document.elementFromPoint === 'function' ? document.elementFromPoint(event.clientX, event.clientY) : null
+      const hit = hitTest(under) ?? hitTest(event.target)
+      if (!hit) return
+      const focus = drag.mode === 'row' ? { row: hit.point.row, col: lastCol } : hit.point
+      setSelection((current) =>
+        current && current.focus.row === focus.row && current.focus.col === focus.col
+          ? current
+          : { anchor: drag.anchor, focus },
+      )
+    }
+    window.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
+    return () => {
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+    }
+  }, [dragging, lastCol, hitTest])
   const moveBy = (rowDelta: number, colDelta: number, extend: boolean) => {
     setSelection((current) => {
       const base = current?.focus ?? { row: 0, col: 0 }
@@ -296,11 +370,13 @@ export function CsvTable({
         </button>
       </div>
       <div
+        ref={gridRef}
         role="grid"
         aria-label={testId}
         tabIndex={0}
         onKeyDown={handleKeyDown}
-        className="tmuxgo-scrollbar min-h-0 flex-1 overflow-auto outline-none"
+        className={`tmuxgo-scrollbar min-h-0 flex-1 overflow-auto outline-none ${dragging ? 'select-none' : ''}`}
+        data-dragging={dragging ? 'true' : undefined}
       >
         <table className="w-full border-collapse text-sm">
           {hasHeader && (
@@ -342,17 +418,24 @@ export function CsvTable({
           <tbody>
             {displayBody.map((row, rowIndex) => (
               <tr key={rowIndex}>
-                <td className="sticky left-0 z-10 w-10 border border-[var(--line)] bg-bg-1 px-1 py-1 text-right text-meta text-text-3 select-none">
+                <td
+                  data-csv-row={rowIndex}
+                  onPointerDown={(event) => beginDrag(event, { point: { row: rowIndex, col: 0 }, mode: 'row' })}
+                  className="sticky left-0 z-10 w-10 cursor-cell border border-[var(--line)] bg-bg-1 px-1 py-1 text-right text-meta text-text-3 select-none"
+                  title={labels.selectRow}
+                >
                   {rowIndex + 1}
                 </td>
                 {Array.from({ length: columnCount }, (_, colIndex) => (
                   <td
                     key={colIndex}
                     data-testid={`csv-cell-${rowIndex}-${colIndex}`}
-                    onPointerDown={(event) => {
-                      if (event.button !== 0) return
-                      selectCell({ row: rowIndex, col: colIndex }, event.shiftKey)
-                    }}
+                    data-csv-cell=""
+                    data-row={rowIndex}
+                    data-col={colIndex}
+                    onPointerDown={(event) =>
+                      beginDrag(event, { point: { row: rowIndex, col: colIndex }, mode: 'cell' })
+                    }
                     onContextMenu={(event) => openMenu(event, { row: rowIndex, col: colIndex })}
                     className={`max-w-[28rem] cursor-cell border border-[var(--line)] px-2 py-1 align-top whitespace-pre text-text-2 ${
                       isSelected(rowIndex, colIndex) ? 'bg-accent/15' : ''

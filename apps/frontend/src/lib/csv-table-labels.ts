@@ -18,5 +18,6 @@ export function csvTableLabels(t: ReturnType<typeof useTranslation>['t']): CsvTa
     sortAsc: t('editor.csvSortAsc'),
     sortDesc: t('editor.csvSortDesc'),
     clearSort: t('editor.csvClearSort'),
+    selectRow: t('editor.csvSelectRow'),
   }
 }

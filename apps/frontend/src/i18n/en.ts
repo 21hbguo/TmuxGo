@@ -1182,6 +1182,7 @@ export const en = {
   'editor.csvSortAsc': 'Sort ascending',
   'editor.csvSortDesc': 'Sort descending',
   'editor.csvClearSort': 'Clear sort',
+  'editor.csvSelectRow': 'Drag to select rows',
   'editor.pdfLoading': 'Loading PDF…',
   'editor.pdfFailed': 'PDF preview failed to load; download it to view',
   'editor.pdfOpenNew': 'Open in new window',

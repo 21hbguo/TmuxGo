@@ -146,6 +146,35 @@ function buildTheme(theme: 'dark' | 'light', fontFamily?: string, fontSize?: num
         letterSpacing: '0.02em',
       },
       '.cm-md-table': { fontFamily: mono, fontSize: '0.95em', color: 'rgb(var(--text-2))' },
+      '.cm-md-table-widget': {
+        overflowX: 'auto',
+        padding: '4px 0 8px',
+        cursor: 'pointer',
+      },
+      '.cm-md-table-widget table': {
+        borderCollapse: 'collapse',
+        fontSize: '13px',
+        lineHeight: '1.5',
+        color: 'rgb(var(--text-2))',
+      },
+      '.cm-md-table-widget th, .cm-md-table-widget td': {
+        border: '1px solid var(--line)',
+        padding: '4px 10px',
+        verticalAlign: 'top',
+      },
+      '.cm-md-table-widget th': {
+        backgroundColor: 'rgb(var(--bg-2) / 0.6)',
+        color: 'rgb(var(--text-1))',
+        fontWeight: '600',
+      },
+      '.cm-md-table-widget tr:nth-child(even) td': { backgroundColor: 'rgb(var(--bg-1) / 0.35)' },
+      '.cm-md-inline-code': {
+        borderRadius: '4px',
+        backgroundColor: 'rgb(var(--bg-2))',
+        padding: '1px 4px',
+        fontFamily: mono,
+        fontSize: '0.92em',
+      },
       '.cm-md-bullet': { color: 'rgb(var(--text-3))', marginRight: '0.15em' },
       '.cm-md-checkbox': {
         marginRight: '0.4em',

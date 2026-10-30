@@ -329,7 +329,7 @@ describe('CmMarkdownEditor', () => {
     expect(container.querySelector('.cm-search')).toBeTruthy()
   })
 
-  it('代码围栏与表格：保留源码，只加行样式与语言标签', () => {
+  it('代码围栏保留源码，表格在光标外渲染成真表格', () => {
     const doc = '```ts\nconst a = 1\n```\n\n| a | b |\n| - | - |\n| 1 | 2 |'
     const { container } = render(<CmMarkdownEditor value={doc} onChange={() => {}} />)
     const view = getView(container)
@@ -337,10 +337,33 @@ describe('CmMarkdownEditor', () => {
       view.dispatch({ selection: { anchor: doc.length } })
     })
     expect(container.querySelectorAll('.cm-md-codeblock')).toHaveLength(3)
-    expect(container.querySelectorAll('.cm-md-table')).toHaveLength(3)
+    expect(container.querySelectorAll('.cm-md-fence-lang')).toHaveLength(1)
     expect(container.querySelector('.cm-md-fence-lang')?.textContent).toBe('ts')
     // 围栏源码行本身可见（不做高亮注入）
     expect(lineTexts(container).slice(0, 3)).toEqual(['```ts', 'const a = 1', '```'])
+    // 表格：光标不在表内 → widget；点 widget 回到源码
+    const widget = container.querySelector('.cm-md-table-widget')
+    expect(widget?.querySelectorAll('th')).toHaveLength(2)
+    expect(widget?.querySelectorAll('tbody td')).toHaveLength(2)
+    expect(widget?.textContent).toContain('1')
+    expect(container.querySelectorAll('.cm-md-table')).toHaveLength(0)
+    fireEvent.mouseDown(widget as Element)
+    expect(container.querySelector('.cm-md-table-widget')).toBeNull()
+    expect(lineTexts(container).some((text) => text.includes('| a | b |'))).toBe(true)
+  })
+  it('光标进入表格行时展开源码，移出后恢复 widget', () => {
+    const doc = '| a | b |\n| - | - |\n| 1 | 2 |\n\ntail'
+    const { container } = render(<CmMarkdownEditor value={doc} onChange={() => {}} />)
+    const view = getView(container)
+    act(() => {
+      view.dispatch({ selection: { anchor: 3 } })
+    })
+    expect(container.querySelector('.cm-md-table-widget')).toBeNull()
+    expect(lineTexts(container)[0]).toContain('| a | b |')
+    act(() => {
+      view.dispatch({ selection: { anchor: doc.length } })
+    })
+    expect(container.querySelector('.cm-md-table-widget')).not.toBeNull()
   })
 
   it('readOnly 时文档不可改且 contenteditable=false', () => {
