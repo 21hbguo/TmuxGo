@@ -18,6 +18,8 @@ import { collectMarkdownScan, sortScan, type MdBlock, type MdScan } from './mark
 import { isRangeRevealed } from './reveal'
 
 export interface MarkdownDecorationHost {
+  // 缓存作用域（host:root:文档）：同一相对路径在不同根目录下不能共用 blob URL
+  cacheScope?: string
   // 当前文档的 root 相对路径（如 docs/a.md）：相对图片按它的目录解析
   documentPath?: string
   // 解析图片地址：path 为 root 相对路径（外部地址传 null）
@@ -42,8 +44,8 @@ export function clearMarkdownImageCache() {
   imageCache.clear()
 }
 
-function imageCacheKey(url: string, path: string | null): string {
-  return path ? `path:${path}` : `url:${url}`
+function imageCacheKey(url: string, path: string | null, scope?: string): string {
+  return `${scope ?? ''}|${path ? `path:${path}` : `url:${url}`}`
 }
 
 function rememberImage(key: string, resolved: string | null) {
@@ -53,7 +55,7 @@ function rememberImage(key: string, resolved: string | null) {
 }
 
 function resolveImage(url: string, path: string | null, host: MarkdownDecorationHost): Promise<string | null> {
-  const key = imageCacheKey(url, path)
+  const key = imageCacheKey(url, path, host.cacheScope)
   const cached = imageCache.get(key)
   if (cached !== undefined) return Promise.resolve(cached)
   const loader = host.loadImage

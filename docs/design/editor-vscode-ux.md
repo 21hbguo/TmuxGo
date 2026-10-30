@@ -13,6 +13,11 @@
 
 因此实现全部落在 Monaco 0.56 已有 API + 自写轻量 UI，**零新增依赖**。
 
+> 2026-10 例外（R1）：markdown 的「预览即可编辑」需要吞掉语法标记，Monaco 0.56 无 `Decoration.replace`
+> 与 atomic ranges，只能靠 CSS 隐藏，光标/IME 会落进不可见文本；因此 markdown 的 live 模式改用
+> CodeMirror 6（8 个包，MIT，锁小版本），Monaco 仍负责源码模式/其他语言。边界与账单见
+> `docs/design/editor-render-upgrade.md`。
+
 ## 2. 参考项目与取舍
 
 | 项目 | star | 借了什么 | 没借什么 |

@@ -58,6 +58,7 @@ export function LiveMarkdownSurface({
     <CmMarkdownEditor
       value={content}
       documentPath={path}
+      cacheScope={`${hostId}:${rootId}`}
       onChange={onChange}
       onSave={onSave}
       onCursorChange={onCursorChange}

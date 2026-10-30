@@ -38,6 +38,8 @@ export interface CmMarkdownEditorProps {
   loadImage?: (src: string, path: string | null) => Promise<string | null> // path 为 root 相对路径；null=不解析
   // 当前文档的 root 相对路径（如 docs/a.md）：相对图片按它的目录解析成 root 相对路径
   documentPath?: string
+  // 图片缓存作用域（host:root）：不同根目录的同名路径不能共用缓存
+  cacheScope?: string
   onOpenExternal?: (href: string) => void
   readOnly?: boolean
   fontFamily?: string
@@ -241,6 +243,9 @@ export function CmMarkdownEditor(props: CmMarkdownEditorProps): JSX.Element {
     compartmentsRef.current = compartments
 
     const decorationHost: MarkdownDecorationHost = {
+      get cacheScope() {
+        return propsRef.current.cacheScope
+      },
       // getter：换文档时取最新路径，图片按新目录解析
       get documentPath() {
         return propsRef.current.documentPath

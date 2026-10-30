@@ -20,7 +20,7 @@
 存在合理性 = 服务终端工作流：终端里看到日志 → 点开文件 → 回终端继续。
 
 - **files / editor**：浏览、编辑、保存、Monaco 基本体验、编辑器内跳转（够用深度的 code navigation）
-- **preview**：markdown/HTML 预览、跟随滚动（够用即可）
+- **preview**：markdown/HTML 预览、跟随滚动；2026-10 R1 起 markdown 默认 live 原地编辑，PDF/音视频走 `/files/raw` 内联（见 `docs/design/editor-render-upgrade.md`）
 - **git panel**：status/diff/commit/常用操作，面向「顺手看一眼」
 - **settings/preferences/i18n**：跟随核心功能，不为外围功能膨胀配置面
 

@@ -1,8 +1,8 @@
 # 编辑区渲染补强（Batch R1）
 
-> 状态：实现中 · 2026-10-30 · 相关代码：`apps/frontend/src/lib/{markdown,csv,file-preview,raw-url}*`、
-> `apps/frontend/src/components/{MarkdownPreview,CmMarkdownEditor,CsvTable,PdfPreview,MediaPreview}.tsx`、
-> `apps/gateway/src/routes/files.ts`（`/files/raw`）
+> 状态：已实现（R1）· 2026-10-30 · 相关代码：`apps/frontend/src/lib/{markdown,markdown-assets,markdown-image-cache,csv,file-preview,raw-url,cm6/*}`、
+> `apps/frontend/src/components/{MarkdownPreview,MarkdownPreviewHost,CmMarkdownEditor,LiveMarkdownSurface,CsvTable,PdfPreview,MediaPreview}.tsx`、
+> `apps/gateway/src/{routes/files.ts,lib/files/{raw-range,raw-mime,raw-stream}.ts}`
 
 ## 1. 症状与根因
 
@@ -67,7 +67,9 @@ GET|HEAD /api/hosts/:hostId/files/raw/:rootId/*
 | 场景 | 预算 | 落点 |
 |---|---|---|
 | `renderMarkdown` 200KB（jsdom） | ≤ 2000ms（存量） | `lib/editor-perf.test.ts` |
-| markdown live 输入 → 装饰器重算（≤16KB） | p95 ≤ 60ms | 待补 `e2e/editor-latency.spec.ts` |
+| markdown live 单键（3k 块/375KB，含装饰重建） | p95 < 60ms（实测 avg 1.5ms / max 5.6ms） | `lib/cm6/perf.test.ts` |
+| markdown live 扫描（3k 块/375KB） | ≤ 600ms（实测 117ms，node 二次运行） | 同上 |
+| markdown live 扫描（10k 块/1.2MB） | ≤ 2500ms（实测 225ms；vitest/jsdom 首跑 456ms） | 同上 |
 | 预览输入 → HTML（≥16KB） | p95 ≤ 350ms | 同上 |
 | CSV 130k 行切片/排序 | 切片 ≤ 50ms，不抛 RangeError | `lib/csv.test.ts` |
 
@@ -78,7 +80,10 @@ GET|HEAD /api/hosts/:hostId/files/raw/:rootId/*
 3. Bearer-only（无 cookie）时 iframe/video 会 401；票据签名下一批；
 4. Office 文档不做内嵌渲染（下载/元信息卡）；
 5. `IMAGE_MIME_BY_EXT` 与 `RAW_MIME_BY_EXT` 两份表暂存，后续合并；
-6. HTML 预览仍走 `srcDoc`，相对资源（css/png）不会加载；改用 raw URL 需要单独的 `base` 方案（P1）。
+6. 标题 id 由内容 slug 生成：同一篇 md 在多面板同时渲染会出现重复 id（只影响锚点定位）；
+7. live 模式的图片缓存按 `host:root` 分域、卸载即清空；blob URL 与预览组件不共享（各自 loader 生命周期）；
+8. 代码块复制按钮是 `<pre>` 的子节点，手动全选代码时可能带上按钮文字；
+9. HTML 预览仍走 `srcDoc`，相对资源（css/png）不会加载；改用 raw URL 需要单独的 `base` 方案（P1）。
 
 ## 8. 下一批（P1）
 

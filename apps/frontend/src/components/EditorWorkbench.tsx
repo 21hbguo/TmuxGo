@@ -246,6 +246,18 @@ export function EditorWorkbench({
   wheelScrollLinesRef.current = preferences.editorWheelScrollLines
   const wheelScrollDisposersRef = useRef(new Map<string, () => void>())
   const editorViewportRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  // 图片预览的 objectURL 由 openFileInEditor 创建，关闭 tab 后没人 revoke 会一直占内存。
+  // 以「当前打开的 url 集合」为准回收：切换/关闭 tab 时只释放不再被引用的那部分。
+  const livePreviewUrlsRef = useRef(new Set<string>())
+  useEffect(() => {
+    const current = new Set(openEditors.map((item) => item.previewUrl).filter((url): url is string => !!url))
+    for (const url of livePreviewUrlsRef.current) {
+      if (current.has(url)) continue
+      URL.revokeObjectURL?.(url)
+      livePreviewUrlsRef.current.delete(url)
+    }
+    for (const url of current) livePreviewUrlsRef.current.add(url)
+  }, [openEditors])
   const openEditorsRef = useRef(openEditors)
   openEditorsRef.current = openEditors
   const autoScrollFrameRef = useRef<number | null>(null)
