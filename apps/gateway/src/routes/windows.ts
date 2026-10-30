@@ -4,6 +4,8 @@ import { getNormalizedWindowMoves } from '../lib/template-utils.js'
 import { assertSessionAllowed, assertTargetAllowed } from '../lib/tmux-policy.js'
 import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
 import { execTmux } from '../lib/tmux-executor.js'
+import { normalizeViewId, viewSessionName } from '../lib/view-sessions.js'
+import { VIEW_SESSION_LIST_FORMAT } from '../lib/session-list.js'
 import { recordStreamMetric } from '../lib/perf-metrics.js'
 import { getSessionAgentPanes, markAgentPaneSeen } from '../lib/agent-state.js'
 import { agentMonitor } from '../lib/agent-monitor.js'
@@ -13,6 +15,47 @@ import { findSessionWorkspacePath } from './preferences.js'
 // catch 到的值不保证是 Error（tmux/SSH 通道可能抛字符串），统一收窄取文案
 function errorMessage(error: unknown, fallback = '') {
   return error instanceof Error && error.message ? error.message : fallback
+}
+
+// TMUXGO_VIEWS=0 完全回到旧路径：即使请求带了 viewId 也忽略，不做 option 查询。
+// 与其它开关一致，只认显式关闭值；未设置视为开启。
+function viewsEnabled() {
+  const raw = (process.env.TMUXGO_VIEWS || '').trim().toLowerCase()
+  return raw !== '0' && raw !== 'false' && raw !== 'off'
+}
+
+/**
+ * viewId → 已验证归属的 view session 名。
+ * - 未开启 views / 没带 viewId / view 尚未创建：null（调用方走 base）
+ * - 非法 id：400 Invalid view id
+ * - 同名 session 存在但 option 为空/不匹配：404 View session collision
+ *
+ * 前端 attach 与首屏读是并发的：windows/snapshot/panes 请求常常先于 view session
+ * 创建到达。此时必须回退 base，不能 404，否则首屏直接报错。
+ */
+async function resolveViewSession(hostId: string, baseSession: string, rawViewId: unknown): Promise<string | null> {
+  if (!viewsEnabled() || rawViewId === undefined || rawViewId === null) return null
+  const viewId = normalizeViewId(rawViewId)
+  if (!viewId) throw new Error('Invalid view id')
+  const viewName = viewSessionName(hostId, baseSession, viewId)
+  let rows: string[]
+  try {
+    const { stdout } = await execTmux(hostId, ['list-sessions', '-F', VIEW_SESSION_LIST_FORMAT])
+    rows = stdout.split(/\r?\n/)
+  } catch {
+    // 列不出来时按「view 还没建」回退 base；base 查询会以原有语义报真实错误
+    return null
+  }
+  // 名字只用于寻址，归属必须看 option：同名/前缀 session 不能冒充 view。
+  const row = rows.find((line) => line.startsWith(`${viewName}\t`))
+  if (!row) return null
+  const viewBase = row.slice(viewName.length + 1)
+  if (viewBase !== baseSession) throw new Error('View session collision')
+  return viewName
+}
+
+function queryViewId(query: unknown) {
+  return (query as { viewId?: unknown } | undefined)?.viewId
 }
 
 // 路由错误归位（契约）：解析失败/跨 host 引用属于调用方错误 → 400；tmux 的 can't find ... 与
@@ -31,6 +74,8 @@ function classifiedErrorReply(
   const message = errorMessage(error, 'Request failed')
   const missing = MISSING_TARGET.exec(message)?.[1]?.toLowerCase()
   if (missing) return reply.code(404).send({ message, code: `${missing.toUpperCase()}_NOT_FOUND` })
+  // view 名被同名普通 session 占用（option 为空/不匹配）属 collision，不猜归属
+  if (message === 'View session collision') return reply.code(404).send({ message, code: 'VIEW_CONFLICT' })
   // 'Unable to resolve …'（tmux-policy 解析目标失败）、'no current target'（-t 目标已不存在）、
   // 'no server running…'（server 整体没起，session 自然不存在）都归 404，具体资源名用端点给的 hint
   if (
@@ -61,12 +106,14 @@ function snapshotSeenEnabled() {
 function parseSessionName(hostId: string, sessionRef: string) {
   return parseSessionRef(hostId, sessionRef).sessionName
 }
-async function getTmuxWindows(hostId: string, sessionName: string) {
-  assertSessionAllowed(sessionName)
+// queryName 是 tmux 查询目标（view 时是 view session），baseName 是业务身份：
+// scope、buildSessionId、响应 sessionId 都必须用 base，view 名不能漏进业务层。
+async function getTmuxWindows(hostId: string, baseName: string, queryName: string = baseName) {
+  assertSessionAllowed(baseName)
   const { stdout } = await execTmux(hostId, [
     'list-windows',
     '-t',
-    sessionName,
+    queryName,
     '-F',
     '#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{window_zoomed_flag}',
   ])
@@ -79,13 +126,24 @@ async function getTmuxWindows(hostId: string, sessionName: string) {
       return {
         id: `${hostId}:${id}`,
         tmuxWindowId: id,
-        sessionId: buildSessionId(hostId, sessionName),
+        sessionId: buildSessionId(hostId, baseName),
         index: parseInt(index, 10),
         name,
         active: active === '1',
         zoomed: zoomed === '1',
       }
     })
+}
+// grouped session 下裸 `select-window -t @n` 归属有歧义（tmux 可能落到 view 上）。
+// 先按 base 列出真实 window（`base:@n` 这种限定 target 在 @n 不存在时会退回当前窗口，
+// 不能用来验归属），拿到 index 后再 `<session>:<index>` 精确切。
+async function getTmuxWindowIndex(hostId: string, baseName: string, tmuxWindowId: string) {
+  const { stdout } = await execTmux(hostId, ['list-windows', '-t', baseName, '-F', '#{window_id}\t#{window_index}'])
+  for (const line of stdout.split(/\r?\n/)) {
+    const [id, index] = line.split('\t')
+    if (id === tmuxWindowId && /^\d+$/.test(index)) return index
+  }
+  throw new Error(`Can't find window: ${tmuxWindowId}`)
 }
 async function normalizeWindowOrder(hostId: string, sessionName: string, orderedWindowIds: string[]) {
   assertSessionAllowed(sessionName)
@@ -153,20 +211,22 @@ async function getTmuxPanes(hostId: string, sessionName: string, windowIndex: nu
       }
     })
 }
-async function getTmuxSessionPanes(hostId: string, sessionName: string) {
-  assertSessionAllowed(sessionName)
+// baseName 同时是 scope 与 agent 状态的查询键；queryName 只用于 tmux 列 pane。
+// agent 状态按 base 记录，传 view 名会查空（view 只是同一组 window 的另一个视角）。
+async function getTmuxSessionPanes(hostId: string, baseName: string, queryName: string = baseName) {
+  assertSessionAllowed(baseName)
   const [{ stdout }, agentPanes] = await Promise.all([
     execTmux(hostId, [
       'list-panes',
       '-s',
       '-t',
-      sessionName,
+      queryName,
       '-F',
       // window_index 给前端做 window → pane 的稳定排序：list-panes -s 本身按 window 顺序输出，
       // 但没有编号，前端无法在合并多份冷数据后还原树形层级
       '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}|#{window_name}|#{window_index}|#{@tmuxgo_task}',
     ]),
-    Promise.resolve(agentMonitor.getSessionStates(hostId, sessionName) || getSessionAgentPanes(hostId, sessionName)),
+    Promise.resolve(agentMonitor.getSessionStates(hostId, baseName) || getSessionAgentPanes(hostId, baseName)),
   ])
   const agentByPane = new Map(agentPanes.map((pane) => [pane.paneId, pane]))
   return stdout
@@ -234,7 +294,8 @@ export async function windowRoutes(fastify: FastifyInstance) {
     const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
     try {
       const sessionName = parseSessionName(hostId, sessionId)
-      return await getTmuxWindows(hostId, sessionName)
+      const viewName = await resolveViewSession(hostId, sessionName, queryViewId(request.query))
+      return await getTmuxWindows(hostId, sessionName, viewName || sessionName)
     } catch (err) {
       return failRoute(reply, err)
     }
@@ -262,7 +323,8 @@ export async function windowRoutes(fastify: FastifyInstance) {
     const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
     try {
       const sessionName = parseSessionName(hostId, sessionId)
-      return await getTmuxSessionPanes(hostId, sessionName)
+      const viewName = await resolveViewSession(hostId, sessionName, queryViewId(request.query))
+      return await getTmuxSessionPanes(hostId, sessionName, viewName || sessionName)
     } catch (err) {
       return failRoute(reply, err)
     }
@@ -271,10 +333,11 @@ export async function windowRoutes(fastify: FastifyInstance) {
     const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
     try {
       const sessionName = parseSessionName(hostId, sessionId)
+      const viewName = await resolveViewSession(hostId, sessionName, queryViewId(request.query))
       recordStreamMetric('snapshotRequests')
       const [windows, panes] = await Promise.all([
-        getTmuxWindows(hostId, sessionName),
-        getTmuxSessionPanes(hostId, sessionName),
+        getTmuxWindows(hostId, sessionName, viewName || sessionName),
+        getTmuxSessionPanes(hostId, sessionName, viewName || sessionName),
       ])
       const activeWindow = windows.find((window) => window.active) || windows[0] || null
       const activePane =
@@ -366,17 +429,22 @@ export async function windowRoutes(fastify: FastifyInstance) {
   })
   fastify.post('/hosts/:hostId/sessions/:sessionId/windows/select', async (request, reply) => {
     const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
-    const { windowId } = request.body as { windowId: string }
+    const { windowId, viewId } = request.body as { windowId: string; viewId?: unknown }
     try {
       const sessionName = parseSessionName(hostId, sessionId)
       const tmuxWindowId = parseWindowRef(hostId, windowId)
       assertSessionAllowed(sessionName)
-      await assertTargetAllowed(hostId, tmuxWindowId, sessionName)
-      await execTmux(hostId, ['select-window', '-t', tmuxWindowId])
+      const viewName = await resolveViewSession(hostId, sessionName, viewId)
+      // 用 base 限定的 target 校验归属：裸 @n 在 grouped session 下可能解析到 view。
+      await assertTargetAllowed(hostId, `${sessionName}:${tmuxWindowId}`, sessionName)
+      const windowIndex = await getTmuxWindowIndex(hostId, sessionName, tmuxWindowId)
+      const targetSession = viewName || sessionName
+      await execTmux(hostId, ['select-window', '-t', `${targetSession}:${windowIndex}`])
       // 各 window 尺寸独立：切换当前 window 后附着的 client 视图可能与
-      // window 尺寸发散，调度一次同 session 仲裁把所有附着同步过去
-      schedulePeerWindowSync(hostId, sessionName)
-      const windows = await getTmuxWindows(hostId, sessionName)
+      // window 尺寸发散，调度一次同 session 仲裁把所有附着同步过去。
+      // view 的 current window 属于 view session，同步键也必须用 view。
+      schedulePeerWindowSync(hostId, targetSession)
+      const windows = await getTmuxWindows(hostId, sessionName, targetSession)
       return { ok: true, windows }
     } catch (err) {
       return classifiedErrorReply(reply, err, 'window') ?? { ok: false, error: errorMessage(err) }
