@@ -186,6 +186,39 @@ describe('CmMarkdownEditor', () => {
     await waitFor(() => expect(container.querySelector('.cm-md-image-missing')?.textContent).toBe('图片不可用'))
   })
 
+  it('documentPath 把相对图片解析成 root 相对路径', async () => {
+    const loadImage = vi.fn(async () => null)
+    const { container } = render(
+      <CmMarkdownEditor
+        value={'![a](./img/x-unique-5.png)\n\nx'}
+        onChange={() => {}}
+        loadImage={loadImage}
+        documentPath="docs/guide.md"
+      />,
+    )
+    const view = getView(container)
+    act(() => {
+      view.dispatch({ selection: { anchor: view.state.doc.length } })
+    })
+    await waitFor(() => expect(loadImage).toHaveBeenCalledWith('./img/x-unique-5.png', 'docs/img/x-unique-5.png'))
+  })
+
+  it('documentPath 变化后按新目录重新解析同一张图', async () => {
+    const loadImage = vi.fn(async () => null)
+    const doc = '![a](./img/x-unique-6.png)\n\nx'
+    const { container, rerender } = render(
+      <CmMarkdownEditor value={doc} onChange={() => {}} loadImage={loadImage} documentPath="docs/a.md" />,
+    )
+    const view = getView(container)
+    act(() => {
+      view.dispatch({ selection: { anchor: doc.length } })
+    })
+    await waitFor(() => expect(loadImage).toHaveBeenCalledWith('./img/x-unique-6.png', 'docs/img/x-unique-6.png'))
+
+    rerender(<CmMarkdownEditor value={doc} onChange={() => {}} loadImage={loadImage} documentPath="notes/a.md" />)
+    await waitFor(() => expect(loadImage).toHaveBeenLastCalledWith('./img/x-unique-6.png', 'notes/img/x-unique-6.png'))
+  })
+
   it('远程图片：loadImage 收到 null path，点击后交给 onOpenExternal', async () => {
     const onOpenExternal = vi.fn()
     const loadImage = vi.fn(async () => 'data:image/gif;base64,BBBB')

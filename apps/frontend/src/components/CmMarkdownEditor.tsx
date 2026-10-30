@@ -12,7 +12,11 @@ import { openSearchPanel, searchKeymap } from '@codemirror/search'
 import { Compartment, EditorState, type Extension } from '@codemirror/state'
 import { EditorView, drawSelection, keymap } from '@codemirror/view'
 import { useEffect, useRef } from 'react'
-import { createMarkdownDecorations, type MarkdownDecorationHost } from '@/lib/cm6/decorations'
+import {
+  createMarkdownDecorations,
+  invalidateMarkdownDecorations,
+  type MarkdownDecorationHost,
+} from '@/lib/cm6/decorations'
 
 export interface CmMarkdownApi {
   focus(): void
@@ -32,6 +36,8 @@ export interface CmMarkdownEditorProps {
   onCursorChange?: (info: { line: number; column: number; selectedChars: number }) => void
   onReady?: (api: CmMarkdownApi) => void
   loadImage?: (src: string, path: string | null) => Promise<string | null> // path 为 root 相对路径；null=不解析
+  // 当前文档的 root 相对路径（如 docs/a.md）：相对图片按它的目录解析成 root 相对路径
+  documentPath?: string
   onOpenExternal?: (href: string) => void
   readOnly?: boolean
   fontFamily?: string
@@ -235,6 +241,10 @@ export function CmMarkdownEditor(props: CmMarkdownEditorProps): JSX.Element {
     compartmentsRef.current = compartments
 
     const decorationHost: MarkdownDecorationHost = {
+      // getter：换文档时取最新路径，图片按新目录解析
+      get documentPath() {
+        return propsRef.current.documentPath
+      },
       // 通过 ref 取最新回调：整合方换 loadImage 时不需要重建 view
       loadImage: (src, path) => propsRef.current.loadImage?.(src, path) ?? Promise.resolve(null),
       openExternal: (href) => propsRef.current.onOpenExternal?.(href),
@@ -312,6 +322,13 @@ export function CmMarkdownEditor(props: CmMarkdownEditorProps): JSX.Element {
       ],
     })
   }, [theme, fontFamily, fontSize, wordWrap, readOnly, ariaLabel])
+
+  // documentPath 变化只影响图片地址解析：发失效信号重算装饰集，不重建 view
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    view.dispatch({ effects: invalidateMarkdownDecorations.of(null) })
+  }, [props.documentPath])
 
   // 外部 value 变化：整篇替换成一个事务（保留撤销栈），选区夹在新文档范围内
   useEffect(() => {
