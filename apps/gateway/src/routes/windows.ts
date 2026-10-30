@@ -4,7 +4,7 @@ import { getNormalizedWindowMoves } from '../lib/template-utils.js'
 import { assertSessionAllowed, assertTargetAllowed } from '../lib/tmux-policy.js'
 import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
 import { execTmux } from '../lib/tmux-executor.js'
-import { normalizeViewId, viewSessionName, viewsEnabled } from '../lib/view-sessions.js'
+import { ensureViewSession, normalizeViewId, viewSessionName, viewsEnabled } from '../lib/view-sessions.js'
 import { VIEW_SESSION_LIST_FORMAT } from '../lib/session-list.js'
 import { recordStreamMetric } from '../lib/perf-metrics.js'
 import { getSessionAgentPanes, markAgentPaneSeen } from '../lib/agent-state.js'
@@ -427,7 +427,14 @@ export async function windowRoutes(fastify: FastifyInstance) {
       const sessionName = parseSessionName(hostId, sessionId)
       const tmuxWindowId = parseWindowRef(hostId, windowId)
       assertSessionAllowed(sessionName)
-      const viewName = await resolveViewSession(hostId, sessionName, viewId)
+      // select 带 viewId 时不能像读路径一样回退 base：attach 建 view 与用户首点
+      // 存在竞态，回退会把 base 的窗口切走、而 view 仍停在旧窗口。这里直接
+      // ensure（幂等）把 view 建出来再切，attach 随后复用，current 不会丢。
+      let viewName = await resolveViewSession(hostId, sessionName, viewId)
+      if (!viewName && viewsEnabled() && viewId !== undefined && viewId !== null) {
+        const normalized = normalizeViewId(viewId)
+        if (normalized) viewName = await ensureViewSession(hostId, sessionName, normalized)
+      }
       // 用 base 限定的 target 校验归属：裸 @n 在 grouped session 下可能解析到 view。
       await assertTargetAllowed(hostId, `${sessionName}:${tmuxWindowId}`, sessionName)
       const windowIndex = await getTmuxWindowIndex(hostId, sessionName, tmuxWindowId)

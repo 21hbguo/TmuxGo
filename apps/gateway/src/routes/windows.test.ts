@@ -388,7 +388,7 @@ test('select with viewId moves only that view current and keeps base current', a
   }
 })
 
-test('viewId before the view session exists falls back to base for all read paths and select', async (t) => {
+test('viewId before the view session exists: reads fall back to base, select ensures the view', async (t) => {
   const app = await buildApp(t)
   const baseSessionId = `session-local-${TEST_TMUX_SESSION}`
   const viewId = 'missingview0001'
@@ -432,8 +432,10 @@ test('viewId before the view session exists falls back to base for all read path
       payload: { windowId: first.id, viewId },
     })
     assert.equal(selected.statusCode, 200, selected.body)
-    // view 不在时 select 按旧路径切 base
-    assert.equal(await currentWindowId(TEST_TMUX_SESSION), first.id.slice('local:'.length))
+    // select 不能切 base（会把另一台设备带走）：ensure 出 view 后只切 view
+    const viewName = viewSessionName('local', TEST_TMUX_SESSION, viewId)
+    assert.equal(await currentWindowId(TEST_TMUX_SESSION), second.id.slice('local:'.length))
+    assert.equal(await currentWindowId(viewName), first.id.slice('local:'.length))
     const selectedBody = selected.json() as { windows: { id: string; sessionId: string; active: boolean }[] }
     assert.equal(
       selectedBody.windows.every((window) => window.sessionId === baseSessionId),
@@ -441,6 +443,7 @@ test('viewId before the view session exists falls back to base for all read path
     )
     assert.equal(selectedBody.windows.find((window) => window.active)?.id, first.id)
   } finally {
+    await killSession(viewSessionName('local', TEST_TMUX_SESSION, viewId))
     await killTestTmuxSession()
   }
 })
