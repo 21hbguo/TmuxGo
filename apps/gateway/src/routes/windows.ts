@@ -4,7 +4,7 @@ import { getNormalizedWindowMoves } from '../lib/template-utils.js'
 import { assertSessionAllowed, assertTargetAllowed } from '../lib/tmux-policy.js'
 import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
 import { execTmux } from '../lib/tmux-executor.js'
-import { normalizeViewId, viewSessionName } from '../lib/view-sessions.js'
+import { normalizeViewId, viewSessionName, viewsEnabled } from '../lib/view-sessions.js'
 import { VIEW_SESSION_LIST_FORMAT } from '../lib/session-list.js'
 import { recordStreamMetric } from '../lib/perf-metrics.js'
 import { getSessionAgentPanes, markAgentPaneSeen } from '../lib/agent-state.js'
@@ -15,13 +15,6 @@ import { findSessionWorkspacePath } from './preferences.js'
 // catch 到的值不保证是 Error（tmux/SSH 通道可能抛字符串），统一收窄取文案
 function errorMessage(error: unknown, fallback = '') {
   return error instanceof Error && error.message ? error.message : fallback
-}
-
-// TMUXGO_VIEWS=0 完全回到旧路径：即使请求带了 viewId 也忽略，不做 option 查询。
-// 与其它开关一致，只认显式关闭值；未设置视为开启。
-function viewsEnabled() {
-  const raw = (process.env.TMUXGO_VIEWS || '').trim().toLowerCase()
-  return raw !== '0' && raw !== 'false' && raw !== 'off'
 }
 
 /**
