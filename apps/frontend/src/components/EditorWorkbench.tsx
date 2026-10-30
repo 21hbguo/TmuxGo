@@ -22,8 +22,9 @@ import type { Monaco } from '@monaco-editor/react'
 import type { editor as monacoEditor } from 'monaco-editor'
 import { resolveEditorDefinition, warmupCodeNavigation } from '@/lib/code-navigation'
 import { useTranslation } from '@/i18n'
-import { MARKDOWN_PROSE_CLASS, locatePreviewBlock, renderMarkdown } from '@/lib/markdown'
+import { locatePreviewBlock, renderMarkdown } from '@/lib/markdown'
 import { previewKindForPath } from '@/lib/file-preview'
+import { MarkdownPreviewHost } from './MarkdownPreviewHost'
 import { buildRawUrl } from '@/lib/raw-url'
 import { csvTableLabels } from '@/lib/csv-table-labels'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
@@ -423,15 +424,17 @@ export function EditorWorkbench({
       target.scrollIntoView?.({ block: 'nearest' })
     }
   }
-  const jumpPreviewToEditor = (editorId: string) => (event: ReactMouseEvent<HTMLElement>) => {
-    const target = (event.target as HTMLElement).closest('[data-line]')
-    if (!target) return
-    const line = Number(target.getAttribute('data-line'))
+  const jumpToEditorLine = (editorId: string, line: number) => {
     const instance = editorRefs.current[editorId]
     if (!instance || !line) return
     instance.revealLineInCenter?.(line)
     instance.setPosition?.({ lineNumber: line, column: 1 })
     instance.focus?.()
+  }
+  const jumpPreviewToEditor = (editorId: string) => (event: ReactMouseEvent<HTMLElement>) => {
+    const target = (event.target as HTMLElement).closest('[data-line]')
+    if (!target) return
+    jumpToEditorLine(editorId, Number(target.getAttribute('data-line')))
   }
   const getEditorLineHeight = (instance: monacoEditor.IStandaloneCodeEditor | null | undefined) => {
     const option = monacoRef.current?.editor?.EditorOption?.lineHeight
@@ -542,7 +545,9 @@ export function EditorWorkbench({
     if (!activeEditor || activeEditor.language !== 'markdown') return
     const { id, content } = activeEditor
     const apply = () => {
-      const html = renderMarkdown(content)
+      const html = renderMarkdown(content, {
+        asset: { hostId: activeEditor.hostId, rootId: activeEditor.rootId, filePath: activeEditor.path },
+      })
       setMarkdownHtml((current) => (current[id] === html ? current : { ...current, [id]: html }))
     }
     if (content.length <= PREVIEW_DEBOUNCE_THRESHOLD) {
@@ -2031,15 +2036,28 @@ export function EditorWorkbench({
                 ref={(node) => {
                   previewElRefs.current[editor.id] = node
                 }}
-                dangerouslySetInnerHTML={{
-                  __html:
-                    markdownHtml[editor.id] ||
-                    renderMarkdown(editor.content) ||
-                    `<p>${t('editor.nothingToPreview')}</p>`,
-                }}
-                className={MARKDOWN_PROSE_CLASS}
                 onDoubleClick={jumpPreviewToEditor(editor.id)}
-              />
+              >
+                <MarkdownPreviewHost
+                  html={
+                    markdownHtml[editor.id] ||
+                    renderMarkdown(editor.content, {
+                      asset: { hostId: editor.hostId, rootId: editor.rootId, filePath: editor.path },
+                    }) ||
+                    `<p>${t('editor.nothingToPreview')}</p>`
+                  }
+                  hostId={editor.hostId}
+                  rootId={editor.rootId}
+                  filePath={editor.path}
+                  labels={{
+                    imageFailed: t('editor.markdownImageFailed'),
+                    imageUnavailable: t('editor.markdownImageUnavailable'),
+                    copyCode: t('editor.markdownCopyCode'),
+                    copied: t('editor.markdownCopied'),
+                  }}
+                  onJump={(line) => jumpToEditorLine(editor.id, line)}
+                />
+              </article>
             </ZoomSurface>
           ) : (
             <iframe

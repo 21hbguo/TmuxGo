@@ -30,9 +30,10 @@ import {
   setActiveDraggedFile,
 } from '@/lib/editor-drag'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
-import { MARKDOWN_PROSE_CLASS, renderMarkdown } from '@/lib/markdown'
+import { renderMarkdown } from '@/lib/markdown'
 import { CsvTable } from './CsvTable'
 import { csvTableLabels } from '@/lib/csv-table-labels'
+import { MarkdownPreviewHost } from './MarkdownPreviewHost'
 import { getFileIcon } from '@/lib/file-icons'
 import { ZoomSurface } from './ZoomSurface'
 import {
@@ -2190,11 +2191,21 @@ export function FilePanel({
     ) : mobileRenderKind && !mobileSourceView && mobileFileContent !== null ? (
       mobileRenderKind === 'markdown' ? (
         <ZoomSurface resetKey={selectedPath} className="tmuxgo-scrollbar h-full overflow-auto px-3 py-3">
-          <article
-            dangerouslySetInnerHTML={{
-              __html: renderMarkdown(mobileFileContent) || `<p>${t('editor.nothingToPreview')}</p>`,
+          <MarkdownPreviewHost
+            html={
+              renderMarkdown(mobileFileContent, {
+                asset: { hostId: fileHostId, rootId: activeRootId, filePath: selectedPath },
+              }) || `<p>${t('editor.nothingToPreview')}</p>`
+            }
+            hostId={fileHostId}
+            rootId={activeRootId}
+            filePath={selectedPath}
+            labels={{
+              imageFailed: t('editor.markdownImageFailed'),
+              imageUnavailable: t('editor.markdownImageUnavailable'),
+              copyCode: t('editor.markdownCopyCode'),
+              copied: t('editor.markdownCopied'),
             }}
-            className={MARKDOWN_PROSE_CLASS}
           />
         </ZoomSurface>
       ) : mobileRenderKind === 'csv' ? (
