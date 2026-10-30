@@ -19,6 +19,8 @@ export interface EditorViewPrefs {
   fontScale: number
   autoSave: boolean
   autoSaveDelayMs: number
+  // markdown 默认用 live preview 编辑器（Obsidian 式）；关掉则回到 Monaco + 只读预览
+  markdownLivePreview: boolean
 }
 
 export const FONT_SCALE_STEPS = [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6, 1.8, 2] as const
@@ -36,6 +38,7 @@ export const DEFAULT_EDITOR_VIEW_PREFS: EditorViewPrefs = {
   fontScale: 1,
   autoSave: false,
   autoSaveDelayMs: 1200,
+  markdownLivePreview: true,
 }
 
 const WHITESPACE_MODES: WhitespaceMode[] = ['none', 'boundary', 'all']
@@ -61,9 +64,7 @@ export function cycleWhitespace(current: WhitespaceMode): WhitespaceMode {
 export function sanitizeEditorViewPrefs(input: unknown): EditorViewPrefs {
   const raw = (input || {}) as Partial<Record<keyof EditorViewPrefs, unknown>>
   const bool = (key: keyof EditorViewPrefs): boolean =>
-    typeof raw[key] === 'boolean'
-      ? (raw[key] as boolean)
-      : (DEFAULT_EDITOR_VIEW_PREFS[key] as unknown as boolean)
+    typeof raw[key] === 'boolean' ? (raw[key] as boolean) : (DEFAULT_EDITOR_VIEW_PREFS[key] as unknown as boolean)
   const whitespace = WHITESPACE_MODES.includes(raw.renderWhitespace as WhitespaceMode)
     ? (raw.renderWhitespace as WhitespaceMode)
     : DEFAULT_EDITOR_VIEW_PREFS.renderWhitespace
@@ -81,6 +82,7 @@ export function sanitizeEditorViewPrefs(input: unknown): EditorViewPrefs {
     autoSaveDelayMs: Number.isFinite(delay)
       ? Math.min(AUTO_SAVE_DELAY_MAX, Math.max(AUTO_SAVE_DELAY_MIN, delay))
       : DEFAULT_EDITOR_VIEW_PREFS.autoSaveDelayMs,
+    markdownLivePreview: bool('markdownLivePreview'),
   }
 }
 

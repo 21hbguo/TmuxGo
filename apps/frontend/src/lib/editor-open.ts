@@ -4,19 +4,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { FileDocumentHandle } from '@/types'
 import type { useTranslation } from '@/i18n'
 
-const IMAGE_EXTENSIONS = new Set([
-  '.avif',
-  '.bmp',
-  '.gif',
-  '.ico',
-  '.jpeg',
-  '.jpg',
-  '.png',
-  '.svg',
-  '.tif',
-  '.tiff',
-  '.webp',
-])
+const IMAGE_EXTENSIONS = new Set(['.avif', '.bmp', '.gif', '.ico', '.jpeg', '.jpg', '.png', '.tif', '.tiff', '.webp'])
 export const OPEN_EDITOR_LOCATION_EVENT = 'tmuxgo-open-editor-location'
 type TranslateFn = ReturnType<typeof useTranslation>['t']
 // 返回/前进恢复载荷：落位时还原选区与视口而不是强制居中
@@ -56,11 +44,11 @@ export function getEditorLanguage(path: string) {
   if (name.endsWith('.mjs') || name.endsWith('.cjs')) return 'javascript'
   if (name.endsWith('.json')) return 'json'
   if (name.endsWith('.jsonc')) return 'json'
-  if (name.endsWith('.md')) return 'markdown'
+  if (name.endsWith('.md') || name.endsWith('.markdown') || name.endsWith('.mdx')) return 'markdown'
   if (name.endsWith('.css')) return 'css'
   if (name.endsWith('.scss')) return 'scss'
   if (name.endsWith('.less')) return 'less'
-  if (name.endsWith('.html')) return 'html'
+  if (name.endsWith('.html') || name.endsWith('.htm') || name.endsWith('.xhtml')) return 'html'
   if (name.endsWith('.xml') || name.endsWith('.svg')) return 'xml'
   if (name.endsWith('.sh')) return 'shell'
   if (name.endsWith('.bash') || name.endsWith('.zsh')) return 'shell'
@@ -75,7 +63,7 @@ export function getEditorLanguage(path: string) {
   if (name.endsWith('.toml')) return 'ini'
   if (name.endsWith('.ini') || name.endsWith('.cfg') || name.endsWith('.conf')) return 'ini'
   if (name.endsWith('.yml') || name.endsWith('.yaml')) return 'yaml'
-  if (name.endsWith('.csv')) return 'csv'
+  if (name.endsWith('.csv') || name.endsWith('.tsv') || name.endsWith('.tab')) return 'csv'
   return 'plaintext'
 }
 export function dispatchOpenEditorLocation(
