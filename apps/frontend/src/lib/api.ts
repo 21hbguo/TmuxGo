@@ -1,6 +1,7 @@
 import { getApiBase } from './runtime-endpoints'
 import { authenticatedFetch, getAccessToken, refreshAuth } from './auth'
 import { buildSessionId } from './session-id'
+import { getViewId } from './view-identity'
 import type {
   AgentInboxMessage,
   AgentRecoveryCandidate,
@@ -342,6 +343,12 @@ function buildSessionFallback(
     ...session,
   }
 }
+// 读路径也要声明视角：网关按该视角的 current window 组织 windows/panes/snapshot，
+// 少了它多个浏览器会一起读 base 的窗口，tab active 与终端画面就会错位。
+function withViewId(path: string): string {
+  const separator = path.includes('?') ? '&' : '?'
+  return `${path}${separator}viewId=${encodeURIComponent(getViewId())}`
+}
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${getApiBase()}${path}`
   const isFormData = typeof FormData !== 'undefined' && options?.body instanceof FormData
@@ -612,7 +619,7 @@ export const api = {
   },
   snapshot: {
     get: (hostId: string, sessionId: string) =>
-      fetchApi<SessionSnapshot>(`/api/hosts/${hostId}/sessions/${sessionId}/snapshot`),
+      fetchApi<SessionSnapshot>(withViewId(`/api/hosts/${hostId}/sessions/${sessionId}/snapshot`)),
   },
   shares: {
     list: () => fetchApi<{ links: ShareLink[] }>('/api/shares'),
@@ -918,7 +925,7 @@ export const api = {
   },
   windows: {
     list: (hostId: string, sessionId: string) =>
-      fetchApi<Window[]>(`/api/hosts/${hostId}/sessions/${sessionId}/windows`),
+      fetchApi<Window[]>(withViewId(`/api/hosts/${hostId}/sessions/${sessionId}/windows`)),
     create: (hostId: string, sessionId: string, name: string) =>
       fetchApi<Window>(`/api/hosts/${hostId}/sessions/${sessionId}/windows`, {
         method: 'POST',
@@ -927,7 +934,8 @@ export const api = {
     select: (hostId: string, sessionId: string, windowId: string) =>
       fetchApi<WindowsMutationResult>(`/api/hosts/${hostId}/sessions/${sessionId}/windows/select`, {
         method: 'POST',
-        body: JSON.stringify({ windowId }),
+        // 带上浏览器视角：网关只切这个视角的 current window，别的浏览器不受影响
+        body: JSON.stringify({ windowId, viewId: getViewId() }),
       }),
     rename: (hostId: string, sessionId: string, windowId: string, name: string) =>
       fetchApi<WindowsMutationResult>(`/api/hosts/${hostId}/sessions/${sessionId}/windows/rename`, {
@@ -946,7 +954,7 @@ export const api = {
       }),
   },
   panes: {
-    list: (windowId: string) => fetchApi<Pane[]>(`/api/windows/${windowId}/panes`),
+    list: (windowId: string) => fetchApi<Pane[]>(withViewId(`/api/windows/${windowId}/panes`)),
     listBySession: (hostId: string, sessionId: string) =>
       fetchApi<Pane[]>(`/api/hosts/${hostId}/sessions/${sessionId}/panes`),
     output: (paneId: string) =>
