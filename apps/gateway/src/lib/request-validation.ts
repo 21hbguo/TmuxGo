@@ -192,6 +192,9 @@ export const streamAttachMessageSchema = z.object({
   type: z.literal('attach'),
   hostId: identifier.optional(),
   sessionName: z.string().min(1).max(256),
+  // 多端视角：浏览器/设备稳定 id。只做长度上限，字符集与 8 位下限交给
+  // normalizeViewId 统一判定（非法值走 attach 错误通道，不在此静默剥离）
+  viewId: z.string().max(64).optional(),
   exclusive: z.boolean().optional(),
   passive: z.boolean().optional(),
   cols: z.number().finite().optional(),

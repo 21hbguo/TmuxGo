@@ -26,6 +26,7 @@ import { scopeAllowsSession, type AccessScope } from '../access-scope.js'
 import { StreamCellEncoder } from './stream-cell.js'
 import { applyScroll, getSessionWindowSize, refreshAttachedClient, resizeSessionWindow } from './stream-tmux.js'
 import { acquireSharedTerminal, getSharedTerminal, type SharedTerminal } from './shared-terminal.js'
+import { ensureViewSession, normalizeViewId, viewsEnabled } from '../view-sessions.js'
 import {
   ATTACH_REDRAW_DELAYS,
   CLIENT_BACKPRESSURE_RESYNC_CHARS,
@@ -80,6 +81,14 @@ const WINDOW_SYNC_DELAY_MS = 80
 const WINDOW_SYNC_SETTLE_MS = 60
 function peerKey(hostId: string, sessionName: string) {
   return `${hostId}\0${sessionName}`
+}
+// 可选 viewId：缺省 = 旧行为直连 base。传了就必须合法——非法值走 attach 错误
+// 通道明确报错，绝不静默回落 base（否则两台设备会悄悄共用一条 PTY）
+function parseViewId(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null
+  const normalized = normalizeViewId(raw)
+  if (!normalized) throw new Error('Invalid viewId: expected 8-64 URL-safe characters')
+  return normalized
 }
 // 测试缝：reconcile 的 window 尺寸查询可注入，不依赖真实 tmux session
 let windowSizeQuery: typeof getSessionWindowSize = getSessionWindowSize
@@ -203,6 +212,9 @@ export class StreamSession {
   // fan-out 枢纽：非空表示 ptyProcess 指向共享 SharedTerminal.PTY，kill/resize 归 hub 管
   sharedHub: SharedTerminal | null = null
   attachedSessionName: string | null = null
+  // PTY/hub/capture/refresh 真正寻址的 grouped view 名；null = 直接 attach base
+  // （旧行为）。对外协议、peer 仲裁、日志一律继续用 attachedSessionName
+  attachedViewName: string | null = null
   attachedHostId = 'local'
   attachedExclusive = false
   // 被动旁观附着（后台/失焦页）：丢弃一切会话级写操作，见 input/queueScroll
@@ -579,6 +591,8 @@ export class StreamSession {
   async flushOutputResync() {
     if (!this.outputResyncPending || this.outputResyncRunning || !this.ptyProcess || !this.attachedSessionName) return
     const sessionName = this.attachedSessionName
+    // 对外帧继续报 base；tmux 重绘命令必须打到 view 自己的 client
+    const targetName = this.attachedViewName ?? sessionName
     const hostId = this.attachedHostId
     const seq = this.attachSeq
     const pid = this.ptyProcess.pid
@@ -587,6 +601,7 @@ export class StreamSession {
     const current = () =>
       seq === this.attachSeq &&
       this.attachedSessionName === sessionName &&
+      (this.attachedViewName ?? sessionName) === targetName &&
       this.attachedHostId === hostId &&
       !!this.ptyProcess
     this.outputResyncRunning = true
@@ -618,7 +633,7 @@ export class StreamSession {
       // 进共享 PTY 后扇出全部订阅者。本端边界已发，给其它订阅者补同款
       // output_resync 边界（except 排除本端防重复清屏），换取不拆 PTY
       if (this.sharedHub) this.sharedHub.broadcastRedrawBoundary(this)
-      await this.redrawAttachedClient(hostId, sessionName, pid)
+      await this.redrawAttachedClient(hostId, targetName, pid)
       if (!current()) return
       recordStreamMetric('outputResyncCompleted')
       recordStreamMetric('outputFlushes')
@@ -876,7 +891,8 @@ export class StreamSession {
     if (!lines) return
     const hostId = this.attachedHostId
     this.scrollRunning.add(sessionName)
-    void applyScroll(hostId, sessionName, lines)
+    // copy-mode 的目标窗口跟随当前 view，而不是 base 的当前窗口
+    void applyScroll(hostId, this.tmuxTargetName(sessionName), lines)
       .catch(() => {})
       .finally(() => {
         this.scrollRunning.delete(sessionName)
@@ -899,7 +915,9 @@ export class StreamSession {
     assertSessionAllowed(sessionName)
     if (this.attachedPassive || hostId !== this.attachedHostId) return
     recordStreamMetric('copyModeCancelRequests')
-    void execTmux(this.attachedHostId, ['send-keys', '-t', sessionName, '-X', 'cancel']).catch(() => {})
+    void execTmux(this.attachedHostId, ['send-keys', '-t', this.tmuxTargetName(sessionName), '-X', 'cancel']).catch(
+      () => {},
+    )
   }
   clearRedrawTimers() {
     for (const timer of this.redrawTimers) clearTimeout(timer)
@@ -915,13 +933,20 @@ export class StreamSession {
     // 复位语义会让旧端整屏叠加花屏——refresh 前先广播 output_resync 边界
     // （含本端），各接收端按原子替换处理，不依赖 tmux 恰好发清屏序列
     if (this.sharedHub) this.sharedHub.broadcastRedrawBoundary()
-    await refreshAttachedClient(this.attachedHostId, sessionName, this.ptyProcess.pid)
+    // refresh-client 必须刷到 view 自己的 client：按 base 查会漏掉本端
+    await refreshAttachedClient(this.attachedHostId, this.tmuxTargetName(sessionName), this.ptyProcess.pid)
+  }
+  // 真正向 tmux 下命令时用 view 名；消息字段/peer key/仲裁仍用 base。
+  // 只有目标就是当前附着 session 时才替换，避免误把别的 session 名映射成 view
+  private tmuxTargetName(sessionName: string) {
+    if (this.attachedViewName && this.attachedSessionName === sessionName) return this.attachedViewName
+    return sessionName
   }
   // 镜像 cold 的判定与回退都收在这里：warm + 尺寸一致才用镜像，否则交给重绘路径。
   // 尺寸不一致时快照会错位（客户端 xterm 已按自己尺寸排版），必须回退
   private async tryAttachFromMirror(sessionName: string, hostId: string, lastSeq?: number): Promise<boolean> {
     if (!isMirrorEnabled()) return false
-    const mirror = (this.sharedHub ?? getSharedTerminal(hostId, sessionName))?.mirror
+    const mirror = (this.sharedHub ?? getSharedTerminal(hostId, this.tmuxTargetName(sessionName)))?.mirror
     if (!mirror || !mirror.warm) {
       recordStreamMetric('mirrorFallbacks')
       return false
@@ -1063,6 +1088,7 @@ export class StreamSession {
     }
     this.attachVisibleOutputObserved = false
     this.attachedSessionName = null
+    this.attachedViewName = null
     this.attachedHostId = 'local'
     this.attachedExclusive = false
     this.attachedPassive = false
@@ -1119,9 +1145,23 @@ export class StreamSession {
     assertSessionAllowed(sessionNameRaw)
     return { hostId, sessionName: sessionNameRaw }
   }
+  // 建/校验 grouped view。失败信息必须说清是 view 创建失败（而不是 base 不存在），
+  // 由 attach 的既有错误通道原样回给前端
+  private async openViewSession(hostId: string, baseSession: string, viewId: string): Promise<string> {
+    try {
+      const name = await ensureViewSession(hostId, baseSession, viewId)
+      console.log('View session ready', { base: baseSession, viewId, view: name })
+      return name
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      throw new Error(`View session attach failed: ${detail}`, { cause: err })
+    }
+  }
   async attach(attach: {
     hostId?: unknown
     sessionName?: unknown
+    // 可选：浏览器/设备稳定 id。缺省 = 直连 base（旧行为）
+    viewId?: unknown
     exclusive?: boolean
     passive?: boolean
     cols?: number
@@ -1134,6 +1174,7 @@ export class StreamSession {
     console.log('Attach requested', {
       hostId: attach.hostId,
       sessionName: attach.sessionName,
+      viewId: typeof attach.viewId === 'string' ? attach.viewId : undefined,
       exclusive: !!attach.exclusive,
       cols: attach.cols,
       rows: attach.rows,
@@ -1144,7 +1185,12 @@ export class StreamSession {
     // 受限身份 attach 边界：host+session 都需在 scope 内，403 等价语义不回显细节
     if (this.accessScope && !scopeAllowsSession(this.accessScope, hostId, sessionName))
       throw new Error('Access scope does not allow this session')
+    // 开关在请求时读取：TMUXGO_VIEWS=0 时连 viewId 合法性都不看，完全走旧行为
+    const requestedViewId = viewsEnabled() ? parseViewId(attach.viewId) : null
     await prepareSessionAttach(hostId, sessionName)
+    const viewName = requestedViewId ? await this.openViewSession(hostId, sessionName, requestedViewId) : null
+    // 所有 PTY/hub/capture/refresh 寻址用 targetName（view）；消息字段继续 base
+    const targetName = viewName ?? sessionName
     const requestedCols = attach.cols || 80
     const requestedRows = attach.rows || 24
     const readOnly = !!this.shareTicket || this.accessScope?.readOnly === true
@@ -1154,6 +1200,7 @@ export class StreamSession {
       STREAM_FANOUT_ENABLED &&
       this.sharedHub &&
       this.attachedSessionName === sessionName &&
+      this.attachedViewName === viewName &&
       this.attachedHostId === hostId
     ) {
       // 已在同一 hub 上：exclusive/passive 原位切换（steal/refocus），不重建 PTY。
@@ -1189,13 +1236,18 @@ export class StreamSession {
       // 切换模式后需整帧恢复：refresh-client 重绘经共享 PTY 扇出全部订阅者
       // （单 tmux client 无法只刷一端），各端靠 output_resync 边界原子替换
       void this.finishAttach(sessionName, hostId, this.attachSeq, attach.lastSeq)
-      console.log('Attach completed (hub reuse)', { sessionName, elapsedMs: Date.now() - attachStartedAt })
+      console.log('Attach completed (hub reuse)', {
+        sessionName,
+        viewName,
+        elapsedMs: Date.now() - attachStartedAt,
+      })
       return
     }
     if (
       this.ptyProcess &&
       !this.sharedHub &&
       this.attachedSessionName === sessionName &&
+      this.attachedViewName === viewName &&
       this.attachedExclusive === exclusive &&
       this.attachedHostId === hostId
     ) {
@@ -1228,16 +1280,16 @@ export class StreamSession {
         ...this.sizeProtocol(),
       })
       void this.finishAttach(sessionName, hostId, this.attachSeq, attach.lastSeq)
-      console.log('Attach completed (reuse)', { sessionName, elapsedMs: Date.now() - attachStartedAt })
+      console.log('Attach completed (reuse)', { sessionName, viewName, elapsedMs: Date.now() - attachStartedAt })
       return
     }
     this.cleanup()
-    const sharedSize = exclusive ? null : await windowSizeQuery(hostId, sessionName)
+    const sharedSize = exclusive ? null : await windowSizeQuery(hostId, targetName)
     const cols = sharedSize?.cols || requestedCols
     const rows = sharedSize?.rows || requestedRows
     const seq = this.attachSeq
     if (STREAM_FANOUT_ENABLED) {
-      const { hub, reused } = await acquireSharedTerminal({ hostId, sessionName, cols, rows })
+      const { hub, reused } = await acquireSharedTerminal({ hostId, sessionName: targetName, cols, rows })
       this.sharedHub = hub
       this.ptyProcess = hub.pty
       hub.subscribe(this)
@@ -1245,6 +1297,7 @@ export class StreamSession {
       const attachCols = reused ? hub.cols : cols
       const attachRows = reused ? hub.rows : rows
       this.attachedSessionName = sessionName
+      this.attachedViewName = viewName
       this.attachedHostId = hostId
       this.attachedExclusive = exclusive
       this.attachedPassive = passive
@@ -1285,6 +1338,7 @@ export class StreamSession {
       void this.finishAttach(sessionName, hostId, seq, attach.lastSeq)
       console.log('Attach completed (fanout)', {
         sessionName,
+        viewName,
         cols: this.attachedCols,
         rows: this.attachedRows,
         reused,
@@ -1294,10 +1348,11 @@ export class StreamSession {
     }
     // 客户端 attach 到该 host 的终端：让 agentMonitor 立刻扫一轮，别等空扫退避档到期
     agentMonitor.noteHostActivity(hostId)
-    const created = await createTerminalAttachment({ hostId, sessionName, cols, rows, exclusive })
+    const created = await createTerminalAttachment({ hostId, sessionName: targetName, cols, rows, exclusive })
     this.ptyProcess = created
     this.sharedHub = null
     this.attachedSessionName = sessionName
+    this.attachedViewName = viewName
     this.attachedHostId = hostId
     this.attachedExclusive = exclusive
     this.attachedPassive = passive
@@ -1357,7 +1412,13 @@ export class StreamSession {
     })
     if (exclusive) schedulePeerWindowSync(hostId, sessionName)
     this.scheduleAttachRefresh(sessionName, seq)
-    console.log('Attach completed (new)', { sessionName, cols, rows, elapsedMs: Date.now() - attachStartedAt })
+    console.log('Attach completed (new)', {
+      sessionName,
+      viewName,
+      cols,
+      rows,
+      elapsedMs: Date.now() - attachStartedAt,
+    })
   }
   // 共享 hub 输出入口：sanitize 已在 hub 完成，这里只做本端 resync 丢弃/组帧/ACK
   onSharedOutput(filtered: string) {
@@ -1419,6 +1480,7 @@ export class StreamSession {
     this.sharedHub = null
     this.ptyProcess = null
     this.attachedSessionName = null
+    this.attachedViewName = null
     this.attachedHostId = 'local'
     this.attachedExclusive = false
     this.attachedPassive = false
@@ -1437,6 +1499,8 @@ export class StreamSession {
     this.clearRedrawTimers()
     this.attachRefresh = null
     if (exitedSessionName) schedulePeerWindowSync(exitedHostId, exitedSessionName)
+    // view 的清理只走 sweep（attached=0 且超过 TTL / base 不存在）：这里不 kill。
+    // PTY 退出与并发 re-attach 的 ensure 存在竞态，立刻 kill 会打死刚复用上的新 PTY
   }
   resize(cols: number, rows: number, requestId?: string | number) {
     recordStreamMetric('resizeRequests')
