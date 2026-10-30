@@ -1,5 +1,6 @@
 'use client'
 import { api, fetchApiBlob } from './api'
+import { previewKindForPath } from './file-preview'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { FileDocumentHandle } from '@/types'
 import type { useTranslation } from '@/i18n'
@@ -142,6 +143,32 @@ export async function openFileInEditor(
       pushToast?.({ type: 'error', message })
       onError?.(message)
     }
+    return file.id
+  }
+  // PDF/音视频不拉 content：几 MB 的 base64 只会白占内存，预览走 /files/raw 流。
+  // 仍然取一次 stat 拿 size/modifiedAt，PDF 体积闸门与 cache-bust 都要用。
+  const mediaKind = previewKindForPath(file.path)
+  if (mediaKind === 'pdf' || mediaKind === 'audio' || mediaKind === 'video') {
+    let size: number | undefined
+    let modifiedAt: string | undefined
+    try {
+      const meta = await api.files.preview(file.hostId, file.rootId, file.path)
+      size = meta.size
+      modifiedAt = meta.modifiedAt
+    } catch {
+      // stat 失败不阻断：raw 路由仍会回 404/502，预览器负责显示兜底
+    }
+    store.setEditorLoaded(file.id, {
+      loading: false,
+      content: '',
+      savedContent: '',
+      modifiedAt,
+      size,
+      binary: true,
+      truncated: false,
+      problem: undefined,
+      previewUrl: undefined,
+    })
     return file.id
   }
   try {

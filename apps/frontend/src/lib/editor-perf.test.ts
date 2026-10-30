@@ -4,6 +4,7 @@ import { extractOutline } from './editor-outline'
 import { filterQuickPick, parseGotoLine } from './editor-quickpick'
 import { idsToCloseOthers, idsToCloseSaved, idsToCloseToRight } from './editor-tab-actions'
 import { renderMarkdown } from './markdown'
+import { parseCsvTable, sliceTable, sortTableRows } from './csv'
 
 // 编辑区延迟预算（CI 守卫）：这里只断言「不退化到肉眼可感」，阈值给足冗余——
 // 实测远低于预算（见 scripts/measure-editor-latency.ts），拦的是 O(n²)/重复解析这类回归。
@@ -61,10 +62,7 @@ describe('editor latency budgets', () => {
   it('keeps selection stats and tab batch math sub-millisecond', () => {
     const elapsed = time(() => {
       for (let index = 0; index < 50; index += 1)
-        computeSelectionStats(
-          { startLineNumber: 1, startColumn: 1, endLineNumber: 10_000, endColumn: 40 },
-          () => 40,
-        )
+        computeSelectionStats({ startLineNumber: 1, startColumn: 1, endLineNumber: 10_000, endColumn: 40 }, () => 40)
       const ids = Array.from({ length: 500 }, (_, item) => `editor-${item}`)
       idsToCloseOthers(ids, 'editor-0')
       idsToCloseToRight(ids, 'editor-250')
@@ -72,5 +70,19 @@ describe('editor latency budgets', () => {
       for (let index = 0; index < 500; index += 1) parseGotoLine(`${index}:3`, 20_000)
     })
     expect(elapsed).toBeLessThan(MEDIUM)
+  })
+
+  // CSV 是本次补强的重点：十万行级不能靠 Math.max(...spread)，切片与排序都必须有界
+  it('slices a 200k row csv table without spreading the array', () => {
+    const rows = Array.from({ length: 200_000 }, (_, index) => [`row-${index}`, String(index), 'x'])
+    expect(time(() => void sliceTable(rows, 5000, 128))).toBeLessThan(100)
+  })
+
+  it('parses and sorts a 0.7MB csv file within a preview tick', () => {
+    const body = Array.from({ length: 40_000 }, (_, index) => `${index},name-${index},${index % 97}`).join('\n')
+    const content = `id,name,score\n${body}`
+    expect(content.length).toBeGreaterThan(512 * 1024)
+    const parsed = parseCsvTable(content)
+    expect(time(() => void sortTableRows(parsed.rows, 2, 'desc', true))).toBeLessThan(1500)
   })
 })

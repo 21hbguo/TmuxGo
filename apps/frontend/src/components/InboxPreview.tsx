@@ -20,6 +20,7 @@ import {
 } from 'react-icons/fi'
 import { Button } from './Button'
 import { CsvTable } from './CsvTable'
+import { csvTableLabels } from '@/lib/csv-table-labels'
 import { InboxForwardDialog } from './InboxForwardDialog'
 import { InboxShareDialog } from './InboxShareDialog'
 
@@ -510,7 +511,7 @@ export function InboxPreview({
         } else if (kind === 'csv') {
           body = (
             <div className="flex h-full flex-col">
-              <CsvTable content={content} emptyLabel={t('inbox.previewUnsupported')} />
+              <CsvTable content={content} emptyLabel={t('inbox.previewUnsupported')} labels={csvTableLabels(t)} />
               {truncated && (
                 <div className="px-3 py-1 text-caption text-text-3">
                   {t('inbox.truncated', { limit: `${TEXT_RENDER_MAX_CHARS / 1024}K` })}

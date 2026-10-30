@@ -23,6 +23,9 @@ import type { editor as monacoEditor } from 'monaco-editor'
 import { resolveEditorDefinition, warmupCodeNavigation } from '@/lib/code-navigation'
 import { useTranslation } from '@/i18n'
 import { MARKDOWN_PROSE_CLASS, locatePreviewBlock, renderMarkdown } from '@/lib/markdown'
+import { previewKindForPath } from '@/lib/file-preview'
+import { buildRawUrl } from '@/lib/raw-url'
+import { csvTableLabels } from '@/lib/csv-table-labels'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { Button } from './Button'
 import { ZoomSurface } from './ZoomSurface'
@@ -65,6 +68,8 @@ const MonacoEditor = dynamic(() => import('@monaco-editor/react').then((mod) => 
 const MonacoDiffEditor = dynamic(() => import('@monaco-editor/react').then((mod) => ({ default: mod.DiffEditor })))
 // CSV 预览仅在打开 csv 预览时用，懒加载避免进主入口静态依赖
 const CsvTable = dynamic(() => import('./CsvTable').then((mod) => ({ default: mod.CsvTable })))
+const PdfPreview = dynamic(() => import('./PdfPreview').then((mod) => ({ default: mod.PdfPreview })))
+const MediaPreview = dynamic(() => import('./MediaPreview').then((mod) => ({ default: mod.MediaPreview })))
 // 预览防抖阈值：小文档保持同步渲染（打开即见），超过它就防抖，避免每键重解析卡输入
 const PREVIEW_DEBOUNCE_THRESHOLD = 16_384
 const AUTO_SCROLL_DEADZONE = 10
@@ -1388,9 +1393,7 @@ export function EditorWorkbench({
       formatOnType: true,
       trimAutoWhitespace: true,
       renderWhitespace: (viewPrefs.renderWhitespace === 'none' ? 'none' : viewPrefs.renderWhitespace) as
-        | 'none'
-        | 'boundary'
-        | 'all',
+        'none' | 'boundary' | 'all',
       renderControlCharacters: false,
       smoothScrolling: true,
       cursorBlinking: preferences.cursorBlink ? ('blink' as const) : ('solid' as const),
@@ -1471,8 +1474,7 @@ export function EditorWorkbench({
   }
   // 状态栏展示口径：用户手改优先，其次防抖探测结果，最后是按语言推断的默认缩进
   const displayedEol = (target: FileEditorDocument): EditorEol =>
-    eolOverride[target.id] ??
-    (statsInput?.id === target.id && detectedStats ? detectedStats.eol.eol : '\n')
+    eolOverride[target.id] ?? (statsInput?.id === target.id && detectedStats ? detectedStats.eol.eol : '\n')
   const displayedEolMixed = (target: FileEditorDocument) =>
     !eolOverride[target.id] && statsInput?.id === target.id && detectedStats ? detectedStats.eol.mixed : false
   const displayedIndent = (target: FileEditorDocument): EditorIndentInfo =>
@@ -1553,7 +1555,12 @@ export function EditorWorkbench({
         id: 'close-saved',
         label: t('editor.menu.closeSaved'),
         onSelect: () =>
-          closeEditorsSafely(idsToCloseSaved(openEditors.map((item) => item.id), (id) => !!editorById.get(id)?.dirty)),
+          closeEditorsSafely(
+            idsToCloseSaved(
+              openEditors.map((item) => item.id),
+              (id) => !!editorById.get(id)?.dirty,
+            ),
+          ),
       },
       {
         id: 'close-all',
@@ -1794,6 +1801,39 @@ export function EditorWorkbench({
         </ZoomSurface>
       )
     }
+    // PDF/音视频不读文本内容：直接走 /files/raw 内联流（cookie 鉴权），二进制探测不参与
+    const mediaKind = previewKindForPath(editor.path)
+    if (mediaKind === 'pdf' || mediaKind === 'audio' || mediaKind === 'video') {
+      const rawUrl = buildRawUrl(editor.hostId, editor.rootId, editor.path, {
+        v: editor.modifiedAt ? String(editor.modifiedAt) : undefined,
+      })
+      return (
+        <div className="flex h-full min-h-0 flex-col bg-bg-0" data-testid={`editor-media-${mediaKind}`}>
+          {mediaKind === 'pdf' ? (
+            <PdfPreview
+              name={editor.name}
+              url={rawUrl}
+              size={editor.size}
+              labels={{
+                loading: t('editor.pdfLoading'),
+                failed: t('editor.pdfFailed'),
+                openNew: t('editor.pdfOpenNew'),
+                download: t('editor.pdfDownload'),
+                large: t('editor.pdfLarge'),
+              }}
+            />
+          ) : (
+            <MediaPreview
+              kind={mediaKind}
+              name={editor.name}
+              url={rawUrl}
+              size={editor.size}
+              labels={{ failed: t('editor.mediaFailed') }}
+            />
+          )}
+        </div>
+      )
+    }
     if (editor.problem || editor.binary || editor.truncated)
       return (
         <div className="flex h-full items-center justify-center p-6">
@@ -1978,7 +2018,7 @@ export function EditorWorkbench({
         )}
         {previewVisible &&
           (editor.language === 'csv' ? (
-            <CsvTable content={editor.content} emptyLabel={t('editor.nothingToPreview')} />
+            <CsvTable content={editor.content} emptyLabel={t('editor.nothingToPreview')} labels={csvTableLabels(t)} />
           ) : editor.language === 'markdown' ? (
             <ZoomSurface
               active={focused}
@@ -2016,8 +2056,7 @@ export function EditorWorkbench({
   // —— 命令层 ——
   // 快捷键、工具栏、tab 右键菜单、命令面板都收敛到 runEditorCommand 一个入口：
   // 键位表在 lib/editor-commands 里单测，这里只做「命令 → 现有能力」的接线
-  const notify = (message: string, type: 'success' | 'error' | 'info' = 'info') =>
-    pushToast({ type, message })
+  const notify = (message: string, type: 'success' | 'error' | 'info' = 'info') => pushToast({ type, message })
   const revealPosition = (editorId: string, line: number, column = 1) => {
     const instance = editorRefs.current[editorId]
     if (!instance) return
@@ -2197,7 +2236,9 @@ export function EditorWorkbench({
       case 'toggle-auto-save': {
         const next = !viewPrefs.autoSave
         viewPrefs.setPref('autoSave', next)
-        notify(next ? t('editor.toast.autoSaveOn', { delay: viewPrefs.autoSaveDelayMs }) : t('editor.toast.autoSaveOff'))
+        notify(
+          next ? t('editor.toast.autoSaveOn', { delay: viewPrefs.autoSaveDelayMs }) : t('editor.toast.autoSaveOff'),
+        )
         return
       }
       case 'format-document':
@@ -2301,7 +2342,12 @@ export function EditorWorkbench({
         if (activeEditor) closeEditorsSafely(idsToCloseToRight(orderedEditorIds(), activeEditor.id))
         return
       case 'close-saved':
-        closeEditorsSafely(idsToCloseSaved(openEditors.map((item) => item.id), (editorId) => !!editorById.get(editorId)?.dirty))
+        closeEditorsSafely(
+          idsToCloseSaved(
+            openEditors.map((item) => item.id),
+            (editorId) => !!editorById.get(editorId)?.dirty,
+          ),
+        )
         return
       case 'show-shortcuts':
         setShortcutsOpen(true)

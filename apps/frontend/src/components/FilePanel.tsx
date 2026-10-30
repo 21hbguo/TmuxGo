@@ -32,6 +32,7 @@ import {
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { MARKDOWN_PROSE_CLASS, renderMarkdown } from '@/lib/markdown'
 import { CsvTable } from './CsvTable'
+import { csvTableLabels } from '@/lib/csv-table-labels'
 import { getFileIcon } from '@/lib/file-icons'
 import { ZoomSurface } from './ZoomSurface'
 import {
@@ -2198,7 +2199,7 @@ export function FilePanel({
         </ZoomSurface>
       ) : mobileRenderKind === 'csv' ? (
         <div className="flex h-full min-h-0 flex-col">
-          <CsvTable content={mobileFileContent} emptyLabel={t('editor.nothingToPreview')} />
+          <CsvTable content={mobileFileContent} emptyLabel={t('editor.nothingToPreview')} labels={csvTableLabels(t)} />
         </div>
       ) : (
         <iframe

@@ -34,8 +34,8 @@ export interface CsvTableLabels {
   copyAsTsv?: string
   copyAsCsv?: string
   copyAsMarkdown?: string
-  truncatedRows?: string
-  truncatedCols?: string
+  truncatedRows?: string | ((max: number, total: number) => string)
+  truncatedCols?: string | ((max: number, total: number) => string)
   sortAsc?: string
   sortDesc?: string
   clearSort?: string
@@ -377,10 +377,14 @@ export function CsvTable({
           data-testid="csv-truncated"
         >
           {bodySlice.truncatedRows > 0 &&
-            (labels.truncatedRows ?? `Only first ${maxRows} of ${bodySlice.totalRows} rows are rendered`)}
+            (typeof labels.truncatedRows === 'function'
+              ? labels.truncatedRows(maxRows, bodySlice.totalRows)
+              : (labels.truncatedRows ?? `Only first ${maxRows} of ${bodySlice.totalRows} rows are rendered`))}
           {bodySlice.truncatedRows > 0 && bodySlice.truncatedCols > 0 ? ' · ' : ''}
           {bodySlice.truncatedCols > 0 &&
-            (labels.truncatedCols ?? `Only first ${maxCols} of ${bodySlice.totalCols} columns are rendered`)}
+            (typeof labels.truncatedCols === 'function'
+              ? labels.truncatedCols(maxCols, bodySlice.totalCols)
+              : (labels.truncatedCols ?? `Only first ${maxCols} of ${bodySlice.totalCols} columns are rendered`))}
         </div>
       )}
       {menu && (
