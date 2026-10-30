@@ -1,3 +1,8 @@
+---
+name: tmuxgo-control
+description: 在 TmuxGo pane 内使用控制面：读机队（谁 blocked/done、卡了多久）、给 pane 绑任务号、分屏读屏、事件驱动等待其他 agent、推送 Inbox、驱动内嵌浏览器。当你在 TmuxGo 的 pane 里编排多个 agent、想知道谁需要人介入、或需要按任务号寻址一个 pane 时使用；协议细节见同目录 PROTOCOL.md。
+---
+
 # TmuxGo Agent Control
 
 > Status: reference（agent 使用手册）
@@ -94,6 +99,29 @@ curl -s -X POST "$BASE/panes/task" \
 ```
 
 Send `"task": ""` to clear the binding. Prefer the MCP tools `tmuxgo_fleet_list` and `tmuxgo_task_set` when available; they fill `selfPaneId` from `TMUX_PANE` for you.
+
+## Orchestration playbook
+
+编排不是「多调几个 API」，而是让状态留在 pane 上、让判断来自统一投影。按这个顺序做：
+
+1. **先读机队，别猜 paneId**：`fleet list` 一次拿到谁在跑、绑了什么任务、谁卡住多久。
+   排序是 `blocked → failed → done → working → idle`，同档最久优先——第一行就是最该处理的。
+2. **认领先落字**：接到活先 `panes task --pane-id <self> --task <id>`。任务号写在 pane 上，
+   刷新、换设备、重启 gateway 都还在；不写，等于把编排状态存在自己内存里。
+3. **派活再动手**：`panes run`（shell 命令）或 `agent prompt`（已运行的 agent）下发；
+   跨 pane 操作前用 `agent explain` 确认 occupant，别把命令打进别人正在跑的 TUI。
+4. **等待用事件，不用 sleep**：单 pane 用 `agent wait`；等一批时逐个 wait 再 `fleet list` 复查，
+   别用「睡 30 秒再看一眼」——那既慢又会漏掉瞬时状态。
+5. **该叫人就叫人**：`needsHuman: true` 表示 blocked/failed，用 `push` 把「卡在哪、要什么决定」
+   发给人，不要替人批准权限、也不要替人改需求。
+6. **收尾留痕**：done 后把结论推到 Inbox；任务号留着方便追溯，确认验收完再 `--task ""` 解绑。
+
+反模式（都会让编排退回人肉）：
+
+- 抓屏猜状态：`panes read` 拿的是字节，`fleet list` 给的是语义状态 + 判定来源。
+- 在提示词里塞 paneId 列表：pane 会关、会重排，任务号才是稳定地址。
+- `sleep` 轮询代替 `agent wait`：浪费上下文，且窗口内的状态变化会被吞掉。
+- 一个 agent 同时改多个 pane 的同一份文件：先分派任务号，再各自在自己 pane 里做。
 
 ## Rules
 
