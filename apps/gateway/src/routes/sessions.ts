@@ -1,8 +1,10 @@
-import type { FastifyInstance, FastifyReply } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import path from 'path'
 import { stat } from 'fs/promises'
 import type { SessionTemplateLayout } from '../lib/template-utils.js'
 import { getHostById } from '../lib/hosts.js'
+import { resolvePrincipalScope, scopeAllowsSession } from '../lib/access-scope.js'
+import { getRequestPrincipal } from '../lib/principal.js'
 import { LayoutStringError, assertLayoutPaneCount, validateLayoutString } from '../lib/layout-string.js'
 import {
   applyCreatedSessionDefaults,
@@ -433,6 +435,16 @@ function layoutSessionName(hostId: string, sessionId: string) {
   return sessionName
 }
 
+// 请求级 scope：全局 accessScopeGuard 只能看到路径里的 host，session 维度要等
+// sessionId 解析成真名后才能判定。这一步是 layout-string 的写/读入口唯一的 session
+// 级拦截，缺了它受限身份（share ticket / 受限 token）就能对 scope 外 session 读布局、
+// 甚至把布局套过去改它的几何。写法与 panes.ts 的拓扑端保持一致。
+function assertRequestScopeAllowsSession(request: FastifyRequest, hostId: string, sessionName: string) {
+  const scope = resolvePrincipalScope(getRequestPrincipal(request))
+  if (scope && !scopeAllowsSession(scope, hostId, sessionName))
+    throw new LayoutRouteError(403, 'SESSION_NOT_ALLOWED', 'Session is not allowed')
+}
+
 // 取 session 下的窗口清单；顺带确认 session 真实存在（list-windows 失败 = 目标没了）
 async function listLayoutWindows(hostId: string, sessionName: string) {
   let stdout: string
@@ -769,6 +781,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
         throw new LayoutRouteError(400, 'INVALID_WINDOW_ID', 'windowId must match @<number>')
       await assertLayoutHost(hostId)
       const sessionName = layoutSessionName(hostId, sessionId)
+      assertRequestScopeAllowsSession(request, hostId, sessionName)
       const windowId = await resolveLayoutWindow(hostId, sessionName, rawWindowId as string | undefined)
       const { stdout: layoutOut } = await execTmux(hostId, [
         'display-message',
@@ -810,6 +823,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       validateLayoutString(layout)
       await assertLayoutHost(hostId)
       const sessionName = layoutSessionName(hostId, sessionId)
+      assertRequestScopeAllowsSession(request, hostId, sessionName)
       const windowId = await resolveLayoutWindow(hostId, sessionName, body.windowId)
       const panes = await countWindowPanes(hostId, windowId)
       assertLayoutPaneCount(layout, panes)

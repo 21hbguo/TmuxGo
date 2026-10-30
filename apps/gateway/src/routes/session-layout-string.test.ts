@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import Fastify from 'fastify'
 import test from 'node:test'
 import { execTmuxFile, killTestTmuxSession, TEST_TMUX_SESSION } from '../test-tmux.js'
+import type { AccessScope } from '../lib/access-scope.js'
 import { countLayoutPanes } from '../lib/layout-string.js'
 import { sessionRoutes } from './sessions.js'
 
@@ -34,8 +35,15 @@ async function windowGeometry(windowId: string) {
   return stdout.split('\n').filter(Boolean).sort()
 }
 
-async function makeApp() {
+async function makeApp(scope?: AccessScope) {
   const fastify = Fastify()
+  if (scope) {
+    // 全局 accessScopeGuard 之外，layout-string 路由内还会按 session 再判一次；
+    // 这里直接注入受限身份来验证那一层（与 pane-search.test.ts 同一手法）
+    fastify.addHook('onRequest', async (request) => {
+      request.principal = { actor: 'token:test', source: 'http', scope }
+    })
+  }
   await fastify.register(sessionRoutes)
   return fastify
 }
@@ -175,6 +183,43 @@ test('GET rejects windows outside the session and unknown sessions', async () =>
     assert.equal(missingSession.json().code, 'SESSION_NOT_FOUND')
   } finally {
     await fastify.close()
+    await killTestTmuxSession()
+  }
+})
+
+test('restricted principals cannot read or apply layouts outside their scope', async () => {
+  const denied = await makeApp({ hosts: ['local'], sessions: ['other'] })
+  const allowed = await makeApp({ hosts: ['local'], sessions: [TEST_TMUX_SESSION] })
+  try {
+    await startSession()
+    const windowId = await createWindow('two', ['-h'])
+    const layout = await tmux('display-message', '-p', '-t', windowId, '#{window_layout}')
+    // scope 外：读布局与套布局都必须 403，且不能真的动到目标窗口
+    const deniedGet = await denied.inject({ method: 'GET', url: `${layoutUrl}?windowId=${windowId}` })
+    assert.equal(deniedGet.statusCode, 403)
+    assert.deepEqual(deniedGet.json(), { ok: false, code: 'SESSION_NOT_ALLOWED', message: 'Session is not allowed' })
+    const before = await windowGeometry(windowId)
+    const deniedApply = await denied.inject({
+      method: 'POST',
+      url: `${layoutUrl}/apply`,
+      payload: { windowId, layout },
+    })
+    assert.equal(deniedApply.statusCode, 403)
+    assert.deepEqual(deniedApply.json(), { ok: false, code: 'SESSION_NOT_ALLOWED', message: 'Session is not allowed' })
+    assert.deepEqual(await windowGeometry(windowId), before)
+    // scope 内的 session 行为不变
+    const allowedGet = await allowed.inject({ method: 'GET', url: `${layoutUrl}?windowId=${windowId}` })
+    assert.equal(allowedGet.statusCode, 200)
+    const allowedApply = await allowed.inject({
+      method: 'POST',
+      url: `${layoutUrl}/apply`,
+      payload: { windowId, layout },
+    })
+    assert.equal(allowedApply.statusCode, 200)
+    assert.deepEqual(allowedApply.json(), { ok: true, windowId, panes: 2 })
+  } finally {
+    await denied.close()
+    await allowed.close()
     await killTestTmuxSession()
   }
 })
