@@ -32,7 +32,9 @@ import type {
   GitWorktreeMutationResponse,
   GitWorktreesResponse,
   Host,
+  LayoutStringResponse,
   Pane,
+  PaneMoveRequest,
   PaneMutationResult,
   PluginCommandLog,
   PluginInfo,
@@ -991,6 +993,23 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ paneId }),
       }),
+    // 拓扑编辑三件套：move/break/swap 直接落 tmux 的 join-pane/break-pane/swap-pane，
+    // 前端不维护拓扑副本，成功后一律靠 snapshot + windows 重新取权威状态
+    move: (paneId: string, target: PaneMoveRequest) =>
+      fetchApi<PaneMutationResult>('/api/panes/move', {
+        method: 'POST',
+        body: JSON.stringify({ paneId, ...target }),
+      }),
+    break: (paneId: string, name?: string) =>
+      fetchApi<PaneMutationResult>('/api/panes/break', {
+        method: 'POST',
+        body: JSON.stringify(name ? { paneId, name } : { paneId }),
+      }),
+    swap: (paneId: string, targetPaneId: string) =>
+      fetchApi<PaneMutationResult>('/api/panes/swap', {
+        method: 'POST',
+        body: JSON.stringify({ paneId, targetPaneId }),
+      }),
     // 空 task = 解绑（后端走 set-option -u）
     task: (paneId: string, task: string) =>
       fetchApi<{ ok: boolean; paneId?: string; task?: string | null; error?: string }>('/api/panes/task', {
@@ -1024,6 +1043,19 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ paneIds }),
       }),
+  },
+  // 原生 layout string：tmux 的规范布局表示，跨 host/跨窗口克隆布局靠它，
+  // 比按尺寸近似稳。GET 只读窗口，apply 走 select-layout（后端校验 400 带 message）
+  layoutString: {
+    get: (hostId: string, sessionId: string, windowId: string) =>
+      fetchApi<LayoutStringResponse>(
+        `/api/hosts/${hostId}/sessions/${sessionId}/layout-string?windowId=${encodeURIComponent(windowId)}`,
+      ),
+    apply: (hostId: string, sessionId: string, payload: { windowId: string; layout: string }) =>
+      fetchApi<LayoutStringResponse & PaneMutationResult>(
+        `/api/hosts/${hostId}/sessions/${sessionId}/layout-string/apply`,
+        { method: 'POST', body: JSON.stringify(payload) },
+      ),
   },
   system: {
     info: (hostId = 'local') => fetchApi<SystemInfoResponse>(`/api/hosts/${encodeURIComponent(hostId)}/system`),

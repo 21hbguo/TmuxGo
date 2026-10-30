@@ -95,6 +95,27 @@ export interface PaneMutationResult {
   error?: string
 }
 
+// POST /api/panes/move 的目标：二选一（窗口 或 锚点 pane），direction 只在锚点
+// 模式下有意义——左右=horizontal、上下=vertical，和 tmux move-pane -h/-v 一致
+export interface PaneMoveRequest {
+  targetWindowId?: string
+  targetPaneId?: string
+  direction?: 'horizontal' | 'vertical'
+  sizePercent?: number
+}
+
+// GET .../layout-string 的返回：layout 是 tmux 原生 window_layout 串，
+// panes/cols/rows 供 UI 展示规模，失败时 ok:false + error
+export interface LayoutStringResponse {
+  ok?: boolean
+  windowId?: string
+  layout?: string
+  panes?: number
+  cols?: number
+  rows?: number
+  error?: string
+}
+
 export interface SessionSnapshot {
   sessionId: string
   sessionName: string

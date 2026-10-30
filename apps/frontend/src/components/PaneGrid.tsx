@@ -4,7 +4,12 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { TerminalPane } from './TerminalPane'
 import { SwitchHud, type SwitchHudPayload } from './SwitchHud'
 import { PaneNumberOverlay } from './PaneNumberOverlay'
+import { PaneMoveOverlay } from './PaneMoveOverlay'
+import { EditorContextMenu } from './EditorContextMenu'
 import { useDisplayPanes } from '@/hooks/useDisplayPanes'
+import { usePaneDrag } from '@/hooks/usePaneDrag'
+import { PANE_DRAG_MIME, endPaneDrag, startPaneDrag } from '@/lib/pane-drag'
+import type { PaneMoveDirection } from '@/lib/pane-drag'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useTranslation } from '@/i18n'
 import { usePreferences } from '@/hooks/usePreferences'
@@ -23,6 +28,7 @@ import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
 import { emitStreamEvent, subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { createTerminalSizeState, type TerminalSizeState } from '@/lib/terminal-size-state'
 import { shouldUsePasteBinary } from '@/lib/paste-safety'
+import { withHostPrefix } from '@/lib/tmux-host-id'
 import type { Pane, Session, Window } from '@/types'
 
 const ATTACH_TIMEOUT = 5000
@@ -147,6 +153,72 @@ export function PaneGrid({
   }
   const currentPaneIdRef = useRef('')
   currentPaneIdRef.current = currentPaneId
+  // 活动 pane 的完整元数据（标题/窗口号）：拖拽 payload 与右键菜单标题都要用它
+  const activePane = useMemo(() => {
+    const panes = Array.isArray(snapshotData?.panes) ? snapshotData.panes : []
+    return panes.find((pane) => pane.id === currentPaneId) || null
+  }, [snapshotData, currentPaneId])
+  // 同一 window 内的 pane 才是「拖到另一个 pane」的合法落点；zoom 态（tmux -Z）
+  // 下几何不反映屏幕上看到的区域，落点层直接不画（窗口标签那条路仍可用）
+  const paneDropPanes = useMemo(() => {
+    const panes = Array.isArray(snapshotData?.panes) ? snapshotData.panes : []
+    const windowId = activePane?.windowId
+    if (!windowId) return []
+    return panes.filter((pane) => pane.windowId === windowId)
+  }, [snapshotData, activePane])
+  const dragPayload = usePaneDrag()
+  const [paneMenu, setPaneMenu] = useState<{ x: number; y: number } | null>(null)
+  // 拖拽被浏览器中断（Esc、拖出窗口、宿主组件卸载）时单例不会自己散场，
+  // dragend 收尾 + Esc 显式取消，避免落点层永久挂在终端上
+  useEffect(() => {
+    const handleDragEnd = () => endPaneDrag()
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') endPaneDrag()
+    }
+    window.addEventListener('dragend', handleDragEnd)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('dragend', handleDragEnd)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
+  // 拓扑移动：move 落在 tmux 的 join-pane；成功后必须重取 snapshot（拓扑唯一权威源），
+  // 失败把后端 message 原样抛给用户，不静默
+  const handleMovePane = async (
+    paneId: string,
+    target: { targetPaneId?: string; targetWindowId?: string },
+    direction?: PaneMoveDirection,
+  ) => {
+    try {
+      // 拓扑端点的 id 必须带 host 前缀（local:%5 / local:@3）；snapshot 里的 id 已经是
+      // 这种形式，这里再摆正一次，防止上游传进裸 tmux id
+      const hostId = activeHostId || 'local'
+      await api.panes.move(withHostPrefix(hostId, paneId), {
+        ...(target.targetWindowId ? { targetWindowId: withHostPrefix(hostId, target.targetWindowId) } : {}),
+        ...(target.targetPaneId ? { targetPaneId: withHostPrefix(hostId, target.targetPaneId) } : {}),
+        ...(direction ? { direction } : {}),
+      })
+      await refreshSnapshot()
+      pushToast({ type: 'success', message: t('pane.moveSuccess') })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('pane.moveFailed') })
+    }
+  }
+  // 移入新窗口：break-pane 只认 pane，不传 name 时沿用 tmux 的默认窗口名
+  const handleBreakPane = async () => {
+    const paneId = currentPaneIdRef.current
+    if (!paneId) {
+      pushToast({ type: 'error', message: t('pane.noActive') })
+      return
+    }
+    try {
+      await api.panes.break(withHostPrefix(activeHostId || 'local', paneId))
+      await refreshSnapshot()
+      pushToast({ type: 'success', message: t('pane.breakOutSuccess') })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('pane.breakOutFailed') })
+    }
+  }
   // 所有 input 帧都带当前 pane：网关靠它决定这次击键要不要广播给组内其他成员
   const sendInputFrame = useCallback(
     (data: string) => send({ type: 'input', data, paneId: currentPaneIdRef.current || undefined }),
@@ -1516,38 +1588,100 @@ export function PaneGrid({
       </div>
       {/* 左上角小角标：HUD 在顶部居中且就绪态会收起，任务号得常驻可见，所以单独定位。
           有任务时点角标即改；没任务时给一个极淡的小旗子入口——桌面和触屏都常显，
-          移动端因此也有一条可达路径（不依赖 hover） */}
+          移动端因此也有一条可达路径（不依赖 hover）。
+          拖拽把手与「⋯」菜单跟任务号同一行：pane 的标题/把手是拓扑手势的起点，
+          右键这一条即 pane 菜单（终端正文里的右键留给浏览器原生菜单，复制粘贴不受影响） */}
       {currentPaneId && (
         <div
           style={{ top: 'calc(0.25rem + env(safe-area-inset-top, 0px))' }}
-          className="absolute left-1.5 z-20 max-w-[calc(100%-0.75rem)]"
+          // 整条不拦指针：只有把手/任务号/菜单按钮自己收事件，终端首行照常可点
+          className="pointer-events-none absolute left-1.5 right-1.5 z-20 flex items-start justify-between gap-1"
         >
-          {currentPaneTask ? (
+          <div
+            data-testid="pane-chrome-handle"
+            className="pointer-events-auto flex min-w-0 items-center gap-1"
+            onContextMenu={(event) => {
+              event.preventDefault()
+              setPaneMenu({ x: event.clientX, y: event.clientY })
+            }}
+          >
             <button
               type="button"
-              data-testid="pane-task-chip"
-              onClick={() => void handleEditTask()}
-              title={t('pane.taskTitle', { task: currentPaneTask })}
-              className="max-w-full truncate rounded border border-[var(--line)] bg-bg-2/90 px-1.5 py-0.5 text-caption text-text-3 transition-opacity hover:opacity-80"
+              data-testid="pane-drag-handle"
+              draggable={!isMobile}
+              aria-label={t('pane.dragHint')}
+              title={t('pane.dragHint')}
+              onDragStart={(event) => {
+                if (!currentPaneId) return
+                const payload = { paneId: currentPaneId, windowId: activePane?.windowId, title: activePane?.title }
+                event.dataTransfer.setData(PANE_DRAG_MIME, JSON.stringify(payload))
+                event.dataTransfer.effectAllowed = 'move'
+                startPaneDrag(payload)
+                setPaneMenu(null)
+              }}
+              onDragEnd={() => endPaneDrag(currentPaneId)}
+              className="pointer-events-auto rounded px-1 py-0.5 text-caption text-text-3/50 transition-colors hover:bg-bg-2/90 hover:text-text-3 focus:text-text-3"
             >
-              {currentPaneTask}
+              ⣿
             </button>
-          ) : (
-            <button
-              type="button"
-              data-testid="pane-task-add"
-              onClick={() => void handleEditTask()}
-              aria-label={t('pane.taskAdd')}
-              title={t('pane.taskAdd')}
-              // 不做 opacity-0 隐形入口：看不见却拦截点击会让人以为终端左上角坏了，
-              // 改成极淡但可见的小旗子（hover 变亮），触屏同样可见
-              className="rounded px-1 py-0.5 text-caption text-text-3/40 transition-colors hover:bg-bg-2/90 hover:text-text-3 focus:text-text-3"
-            >
-              ⚑
-            </button>
-          )}
+            {currentPaneTask ? (
+              <button
+                type="button"
+                data-testid="pane-task-chip"
+                onClick={() => void handleEditTask()}
+                title={t('pane.taskTitle', { task: currentPaneTask })}
+                className="pointer-events-auto max-w-full truncate rounded border border-[var(--line)] bg-bg-2/90 px-1.5 py-0.5 text-caption text-text-3 transition-opacity hover:opacity-80"
+              >
+                {currentPaneTask}
+              </button>
+            ) : (
+              <button
+                type="button"
+                data-testid="pane-task-add"
+                onClick={() => void handleEditTask()}
+                aria-label={t('pane.taskAdd')}
+                title={t('pane.taskAdd')}
+                // 不做 opacity-0 隐形入口：看不见却拦截点击会让人以为终端左上角坏了，
+                // 改成极淡但可见的小旗子（hover 变亮），触屏同样可见
+                className="pointer-events-auto rounded px-1 py-0.5 text-caption text-text-3/40 transition-colors hover:bg-bg-2/90 hover:text-text-3 focus:text-text-3"
+              >
+                ⚑
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            data-testid="pane-menu-trigger"
+            aria-label={t('pane.menu')}
+            title={t('pane.menu')}
+            onClick={(event) => {
+              event.stopPropagation()
+              const rect = event.currentTarget.getBoundingClientRect()
+              setPaneMenu({ x: rect.left, y: rect.bottom + 4 })
+            }}
+            className="pointer-events-auto shrink-0 rounded px-1 py-0.5 text-caption text-text-3/50 transition-colors hover:bg-bg-2/90 hover:text-text-3 focus:text-text-3"
+          >
+            ⋯
+          </button>
         </div>
       )}
+      {dragPayload && !activeWindowZoomed && paneDropPanes.length > 1 && (
+        <PaneMoveOverlay
+          panes={paneDropPanes}
+          dragPaneId={dragPayload.paneId}
+          onMove={(paneId, targetPaneId, direction) => void handleMovePane(paneId, { targetPaneId }, direction)}
+        />
+      )}
+      {paneMenu && (
+        <EditorContextMenu
+          x={paneMenu.x}
+          y={paneMenu.y}
+          title={activePane ? `${activePane.title || 'shell'} #${activePane.index}` : undefined}
+          actions={[{ id: 'pane-break-out', label: t('pane.breakOut'), onSelect: () => void handleBreakPane() }]}
+          onClose={() => setPaneMenu(null)}
+        />
+      )}
+
       {PromptElement}
       {displayPanes.active && <PaneNumberOverlay mode={displayPanes.mode} targets={displayPanes.targets} />}
       {isMobile && <SwitchHud payload={switchHud} />}

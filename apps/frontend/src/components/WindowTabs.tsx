@@ -1,7 +1,18 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { FiCheck, FiEdit3, FiLayout, FiMoreHorizontal, FiPlus, FiTrash2, FiX, FiXCircle } from 'react-icons/fi'
+import {
+  FiCheck,
+  FiClipboard,
+  FiCornerDownLeft,
+  FiEdit3,
+  FiLayout,
+  FiMoreHorizontal,
+  FiPlus,
+  FiTrash2,
+  FiX,
+  FiXCircle,
+} from 'react-icons/fi'
 import { TERMINAL_DOCK_POSITIONS, useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -17,6 +28,10 @@ import { PromptDialog } from './PromptDialog'
 import { summarizeAgentByWindow } from '@/lib/agent-status'
 import { setTerminalDockDragActive, TERMINAL_DOCK_DRAG_MIME, WINDOW_TAB_DRAG_MIME } from '@/lib/terminal-dock-drag'
 import { bindHorizontalWheelScroll } from '@/lib/horizontal-wheel-scroll'
+import { endPaneDrag, isPaneDrag, readPaneDragPayload } from '@/lib/pane-drag'
+import { writeClipboardText } from '@/lib/clipboard-text'
+import { LayoutStringDialog } from './LayoutStringDialog'
+import { tmuxWindowIdOf, withHostPrefix } from '@/lib/tmux-host-id'
 import type { Window } from '@/types'
 
 export function WindowTabs() {
@@ -44,6 +59,9 @@ export function WindowTabs() {
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; id: string } | null>(null)
   const [dragWindowId, setDragWindowId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<{ id: string; side: 'before' | 'after' } | null>(null)
+  // 正在被 pane 拖拽悬停的窗口标签：与排序用的 dropTarget 分开，两种手势互不影响
+  const [paneDropWindowId, setPaneDropWindowId] = useState<string | null>(null)
+  const [layoutDialog, setLayoutDialog] = useState<{ id: string; name: string } | null>(null)
 
   useEffect(() => {
     if (!dockMenuPos && !tabMenu) return
@@ -156,6 +174,62 @@ export function WindowTabs() {
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('window.reorderFailed') })
     }
+  }
+
+  // pane 拖到窗口标签：move 到目标窗口后，窗口列表与 snapshot 都要重取——
+  // 源窗口可能因为 pane 被搬空而消失，前端不自己算拓扑
+  const handlePaneDropToWindow = async (paneId: string, sourceWindowId: string | undefined, target: Window) => {
+    if (!activeHostId || !activeSessionId) return
+    // move 的目标必须是 host 前缀形式（local:@3）：Window.id 已经是，但缓存里若只有
+    // 裸 tmuxWindowId 也在这里补齐，调用点不再关心口径
+    const targetWindowId = withHostPrefix(activeHostId, target.id)
+    if (sourceWindowId && withHostPrefix(activeHostId, sourceWindowId) === targetWindowId) {
+      pushToast({ type: 'info', message: t('pane.moveSameWindow') })
+      return
+    }
+    try {
+      await api.panes.move(withHostPrefix(activeHostId, paneId), { targetWindowId })
+      const latest = await api.windows.list(activeHostId, activeSessionId)
+      if (Array.isArray(latest)) setWindows(latest)
+      await syncAfterWindowChange()
+      pushToast({ type: 'success', message: t('pane.moveToWindowSuccess', { name: target.name }) })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('pane.moveFailed') })
+    }
+  }
+
+  // 复制窗口的 tmux 原生布局串：只读 GET，写完剪贴板给成功提示；
+  // 系统剪贴板不可用时退化为应用内剪贴板，提示要如实说明
+  const handleCopyLayoutString = async (windowId: string) => {
+    setTabMenu(null)
+    if (!activeHostId || !activeSessionId) return
+    try {
+      // layout-string 只认裸 tmux window id（@3），不能带 host 前缀
+      const result = await api.layoutString.get(activeHostId, activeSessionId, windowId)
+      const layout = typeof result?.layout === 'string' ? result.layout.trim() : ''
+      if (!layout) throw new Error(result?.error || t('window.layoutCopyFailed'))
+      const written = await writeClipboardText(layout)
+      if (!written.copied) {
+        pushToast({ type: 'error', message: t('window.layoutCopyFailed') })
+        return
+      }
+      pushToast({
+        type: written.unavailable ? 'info' : 'success',
+        message: written.unavailable ? t('window.layoutCopiedInApp') : t('window.layoutCopied'),
+      })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('window.layoutCopyFailed') })
+    }
+  }
+
+  // 应用布局串：失败必须抛回弹窗（后端 400 的 message 要就地展示），
+  // 成功才关弹窗并刷新 snapshot（比例/分割点都变了）
+  const handleApplyLayoutString = async (windowId: string, layout: string) => {
+    if (!activeHostId || !activeSessionId) throw new Error(t('window.layoutApplyFailed'))
+    await api.layoutString.apply(activeHostId, activeSessionId, { windowId, layout })
+    setLayoutDialog(null)
+    await syncAfterWindowChange()
+    pushToast({ type: 'success', message: t('window.layoutApplySuccess') })
   }
 
   const handleOpenNewWindowPrompt = () => {
@@ -346,7 +420,16 @@ export function WindowTabs() {
                 event.dataTransfer.effectAllowed = 'move'
               }}
               onDragOver={(event) => {
-                if (!event.dataTransfer.types.includes(WINDOW_TAB_DRAG_MIME)) return
+                const isWindowTabDrag = event.dataTransfer.types.includes(WINDOW_TAB_DRAG_MIME)
+                // pane 拖到标签 = 说「搬到这个窗口」：整条标签高亮，不参与 before/after 插位
+                if (!isWindowTabDrag && isPaneDrag(event.dataTransfer)) {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  event.dataTransfer.dropEffect = 'move'
+                  if (paneDropWindowId !== window.id) setPaneDropWindowId(window.id)
+                  return
+                }
+                if (!isWindowTabDrag) return
                 event.preventDefault()
                 event.stopPropagation()
                 event.dataTransfer.dropEffect = 'move'
@@ -361,12 +444,22 @@ export function WindowTabs() {
                 })
               }}
               onDragLeave={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget as Node | null))
-                  setDropTarget((current) => (current?.id === window.id ? null : current))
+                if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+                setDropTarget((current) => (current?.id === window.id ? null : current))
+                setPaneDropWindowId((current) => (current === window.id ? null : current))
               }}
               onDrop={(event) => {
                 event.preventDefault()
                 event.stopPropagation()
+                if (!event.dataTransfer.types.includes(WINDOW_TAB_DRAG_MIME) && isPaneDrag(event.dataTransfer)) {
+                  const payload = readPaneDragPayload(event.dataTransfer)
+                  setPaneDropWindowId(null)
+                  if (payload) {
+                    endPaneDrag(payload.paneId)
+                    void handlePaneDropToWindow(payload.paneId, payload.windowId, window)
+                  }
+                  return
+                }
                 const dragId = event.dataTransfer.getData(WINDOW_TAB_DRAG_MIME) || dragWindowId
                 const side = dropTarget && dropTarget.id === window.id ? dropTarget.side : 'before'
                 setDragWindowId(null)
@@ -378,12 +471,14 @@ export function WindowTabs() {
                 // 停靠 zones 的收尾清理；截断会让 zones 残留显示
                 setDragWindowId(null)
                 setDropTarget(null)
+                setPaneDropWindowId(null)
               }}
               className={cn(
                 'tmuxgo-window-tab group text-meta',
                 window.active && 'tmuxgo-window-tab--active',
                 dragWindowId === window.id && 'tmuxgo-window-tab--dragging',
                 dropTarget?.id === window.id && 'tmuxgo-window-tab--droptarget',
+                paneDropWindowId === window.id && 'ring-2 ring-inset ring-accent bg-accent/15',
               )}
             >
               <span className="min-w-0 flex-1 truncate">{window.name}</span>
@@ -465,8 +560,9 @@ export function WindowTabs() {
       )}
       {tabMenu && tabMenuWindow && (
         <div
-          className="tmuxgo-menu fixed z-[90] w-36 py-1 text-xs"
-          style={{ left: Math.max(8, Math.min(tabMenu.x, window.innerWidth - 152)), top: tabMenu.y }}
+          data-testid="window-tab-menu"
+          className="tmuxgo-menu fixed z-[90] w-48 py-1 text-xs"
+          style={{ left: Math.max(8, Math.min(tabMenu.x, window.innerWidth - 200)), top: tabMenu.y }}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
@@ -479,6 +575,25 @@ export function WindowTabs() {
           >
             <FiEdit3 aria-hidden="true" size={13} />
             {t('window.rename')}
+          </button>
+          <button
+            data-testid="window-copy-layout"
+            className="tmuxgo-menu-item whitespace-nowrap text-xs"
+            onClick={() => void handleCopyLayoutString(tmuxWindowIdOf(tabMenuWindow, activeHostId || 'local'))}
+          >
+            <FiClipboard aria-hidden="true" size={13} />
+            {t('window.copyLayoutString')}
+          </button>
+          <button
+            data-testid="window-apply-layout"
+            className="tmuxgo-menu-item whitespace-nowrap text-xs"
+            onClick={() => {
+              setLayoutDialog({ id: tabMenuWindow.id, name: tabMenuWindow.name })
+              setTabMenu(null)
+            }}
+          >
+            <FiCornerDownLeft aria-hidden="true" size={13} />
+            {t('window.applyLayoutString')}
           </button>
           <button
             className="tmuxgo-menu-item tmuxgo-menu-item--danger text-xs"
@@ -537,6 +652,16 @@ export function WindowTabs() {
           const target = closeTarget
           setCloseTarget(null)
           if (target) await handleCloseWindow(target)
+        }}
+      />
+      <LayoutStringDialog
+        open={!!layoutDialog}
+        windowName={layoutDialog?.name ?? ''}
+        onClose={() => setLayoutDialog(null)}
+        onApply={async (layout) => {
+          const target = layoutDialog
+          if (!target) return
+          await handleApplyLayoutString(tmuxWindowIdOf(target, activeHostId || 'local'), layout)
         }}
       />
       <ConfirmDialog
