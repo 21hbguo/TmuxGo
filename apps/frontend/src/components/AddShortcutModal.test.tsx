@@ -105,4 +105,53 @@ describe('AddShortcutModal macro validation', () => {
     await act(async () => {})
     expect((screen.getByLabelText('长按持续触发') as HTMLInputElement).checked).toBe(true)
   })
+
+  it('records a single key with its own case instead of forcing uppercase', async () => {
+    const onSave = vi.fn()
+    renderModal({
+      onSave,
+      onClose: vi.fn(),
+      initialShortcut: { id: 's1', label: 'S1', steps: [{ type: 'keys', keys: '' }] },
+    })
+    await act(async () => {})
+    fireEvent.click(screen.getByRole('button', { name: '点击录制' }))
+    fireEvent.keyDown(window, { key: 'a' })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    expect(onSave).toHaveBeenCalledWith({ label: 'S1', steps: [{ type: 'keys', keys: 'a' }], repeat: false })
+  })
+  it('records space as a named key', async () => {
+    const onSave = vi.fn()
+    renderModal({
+      onSave,
+      onClose: vi.fn(),
+      initialShortcut: { id: 's2', label: 'S2', steps: [{ type: 'keys', keys: '' }] },
+    })
+    await act(async () => {})
+    fireEvent.click(screen.getByRole('button', { name: '点击录制' }))
+    fireEvent.keyDown(window, { key: ' ' })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    expect(onSave).toHaveBeenCalledWith({ label: 'S2', steps: [{ type: 'keys', keys: 'Space' }], repeat: false })
+  })
+  it('records alt combos with the modifier kept', async () => {
+    const onSave = vi.fn()
+    renderModal({
+      onSave,
+      onClose: vi.fn(),
+      initialShortcut: { id: 's3', label: 'S3', steps: [{ type: 'keys', keys: '' }] },
+    })
+    await act(async () => {})
+    fireEvent.click(screen.getByRole('button', { name: '点击录制' }))
+    fireEvent.keyDown(window, { key: '5', altKey: true })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    expect(onSave).toHaveBeenCalledWith({ label: 'S3', steps: [{ type: 'keys', keys: 'Alt+5' }], repeat: false })
+  })
+  it('warns about a key the terminal cannot encode', async () => {
+    renderModal({
+      onSave: vi.fn(),
+      onClose: vi.fn(),
+      initialShortcut: { id: 's4', label: 'S4', steps: [{ type: 'keys', keys: 'Ctrl+1' }] },
+    })
+    await act(async () => {})
+    expect(screen.getByText('这个按键在终端里没有编码，发送时会被跳过')).toBeTruthy()
+  })
 })

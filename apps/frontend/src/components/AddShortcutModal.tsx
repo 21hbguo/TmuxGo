@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from '@/i18n'
-import { formatKeyEvent } from '@/hooks/useCustomShortcuts'
+import { formatKeyEvent, keysToEscape } from '@/hooks/useCustomShortcuts'
 import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
@@ -52,6 +52,10 @@ function KeyStepEditor({
   isMobile?: boolean
 }) {
   const { t } = useTranslation()
+  // 编码不出来的键（Ctrl+数字之类）以前是静默发空串，宏看起来"点了没反应"；
+  // 录制界面直接把问题说出来，别让人以为布局/绑定失效了
+  const unsupported = value.trim() !== '' && keysToEscape(value) === ''
+  const unsupportedHint = unsupported ? <div className="text-danger text-xs">{t('shortcut.keyUnsupported')}</div> : null
   const [recording, setRecording] = useState(false)
   // 录键时占住 ESC 顶层（空操作）：Escape 只退出录制，不连带关掉外层弹窗
   useEscapeClose(() => {}, recording)
@@ -141,17 +145,21 @@ function KeyStepEditor({
           className="w-full rounded-apple px-2 py-1 text-xs"
         />
         {value && <div className="text-accent text-xs">{value}</div>}
+        {unsupportedHint}
       </div>
     )
   }
   return (
-    <button
-      type="button"
-      onClick={() => setRecording(true)}
-      className={`w-full px-2 py-1 rounded-apple text-xs text-left border transition-colors ${recording ? 'bg-accent/10 border-accent text-accent animate-pulse' : 'tmuxgo-control'}`}
-    >
-      {recording ? t('shortcut.recording') : value || t('shortcut.pressKeys')}
-    </button>
+    <div className="space-y-1">
+      <button
+        type="button"
+        onClick={() => setRecording(true)}
+        className={`w-full px-2 py-1 rounded-apple text-xs text-left border transition-colors ${recording ? 'bg-accent/10 border-accent text-accent animate-pulse' : 'tmuxgo-control'}`}
+      >
+        {recording ? t('shortcut.recording') : value || t('shortcut.pressKeys')}
+      </button>
+      {unsupportedHint}
+    </div>
   )
 }
 

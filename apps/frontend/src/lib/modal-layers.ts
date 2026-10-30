@@ -56,11 +56,17 @@ function dispatchKeyDown(event: KeyboardEvent) {
   const modal = topModalLayer()
   const el = modal?.getEl?.()
   if (!modal || !el) return
-  const target = event.target as HTMLElement | null
+  const target = event.target instanceof Node ? event.target : null
   const plain = !event.ctrlKey && !event.metaKey && !event.altKey
   if (target && el.contains(target)) {
     // 弹窗内非控件区域上的 Enter → 弹窗主操作；控件上的 Enter 归控件
-    if (event.key === 'Enter' && plain && !event.shiftKey && !target.closest(ENTER_SELF_HANDLED) && modal.onEnter) {
+    if (
+      event.key === 'Enter' &&
+      plain &&
+      !event.shiftKey &&
+      !(target instanceof HTMLElement && target.closest(ENTER_SELF_HANDLED)) &&
+      modal.onEnter
+    ) {
       event.preventDefault()
       event.stopPropagation()
       modal.onEnter()

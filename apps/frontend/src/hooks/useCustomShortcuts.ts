@@ -13,6 +13,7 @@ const PROFILE = 'default'
 const KEY_MAP: Record<string, string> = {
   enter: '\r',
   tab: '\t',
+  space: ' ',
   esc: '\x1b',
   escape: '\x1b',
   backspace: '\x7f',
@@ -40,29 +41,70 @@ const KEY_MAP: Record<string, string> = {
   f12: '\x1b[24~',
 }
 
-export function keysToEscape(keys: string): string {
-  const parts = keys.split('+').map((s) => s.trim().toLowerCase())
-  const hasCtrl = parts.includes('ctrl')
-  const hasShift = parts.includes('shift')
-  const key = parts.find((p) => !['ctrl', 'shift', 'alt', 'meta', 'cmd'].includes(p)) || ''
+// Shift 只有方向/编辑键有独立序列（CSI 1;2X）；功能键没有 Shift 变体，按原键发
+const SHIFT_KEY_MAP: Record<string, string> = {
+  up: '\x1b[1;2A',
+  down: '\x1b[1;2B',
+  right: '\x1b[1;2C',
+  left: '\x1b[1;2D',
+  home: '\x1b[1;2H',
+  end: '\x1b[1;2F',
+  insert: '\x1b[2;2~',
+  delete: '\x1b[3;2~',
+  pageup: '\x1b[5;2~',
+  pagedown: '\x1b[6;2~',
+}
+// Ctrl+符号的 ASCII 控制位（@ _ 等），其余符号无标准编码
+const CTRL_SYMBOL_MAP: Record<string, string> = {
+  '@': '\x00',
+  '[': '\x1b',
+  '\\': '\x1c',
+  ']': '\x1d',
+  '^': '\x1e',
+  _: '\x1f',
+  '?': '\x7f',
+}
+const MODIFIER_TOKENS = ['ctrl', 'control', 'alt', 'shift', 'meta', 'cmd']
+const isAlpha = (ch: string) => /^[a-z]$/i.test(ch)
 
-  if (!key) return ''
+export function keysToEscape(keys: string): string {
+  const rawParts = keys.split('+').map((s) => s.trim())
+  const tokens = rawParts.map((p) => p.toLowerCase())
+  const hasCtrl = tokens.includes('ctrl') || tokens.includes('control')
+  const hasShift = tokens.includes('shift')
+  // Alt / Cmd 在 xterm 系终端里都编码成 ESC 前缀（Meta 键 = ESC + 键）。少了这层
+  // 前缀，"Alt+5" 会退化成裸 "5"：tmux 里就从 M-5(select-layout tiled) 变成选窗口，
+  // 布局类绑定静默失效，且用户看不出原因。
+  const hasMeta = tokens.includes('alt') || tokens.includes('meta') || tokens.includes('cmd')
+  const withMeta = (payload: string) => (hasMeta ? `\x1b${payload}` : payload)
+  const keyRaw = rawParts.find((_, i) => !MODIFIER_TOKENS.includes(tokens[i])) || ''
+
+  if (!keyRaw) return ''
+  const key = keyRaw.toLowerCase()
+
+  // Ctrl+Space 是 NUL（tmux 默认 prefix 之外最常用的一个键），必须在空格这层
+  // 普通映射之前截住，否则会被当成裸空格发出去
+  if (hasCtrl && key === 'space') return withMeta('\x00')
 
   const special = KEY_MAP[key]
   if (special) {
-    if (key === 'tab' && hasShift) return '\x1b[Z'
-    return special
+    if (key === 'tab' && hasShift) return withMeta('\x1b[Z')
+    if (hasShift && SHIFT_KEY_MAP[key]) return withMeta(SHIFT_KEY_MAP[key])
+    return withMeta(special)
   }
 
   if (key.length === 1) {
     if (hasCtrl) {
       const upper = key.toUpperCase()
       const c = upper.charCodeAt(0)
-      if (c >= 65 && c <= 90) return String.fromCharCode(c - 64)
-      return ''
+      if (c >= 65 && c <= 90) return withMeta(String.fromCharCode(c - 64))
+      const symbol = CTRL_SYMBOL_MAP[key]
+      return symbol ? withMeta(symbol) : ''
     }
-    if (hasShift) return key.toUpperCase()
-    return key
+    // 单键：字母按录入时的 Shift 定大小写（不带 Shift 就是小写，不会再被旧的
+    // 全大写格式化顶成大写）；数字/符号保持原样
+    if (isAlpha(key)) return withMeta(hasShift ? key.toUpperCase() : key)
+    return withMeta(hasShift ? key.toUpperCase() : keyRaw)
   }
 
   return ''
@@ -97,7 +139,8 @@ export function formatKeyEvent(e: KeyboardEvent): string {
   if (e.shiftKey) parts.push('Shift')
   if (e.metaKey) parts.push('Meta')
   const skip = ['Control', 'Alt', 'Shift', 'Meta']
-  const key = skip.includes(e.key) ? '' : e.key.length === 1 ? e.key.toUpperCase() : e.key
+  // 不改写大小写：录制 'a' 就该发 'a'，Shift 由修饰符表达；空格统一叫 Space
+  const key = skip.includes(e.key) ? '' : e.key === ' ' ? 'Space' : e.key
   if (key) parts.push(key)
   return parts.join('+')
 }

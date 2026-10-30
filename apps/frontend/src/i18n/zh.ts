@@ -806,6 +806,7 @@ export const zh = {
   'shortcut.recording': '按下组合键...',
   'shortcut.pressKeys': '点击录制',
   'shortcut.selectKey': '选择主键...',
+  'shortcut.keyUnsupported': '这个按键在终端里没有编码，发送时会被跳过',
   'shortcut.cancel': '取消',
   'shortcut.save': '保存',
 

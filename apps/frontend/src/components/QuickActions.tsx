@@ -150,6 +150,12 @@ function useQuickActionController() {
             // text+appendEnter 分两次发：尾随 \r 与文本同块写入时，devin 等 TUI
             // 会把 CR 并入输入而非提交；独立一帧等价 tmux send-keys Enter
             const payload = stepToInput(step)
+            // 按键步骤编码成空串说明这个键在终端里没有序列（Ctrl+数字等）：明确报错，
+            // 不静默跳过——否则表现为"宏点了没反应"，问题被藏起来
+            if (step.type === 'keys' && !payload) {
+              pushToast({ type: 'error', message: t('shortcut.keyUnsupported') })
+              return
+            }
             if (step.type === 'text' && step.appendEnter === true && payload.endsWith('\r')) {
               const body = payload.slice(0, -1)
               if ((body && !sendKey(body)) || !sendKey('\r')) return
@@ -160,7 +166,7 @@ function useQuickActionController() {
         }
       })().catch(() => {})
     },
-    [sendKey],
+    [pushToast, sendKey, t],
   )
   // const trackDockShortcutUse=useCallback((key:string)=>{
   //   if(typeof window==='undefined'||!key)return

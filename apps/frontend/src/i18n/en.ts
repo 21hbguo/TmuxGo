@@ -814,6 +814,7 @@ export const en = {
   'shortcut.recording': 'Press keys...',
   'shortcut.pressKeys': 'Click to record',
   'shortcut.selectKey': 'Select key...',
+  'shortcut.keyUnsupported': 'This key has no terminal encoding and is skipped when sending',
   'shortcut.cancel': 'Cancel',
   'shortcut.save': 'Save',
 

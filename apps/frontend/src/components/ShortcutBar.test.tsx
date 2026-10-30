@@ -68,6 +68,8 @@ vi.mock('@/hooks/useCustomShortcuts', () => ({
           ? '\x02'
           : '',
   describeShortcut: () => '',
+  // 录制提示用的编码查询：本测试只关心宏能否跑通，不需要真编码
+  keysToEscape: () => '\x00',
 }))
 vi.mock('@/lib/api', () => ({
   api: {
