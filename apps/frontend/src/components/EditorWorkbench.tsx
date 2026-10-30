@@ -25,6 +25,7 @@ import { useTranslation } from '@/i18n'
 import { locatePreviewBlock, renderMarkdown } from '@/lib/markdown'
 import { previewKindForPath } from '@/lib/file-preview'
 import { MarkdownPreviewHost } from './MarkdownPreviewHost'
+import type { CmMarkdownApi } from './CmMarkdownEditor'
 import { buildRawUrl } from '@/lib/raw-url'
 import { csvTableLabels } from '@/lib/csv-table-labels'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
@@ -71,6 +72,9 @@ const MonacoDiffEditor = dynamic(() => import('@monaco-editor/react').then((mod)
 const CsvTable = dynamic(() => import('./CsvTable').then((mod) => ({ default: mod.CsvTable })))
 const PdfPreview = dynamic(() => import('./PdfPreview').then((mod) => ({ default: mod.PdfPreview })))
 const MediaPreview = dynamic(() => import('./MediaPreview').then((mod) => ({ default: mod.MediaPreview })))
+const LiveMarkdownSurface = dynamic(() =>
+  import('./LiveMarkdownSurface').then((mod) => ({ default: mod.LiveMarkdownSurface })),
+)
 // 预览防抖阈值：小文档保持同步渲染（打开即见），超过它就防抖，避免每键重解析卡输入
 const PREVIEW_DEBOUNCE_THRESHOLD = 16_384
 const AUTO_SCROLL_DEADZONE = 10
@@ -158,7 +162,7 @@ function isPreviewableLanguage(language: string) {
   return language === 'markdown' || language === 'html' || language === 'csv'
 }
 // 可预览文件的展示模式：preview=整区预览（打开默认）/split=左右分栏/edit=仅编辑器
-type EditorPreviewMode = 'edit' | 'preview' | 'split'
+type EditorPreviewMode = 'edit' | 'live' | 'preview' | 'split'
 function getAutoScrollStep(distance: number) {
   const absDistance = Math.abs(distance)
   if (absDistance <= AUTO_SCROLL_DEADZONE) return 0
@@ -232,6 +236,9 @@ export function EditorWorkbench({
   // 编辑器视图偏好（换行/缩略图/吸顶/行号/面包屑/状态栏/缩放/自动保存）：
   // 与全局 preferences 分开，改动频繁且无需服务端同步
   const viewPrefs = useEditorViewPrefs()
+  // markdown 默认进 live（Obsidian 式原地编辑）；偏好关掉则回到只读预览，html/csv 行为不变
+  const defaultPreviewModeFor = (language: string): EditorPreviewMode =>
+    language === 'markdown' && viewPrefs.markdownLivePreview ? 'live' : 'preview'
   const { t } = useTranslation()
   const editorRefs = useRef<Record<string, monacoEditor.IStandaloneCodeEditor>>({})
   const monacoRef = useRef<Monaco | null>(null)
@@ -288,6 +295,10 @@ export function EditorWorkbench({
   >({})
   const [pendingCloseEditorId, setPendingCloseEditorId] = useState<string | null>(null)
   const [previewModeById, setPreviewModeById] = useState<Record<string, EditorPreviewMode>>({})
+  // 预览双击跳 live：只传行号 + 自增 nonce，CM6 收到后滚动/聚焦（同一行连点两次也要生效）
+  const [liveReveal, setLiveReveal] = useState<{ id: string; line: number; nonce: number } | null>(null)
+  const liveRevealNonceRef = useRef(0)
+  const liveApiRef = useRef<CmMarkdownApi | null>(null)
   // 左右分栏里编辑器侧的宽度占比，拖中间分隔条调整
   const [previewSplitRatio, setPreviewSplitRatio] = useState(0.5)
   // 光标不再进 React state：高频移动走 lib/editor-cursor 的 rAF 合并订阅，
@@ -345,7 +356,7 @@ export function EditorWorkbench({
   const gitDiff = activeEditor?.id.startsWith('git-diff?') ? parseGitDiffId(activeEditor.id) : null
   const activePreviewMode: EditorPreviewMode =
     activeEditor && isPreviewableLanguage(activeEditor.language)
-      ? (previewModeById[activeEditor.id] ?? 'preview')
+      ? (previewModeById[activeEditor.id] ?? defaultPreviewModeFor(activeEditor.language))
       : 'edit'
   const followFilePath = !gitDiff && activeEditor?.absolutePath ? getParentDir(activeEditor.absolutePath) : ''
   const gitMode = activeHostId ? gitByHost[activeHostId]?.mode || 'follow-editor' : 'follow-editor'
@@ -425,8 +436,17 @@ export function EditorWorkbench({
     }
   }
   const jumpToEditorLine = (editorId: string, line: number) => {
+    if (!line) return
+    const target = editorById.get(editorId)
+    if (target?.language === 'markdown' && viewPrefs.markdownLivePreview) {
+      // 双击只读预览：切到可编辑的 live 模式并定位，不再跳进隐藏的 Monaco
+      setPreviewModeById((current) => ({ ...current, [editorId]: 'live' }))
+      liveRevealNonceRef.current += 1
+      setLiveReveal({ id: editorId, line, nonce: liveRevealNonceRef.current })
+      return
+    }
     const instance = editorRefs.current[editorId]
-    if (!instance || !line) return
+    if (!instance) return
     instance.revealLineInCenter?.(line)
     instance.setPosition?.({ lineNumber: line, column: 1 })
     instance.focus?.()
@@ -507,7 +527,8 @@ export function EditorWorkbench({
   const previewFollowRef = useRef<() => void>(() => {})
   previewFollowRef.current = () => {
     if (!previewSyncEnabled || !activeEditor || activeEditor.language !== 'markdown') return
-    if ((previewModeById[activeEditor.id] ?? 'preview') === 'edit') return
+    const mode = previewModeById[activeEditor.id] ?? defaultPreviewModeFor(activeEditor.language)
+    if (mode !== 'preview' && mode !== 'split') return
     syncPreviewToLine(activeEditor.id, getEditorCursor(activeEditor.id)?.line || 1)
   }
   useEffect(() => {
@@ -1728,9 +1749,13 @@ export function EditorWorkbench({
     )
   }
   const renderSurface = (editor: FileEditorDocument, focused: boolean, groupId: string) => {
-    const previewMode = isPreviewableLanguage(editor.language) ? (previewModeById[editor.id] ?? 'preview') : 'edit'
+    const previewMode = isPreviewableLanguage(editor.language)
+      ? (previewModeById[editor.id] ?? defaultPreviewModeFor(editor.language))
+      : 'edit'
+    const previewLive = previewMode === 'live' && editor.language === 'markdown'
     const previewSplit = previewMode === 'split'
-    const previewVisible = previewMode !== 'edit'
+    // live 是「编辑器本体」，不是右侧预览面：不参与分栏/滚动同步，Monaco 保持挂载但隐藏
+    const previewVisible = previewMode === 'preview' || previewSplit
     const compareLeft = editor.compareLeftId
       ? openEditors.find((item) => item.id === editor.compareLeftId) || null
       : null
@@ -1859,7 +1884,7 @@ export function EditorWorkbench({
           data-testid={focused ? 'editor-auto-scroll-zone' : undefined}
           onMouseDown={(event) => handleEditorMouseDown(editor.id, event)}
           // 整区预览时保留挂载但隐藏：Monaco 的撤销/光标/滚动状态不丢，切回即原位恢复
-          className={`relative ${previewMode === 'preview' ? 'hidden' : previewSplit ? 'min-h-0 min-w-0 shrink-0 grow-0' : 'h-full'}`}
+          className={`relative ${previewMode === 'preview' || previewLive ? 'hidden' : previewSplit ? 'min-h-0 min-w-0 shrink-0 grow-0' : 'h-full'}`}
           style={previewSplit ? { flexBasis: `${previewSplitRatio * 100}%` } : undefined}
         >
           <MonacoEditor
@@ -2004,6 +2029,36 @@ export function EditorWorkbench({
             </span>
           )}
         </div>
+        {previewLive && (
+          <div className="min-h-0 min-w-0 flex-1" data-testid="editor-live-markdown">
+            <LiveMarkdownSurface
+              content={editor.content}
+              path={editor.path}
+              hostId={editor.hostId}
+              rootId={editor.rootId}
+              theme={preferences.theme === 'light' ? 'light' : 'dark'}
+              fontFamily={preferences.fontFamily}
+              fontSize={preferences.fontSize}
+              wordWrap={viewPrefs.wordWrap}
+              revealLine={liveReveal?.id === editor.id ? { line: liveReveal.line, nonce: liveReveal.nonce } : null}
+              onChange={(next) => setEditorContent(editor.id, next)}
+              onSave={() => void onSaveEditor(editor)}
+              onCursorChange={(info) => {
+                setEditorCursor(editor.id, {
+                  line: info.line,
+                  column: info.column,
+                  lineCount: editor.content.split('\n').length,
+                  selections: 1,
+                  selection: null,
+                })
+              }}
+              onReady={(api) => {
+                if (editor.id === activeEditorId) liveApiRef.current = api
+              }}
+              ariaLabel={editor.name}
+            />
+          </div>
+        )}
         {previewSplit && (
           <div
             data-testid="editor-preview-resizer"
@@ -2076,6 +2131,11 @@ export function EditorWorkbench({
   // 键位表在 lib/editor-commands 里单测，这里只做「命令 → 现有能力」的接线
   const notify = (message: string, type: 'success' | 'error' | 'info' = 'info') => pushToast({ type, message })
   const revealPosition = (editorId: string, line: number, column = 1) => {
+    if (activePreviewMode === 'live' && liveApiRef.current) {
+      liveApiRef.current.setCursor(line, column)
+      liveApiRef.current.focus()
+      return
+    }
     const instance = editorRefs.current[editorId]
     if (!instance) return
     instance.revealLineInCenterIfOutsideViewport?.(line)
@@ -2259,15 +2319,29 @@ export function EditorWorkbench({
         )
         return
       }
+      case 'toggle-markdown-live': {
+        const next = !viewPrefs.markdownLivePreview
+        viewPrefs.setPref('markdownLivePreview', next)
+        if (activeEditor?.language === 'markdown') {
+          setPreviewModeById((current) => ({
+            ...current,
+            [activeEditor.id]: next ? 'live' : current[activeEditor.id] === 'live' ? 'edit' : current[activeEditor.id],
+          }))
+        }
+        notify(next ? t('editor.livePreviewOn') : t('editor.livePreviewOff'))
+        return
+      }
       case 'format-document':
         if (!runMonacoAction(MONACO_ACTIONS['format-document'], t('editor.toast.formatUnavailable')))
           notify(t('editor.toast.formatUnavailable'))
         return
       case 'find':
-        runMonacoAction(MONACO_ACTIONS.find)
+        if (activePreviewMode === 'live' && liveApiRef.current) liveApiRef.current.openSearch()
+        else runMonacoAction(MONACO_ACTIONS.find)
         return
       case 'replace':
-        runMonacoAction(MONACO_ACTIONS.replace)
+        if (activePreviewMode === 'live' && liveApiRef.current) liveApiRef.current.openSearch()
+        else runMonacoAction(MONACO_ACTIONS.replace)
         return
       case 'save':
         if (
@@ -2489,38 +2563,73 @@ export function EditorWorkbench({
               </Button>
               {isPreviewableLanguage(activeEditor.language) && (
                 <>
-                  <Button
-                    size="sm"
-                    variant={activePreviewMode !== 'edit' ? 'accent' : 'default'}
-                    onClick={() =>
-                      setPreviewModeById((current) => ({
-                        ...current,
-                        [activeEditor.id]: activePreviewMode === 'edit' ? 'preview' : 'edit',
-                      }))
-                    }
-                  >
-                    {t('editor.preview')}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={activePreviewMode === 'split' ? 'accent' : 'default'}
-                    onClick={() =>
-                      setPreviewModeById((current) => ({
-                        ...current,
-                        [activeEditor.id]: activePreviewMode === 'split' ? 'preview' : 'split',
-                      }))
-                    }
-                  >
-                    {t('editor.splitPreview')}
-                  </Button>
-                  {activeEditor.language === 'markdown' && activePreviewMode === 'split' && (
-                    <Button
-                      size="sm"
-                      variant={previewSyncEnabled ? 'accent' : 'default'}
-                      onClick={() => setPreviewSyncEnabled((current) => !current)}
-                    >
-                      {t('editor.syncPreview')}
-                    </Button>
+                  {activeEditor.language === 'markdown' ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant={activePreviewMode === 'live' ? 'accent' : 'default'}
+                        onClick={() => setPreviewModeById((current) => ({ ...current, [activeEditor.id]: 'live' }))}
+                      >
+                        {t('editor.livePreview')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={activePreviewMode === 'edit' ? 'accent' : 'default'}
+                        onClick={() => setPreviewModeById((current) => ({ ...current, [activeEditor.id]: 'edit' }))}
+                      >
+                        {t('editor.source')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={activePreviewMode === 'preview' ? 'accent' : 'default'}
+                        onClick={() => setPreviewModeById((current) => ({ ...current, [activeEditor.id]: 'preview' }))}
+                      >
+                        {t('editor.preview')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={activePreviewMode === 'split' ? 'accent' : 'default'}
+                        onClick={() => setPreviewModeById((current) => ({ ...current, [activeEditor.id]: 'split' }))}
+                      >
+                        {t('editor.splitPreview')}
+                      </Button>
+                      {activePreviewMode === 'split' && (
+                        <Button
+                          size="sm"
+                          variant={previewSyncEnabled ? 'accent' : 'default'}
+                          onClick={() => setPreviewSyncEnabled((current) => !current)}
+                        >
+                          {t('editor.syncPreview')}
+                        </Button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        size="sm"
+                        variant={activePreviewMode !== 'edit' ? 'accent' : 'default'}
+                        onClick={() =>
+                          setPreviewModeById((current) => ({
+                            ...current,
+                            [activeEditor.id]: activePreviewMode === 'edit' ? 'preview' : 'edit',
+                          }))
+                        }
+                      >
+                        {t('editor.preview')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={activePreviewMode === 'split' ? 'accent' : 'default'}
+                        onClick={() =>
+                          setPreviewModeById((current) => ({
+                            ...current,
+                            [activeEditor.id]: activePreviewMode === 'split' ? 'preview' : 'split',
+                          }))
+                        }
+                      >
+                        {t('editor.splitPreview')}
+                      </Button>
+                    </>
                   )}
                 </>
               )}

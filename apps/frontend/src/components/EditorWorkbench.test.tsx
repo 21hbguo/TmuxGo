@@ -99,6 +99,7 @@ const getScrollTop = vi.fn(() => 0)
 const setScrollLeft = vi.fn()
 const getScrollLeft = vi.fn(() => 0)
 const diffPropsRef: { current: Record<string, unknown>[] } = { current: [] }
+const liveMarkdownPropsRef: { current: Record<string, unknown>[] } = { current: [] }
 const monacoMouseDownRef: { current: ((event: MonacoMouseDownEvent) => void) | null } = { current: null }
 const monacoCursorHandlerRef: { current: ((event: { position: StubPosition }) => void) | null } = { current: null }
 // 取存活实例：缺失说明测试自身写错，直接抛错，避免到处非空断言
@@ -278,6 +279,20 @@ vi.mock('@/lib/dynamic', async () => {
         }
       if (src.includes('CsvTable'))
         return (props: React.ComponentProps<typeof CsvTable>) => React.createElement(CsvTable, props)
+      if (src.includes('LiveMarkdownSurface'))
+        return (props: Record<string, unknown>) => {
+          liveMarkdownPropsRef.current.push(props)
+          return React.createElement(
+            'div',
+            { 'data-testid': 'cm-markdown-editor' },
+            React.createElement('textarea', {
+              'aria-label': 'live-markdown',
+              value: props.content as string,
+              onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) =>
+                (props.onChange as (next: string) => void)(event.target.value),
+            }),
+          )
+        }
       return MonacoStub
     },
   }
@@ -319,8 +334,7 @@ vi.mock('@/i18n', async () => {
     useTranslation: () => ({
       t: (key: string, params?: Record<string, string | number>) => {
         let text = overrides[key] ?? (en as Record<string, string>)[key] ?? key
-        if (params)
-          for (const [name, value] of Object.entries(params)) text = text.replace(`{${name}}`, String(value))
+        if (params) for (const [name, value] of Object.entries(params)) text = text.replace(`{${name}}`, String(value))
         return text
       },
     }),
@@ -498,6 +512,8 @@ describe('EditorWorkbench', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     useEditorViewPrefs.getState().reset()
+    // 旧用例按「只读预览」断言；live 模式另有专门用例（需要 CM6 运行时，默认关掉避免拖慢全量）
+    useEditorViewPrefs.getState().setPref('markdownLivePreview', false)
     resolveDefinitionMock.mockReset()
     openFileInEditorMock.mockReset()
     openFileInEditorMock.mockImplementation(async (file: FileDocumentHandle) => {
@@ -507,6 +523,7 @@ describe('EditorWorkbench', () => {
     monacoMouseDownRef.current = null
     monacoCursorHandlerRef.current = null
     liveEditors.clear()
+    liveMarkdownPropsRef.current = []
     editorInstanceMocks.setPosition.mockReset()
     editorInstanceMocks.setSelection.mockReset()
     editorInstanceMocks.revealLineInCenter.mockReset()
@@ -743,8 +760,42 @@ describe('EditorWorkbench', () => {
     })
     renderWorkbench()
     expect(screen.getByRole('heading', { name: 'Markdown preview' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+    // markdown 现在是四态（实时/源码/预览/分栏）：离开预览要显式点「源码」
+    fireEvent.click(screen.getByRole('button', { name: 'Source' }))
     expect(screen.queryByRole('heading', { name: 'Markdown preview' })).not.toBeInTheDocument()
+  })
+  it('opens markdown in live mode by default and edits the store content', () => {
+    useEditorViewPrefs.getState().setPref('markdownLivePreview', true)
+    const editor = createEditor('editor-live', 'README.md', '# Live title', { language: 'markdown' })
+    setWorkbenchState({
+      openEditors: [editor],
+      activeEditorId: editor.id,
+      editorGroups: [createGroup('group-1', [editor.id], editor.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
+    expect(screen.getByTestId('cm-markdown-editor')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Live title' })).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('live-markdown'), { target: { value: '# Changed' } })
+    expect(useConsoleStore.getState().openEditors[0].content).toBe('# Changed')
+  })
+  it('switches from read-only preview to live at the double-clicked line', () => {
+    useEditorViewPrefs.getState().setPref('markdownLivePreview', true)
+    const editor = createEditor('editor-live-2', 'README.md', '# Jump target', { language: 'markdown' })
+    setWorkbenchState({
+      openEditors: [editor],
+      activeEditorId: editor.id,
+      editorGroups: [createGroup('group-1', [editor.id], editor.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+    const heading = screen.getByRole('heading', { name: 'Jump target' })
+    fireEvent.doubleClick(heading)
+    expect(screen.getByTestId('cm-markdown-editor')).toBeInTheDocument()
+    expect(liveMarkdownPropsRef.current.at(-1)?.revealLine).toMatchObject({ line: 1 })
   })
   it('renders html preview immediately in a sandboxed frame', () => {
     const content = '<!doctype html><html><body><h1>HTML preview</h1></body></html>'
@@ -2285,8 +2336,7 @@ describe('EditorWorkbench', () => {
   })
   // —— VSCode 式编辑器增强：命令层 / 状态栏 / 面包屑 / 标签菜单 / 自动保存 ——
   describe('editor ergonomics', () => {
-    const press = (key: string, patch: Partial<KeyboardEventInit> = {}) =>
-      fireEvent.keyDown(window, { key, ...patch })
+    const press = (key: string, patch: Partial<KeyboardEventInit> = {}) => fireEvent.keyDown(window, { key, ...patch })
     const openMenu = () => screen.queryByTestId('editor-context-menu')
     const singleEditorState = (content: string, language = 'typescript') => {
       const target = { ...editor1, content, language }
@@ -2324,7 +2374,9 @@ describe('EditorWorkbench', () => {
     })
 
     it('lists outline symbols behind Ctrl+Shift+O and jumps on Enter', async () => {
-      singleEditorState(['export function alpha() {', '  return 1', '}', '', 'export function beta() {', '}'].join('\n'))
+      singleEditorState(
+        ['export function alpha() {', '  return 1', '}', '', 'export function beta() {', '}'].join('\n'),
+      )
       renderWorkbench()
       await act(async () => {
         await vi.advanceTimersByTimeAsync(360)
@@ -2541,7 +2593,5 @@ describe('EditorWorkbench', () => {
       })
       expect(screen.queryByTestId('editor-status-chord')).toBeNull()
     })
-
   })
-
 })

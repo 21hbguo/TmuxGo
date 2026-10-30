@@ -31,6 +31,17 @@ describe('createMarkdownImageLoader', () => {
     expect(path).toContain('root=workspace')
     expect(path).toContain('path=docs%2Fpic.png')
   })
+  it('loads an explicit root-relative path without re-resolving it', async () => {
+    const fetchImage = vi.fn(async (_path: string) => new Blob(['img']))
+    const loader = createMarkdownImageLoader(ctx, {
+      fetchImage,
+      createObjectUrl: () => 'blob:resolved',
+      revokeObjectUrl: () => {},
+    })
+    await expect(loader.loadResolved('docs/img/a.png')).resolves.toBe('blob:resolved')
+    expect(fetchImage.mock.calls[0][0]).toContain('path=docs%2Fimg%2Fa.png')
+    await expect(loader.loadResolved('../secret.png')).resolves.toBeNull()
+  })
   it('passes external and data sources through without fetching', async () => {
     const fetchImage = vi.fn(async () => new Blob([]))
     const loader = createMarkdownImageLoader(ctx, { fetchImage, createObjectUrl: () => 'blob:x' })

@@ -37,6 +37,11 @@ const imageCache = new Map<string, string | null>()
 
 // 缓存键用解析后的 root 相对路径：不同文档里的同一张图会命中同一条缓存，
 // 同一段 src 在不同文档里解析成不同路径时也不会串味
+// 整合方在切换文件/卸载时调用：缓存里存的是 blob URL，loader revoke 后必须同步失效
+export function clearMarkdownImageCache() {
+  imageCache.clear()
+}
+
 function imageCacheKey(url: string, path: string | null): string {
   return path ? `path:${path}` : `url:${url}`
 }

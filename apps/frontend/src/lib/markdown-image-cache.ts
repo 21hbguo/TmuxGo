@@ -4,6 +4,8 @@ import { resolveImageRef, type MarkdownAssetContext } from './markdown-assets'
 export interface MarkdownImageLoader {
   /** 本地图返回 objectURL，远程/内联原样返回 src；解析失败或取图失败返回 null（由调用方渲染占位） */
   load(src: string): Promise<string | null>
+  /** 已知 root 相对路径时直接取图（live preview 的图片 widget 用，避免二次相对解析） */
+  loadResolved(rootPath: string): Promise<string | null>
   dispose(): void
 }
 
@@ -69,6 +71,17 @@ export function createMarkdownImageLoader(
       if (cached) return cached
       const task = withSlot(() => loadLocal(ref.resolvedPath!)).catch(() => null)
       pending.set(src, task)
+      return task
+    },
+    loadResolved(rootPath: string) {
+      if (disposed) return Promise.resolve(null)
+      const normalized = rootPath.replace(/^\/+/, '')
+      if (!normalized || normalized.split('/').includes('..')) return Promise.resolve(null)
+      const key = `resolved:${normalized}`
+      const cached = pending.get(key)
+      if (cached) return cached
+      const task = withSlot(() => loadLocal(normalized)).catch(() => null)
+      pending.set(key, task)
       return task
     },
     dispose() {
