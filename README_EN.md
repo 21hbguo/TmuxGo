@@ -131,7 +131,17 @@ http://localhost:3001
 | **Mobile / PWA**         | Touch navigation, virtual keys, shortcut bar, clipboard safety, add-to-home-screen                             |
 | **Persistence**          | Theme, shortcuts, favorites, session order, workspace state, and resume information                            |
 | **Security**             | Loopback default, account auth, one-time WebSocket tickets, HTTPS/Tailscale deployment paths                   |
-| **Agent Control**        | In-pane agents operate the workbench: split, read, cross-agent waits, inbox pushes, MCP bridge                 |
+| **Agent Orchestration**  | Fleet view, per-pane task ids, cross-agent waits, split/read, inbox pushes, MCP bridge (control plane)         |
+
+> **The main bet: one human, many long-running agents.** Not "a terminal in a browser" but a single tmux surface both sides can address, recover and hand off — work is pinned to the pane (a tmux option), so it survives reloads, device switches and Gateway restarts.
+
+```bash
+tmuxgo-ctl fleet list --status blocked        # who needs a human: blocked → failed → done → working
+tmuxgo-ctl panes task --pane-id local:%3 --task T-234   # pin a task id to the pane
+tmuxgo-ctl agent wait --pane-id local:%3 --status done --timeout-ms 600000
+```
+
+The same control plane is exposed over MCP to the agents inside those panes: they read the fleet, claim work and wake each other instead of waiting for a human to relay pane ids. See [`skills/tmuxgo-control/PROTOCOL.md`](skills/tmuxgo-control/PROTOCOL.md).
 
 <details>
 <summary><strong>Full capability overview</strong></summary>
@@ -230,11 +240,13 @@ TmuxGo exposes a control plane (`/api/v1/control/*`) for coding agents running i
 - **Thin client `tmuxgo-ctl`**: installed alongside `@21hbguo/tmuxgo`; emits single-line JSON on stdout with exit codes 0/1/2 for scripting:
 
 ```bash
+tmuxgo-ctl fleet list --status blocked                      # fleet read (cached, no scan)
+tmuxgo-ctl panes task --pane-id local:%3 --task T-234       # writes @tmuxgo_task on the pane
 tmuxgo-ctl panes split --pane-id "local:${TMUX_PANE}" --direction horizontal
 tmuxgo-ctl agent wait --session dev --agent codex --status blocked --timeout-ms 60000
 ```
 
-- **MCP**: `apps/mcp` (`tmuxgo-mcp`) is a zero-dependency stdio bridge that exposes the control plane as MCP tools (`push_*` to the Inbox, `browser_*` for the embedded browser, `pane_*` for snapshot/wait/input). With a source deployment, register it in your agent's MCP config; auth uses the already-injected environment variables, so no token setup is needed:
+- **MCP**: `apps/mcp` (`tmuxgo-mcp`) is a zero-dependency stdio bridge that exposes the control plane as MCP tools (`fleet_list` for the fleet, `task_set` for task ids, `push_*` to the Inbox, `browser_*` for the embedded browser, `pane_*` for snapshot/wait/input). With a source deployment, register it in your agent's MCP config; auth uses the already-injected environment variables, so no token setup is needed:
 
 ```json
 { "mcpServers": { "tmuxgo": { "command": "node", "args": ["<repo>/apps/mcp/index.mjs"] } } }
@@ -502,7 +514,7 @@ Recommended delivery checklist:
 | `GATEWAY_PASSWORD`           | empty                            | Password used by Agent to connect to Gateway; required explicitly when authentication is enabled |
 | `HOST_ID`                    | `agent-local`                    | Agent registration host ID                                                                       |
 | `HOST_NAME`                  | `local-machine` or hostname      | Agent display name                                                                               |
-| `TMUX_WEB_FILE_ROOTS`        | `workspace=<repo>:home=<home>`   | File tree roots, for example `workspace=/srv/code:home=/home/user`                                |
+| `TMUX_WEB_FILE_ROOTS`        | `workspace=<repo>:home=<home>`   | File tree roots, for example `workspace=/srv/code:home=/home/user`                               |
 | `TMUXGO_PREFERENCES_DIR`     | `~/.tmuxgo/preferences`          | Synced store for preferences, favorites, and session continuity                                  |
 | `TMUXGO_CONFIG_DIR`          | `~/.tmuxgo`                      | Host configuration directory, including `hosts.json`                                             |
 | `TMUXGO_ALLOWED_ORIGINS`     | empty                            | Additional browser Origins allowed to reach the Gateway, comma-separated                         |

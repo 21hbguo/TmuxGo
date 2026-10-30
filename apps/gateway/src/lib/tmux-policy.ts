@@ -11,6 +11,11 @@ const allowedSessions = new Set(
 export function isValidSessionName(name: string) {
   return /^[A-Za-z0-9._-]{1,64}$/.test(name)
 }
+// 布尔版本给「列表投影」用（fleet.list 按 session 过滤，不能靠抛异常逐行试）
+export function isSessionAllowed(sessionName: string) {
+  if (!isValidSessionName(sessionName)) return false
+  return !allowedSessions.size || allowedSessions.has(sessionName)
+}
 export function assertSessionAllowed(sessionName: string) {
   if (!isValidSessionName(sessionName)) throw new Error('Invalid session name')
   if (allowedSessions.size && !allowedSessions.has(sessionName)) throw new Error('Session is not allowed')

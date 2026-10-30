@@ -42,6 +42,9 @@ Usage:
                         [--status idle|working|blocked|done|unknown] [--phase <p>]
                         [--last-event <e>] [--host-id <h>] [--timeout-ms 250-600000]
   tmuxgo-ctl agent explain --pane-id <host:%n>   # 判定链解释：来源/命中规则/fallback 原因
+  tmuxgo-ctl fleet list [--host-id <h[,h]>] [--status <s[,s]>] [--task <id>] [--agent <name>]
+                         [--limit 1-500] [--self-pane-id <host:%n>]
+  tmuxgo-ctl panes task --pane-id <host:%n> --task <id|"">   # 空串 = 解绑
   tmuxgo-ctl push text --text <text> [--title <t>] [--open] [--dedupe-key <k>]
   tmuxgo-ctl push link --url <http(s) URL> [--title <t>] [--open] [--dedupe-key <k>]
   tmuxgo-ctl push file --path <file> [--name <n>] [--mime <m>] [--title <t>] [--open]
@@ -190,6 +193,41 @@ async function main() {
     finish(await post('/panes/send-keys', body))
   }
   const flags = parseFlags(argv)
+  // fleet list：机队读面。--host-id/--status 用逗号分隔多值，避免 parseFlags 不支持重复 flag。
+  // self 缺省取 TMUX_PANE（在 pane 内调用时天然知道自己在哪），只影响结果里的 self 标记
+  if (group === 'fleet' && action === 'list') {
+    requireEnv('fleet list')
+    const body = {}
+    for (const [flag, key] of [
+      ['hostId', 'hostIds'],
+      ['status', 'statuses'],
+    ]) {
+      if (typeof flags[flag] !== 'string' || !flags[flag]) continue
+      body[key] = flags[flag]
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean)
+    }
+    if (typeof flags.task === 'string' && flags.task) body.task = flags.task
+    if (typeof flags.agent === 'string' && flags.agent) body.agent = flags.agent
+    if (flags.limit !== undefined) {
+      const limit = Number(flags.limit)
+      if (!Number.isInteger(limit) || limit < 1 || limit > 500)
+        failUsage('fleet list: --limit must be an integer 1-500')
+      body.limit = limit
+    }
+    const selfPaneId = typeof flags.selfPaneId === 'string' ? flags.selfPaneId : process.env.TMUX_PANE
+    if (selfPaneId) body.selfPaneId = selfPaneId
+    finish(await post('/fleet/list', body))
+  }
+  // panes task：--task "" 是合法入参（解绑），因此只校验字段存在而不校验非空
+  if (group === 'panes' && action === 'task') {
+    requireEnv('panes task')
+    if (typeof flags.paneId !== 'string' || !flags.paneId)
+      failUsage('panes task: --pane-id is required (e.g. local:%0)')
+    if (typeof flags.task !== 'string') failUsage('panes task: --task is required (empty string clears the binding)')
+    finish(await post('/panes/task', { paneId: flags.paneId, task: flags.task }))
+  }
   if (group === 'panes' && (action === 'split' || action === 'read' || action === 'snapshot')) {
     requireEnv(`panes ${action}`)
     if (typeof flags.paneId !== 'string' || !flags.paneId) failUsage('panes: --pane-id is required (e.g. local:%0)')

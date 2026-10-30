@@ -115,6 +115,10 @@ export function emptyScanBackoffMs(emptyRounds: number): number {
 }
 const protocolOverlayMaxAgeMs = 30 * 60 * 1000
 const displayDefaultTtlMs = 60 * 1000
+// 控制面写入任务号后的覆盖窗：任务号不参与 samePane 判定，若一轮扫描在写入前
+// 就抓好了屏、写入后才落地，它会把刚 patch 的值盖回旧值。窗口内以写入值为准，
+// 窗口外由 tmux 真值接管（外部 set-option 走的正是这条路径）
+const taskOverrideTtlMs = 5 * 1000
 const notificationThrottleMs = 30 * 1000
 // monitor 物化的 pane 状态全局序号：只在状态内容真实变化时递增，
 // agent.wait 用 wait 建立时刻的最大值做基线，忽略其前已存在的旧状态回放
@@ -249,6 +253,8 @@ export class AgentMonitor {
   private readonly onRecoveryCandidate: (candidate: RecoveryCandidateInput) => void
   private readonly onPaneRemoved?: AgentMonitorOptions['onPaneRemoved']
   private readonly hosts = new Map<string, MonitorHostState>()
+  // paneId -> 最近一次经控制面/UI 写入的任务号及其时刻（见 taskOverrideTtlMs）
+  private readonly taskOverrides = new Map<string, { task: string | undefined; at: number }>()
   private readonly pendingProtocolEvents = new Map<string, Map<string, AgentProtocolEvent>>()
   private readonly listeners = new Set<(event: AgentMonitorEvent) => void>()
   private readonly notificationThrottle = new Map<string, number>()
@@ -427,6 +433,32 @@ export class AgentMonitor {
 
   getSessionStates(hostId: string, sessionName: string) {
     return this.getStates(hostId)?.filter((pane) => pane.sessionName === sessionName) ?? null
+  }
+
+  // 任务号写入后的就地更新：返回 false 表示该 pane 尚未被 monitor 跟踪（写入本身仍成功）。
+  // 除 patch 缓存外还登记 taskOverrides，挡住「扫描早于写入、落地晚于写入」把值盖回去；
+  // 同时广播一次 changed，让开着 Fleet 面板的人立刻看到任务号，而不是等下一轮扫描。
+  notePaneTask(hostId: string, tmuxPaneId: string, task: string) {
+    const state = this.hosts.get(hostId)
+    const paneId = `${hostId}:${tmuxPaneId}`
+    const current = state?.agents.get(paneId)
+    if (!state?.initialized || !current) return false
+    const nextTask = task || undefined
+    this.taskOverrides.set(paneId, { task: nextTask, at: this.now() })
+    if ((current.task || '') === (nextTask || '')) return true
+    const pane = { ...current, task: nextTask }
+    state.agents.set(paneId, pane)
+    state.revision += 1
+    this.emit({
+      type: 'agent_status_changed',
+      initial: false,
+      hostId,
+      sessionName: pane.sessionName,
+      pane,
+      // 复用 'changed' 作为事件种类：task 不是 AgentEvent，也不该被当作状态迁移解释
+      eventId: this.eventId(hostId, pane, 'changed', state.revision),
+    })
+    return true
   }
 
   async pollNow(hostId: string) {
@@ -620,7 +652,11 @@ export class AgentMonitor {
     const previousAgents = state.agents
     // stateSeq 戳记与 eventId 回填同一轮完成：内容未变的 pane 沿用旧 seq，
     // agent.wait 基线据此区分「真实新变化」与「wait 建立前的旧状态回放」
-    for (const pane of next.values()) {
+    // 清掉已消失 pane 的覆盖项，避免 map 随 pane 累积
+    for (const key of this.taskOverrides.keys()) if (!next.has(key)) this.taskOverrides.delete(key)
+    for (const raw of next.values()) {
+      const override = this.taskOverrides.get(raw.paneId)
+      const pane = override && this.now() - override.at < taskOverrideTtlMs ? { ...raw, task: override.task } : raw
       const prior = previousAgents.get(pane.paneId)
       const eventId = pane.eventId || this.eventId(hostId, pane, pane.lastEvent || 'changed', state.revision + 1)
       const candidate = { ...pane, eventId }

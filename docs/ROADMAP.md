@@ -10,7 +10,8 @@
 - **终端保真**：xterm 渲染、snapshot/diff 传输、滚动/选区/宽字符/IME 边界行为
 - **会话拓扑**：session/window/pane 管理、attach 持久化、断线重连续传（session continuity）
 - **multi-host**：SSH 远端 host、sshconfig 导入、agent 桥接、凭据不出本机
-- **agent 可观测**：pane 内 AI agent 状态聚合、inbox/通知、任务视角
+- **agent 可观测 + 可指挥**：pane 内 AI agent 状态聚合、inbox/通知、任务视角；控制面（机队读面 + 任务号 + 等待），
+  让 agent 也能寻址整支机队（见 `docs/design/fleet-orchestration.md`）
 - **PWA/移动端**：安装体验、触控手势、横滚、移动键盘适配
 - **协议与运维**：WS 多客户端仲裁、gateway 稳定性、可观测性（metrics/diagnostics）
 
@@ -40,6 +41,11 @@
 
 ## 当前方向性 backlog
 
+- [x] **P0 机队读面 + 任务号**（2026-10）：`fleet.list` / `panes.task` 控制面方法、MCP 工具、CLI、契约与测试
+- [ ] **P1 集合等待**：`agent.wait` 支持多目标/按任务收口（fan-out 的唯一正确收口方式）
+- [ ] **P1 结果信封**：`push result` = `{status, summary, artifacts[], verdict?}`，人侧可批量裁决
+- [ ] **P1 清场**：`panes.kill`（显式 confirm）+ `sessions.create`
+- [ ] **P2 任务实体化**：任务生命周期/验收态/产物关联（等 C/D 落地后再做，避免先造一张会过期的表）
 - [ ] gateway/frontend 全仓 `any` 清零后 `no-explicit-any` 升 `error`，测试文件纳入
 - [ ] agent 状态聚合的协议化（非轮询拼装）
 - [ ] session continuity 的服务端 resume 体验打磨

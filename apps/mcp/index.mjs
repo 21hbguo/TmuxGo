@@ -352,6 +352,61 @@ const TOOLS = [
       required: ['paneId', 'keys'],
     },
   },
+  // fleet 读面 + 任务号绑定：让编排者能看见整支机队并把「活」挂到具体 pane 上。
+  // 没有这两个工具时，agent 只能靠调用方从外部注入 paneId 列表，编排状态存在自己内存里
+  {
+    name: 'tmuxgo_fleet_list',
+    description:
+      'List agent panes across hosts from the cached monitor projection (no scan triggered): task id, semantic status/phase, last event, how long it has been in that state, and whether a human decision is waiting. Sorted by attention (blocked, failed, done, working, idle) then longest-waiting first. Use this to decide who to prompt, wait on, or escalate instead of reading many panes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        hostIds: {
+          type: 'array',
+          maxItems: 32,
+          items: { type: 'string', minLength: 1, maxLength: 128 },
+          description: 'Only these hosts (omit = all)',
+        },
+        statuses: {
+          type: 'array',
+          maxItems: 5,
+          items: { type: 'string', enum: ['idle', 'working', 'blocked', 'done', 'unknown'] },
+          description: 'Only these statuses (omit = all)',
+        },
+        task: { type: 'string', maxLength: 120, description: 'Exact task id bound via @tmuxgo_task' },
+        agent: { type: 'string', maxLength: 64, description: 'Exact agent name, e.g. claude or codex' },
+        limit: { type: 'integer', minimum: 1, maximum: 500, description: 'Max rows 1-500 (default 200)' },
+        selfPaneId: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 256,
+          description: 'Which pane the caller is in; auto-filled from TMUX_PANE. Marks that row with self:true',
+        },
+      },
+    },
+  },
+  {
+    name: 'tmuxgo_task_set',
+    description:
+      'Bind or clear the task id on a pane (tmux user-option @tmuxgo_task, the same field the Fleet panel shows). Empty task clears the binding. Use it so the task→agent→pane mapping survives reloads, device switches and handoffs instead of living in your own memory.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        paneId: {
+          type: 'string',
+          minLength: 3,
+          maxLength: 256,
+          description: 'Host-scoped pane id like local:%3 (required)',
+        },
+        task: {
+          type: 'string',
+          maxLength: 120,
+          description: 'Task id, single line (no control characters); empty string clears the binding (required)',
+        },
+      },
+      required: ['paneId', 'task'],
+    },
+  },
   // agent 编排三件套：body 形状与 control-protocol.ts 的 controlAgent{Start,Prompt}BodySchema /
   // controlWaitBodySchema 一一对应（tests/control-schema-contract.test.ts 断言约束值相等）
   {
@@ -759,6 +814,21 @@ async function handleToolCall(id, params) {
       keys: args.keys,
       allowOccupied: args.allowOccupied === true ? true : undefined,
     })
+  } else if (name === 'tmuxgo_fleet_list') {
+    // selfPaneId 只是显示提示：pane 内运行时用 TMUX_PANE 标出「我自己那一行」
+    result = await callGateway('/v1/control/fleet/list', {
+      hostIds: Array.isArray(args.hostIds) && args.hostIds.length ? args.hostIds : undefined,
+      statuses: Array.isArray(args.statuses) && args.statuses.length ? args.statuses : undefined,
+      task: typeof args.task === 'string' && args.task ? args.task : undefined,
+      agent: typeof args.agent === 'string' && args.agent ? args.agent : undefined,
+      limit: typeof args.limit === 'number' ? args.limit : undefined,
+      selfPaneId: resolvePaneId() || undefined,
+    })
+  } else if (name === 'tmuxgo_task_set') {
+    if (typeof args.paneId !== 'string' || !args.paneId) return toolResult(id, 'paneId is required', true)
+    // 空串是合法入参（= 解绑），只有缺字段才报错
+    if (typeof args.task !== 'string') return toolResult(id, 'task is required (empty string clears)', true)
+    result = await callGateway('/v1/control/panes/task', { paneId: args.paneId, task: args.task })
   } else if (name === 'tmuxgo_agent_start' || name === 'tmuxgo_agent_prompt') {
     const isStart = name === 'tmuxgo_agent_start'
     if (typeof args.paneId !== 'string' || !args.paneId) return toolResult(id, 'paneId is required', true)

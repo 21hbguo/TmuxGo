@@ -45,11 +45,13 @@
     "panes.wait-output",
     "panes.run",
     "panes.send-keys",
+    "panes.task",
     "agent.wait",
     "agent.explain",
     "agent.start",
     "agent.prompt",
     "agent.cancel",
+    "fleet.list",
     "push",
     "open-target",
     "inbox",
@@ -102,11 +104,13 @@
                 "panes.wait-output",
                 "panes.run",
                 "panes.send-keys",
+                "panes.task",
                 "agent.wait",
                 "agent.explain",
                 "agent.start",
                 "agent.prompt",
                 "agent.cancel",
+                "fleet.list",
                 "push",
                 "open-target",
                 "inbox",
@@ -519,6 +523,261 @@
         "PANE_OCCUPIED",
         "PANE_UNKNOWN",
         "INVALID_TARGET",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
+    },
+    "panes.task": {
+      "http": "POST",
+      "path": "/panes/task",
+      "params": {
+        "type": "object",
+        "properties": {
+          "paneId": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 256
+          },
+          "task": {
+            "type": "string",
+            "maxLength": 120
+          }
+        },
+        "required": [
+          "paneId",
+          "task"
+        ],
+        "additionalProperties": true
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "paneId": {
+            "type": "string"
+          },
+          "task": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Trimmed task id; null after clearing the binding"
+          }
+        },
+        "required": [
+          "ok",
+          "paneId",
+          "task"
+        ]
+      },
+      "errors": [
+        "AGENT_CONTROL_TASK_FAILED",
+        "PANE_MISSING",
+        "PANE_UNKNOWN",
+        "INVALID_TARGET",
+        "AGENT_CONTROL_AUTH_REQUIRED",
+        "TMUXGO_ENV_GUARD"
+      ]
+    },
+    "fleet.list": {
+      "http": "POST",
+      "path": "/fleet/list",
+      "params": {
+        "type": "object",
+        "properties": {
+          "hostIds": {
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "statuses": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "idle",
+                "working",
+                "blocked",
+                "done",
+                "unknown"
+              ]
+            }
+          },
+          "task": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "agent": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "selfPaneId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "additionalProperties": true
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "capturedAt": {
+            "type": "string",
+            "description": "When the cached projection was read (not a fresh scan)"
+          },
+          "summary": {
+            "type": "object",
+            "description": "Counts over the matched set before limit truncation",
+            "properties": {
+              "idle": {
+                "type": "integer"
+              },
+              "working": {
+                "type": "integer"
+              },
+              "blocked": {
+                "type": "integer"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "unknown": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "idle",
+              "working",
+              "blocked",
+              "done",
+              "unknown",
+              "total"
+            ]
+          },
+          "panes": {
+            "type": "array",
+            "description": "Agent panes sorted by attention rank (blocked, failed, done, working, idle, unknown) then longest-waiting first. No screen content, cwd or env.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "paneId": {
+                  "type": "string",
+                  "examples": [
+                    "local:%0"
+                  ]
+                },
+                "hostId": {
+                  "type": "string"
+                },
+                "sessionName": {
+                  "type": "string"
+                },
+                "agent": {
+                  "type": "string"
+                },
+                "agentStatus": {
+                  "type": "string",
+                  "enum": [
+                    "idle",
+                    "working",
+                    "blocked",
+                    "done",
+                    "unknown"
+                  ]
+                },
+                "phase": {
+                  "type": "string"
+                },
+                "lastEvent": {
+                  "type": "string"
+                },
+                "task": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "message": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "confidence": {
+                  "type": "string",
+                  "enum": [
+                    "high",
+                    "medium",
+                    "low"
+                  ]
+                },
+                "since": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updatedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "needsHuman": {
+                  "type": "boolean",
+                  "description": "blocked or failed: a human decision is waiting"
+                },
+                "self": {
+                  "type": "boolean",
+                  "description": "Matches the selfPaneId hint from the caller"
+                }
+              },
+              "required": [
+                "paneId",
+                "hostId",
+                "sessionName",
+                "agent",
+                "agentStatus",
+                "needsHuman",
+                "self"
+              ]
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "capturedAt",
+          "summary",
+          "panes",
+          "truncated"
+        ]
+      },
+      "errors": [
+        "AGENT_CONTROL_FLEET_FAILED",
         "AGENT_CONTROL_AUTH_REQUIRED",
         "TMUXGO_ENV_GUARD"
       ]
@@ -1780,6 +2039,8 @@
     "AGENT_CONTROL_WAIT_OUTPUT_FAILED",
     "AGENT_CONTROL_RUN_FAILED",
     "AGENT_CONTROL_SEND_KEYS_FAILED",
+    "AGENT_CONTROL_TASK_FAILED",
+    "AGENT_CONTROL_FLEET_FAILED",
     "AGENT_CONTROL_EXPLAIN_FAILED",
     "INVALID_INPUT",
     "INVALID_KEY",
@@ -1831,6 +2092,8 @@
           "AGENT_CONTROL_WAIT_OUTPUT_FAILED",
           "AGENT_CONTROL_RUN_FAILED",
           "AGENT_CONTROL_SEND_KEYS_FAILED",
+          "AGENT_CONTROL_TASK_FAILED",
+          "AGENT_CONTROL_FLEET_FAILED",
           "AGENT_CONTROL_EXPLAIN_FAILED",
           "INVALID_INPUT",
           "INVALID_KEY",

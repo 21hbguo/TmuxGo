@@ -45,6 +45,9 @@ test('every control method (Task9/Task12 included) is present in the schema doc'
     'panes.wait-output',
     'panes.run',
     'panes.send-keys',
+    // 机队编排：读面 + 任务号绑定
+    'panes.task',
+    'fleet.list',
     // Task12 agent actions
     'agent.start',
     'agent.prompt',
@@ -127,6 +130,8 @@ test('mcp pane tools mirror the protocol params constraints', async (t) => {
     tmuxgo_agent_start: 'agent.start',
     tmuxgo_agent_prompt: 'agent.prompt',
     tmuxgo_agent_wait: 'agent.wait',
+    tmuxgo_fleet_list: 'fleet.list',
+    tmuxgo_task_set: 'panes.task',
     tmuxgo_control_schema: 'schema',
   }
   const constraintKeys = ['type', 'minLength', 'maxLength', 'minimum', 'maximum', 'pattern', 'enum', 'default']

@@ -71,6 +71,30 @@ curl -s -X POST "$BASE/agent/wait" \
 
 The wait pins the pane occupant: if the pane is reused by a different process before the condition is met, the call fails with `OCCUPANT_CHANGED` — do not treat a replacement process as satisfying the wait. On `TIMEOUT` / `PANE_REMOVED`, re-evaluate and retry if appropriate.
 
+### See the fleet and bind tasks
+
+Before splitting panes or prompting anyone, read the fleet instead of guessing pane ids. `fleet/list` reads the cached monitor projection (no scan triggered) and returns one row per agent pane: task id, semantic status/phase, last event, how long it has been in that state, and `needsHuman`.
+
+```bash
+curl -s -X POST "$BASE/fleet/list" \
+  -H "x-tmuxgo-agent-token: $TMUXGO_AGENT_EVENT_TOKEN" -H "x-tmuxgo-env: 1" \
+  -H "Content-Type: application/json" \
+  -d '{"statuses":["blocked","done"],"selfPaneId":"'"$TMUX_PANE"'"}'
+```
+
+Rows are sorted `blocked → failed → done → working → idle`, longest-waiting first — the same order the human Fleet panel shows, so you and the operator agree on who is most urgent. `needsHuman: true` means a human decision is pending: escalate with `push` instead of answering on their behalf.
+
+Bind a task id so work stays addressable across reloads, device switches and handoffs (it is stored on the pane as `@tmuxgo_task`, the same field the UI shows):
+
+```bash
+curl -s -X POST "$BASE/panes/task" \
+  -H "x-tmuxgo-agent-token: $TMUXGO_AGENT_EVENT_TOKEN" -H "x-tmuxgo-env: 1" \
+  -H "Content-Type: application/json" \
+  -d '{"paneId":"local:%3","task":"T-234"}'
+```
+
+Send `"task": ""` to clear the binding. Prefer the MCP tools `tmuxgo_fleet_list` and `tmuxgo_task_set` when available; they fill `selfPaneId` from `TMUX_PANE` for you.
+
 ## Rules
 
 - Never run these operations outside a TmuxGo environment (guard above).

@@ -131,7 +131,17 @@ http://localhost:3001
 | **Mobile / PWA**         | 触控导航、虚拟按键、快捷条、剪贴板保护、添加到主屏幕                            |
 | **Persistence**          | 主题、快捷键、收藏、会话顺序、工作区状态和恢复信息持久化                        |
 | **Security**             | 本地监听默认值、账号认证、一次性 WebSocket ticket、HTTPS/Tailscale 部署路径     |
-| **Agent Control**        | pane 内 agent 反向操作工作台：分屏、读屏、跨 agent 等待、Inbox 推送、MCP 接入   |
+| **Agent 编排**           | 机队视图、pane 任务号、跨 agent 等待、分屏/读屏、Inbox 推送、MCP 接入（控制面） |
+
+> **主攻点：一个人类，多支长跑 agent。** 不是"浏览器里能开终端"，而是让人和 agent 共用同一块**可寻址、可恢复、可交接**的 tmux 面板——agent 的活挂在 pane 上（tmux option），换设备、刷新页面、重启 Gateway 都不丢。
+
+```bash
+tmuxgo-ctl fleet list --status blocked        # 谁在等人：blocked → failed → done → working，最急的在前
+tmuxgo-ctl panes task --pane-id local:%3 --task T-234   # 把任务号钉在 pane 上
+tmuxgo-ctl agent wait --pane-id local:%3 --status done --timeout-ms 600000
+```
+
+同一套控制面经 MCP 交给 pane 里的 agent：它能自己读机队、认领任务、叫醒同伴，而不是等人转发 paneId。协议见 [`skills/tmuxgo-control/PROTOCOL.md`](skills/tmuxgo-control/PROTOCOL.md)。
 
 <details>
 <summary><strong>完整功能说明</strong></summary>
@@ -230,11 +240,13 @@ TmuxGo 为 pane 内运行的 coding agent 提供控制面（`/api/v1/control/*`�
 - **薄客户端 `tmuxgo-ctl`**：随 `@21hbguo/tmuxgo` 一并安装，stdout 单行 JSON、退出码 0/1/2，适合脚本拼装：
 
 ```bash
+tmuxgo-ctl fleet list --status blocked                      # 机队读面（读缓存，不触发扫描）
+tmuxgo-ctl panes task --pane-id local:%3 --task T-234       # 任务号写入 pane 的 @tmuxgo_task
 tmuxgo-ctl panes split --pane-id "local:${TMUX_PANE}" --direction horizontal
 tmuxgo-ctl agent wait --session dev --agent codex --status blocked --timeout-ms 60000
 ```
 
-- **MCP**：`apps/mcp`（`tmuxgo-mcp`）是零依赖 stdio bridge，把控制面暴露为 MCP tools（`push_*` 推 Inbox、`browser_*` 驱动内嵌浏览器、`pane_*` 读屏/等待/注入）。源码部署下在 agent 的 MCP 配置中注册即可原生调用，鉴权走已注入的环境变量，无需另行配置 token：
+- **MCP**：`apps/mcp`（`tmuxgo-mcp`）是零依赖 stdio bridge，把控制面暴露为 MCP tools（`fleet_list` 读机队、`task_set` 绑任务、`push_*` 推 Inbox、`browser_*` 驱动内嵌浏览器、`pane_*` 读屏/等待/注入）。源码部署下在 agent 的 MCP 配置中注册即可原生调用，鉴权走已注入的环境变量，无需另行配置 token：
 
 ```json
 { "mcpServers": { "tmuxgo": { "command": "node", "args": ["<repo>/apps/mcp/index.mjs"] } } }

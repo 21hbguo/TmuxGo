@@ -21,7 +21,9 @@ import {
   controlAgentPromptBodySchema,
   controlAgentStartBodySchema,
   controlExplainBodySchema,
+  controlFleetListBodySchema,
   controlInitializeBodySchema,
+  controlPaneTaskBodySchema,
   controlReadBodySchema,
   controlRunBodySchema,
   controlSendKeysBodySchema,
@@ -31,8 +33,12 @@ import {
   controlWaitOutputBodySchema,
 } from '../lib/control-protocol.js'
 import { buildControlProtocolSchema } from '../lib/control-schema.js'
+import { buildFleetList } from '../lib/fleet.js'
+import { agentMonitor } from '../lib/agent-monitor.js'
+import { normalizePaneTask, writePaneTask } from '../lib/pane-task.js'
+import { scopeAllowsHost, scopeAllowsSession } from '../lib/access-scope.js'
 import { AgentActionError, cancelAgentOperation, promptAgentInPane, startAgentInPane } from '../lib/agent-actions.js'
-import { assertTargetAllowed } from '../lib/tmux-policy.js'
+import { assertTargetAllowed, isSessionAllowed } from '../lib/tmux-policy.js'
 import { AgentExplainError, explainAgentPane } from '../lib/agent-state.js'
 import { getHostById } from '../lib/hosts.js'
 import { agentManager } from '../agent-manager.js'
@@ -347,6 +353,55 @@ export async function agentControlRoutes(fastify: FastifyInstance) {
         // 非法键明细随响应返回（一次修完），与 herdr 的 invalid_key 语义一致
         ...(invalid && invalid.length ? { invalid } : {}),
       })
+    }
+  })
+
+  // fleet/list：读 monitor 缓存的机队投影，让 agent 能回答「谁在跑、各自什么任务、谁卡住了」。
+  // 刻意不触发扫描：列表调用可能高频，扫描成本属于 monitor 自己的节拍（面板/订阅开着即快档）。
+  // 可见性按 TMUX_WEB_ALLOWED_SESSIONS 与请求 scope 双重过滤，屏幕内容一律不出。
+  fastify.post('/v1/control/fleet/list', { bodyLimit: 64 * 1024 }, async (request, reply) => {
+    if (!guardControlRequest(request, reply)) return
+    try {
+      const body = controlFleetListBodySchema.parse(request.body ?? {})
+      const scope = request.principal?.scope
+      const result = buildFleetList(agentMonitor.getAllStates(), {
+        ...body,
+        allowSession: (hostId, sessionName) =>
+          isSessionAllowed(sessionName) &&
+          (!scope || (scopeAllowsHost(scope, hostId) && scopeAllowsSession(scope, hostId, sessionName))),
+      })
+      reply.header('cache-control', 'no-store')
+      return { ok: true, capturedAt: new Date().toISOString(), ...result }
+    } catch (error) {
+      return controlError(reply, error, 'AGENT_CONTROL_FLEET_FAILED')
+    }
+  })
+
+  // panes/task：agent 侧的任务号绑定。与人类入口共用 lib/pane-task.ts 的写入语义，
+  // 审计 action 也沿用 pane-task-set / pane-task-clear，身份由 principal 记为 agent
+  fastify.post('/v1/control/panes/task', { bodyLimit: 64 * 1024 }, async (request, reply) => {
+    if (!guardControlAction(request, reply)) return
+    const rawPaneId = (request.body as { paneId?: unknown } | undefined)?.paneId
+    const rawTask = (request.body as { task?: unknown } | undefined)?.task
+    const paneId = typeof rawPaneId === 'string' ? rawPaneId : request.url.split('?')[0]
+    // 审计 action 按「解绑 / 绑定」分开记，失败时也能从原始入参判断意图
+    const auditLabel = typeof rawTask === 'string' && !rawTask.trim() ? 'pane-task-clear' : 'pane-task-set'
+    try {
+      const body = controlPaneTaskBodySchema.parse(request.body)
+      const task = normalizePaneTask(body.task)
+      const { hostId, tmuxPaneId } = await parsePaneTarget(body.paneId)
+      await writePaneTask(hostId, tmuxPaneId, task)
+      // 让机队缓存立刻反映新任务号（未跟踪的 pane 返回 false，写入本身已成功）
+      agentMonitor.notePaneTask(hostId, tmuxPaneId, task)
+      reply.header('cache-control', 'no-store')
+      auditAction(request, task ? 'pane-task-set' : 'pane-task-clear', body.paneId, 'success', 200, task, hostId)
+      return { ok: true, paneId: body.paneId, task: task || null }
+    } catch (error) {
+      const status = controlErrorStatus(error)
+      const code =
+        error instanceof Error && 'code' in error ? (error as { code: string }).code : 'AGENT_CONTROL_TASK_FAILED'
+      auditAction(request, auditLabel, paneId, 'failure', status, code)
+      return controlError(reply, error, 'AGENT_CONTROL_TASK_FAILED')
     }
   })
 

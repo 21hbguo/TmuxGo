@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { assertTargetAllowed } from '../lib/tmux-policy.js'
 import { execTmux } from '../lib/tmux-executor.js'
+import { writePaneTask } from '../lib/pane-task.js'
 import { AgentExplainError, explainAgentPane, markAgentPaneSeen } from '../lib/agent-state.js'
 import { appendAuditEvent } from '../lib/audit-log.js'
 import { getRequestPrincipal } from '../lib/principal.js'
@@ -257,14 +258,9 @@ export async function paneRoutes(fastify: FastifyInstance) {
     try {
       const { hostId, tmuxPaneId } = parsePaneId(paneId)
       await assertTargetAllowed(hostId, tmuxPaneId)
-      // 空 task = 解绑。用 -u 删掉 option 而不是写入空串：空串会在 show-options 里
-      // 留下一条 @tmuxgo_task ""，外部工具按「存在即绑定」判断时会误判
-      await execTmux(
-        hostId,
-        trimmed
-          ? ['set-option', '-p', '-t', tmuxPaneId, '@tmuxgo_task', trimmed]
-          : ['set-option', '-u', '-p', '-t', tmuxPaneId, '@tmuxgo_task'],
-      )
+      await writePaneTask(hostId, tmuxPaneId, trimmed)
+      // 机队视图读的是 monitor 缓存：人类入口写入后也要就地更新，否则面板要等下一轮扫描
+      agentMonitor.notePaneTask(hostId, tmuxPaneId, trimmed)
       audit('success', hostId)
       return { ok: true, paneId, task: trimmed || null }
     } catch (err) {

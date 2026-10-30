@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { paneTaskValueSchema } from './pane-task-value.js'
 
 // /api/v1/control 协议契约单一事实源（skills/tmuxgo-control/PROTOCOL.md 契约章节的实现侧）。
 // 兼容性约定：zod object 默认剥离未知字段，新增可选字段向后兼容；
@@ -30,11 +31,13 @@ export const CONTROL_CAPABILITIES = [
   'panes.wait-output',
   'panes.run',
   'panes.send-keys',
+  'panes.task',
   'agent.wait',
   'agent.explain',
   'agent.start',
   'agent.prompt',
   'agent.cancel',
+  'fleet.list',
   'push',
   'open-target',
   'inbox',
@@ -178,6 +181,27 @@ export const controlSendKeysBodySchema = z.object({
   allowOccupied: z.boolean().default(false),
 })
 
+// panes/task：任务号绑定（写 tmux user-option @tmuxgo_task）。空串 = 解绑，
+// 与人类入口 POST /panes/task 共用同一条写入语义；长度上限对齐 request-validation.ts 的 120
+export const controlPaneTaskBodySchema = z.object({
+  paneId: paneIdSchema,
+  task: paneTaskValueSchema,
+})
+
+// fleet/list：读 monitor 缓存的机队投影（不触发扫描）。selfPaneId 只是显示提示，
+// 用来在结果里标记「调用方自己那个 pane」，不参与鉴权
+export const controlFleetListBodySchema = z.object({
+  hostIds: z.array(z.string().min(1).max(128)).max(32).optional(),
+  statuses: z
+    .array(z.enum(['idle', 'working', 'blocked', 'done', 'unknown']))
+    .max(5)
+    .optional(),
+  task: z.string().max(120).optional(),
+  agent: z.string().max(64).optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+  selfPaneId: z.string().min(1).max(256).optional(),
+})
+
 export const controlWaitBodySchema = z.object({
   hostId: z.string().min(1).max(128).optional(),
   target: z.union([
@@ -273,6 +297,8 @@ export const CONTROL_ERROR_CODES = [
   'AGENT_CONTROL_WAIT_OUTPUT_FAILED',
   'AGENT_CONTROL_RUN_FAILED',
   'AGENT_CONTROL_SEND_KEYS_FAILED',
+  'AGENT_CONTROL_TASK_FAILED',
+  'AGENT_CONTROL_FLEET_FAILED',
   'AGENT_CONTROL_EXPLAIN_FAILED',
   'INVALID_INPUT',
   'INVALID_KEY',

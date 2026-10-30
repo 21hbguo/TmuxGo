@@ -838,3 +838,45 @@ test('noteHostActivity on an untracked or stopped host is a no-op', async () => 
   await new Promise((resolve) => setTimeout(resolve, 20))
   assert.equal(scanCount, before)
 })
+
+test('notePaneTask patches the cached row and broadcasts a change immediately', async () => {
+  const monitor = new AgentMonitor({
+    getHostIds: async () => ['local'],
+    scan: async () => [pane('local:%1')],
+    intervalMs: 1000,
+  })
+  const events: AgentMonitorEvent[] = []
+  const unsubscribe = monitor.subscribe((event) => events.push(event))
+  await monitor.start()
+
+  assert.equal(monitor.notePaneTask('local', '%1', 'T-1'), true)
+  assert.equal(monitor.getStates('local')?.[0]?.task, 'T-1')
+  assert.ok(
+    events.some((event) => event.type === 'agent_status_changed' && event.pane.task === 'T-1'),
+    'task binding should reach subscribers without waiting for the next scan',
+  )
+
+  assert.equal(monitor.notePaneTask('local', '%1', ''), true)
+  assert.equal(monitor.getStates('local')?.[0]?.task, undefined)
+  // 未跟踪的 pane：写入已经成功，但没有可 patch 的行
+  assert.equal(monitor.notePaneTask('local', '%99', 'T-2'), false)
+  unsubscribe()
+  monitor.stop()
+})
+
+test('notePaneTask survives a scan that was captured before the write', async () => {
+  // 任务号不参与 samePane 判定，扫描会把写入前的值原样带回来；覆盖窗内必须以写入值为准，
+  // 否则「绑任务 → 立刻按任务查机队」会读到空结果
+  const monitor = new AgentMonitor({
+    getHostIds: async () => ['local'],
+    scan: async () => [pane('local:%1')],
+    intervalMs: 20,
+  })
+  const unsubscribe = monitor.subscribe(() => {})
+  await monitor.start()
+  monitor.notePaneTask('local', '%1', 'T-9')
+  await new Promise((resolve) => setTimeout(resolve, 80))
+  assert.equal(monitor.getStates('local')?.[0]?.task, 'T-9')
+  unsubscribe()
+  monitor.stop()
+})

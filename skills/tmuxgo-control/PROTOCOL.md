@@ -26,7 +26,7 @@ Also defines the display-metadata patch protocol for `/api/agent-events`: semant
 | 400                      | `AGENT_PUSH_FAILED` / `AGENT_OPEN_TARGET_FAILED` / `AGENT_INBOX_QUERY_FAILED` / `INBOX_MESSAGE_NOT_FOUND` | push、UI 导航或 inbox 查询失败                 |
 | 400                      | `BROWSER_BAD_OP` / `BROWSER_OP_FAILED`                                                                    | browser op 不在 allowlist 或下游浏览器操作失败 |
 
-capability = 方法名（`initialize`/`schema`/`panes.*`/`agent.*`/`push`/`open-target`/`inbox`/`browser`）。旧 client 不调用 initialize 也不受影响——协商是可选握手，其余端点行为不变。
+capability = 方法名（`initialize`/`schema`/`panes.*`/`agent.*`/`fleet.list`/`push`/`open-target`/`inbox`/`browser`）。旧 client 不调用 initialize 也不受影响——协商是可选握手，其余端点行为不变。
 
 ### JSON Schema export
 
@@ -48,6 +48,8 @@ capability = 方法名（`initialize`/`schema`/`panes.*`/`agent.*`/`push`/`open-
 | 400  | `INVALID_INPUT`                                                                                                                                                                              | `panes/run` 文本含控制字符/换行或超 4096 字符                                                                        |
 | 400  | `INVALID_PATTERN`                                                                                                                                                                            | `panes/wait-output` 的 `regex:true` 正则不合法                                                                       |
 | 400  | `INVALID_KEY`                                                                                                                                                                                | `panes/send-keys` 键名不在白名单（整组拒绝，一个键都不发；响应 `invalid` 列出全部非法项）                            |
+| 400  | `AGENT_CONTROL_TASK_FAILED`                                                                                                                                                                  | `panes/task` body 校验失败或写入失败（message 含原因）                                                               |
+| 400  | `AGENT_CONTROL_FLEET_FAILED`                                                                                                                                                                 | `fleet/list` body 校验失败（如 `limit` 越界、未知 status）                                                           |
 | 409  | `OCCUPANT_CHANGED`                                                                                                                                                                           | wait 钉住的 pane 占用者（agent+agentSessionId 或 pane_current_command）在条件满足前变更——替换进程不得满足等待        |
 | 409  | `PANE_REMOVED`                                                                                                                                                                               | 目标 pane 在等待期间被移除                                                                                           |
 | 409  | `TIMEOUT`                                                                                                                                                                                    | `timeoutMs` 到期（默认 60s，范围 250ms–600s）                                                                        |
@@ -193,6 +195,37 @@ Send logical key presses (actions, not text). Body:
 - 一次 `send-keys` 带全部键，键间无 shell 拼接；`allowOccupied` / `PANE_MISSING` / `PANE_DEAD` / `PANE_IN_MODE` / `PANE_OCCUPIED` 门禁与 `panes/run` 完全一致。
 - Response: `{ "ok": true, "paneId": "local:%0", "target": "dev:0.1", "keys": ["Escape", "C-c"] }`
 
+### POST /panes/task
+
+Bind or clear the task id shown in the Fleet panel. Body:
+
+```json
+{ "paneId": "local:%0", "task": "T-234" }
+```
+
+- `task` 必填，上限 120 字符，不可含换行/控制字符（`@tmuxgo_task` 按行解析，换行会串行）；**空串 = 解绑**（服务端走 `set-option -u`，不留 `@tmuxgo_task ""` 空值，外部工具按「存在即绑定」判断时不会误判）。
+- 写入位置是 tmux pane user-option `@tmuxgo_task`：pane 关掉即随 pane 消失，不需要额外清理；外部脚本也可以直接 `tmux set-option -p -t %N @tmuxgo_task T-234`。
+- 与人类入口 `POST /api/panes/task` 共用同一条写入实现与审计 action（`pane-task-set` / `pane-task-clear`），身份按请求头记为 `agent-token`。
+- Response: `{ "ok": true, "paneId": "local:%0", "task": "T-234" }`；解绑后 `task` 为 `null`。
+
+### POST /fleet/list
+
+Read the fleet: every agent pane the gateway currently tracks, with task id, semantic state and how long it has been there.
+
+```json
+{ "hostIds": ["local"], "statuses": ["blocked", "done"], "task": "T-234", "limit": 200, "selfPaneId": "%3" }
+```
+
+- 全部字段可选。`task` 精确匹配（trim 后比较）；`statuses` 为空 = 不过滤；`limit` 1-500，默认 200。
+- **读缓存不扫描**：数据来自 agent monitor 的既有投影，调用方高频轮询不会给 tmux 增加负载；新鲜度由 monitor 自己的档位决定（有面板/订阅时快档，空闲时怠速）。
+- 排序：`blocked → failed → done → working → idle → unknown`，同档按 `since` 升序（卡最久的在前）。与前端 Fleet 面板同一套排序，人和 agent 看到同一个「谁最急」。
+- `needsHuman: true` = blocked 或 failed（phase/lastEvent 命中也算），编排者据此决定叫不叫人。
+- `selfPaneId` 是调用方自报的位置提示（MCP 从 `TMUX_PANE` 自动填），命中行 `self: true`；不参与任何鉴权。
+- 只返回 `TMUX_WEB_ALLOWED_SESSIONS` 与请求 scope 允许的 session；**不含屏幕内容、cwd、env、token**。
+- Response: `{ "ok": true, "capturedAt": "...", "panes": [...], "summary": { "idle": 0, "working": 2, "blocked": 1, "done": 0, "unknown": 0, "total": 3 }, "truncated": false }`。`summary` 统计匹配集合（截断前）。
+
+`panes[].task` 与 `needsHuman` 是编排的两块拼图：前者让「活」可以按任务 id 寻址（不依赖调用方内存里的 paneId 表），后者让「谁在等人」不用读屏判断。
+
 ### POST /agent/wait
 
 Server-held, event-driven wait for an agent pane to reach a condition. Body:
@@ -312,7 +345,7 @@ Response:
 
 ## Thin client: `tmuxgo-ctl`
 
-随 `apps/cli` 一起发布的零依赖薄客户端（`bin/tmuxgo-ctl.mjs`），覆盖 initialize/schema/panes split·read·snapshot·wait-output·run/agent wait/push/browser（MCP bridge 暴露同一 control-plane 的 push/browser/schema 工具）：
+随 `apps/cli` 一起发布的零依赖薄客户端（`bin/tmuxgo-ctl.mjs`），覆盖 initialize/schema/panes split·read·snapshot·wait-output·run·task/fleet list/agent wait/push/browser（MCP bridge 暴露同一 control-plane 的 push/browser/schema 工具）：
 
 ```bash
 tmuxgo-ctl initialize                 # 握手：协商协议版本（旧 gateway 退回 /health 探测）
@@ -323,6 +356,8 @@ tmuxgo-ctl panes snapshot --pane-id local:%0 --lines 20
 tmuxgo-ctl panes wait-output --pane-id local:%0 --match 'build complete' --timeout-ms 120000
 tmuxgo-ctl panes run --pane-id local:%0 --text 'make test'   # [--no-enter] [--allow-occupied]
 tmuxgo-ctl agent wait --session dev --agent codex --status blocked --timeout-ms 60000
+tmuxgo-ctl panes task --pane-id local:%0 --task T-234     # --task "" 解绑
+tmuxgo-ctl fleet list --status blocked,done --limit 50     # 机队读面，self 自动取 TMUX_PANE
 tmuxgo-ctl push text --text 'build complete' --open
 tmuxgo-ctl browser status
 tmuxgo-ctl browser navigate --url https://example.com
