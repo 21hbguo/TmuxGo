@@ -243,6 +243,39 @@ test('restore replays layout + cwd + command but never writes the tail back into
   })
 })
 
+test('restore existence check counts base sessions but not grouped views', async () => {
+  await withConfigDir(async () => {
+    const capture = createFakeTmux({ sessions: ['work'] })
+    const snapshot = await captureSessionSnapshot({
+      hostId: 'local',
+      sessionId: 'session-local-work',
+      exec: capture.exec,
+    })
+    const viewName = 'tmuxgo-view-abcdef1234567890'
+    const baseExec = createFakeTmux({ sessions: ['work'] }).exec
+    // list-sessions 同时返回 base（option 空）和 view（option=work）
+    const exec = (async (hostId: string, args: string[], options?: Parameters<TmuxExec>[2]) => {
+      if (args[0] === 'list-sessions') return { stdout: `work\t\n${viewName}\twork\n`, stderr: '' }
+      return baseExec(hostId, args, options)
+    }) as TmuxExec
+
+    // base 必须被认成「已存在」；若把 view 当用户会话，这里反而会去覆盖 base
+    await assert.rejects(
+      () => restoreSnapshot({ hostId: 'local', snapshotId: snapshot.id, exec, prepareAttach: async () => {} }),
+      /already exists/,
+    )
+    // view 命中同一份列表时必须被忽略，可以按新名字恢复
+    const restored = await restoreSnapshot({
+      hostId: 'local',
+      snapshotId: snapshot.id,
+      name: viewName,
+      exec,
+      prepareAttach: async () => {},
+    })
+    assert.equal(restored.sessionName, viewName)
+  })
+})
+
 test('restore refuses to clobber an existing session unless replace is set', async () => {
   await withConfigDir(async () => {
     const capture = createFakeTmux({ sessions: ['work'] })

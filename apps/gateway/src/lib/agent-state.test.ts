@@ -17,6 +17,7 @@ import { createTerminalOutputSanitizer } from './terminal-output.js'
 import { execTmux } from './tmux-executor.js'
 import { _setAgentPaneRecordForTest, forgetAgentPane, getHostAgentPanes } from './agent-state.js'
 import { killTestTmuxSession, TEST_TMUX_SESSION } from '../test-tmux.js'
+import { VIEW_BASE_OPTION, viewSessionName } from './view-sessions.js'
 
 test('detects codex lifecycle from terminal output', () => {
   assert.deepEqual(detectAgentPaneState('node', '⠹ TmuxGo', '• Working (10s • esc to interrupt)\n›'), {
@@ -158,6 +159,59 @@ test('scans a local tmux Agent pane through the real executor path', async () =>
     assert.equal(states[0]?.confidence, 'low')
   } finally {
     if (paneId) forgetAgentPane(paneId)
+    await killTestTmuxSession()
+    await rm(tempDir, { recursive: true, force: true })
+  }
+})
+// grouped session 回归：list-panes -a 会把同一 pane 按 base/view 各列一行，
+// 全量扫描必须只保留 base，否则同一 pane 会出现两条 agent 状态。
+test('full agent scan filters grouped view duplicate panes', async () => {
+  const sessionName = TEST_TMUX_SESSION
+  const viewId = 'agentscanview01'
+  const viewName = viewSessionName('local', sessionName, viewId)
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-agent-view-'))
+  const agentPath = path.join(tempDir, 'worker')
+  const agentScript = [
+    '#!/usr/bin/env node',
+    "process.stdout.write('\\u001b]2;Action Required\\u0007Use /skills to list available skills\\ngpt-5.6 medium · ~/project\\n')",
+    'setTimeout(() => {}, 30000)',
+    '',
+  ].join('\n')
+  await writeFile(agentPath, agentScript)
+  await chmod(agentPath, 0o700)
+  let paneId = ''
+  try {
+    await killTestTmuxSession()
+    await execTmux('local', ['kill-session', '-t', `=${viewName}`]).catch(() => {})
+    await execTmux('local', ['new-session', '-d', '-s', sessionName, agentPath])
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    await execTmux('local', ['new-session', '-d', '-t', sessionName, '-s', viewName])
+    await execTmux('local', ['set-option', '-t', viewName, VIEW_BASE_OPTION, sessionName])
+    // 先证明 tmux 确实把同一 pane 列了两次，失败时能区分「没造出 view」与「没过滤」
+    const { stdout } = await execTmux('local', ['list-panes', '-a', '-F', '#{session_name}|#{pane_id}'])
+    const viewRow = stdout
+      .trim()
+      .split('\n')
+      .find((line) => line.startsWith(`${viewName}|`))
+    assert.ok(viewRow)
+    paneId = viewRow.split('|')[1]
+    // 原始 list-panes -a 确实把同一 pane 列了 base/view 两行
+    assert.equal(
+      stdout
+        .trim()
+        .split('\n')
+        .filter((line) => line.endsWith(`|${paneId}`)).length,
+      2,
+    )
+
+    const states = await getHostAgentPanes('local')
+    assert.equal(states.length, 1)
+    assert.equal(states[0]?.paneId, `local:${paneId}`)
+    assert.equal(states[0]?.sessionName, sessionName)
+    assert.equal(states[0]?.agent, 'codex')
+  } finally {
+    if (paneId) forgetAgentPane(paneId)
+    await execTmux('local', ['kill-session', '-t', `=${viewName}`]).catch(() => {})
     await killTestTmuxSession()
     await rm(tempDir, { recursive: true, force: true })
   }

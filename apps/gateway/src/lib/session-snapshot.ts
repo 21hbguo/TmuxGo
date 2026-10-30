@@ -11,6 +11,7 @@ import {
   type SessionLayoutPaneRow,
 } from './session-layout.js'
 import { applyTemplateLayout, buildSessionCreateArgs, type TmuxExec } from './session-layout-apply.js'
+import { VIEW_SESSION_LIST_FORMAT, parseUserSessionNames } from './session-list.js'
 
 // session 快照 L1（lean 档）：layout 元信息 + 每 pane cwd/前台命令 + 尾部 200 行纯文本。
 // 恢复语义是「同结构 + 同 cwd + 同命令重跑」，进程不会复活，scrollbackTail 只用于预览展示
@@ -323,8 +324,10 @@ function isTmuxServerUnavailable(error: unknown) {
 /** 列会话：server 没起来视为空列表（不是失败），其余错误照抛 */
 async function listSessionNames(hostId: string, exec: TmuxExec) {
   try {
-    const { stdout } = await exec(hostId, ['list-sessions', '-F', '#{session_name}'])
-    return stdout.trim().split('\n').filter(Boolean)
+    const { stdout } = await exec(hostId, ['list-sessions', '-F', VIEW_SESSION_LIST_FORMAT])
+    // grouped view session 不是用户会话：恢复快照时不能把它当成「已存在」，
+    // 否则 base 反而会被判成不存在、去覆盖正在用的 view。
+    return parseUserSessionNames(stdout)
   } catch (err) {
     if (isTmuxServerUnavailable(err)) return []
     throw err

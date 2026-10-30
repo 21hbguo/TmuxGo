@@ -11,6 +11,7 @@ import {
   type TmuxAgentHookName,
 } from './tmux-hooks.js'
 import { getHostById, type HostRecord } from './hosts.js'
+import { VIEW_SESSION_LIST_FORMAT, getViewSessionNames, parseViewSessionNames } from './session-list.js'
 import { matchAgentScreenRule, type ScreenRule, type ScreenRuleTrace } from './agent-screen-rules.js'
 
 export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown'
@@ -558,6 +559,10 @@ function buildRemoteScanScript(host: HostRecord, sessionName: string | undefined
     `for e in ${tmuxAgentHookNames.join(' ')}; do printf '%s\\n' "$e"; "$TMUX" show-hooks -g "$e" 2>&1; printf '\\037\\n'; done`,
     `printf '\\036QUEUE\\n'`,
     `if [ -f "$QUEUE" ]; then r="$QUEUE.$$.r"; if mv "$QUEUE" "$r" 2>/dev/null; then cat "$r"; rm -f "$r"; fi; fi`,
+    // grouped view session 会让 list-panes -a 把同一 pane 按 session 再列一遍；
+    // 远端把这步合并进同一次 exec，避免每轮轮询多一个 SSH 往返
+    `printf '\\036VIEWS\\n'`,
+    `"$TMUX" list-sessions -F ${shellQuote(VIEW_SESSION_LIST_FORMAT)} 2>/dev/null`,
     `printf '\\036PANES\\n'`,
     `panes=$("$TMUX" ${listArgs} -F ${shellQuote(paneListFormat)} 2>&1); rc=$?`,
     `printf '%s\\n' "$panes"`,
@@ -612,6 +617,7 @@ function parsePaneCandidates(
   stdout: string,
   allowedSessionNames: string[] | undefined,
   tmuxHookEvents: TmuxAgentHookEvent[],
+  excludedSessionNames?: Set<string>,
 ) {
   const allowedSessions = allowedSessionNames ? new Set(allowedSessionNames) : null
   return stdout
@@ -654,7 +660,9 @@ function parsePaneCandidates(
     })
     .filter(
       (candidate) =>
-        candidate.tmuxPaneId?.startsWith('%') && (!allowedSessions || allowedSessions.has(candidate.sessionName)),
+        candidate.tmuxPaneId?.startsWith('%') &&
+        (!allowedSessions || allowedSessions.has(candidate.sessionName)) &&
+        !excludedSessionNames?.has(candidate.sessionName),
     )
 }
 async function captureAgentStates(
@@ -719,7 +727,10 @@ async function scanRemoteAgentPanes(
     () => {},
   )
   const tmuxHookEvents = parseTmuxAgentHookEvents(sections.get('QUEUE') || '')
-  const candidates = parsePaneCandidates(hostId, panesRaw, allowedSessionNames, tmuxHookEvents)
+  // 只在全量扫描时过滤：带 sessionName 的 per-session 分支查的是 base 本尊，
+  // 不会出现 view 重复行，保持原有语义
+  const viewSessionNames = sessionName ? undefined : parseViewSessionNames(sections.get('VIEWS') || '')
+  const candidates = parsePaneCandidates(hostId, panesRaw, allowedSessionNames, tmuxHookEvents, viewSessionNames)
   const psRaw = sections.get('PS')
   const panePids = candidates.map((candidate) => candidate.panePid).filter((panePid) => /^\d+$/.test(panePid))
   const processAgents =
@@ -738,8 +749,13 @@ async function scanAgentPanes(
   const tmuxHookEvents = await consumeTmuxAgentHookEvents(hostId)
   const args = sessionName ? ['list-panes', '-s', '-t', sessionName] : ['list-panes', '-a']
   args.push('-F', paneListFormat)
-  const { stdout } = await execTmux(hostId, args, signal ? { signal } : {})
-  const candidates = parsePaneCandidates(hostId, stdout, allowedSessionNames, tmuxHookEvents)
+  // 全量枚举会因 grouped session 同一个 pane 出现 base/view 两行；per-session
+  // 分支只查 base 本尊，不需要额外探测
+  const [{ stdout }, viewSessionNames] = await Promise.all([
+    execTmux(hostId, args, signal ? { signal } : {}),
+    sessionName ? Promise.resolve(undefined) : getViewSessionNames(hostId),
+  ])
+  const candidates = parsePaneCandidates(hostId, stdout, allowedSessionNames, tmuxHookEvents, viewSessionNames)
   const processAgents = await getProcessAgents(hostId, candidates)
   return captureAgentStates(hostId, candidates, processAgents)
 }
@@ -819,8 +835,13 @@ export interface AgentExplainResult {
   capturedAt: string
 }
 async function readPaneCandidate(hostId: string, tmuxPaneId: string): Promise<PaneCandidate> {
-  const { stdout } = await execTmux(hostId, ['list-panes', '-a', '-F', paneListFormat])
-  const candidate = parsePaneCandidates(hostId, stdout, undefined, []).find((item) => item.tmuxPaneId === tmuxPaneId)
+  const [{ stdout }, viewSessionNames] = await Promise.all([
+    execTmux(hostId, ['list-panes', '-a', '-F', paneListFormat]),
+    getViewSessionNames(hostId),
+  ])
+  const candidate = parsePaneCandidates(hostId, stdout, undefined, [], viewSessionNames).find(
+    (item) => item.tmuxPaneId === tmuxPaneId,
+  )
   if (!candidate) throw new AgentExplainError('PANE_MISSING', `Pane ${tmuxPaneId} is not listed on host ${hostId}`)
   return candidate
 }
