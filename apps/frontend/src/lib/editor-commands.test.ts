@@ -57,6 +57,8 @@ describe('resolveEditorKey', () => {
       [key({ key: 'w', ctrlKey: true }), 'close'],
       [key({ key: '=', ctrlKey: true }), 'zoom-in'],
       [key({ key: '+', ctrlKey: true }), 'zoom-in'],
+      [key({ key: '+', ctrlKey: true, shiftKey: true }), 'zoom-in'],
+      [key({ key: '_', ctrlKey: true, shiftKey: true }), 'zoom-out'],
       [key({ key: '-', ctrlKey: true }), 'zoom-out'],
       [key({ key: '0', ctrlKey: true }), 'zoom-reset'],
       [key({ key: '\\', ctrlKey: true }), 'split-right'],
@@ -66,7 +68,8 @@ describe('resolveEditorKey', () => {
       [key({ key: 'ArrowLeft', altKey: true }), 'navigate-back'],
       [key({ key: 'ArrowRight', altKey: true }), 'navigate-forward'],
     ]
-    for (const [input, expected] of cases) expect(resolveEditorKey(input, null), input.key).toEqual({ type: 'command', id: expected })
+    for (const [input, expected] of cases)
+      expect(resolveEditorKey(input, null), input.key).toEqual({ type: 'command', id: expected })
   })
 
   it('opens the shortcut sheet with Mod+Shift+/ in both key layouts', () => {
@@ -110,5 +113,4 @@ describe('resolveEditorKey', () => {
     expect(formatKeybinding('mod+k', true)).toBe('Cmd+K')
     expect(formatKeybinding('Mod+Shift+P', false)).toBe('Ctrl+Shift+P')
   })
-
 })

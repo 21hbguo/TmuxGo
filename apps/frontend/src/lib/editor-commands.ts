@@ -348,9 +348,10 @@ export function resolveEditorKey(input: EditorKeyInput, pendingChord: EditorChor
   // Shift+/ 在美式布局里 key 是 '?'，两种都认，否则 mac/中文输入法下打不开快捷键页
   if (input.shiftKey && !input.altKey && (key === '/' || key === '?')) return { type: 'command', id: 'show-shortcuts' }
   if (!input.shiftKey && !input.altKey && key === 'h') return { type: 'command', id: 'replace' }
-  if (!input.shiftKey && !input.altKey && (key === '=' || key === '+')) return { type: 'command', id: 'zoom-in' }
-  if (!input.shiftKey && !input.altKey && key === '-') return { type: 'command', id: 'zoom-out' }
-  if (!input.shiftKey && !input.altKey && key === '0') return { type: 'command', id: 'zoom-reset' }
+  // 缩放要收 Shift：美式键盘上 Ctrl++ 实际是 Ctrl+Shift+=，只认 '=' 会导致按加号没反应
+  if (!input.altKey && (key === '=' || key === '+')) return { type: 'command', id: 'zoom-in' }
+  if (!input.altKey && (key === '-' || key === '_')) return { type: 'command', id: 'zoom-out' }
+  if (!input.altKey && key === '0') return { type: 'command', id: 'zoom-reset' }
   if (!input.shiftKey && !input.altKey && key === '\\') return { type: 'command', id: 'split-right' }
   if (!input.shiftKey && !input.altKey && key === 's') return { type: 'command', id: 'save' }
   if (!input.shiftKey && !input.altKey && key === 'w') return { type: 'command', id: 'close' }

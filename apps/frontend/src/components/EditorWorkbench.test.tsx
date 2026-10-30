@@ -777,6 +777,10 @@ describe('EditorWorkbench', () => {
     renderWorkbench()
     expect(screen.getByTestId('cm-markdown-editor')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Live title' })).not.toBeInTheDocument()
+    expect(liveMarkdownPropsRef.current.at(-1)?.fontSize).toBe(14)
+    // live 模式也要跟 fontScale 走：Ctrl+= 后 CM6 字号同步放大，而不是只有状态栏百分比变
+    fireEvent.keyDown(window, { key: '=', ctrlKey: true })
+    expect(liveMarkdownPropsRef.current.at(-1)?.fontSize).toBe(15)
     fireEvent.change(screen.getByLabelText('live-markdown'), { target: { value: '# Changed' } })
     expect(useConsoleStore.getState().openEditors[0].content).toBe('# Changed')
   })
@@ -2428,6 +2432,14 @@ describe('EditorWorkbench', () => {
       expect(useEditorViewPrefs.getState().wordWrap).toBe(true)
       press('=', { ctrlKey: true })
       expect(useEditorViewPrefs.getState().fontScale).toBe(1.1)
+      // 美式键盘 Ctrl++ = Ctrl+Shift+=，必须和 Ctrl+= 等价
+      press('+', { ctrlKey: true, shiftKey: true })
+      expect(useEditorViewPrefs.getState().fontScale).toBe(1.25)
+      // Ctrl+滚轮：只缩放编辑区，不落到浏览器整页缩放
+      const wheel = new WheelEvent('wheel', { ctrlKey: true, deltaY: -100, bubbles: true, cancelable: true })
+      screen.getByLabelText('editor').dispatchEvent(wheel)
+      expect(wheel.defaultPrevented).toBe(true)
+      expect(useEditorViewPrefs.getState().fontScale).toBe(1.4)
       fireEvent.click(screen.getByTestId('editor-status-zoom'))
       fireEvent.click(screen.getByText('Editor Font Zoom Reset'))
       expect(useEditorViewPrefs.getState().fontScale).toBe(1)

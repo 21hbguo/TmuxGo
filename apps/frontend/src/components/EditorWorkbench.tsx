@@ -239,6 +239,22 @@ export function EditorWorkbench({
   // markdown 默认进 live（Obsidian 式原地编辑）；偏好关掉则回到只读预览，html/csv 行为不变
   const defaultPreviewModeFor = (language: string): EditorPreviewMode =>
     language === 'markdown' && viewPrefs.markdownLivePreview ? 'live' : 'preview'
+  // Ctrl/Cmd+滚轮缩放编辑器字体：Monaco 关了 mouseWheelZoom，CM6 没有内置缩放，统一走 fontScale。
+  // 必须 preventDefault，否则浏览器会连整页一起缩放（capture + passive:false 才能拦住）。
+  useEffect(() => {
+    const handleWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return
+      const target = event.target
+      if (!(target instanceof Element) || !target.closest('.monaco-editor, .cm-editor, [data-editor-surface]')) return
+      if (event.deltaY === 0) return
+      event.preventDefault()
+      event.stopPropagation()
+      if (event.deltaY < 0) viewPrefs.zoomIn()
+      else viewPrefs.zoomOut()
+    }
+    window.addEventListener('wheel', handleWheel, { passive: false, capture: true })
+    return () => window.removeEventListener('wheel', handleWheel, { capture: true })
+  }, [viewPrefs])
   const { t } = useTranslation()
   const editorRefs = useRef<Record<string, monacoEditor.IStandaloneCodeEditor>>({})
   const monacoRef = useRef<Monaco | null>(null)
@@ -1896,6 +1912,7 @@ export function EditorWorkbench({
           data-testid={focused ? 'editor-auto-scroll-zone' : undefined}
           onMouseDown={(event) => handleEditorMouseDown(editor.id, event)}
           // 整区预览时保留挂载但隐藏：Monaco 的撤销/光标/滚动状态不丢，切回即原位恢复
+          data-editor-surface
           className={`relative ${previewMode === 'preview' || previewLive ? 'hidden' : previewSplit ? 'min-h-0 min-w-0 shrink-0 grow-0' : 'h-full'}`}
           style={previewSplit ? { flexBasis: `${previewSplitRatio * 100}%` } : undefined}
         >
@@ -2050,7 +2067,7 @@ export function EditorWorkbench({
               rootId={editor.rootId}
               theme={preferences.theme === 'light' ? 'light' : 'dark'}
               fontFamily={preferences.fontFamily}
-              fontSize={preferences.fontSize}
+              fontSize={Math.max(10, Math.round(preferences.fontSize * viewPrefs.fontScale))}
               wordWrap={viewPrefs.wordWrap}
               revealLine={liveReveal?.id === editor.id ? { line: liveReveal.line, nonce: liveReveal.nonce } : null}
               onChange={(next) => setEditorContent(editor.id, next)}
@@ -2104,6 +2121,7 @@ export function EditorWorkbench({
                   previewElRefs.current[editor.id] = node
                 }}
                 onDoubleClick={jumpPreviewToEditor(editor.id)}
+                style={{ fontSize: Math.max(10, Math.round(preferences.fontSize * viewPrefs.fontScale)) }}
               >
                 <MarkdownPreviewHost
                   html={
@@ -2519,7 +2537,7 @@ export function EditorWorkbench({
   }
   if (!activeEditor) return null
   return (
-    <section data-editor-drop className="relative flex h-full min-h-0 flex-col bg-bg-0">
+    <section data-editor-drop data-editor-pane className="relative flex h-full min-h-0 flex-col bg-bg-0">
       <div className="tmuxgo-editor-head flex items-center justify-between gap-3 border-b border-[var(--line)] px-3">
         <div className="min-w-0">
           <div className="truncate font-mono text-[11px] leading-4 text-text-3" title={activeEditor.absolutePath}>
