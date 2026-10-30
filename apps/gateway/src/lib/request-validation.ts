@@ -57,6 +57,25 @@ export const paneCopySelectionBodySchema = paneIdBodySchema.extend({
   peek: z.boolean().optional(),
 })
 export const paneSplitBodySchema = paneIdBodySchema.extend({ direction: z.enum(['horizontal', 'vertical']) })
+// pane 拓扑编辑：target 二选一/互换的语义判据在 lib/pane-topology 里（与 argv 构造共用），
+// schema 只卡字段形状与取值范围——sizePercent 必须是 10-90 的整数百分比
+export const paneMoveBodySchema = paneIdBodySchema.extend({
+  targetWindowId: z.string().min(3).max(256).optional(),
+  targetPaneId: z.string().min(3).max(256).optional(),
+  direction: z.enum(['horizontal', 'vertical']).optional(),
+  sizePercent: z.number().int().min(10).max(90).optional(),
+})
+// 新窗口名 1-64 字符且不含控制字符（会污染 tmux 格式串/状态栏）
+export const paneBreakBodySchema = paneIdBodySchema.extend({
+  name: z
+    .string()
+    .min(1)
+    .max(64)
+    // eslint-disable-next-line no-control-regex -- 这里正是要拒绝控制字符（含 DEL）
+    .refine((value) => !/[\u0000-\u001f\u007f]/.test(value), 'Control characters are not allowed')
+    .optional(),
+})
+export const paneSwapBodySchema = paneIdBodySchema.extend({ targetPaneId: z.string().min(3).max(256) })
 // 任务号写进 pane 的 user-option：空串表示清除（走 set-option -u）。
 // 长度与字符集按「任务号 + 可能的前缀」留余量，不做格式校验——任务号体系由写方决定
 export const paneTaskBodySchema = paneIdBodySchema.extend({ task: paneTaskValueSchema })
