@@ -17,6 +17,7 @@ import { useCustomShortcuts, shortcutToSteps, stepToInput, describeShortcut } fr
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { AddShortcutModal } from './AddShortcutModal'
+import { ShortcutBundleDialog } from './ShortcutBundleDialog'
 import { ConfirmDialog } from './ConfirmDialog'
 import { PromptDialog } from './PromptDialog'
 import { MobileBottomSheet } from './MobileBottomSheet'
@@ -70,7 +71,7 @@ function useQuickActionController() {
   const { send } = useWebSocket()
   const { refreshSnapshot, resolveFreshActivePaneId, optimisticallyToggleWindowZoom, discardOptimisticWindowZoom } =
     useSessionSnapshotSync()
-  const { shortcuts, addShortcut, updateShortcut, removeShortcuts } = useCustomShortcuts()
+  const { shortcuts, addShortcut, updateShortcut, removeShortcuts, importShortcuts } = useCustomShortcuts()
   const [showModal, setShowModal] = useState(false)
   const [editingShortcut, setEditingShortcut] = useState<(typeof shortcuts)[number] | null>(null)
   const [pendingShortcutDeletes, setPendingShortcutDeletes] = useState<typeof shortcuts>([])
@@ -530,6 +531,8 @@ function useQuickActionController() {
     addShortcut,
     updateShortcut,
     removeShortcuts,
+    importShortcuts,
+    pushToast,
     showModal,
     setShowModal,
     editingShortcut,
@@ -699,6 +702,8 @@ export function QuickActions({
     recentShortcutButtons,
     addShortcut,
     updateShortcut,
+    importShortcuts,
+    pushToast,
     showModal,
     setShowModal,
     editingShortcut,
@@ -726,6 +731,8 @@ export function QuickActions({
   const [managingShortcuts, setManagingShortcuts] = useState(false)
   const [selectedShortcutIds, setSelectedShortcutIds] = useState<string[]>([])
   const [dockManageOpen, setDockManageOpen] = useState(false)
+  // 导入/导出的弹窗状态放在外层：桌面 dock 管理模式与移动面板共用同一个对话框
+  const [bundleOpen, setBundleOpen] = useState(false)
   const closeShortcutManage = () => {
     setManagingShortcuts(false)
     setSelectedShortcutIds([])
@@ -753,6 +760,21 @@ export function QuickActions({
     const targets = shortcuts.filter((s) => selectedShortcutIds.includes(s.id))
     if (targets.length > 0) setPendingShortcutDeletes(targets)
   }
+  // 导入/导出共用一份对话框实例；打开时顺手收起管理模式，避免两层浮层叠加
+  const openBundleDialog = () => {
+    setDockManageOpen(false)
+    closeShortcutManage()
+    setBundleOpen(true)
+  }
+  const bundleDialog = (
+    <ShortcutBundleDialog
+      open={bundleOpen}
+      shortcuts={shortcuts}
+      onImport={(entries, importMode) => importShortcuts(entries, importMode)}
+      onNotify={(message, tone) => pushToast({ type: tone, message })}
+      onClose={() => setBundleOpen(false)}
+    />
+  )
   const confirmDeleteSelectedShortcut = () => {
     confirmDeleteShortcut()
     closeShortcutManage()
@@ -884,6 +906,13 @@ export function QuickActions({
             >
               + {t('shortcut.add')}
             </button>
+            <button
+              type="button"
+              onClick={openBundleDialog}
+              className="mt-1 w-full rounded-apple border border-[var(--line)] px-2 py-1.5 text-xs text-text-3 transition-colors hover:border-accent/50 hover:text-text-2"
+            >
+              {t('shortcut.bundleOpen')}
+            </button>
           </div>
         </MobileBottomSheet>
         {showModal && (
@@ -903,6 +932,7 @@ export function QuickActions({
             }}
           />
         )}
+        {bundleDialog}
         <ConfirmDialog
           open={pendingShortcutDeletes.length > 0}
           title={t('shortcut.deleteTitle')}
@@ -1068,6 +1098,13 @@ export function QuickActions({
       >
         + {t('shortcut.add')}
       </button>
+      <button
+        type="button"
+        onClick={openBundleDialog}
+        className="mt-1 w-full rounded-apple border border-[var(--line)] px-2 py-1.5 text-xs text-text-3 transition-colors hover:border-accent/50 hover:text-text-2"
+      >
+        {t('shortcut.bundleOpen')}
+      </button>
       {showModal && (
         <AddShortcutModal
           key={editingShortcut?.id || 'new'}
@@ -1085,6 +1122,7 @@ export function QuickActions({
           }}
         />
       )}
+      {bundleDialog}
       <ConfirmDialog
         open={pendingShortcutDeletes.length > 0}
         title={t('shortcut.deleteTitle')}
