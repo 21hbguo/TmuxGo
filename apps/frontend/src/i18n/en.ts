@@ -841,6 +841,10 @@ export const en = {
   'shortcut.bundleIssueText': 'Entry {index}: text step is empty or too long',
   'shortcut.bundleIssueWait': 'Entry {index}: wait duration is invalid',
   'shortcut.bundleImported': 'Imported {count} (skipped {skipped} duplicates)',
+  'shortcut.bundleReplaceTitle': 'Replace existing shortcuts?',
+  'shortcut.bundleReplaceMessage':
+    'The current {count} custom shortcuts will be cleared and replaced with {importCount} imported ones. This cannot be undone.',
+  'shortcut.bundleReplaceAction': 'Replace',
   'shortcut.bundleApply': 'Import now',
   'shortcut.keyUnsupported': 'This key has no terminal encoding and is skipped when sending',
   'shortcut.cancel': 'Cancel',

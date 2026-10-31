@@ -13,6 +13,7 @@ import {
 } from '@/lib/shortcut-bundle'
 import type { CustomShortcut } from '@/types'
 import { Button } from './Button'
+import { ConfirmDialog } from './ConfirmDialog'
 import { ModalPortal } from './ModalPortal'
 
 export type ShortcutImportMode = 'merge' | 'replace'
@@ -43,6 +44,8 @@ export function ShortcutBundleDialog({ open, shortcuts, onImport, onNotify, onCl
   const [text, setText] = useState('')
   const [mode, setMode] = useState<ShortcutImportMode>('merge')
   const [fileName, setFileName] = useState('')
+  // 覆盖会丢掉现有一整批快捷键，落地前必须再确认一次
+  const [confirmReplaceOpen, setConfirmReplaceOpen] = useState(false)
 
   const exportText = useMemo(() => serializeShortcutBundle(buildShortcutBundle(shortcuts)), [shortcuts])
   const parsed = useMemo(() => {
@@ -88,13 +91,22 @@ export function ShortcutBundleDialog({ open, shortcuts, onImport, onNotify, onCl
     window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
     onNotify(t('shortcut.bundleDownloaded'), 'success')
   }
-  const apply = () => {
-    if (!canImport) return
+  const runImport = () => {
     const result = onImport(parsedShortcuts, mode)
     onNotify(t('shortcut.bundleImported', { count: result.added, skipped: result.skipped }), 'success')
+    setConfirmReplaceOpen(false)
     setText('')
     setFileName('')
     onClose()
+  }
+  const apply = () => {
+    if (!canImport) return
+    // 现有为空时覆盖等价于新增，不必多问一次
+    if (mode === 'replace' && shortcuts.length > 0) {
+      setConfirmReplaceOpen(true)
+      return
+    }
+    runImport()
   }
 
   const issueText = (issue: ShortcutBundleIssue) =>
@@ -214,6 +226,16 @@ export function ShortcutBundleDialog({ open, shortcuts, onImport, onNotify, onCl
           )}
         </div>
       </div>
+      <ConfirmDialog
+        open={confirmReplaceOpen}
+        title={t('shortcut.bundleReplaceTitle')}
+        message={t('shortcut.bundleReplaceMessage', { count: shortcuts.length, importCount: parsedShortcuts.length })}
+        confirmLabel={t('shortcut.bundleReplaceAction')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onConfirm={runImport}
+        onCancel={() => setConfirmReplaceOpen(false)}
+      />
     </ModalPortal>
   )
 }

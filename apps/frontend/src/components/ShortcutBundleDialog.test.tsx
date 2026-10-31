@@ -77,4 +77,22 @@ describe('ShortcutBundleDialog', () => {
     expect(screen.getByText('第 2 条：按键「Ctrl+1」没有终端编码')).toBeTruthy()
     expect(screen.getByText('可导入 1 个')).toBeTruthy()
   })
+  it('asks for a second confirmation before replacing existing shortcuts', async () => {
+    const onImport = vi.fn(() => ({ added: 1, skipped: 0 }))
+    renderDialog({ open: true, shortcuts, onImport, onNotify: vi.fn(), onClose: vi.fn() })
+    await act(async () => {})
+    fireEvent.click(screen.getByRole('button', { name: '导入' }))
+    fireEvent.change(screen.getByLabelText('导入'), {
+      target: { value: JSON.stringify([{ label: '新宏', steps: [{ type: 'keys', keys: 'Ctrl+L' }] }]) },
+    })
+    fireEvent.click(screen.getByLabelText('覆盖（清空现有）'))
+    fireEvent.click(screen.getByRole('button', { name: '开始导入' }))
+    expect(onImport).not.toHaveBeenCalled()
+    expect(screen.getByText(/将清空现有 1 个自定义快捷键/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '确认覆盖' }))
+    expect(onImport).toHaveBeenCalledWith(
+      [{ label: '新宏', repeat: false, steps: [{ type: 'keys', keys: 'Ctrl+L' }] }],
+      'replace',
+    )
+  })
 })
