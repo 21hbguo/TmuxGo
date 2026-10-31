@@ -200,6 +200,35 @@ describe('QuickActions', () => {
     fireEvent.pointerUp(ctrlC, { pointerId: 1, pointerType: 'touch' })
     expect(send).toHaveBeenCalledWith({ type: 'input', data: '\x03' })
   })
+  it('fires the dock key when the browser retargets pointerup to the bar', () => {
+    render(<QuickActions mode="dock" />)
+    const ctrlC = screen.getAllByRole('button', { name: 'Ctrl+C' })[0]
+    const rect = { left: 0, top: 0, right: 40, bottom: 20, width: 40, height: 20, x: 0, y: 0, toJSON: () => ({}) }
+    ctrlC.getBoundingClientRect = () => rect as DOMRect
+    fireEvent(ctrlC, createEvent.pointerDown(ctrlC, { pointerId: 7, pointerType: 'mouse', clientX: 10, clientY: 10 }))
+    // Firefox 在指针微微移出 18px 高的底栏按键时会把 pointerup 派给父容器，按钮收不到
+    fireEvent.pointerUp(ctrlC.parentElement as HTMLElement, {
+      pointerId: 7,
+      pointerType: 'mouse',
+      clientX: 12,
+      clientY: 11,
+    })
+    expect(send).toHaveBeenCalledWith({ type: 'input', data: '\x03' })
+  })
+  it('does not fire when the fallback pointerup lands outside the originating key', () => {
+    render(<QuickActions mode="dock" />)
+    const ctrlC = screen.getAllByRole('button', { name: 'Ctrl+C' })[0]
+    const rect = { left: 0, top: 0, right: 40, bottom: 20, width: 40, height: 20, x: 0, y: 0, toJSON: () => ({}) }
+    ctrlC.getBoundingClientRect = () => rect as DOMRect
+    fireEvent(ctrlC, createEvent.pointerDown(ctrlC, { pointerId: 7, pointerType: 'mouse', clientX: 10, clientY: 10 }))
+    fireEvent.pointerUp(ctrlC.parentElement as HTMLElement, {
+      pointerId: 7,
+      pointerType: 'mouse',
+      clientX: 200,
+      clientY: 200,
+    })
+    expect(send).not.toHaveBeenCalled()
+  })
   it('does not repeat a custom shortcut without the repeat flag', () => {
     vi.useFakeTimers()
     customShortcutsState.shortcuts = [{ id: 'esc2', label: 'Esc2', steps: [{ type: 'keys', keys: 'Escape' }] }]

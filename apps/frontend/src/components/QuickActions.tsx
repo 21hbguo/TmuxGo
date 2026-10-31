@@ -91,6 +91,9 @@ function useQuickActionController() {
     moved: boolean
     pointerType: string
     repeatFired: boolean
+    /** 本次手势的落点动作；窗口级 pointerup 兜底时用 */
+    fire: (() => void) | null
+    repeat: boolean
   }>({
     id: -1,
     target: null,
@@ -99,6 +102,8 @@ function useQuickActionController() {
     moved: false,
     pointerType: '',
     repeatFired: false,
+    fire: null,
+    repeat: false,
   })
   const dockScrollRef = useRef({
     pointerId: -1,
@@ -219,7 +224,7 @@ function useQuickActionController() {
   const preventFocus = useCallback((e: ReactPointerEvent<HTMLButtonElement>) => {
     e.preventDefault()
   }, [])
-  const startPointer = useCallback((e: ReactPointerEvent<HTMLButtonElement>) => {
+  const startPointer = useCallback((e: ReactPointerEvent<HTMLButtonElement>, fire: () => void, repeat = false) => {
     pointerStateRef.current = {
       id: e.pointerId,
       target: e.currentTarget,
@@ -228,10 +233,22 @@ function useQuickActionController() {
       moved: false,
       pointerType: e.pointerType || '',
       repeatFired: false,
+      fire,
+      repeat,
     }
   }, [])
   const resetPointer = useCallback(() => {
-    pointerStateRef.current = { id: -1, target: null, x: 0, y: 0, moved: false, pointerType: '', repeatFired: false }
+    pointerStateRef.current = {
+      id: -1,
+      target: null,
+      x: 0,
+      y: 0,
+      moved: false,
+      pointerType: '',
+      repeatFired: false,
+      fire: null,
+      repeat: false,
+    }
   }, [])
   const startDockGesture = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.pointerType === 'mouse') return
@@ -272,6 +289,32 @@ function useQuickActionController() {
     state.y = 0
   }, [])
   const isDockScrollBlocked = useCallback(() => dockScrollRef.current.suppressUntil > Date.now(), [])
+  // 兜底：compact 底栏按键只有 18px 高，指针在按下后微微移出按钮时，有的浏览器会把
+  // pointerup 派给父容器/滚动层，按钮自己的 onPointerUp 收不到，按键就静默失效（Firefox 实测）。
+  // 这里在冒泡阶段补一次——按钮自身处理器跑过会先 resetPointer，所以不会重复触发。
+  useEffect(() => {
+    const handleFallbackUp = (e: PointerEvent) => {
+      const state = pointerStateRef.current
+      if (state.id === -1 || state.id !== e.pointerId) return
+      const { target, moved, repeat, pointerType, repeatFired, fire } = state
+      const blocked = isDockScrollBlocked()
+      resetPointer()
+      if (!target || !fire || moved || blocked) return
+      const rect = target.getBoundingClientRect()
+      const inside =
+        e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom
+      if (!inside) return
+      // repeat 键：鼠标在 pointerdown 时已开连发；触摸只有没被长按连发接管才补一次
+      if (repeat) {
+        if (pointerType !== 'mouse' && !repeatFired) fire()
+        return
+      }
+      fire()
+    }
+    // 冒泡阶段：按钮自己的 onPointerUp 已处理过的手势此时 pointerState 已重置
+    window.addEventListener('pointerup', handleFallbackUp)
+    return () => window.removeEventListener('pointerup', handleFallbackUp)
+  }, [isDockScrollBlocked, resetPointer])
   const trackPointer = useCallback(
     (e: ReactPointerEvent<HTMLButtonElement>) => {
       const state = pointerStateRef.current
@@ -634,7 +677,7 @@ function renderDockButton(def: ActionButtonDef, controller: ReturnType<typeof us
       className={def.busy ? 'animate-pulse' : undefined}
       onPointerDown={(e) => {
         preventFocus(e)
-        startPointer(e)
+        startPointer(e, () => triggerDockButton(def, controller), def.repeat === true)
         if (def.disabled) return
         if (def.repeat && (def.data || def.onPress)) {
           const fire = () => triggerDockButton(def, controller)
