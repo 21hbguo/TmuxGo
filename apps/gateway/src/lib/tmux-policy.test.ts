@@ -11,7 +11,9 @@ const seen: { hostId: string; args: string[] }[] = []
 function stubSession(sessionName: string) {
   setExecTmuxForTest((async (hostId: string, args: string[]) => {
     seen.push({ hostId, args })
-    return { stdout: `${sessionName}\n`, stderr: '', host: { id: hostId } }
+    // 组名查询返回空串＝未分组，保持「跨 session 一律拒绝」的原口径
+    const output = args[args.length - 1] === '#{session_group}' ? '' : sessionName
+    return { stdout: `${output}\n`, stderr: '', host: { id: hostId } }
   }) as never)
 }
 

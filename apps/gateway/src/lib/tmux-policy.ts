@@ -22,9 +22,21 @@ export function assertSessionAllowed(sessionName: string) {
 }
 export async function assertTargetAllowed(hostId: string, target: string, expectedSessionName?: string) {
   const sessionName = await getTargetSessionName(hostId, target)
-  assertSessionAllowed(sessionName)
-  if (expectedSessionName && sessionName !== expectedSessionName)
-    throw new Error('Tmux target does not belong to session')
+  if (!isSessionAllowed(sessionName)) {
+    // view session 是用户 session 的别名：名字不在名单里时按所属组再判一次
+    const group = await getSessionGroup(hostId, sessionName)
+    if (!group || !isSessionAllowed(group)) assertSessionAllowed(sessionName)
+  }
+  if (expectedSessionName && sessionName !== expectedSessionName) {
+    // 同一 session group 共享同一批 window/pane，而 tmux 把 window id 解析成组内哪一
+    // 个 session 名并不固定（实测 -t @id 返回 tmuxgo-view-*）。只比名字会把自家窗口
+    // 判成越权（删除 window 报 does not belong to session），因此名字不等时再比组名。
+    const [targetGroup, expectedGroup] = await Promise.all([
+      getSessionGroup(hostId, sessionName),
+      getSessionGroup(hostId, expectedSessionName),
+    ])
+    if (!targetGroup || targetGroup !== expectedGroup) throw new Error('Tmux target does not belong to session')
+  }
   return sessionName
 }
 // 我们创建的 session 显式钉住回看深度。history-limit 是 session option，tmux 默认只有
@@ -104,4 +116,9 @@ async function getTargetSessionName(hostId: string, target: string) {
   const sessionName = stdout.trim()
   if (!sessionName) throw new Error('Unable to resolve session')
   return sessionName
+}
+// 分组会话的组名：未分组返回空串；TmuxGo 的 tmuxgo-view-* 与用户 session 同名组
+async function getSessionGroup(hostId: string, sessionName: string) {
+  const { stdout } = await execTmuxImpl(hostId, ['display-message', '-p', '-t', sessionName, '#{session_group}'])
+  return stdout.trim()
 }
