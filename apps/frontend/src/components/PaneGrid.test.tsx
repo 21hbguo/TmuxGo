@@ -305,6 +305,22 @@ describe('PaneGrid', () => {
     // 没有可信序号时报 0/undefined 都不行：服务端只有 >0 才有意义，缺字段才是「整快照」
     expect(attachPayload).not.toHaveProperty('lastSeq')
   })
+  it('dedupes attach frames that several switch effects fire for the same target', async () => {
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    const attaches = () =>
+      sendMock.mock.calls.map(([message]) => message).filter((message) => message?.type === 'attach')
+    await waitFor(() => expect(attaches()).toHaveLength(1))
+    // 一次切换里 mode/ownership/ready/reconnect 会连着触发：短窗内只允许一帧
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.reconnected)
+      emitStreamEvent(STREAM_EVENT.reconnected)
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+    expect(attaches().filter((message) => message?.sessionName === 'dev1')).toHaveLength(1)
+  })
   // 每个浏览器一个稳定 viewId：网关切 grouped session 隔离 current window，切 session 不变
   it('sends a stable per-browser viewId on attach', async () => {
     render(<PaneGrid />)

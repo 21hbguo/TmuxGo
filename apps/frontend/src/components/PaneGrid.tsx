@@ -34,6 +34,8 @@ import { zoomCssPoint } from '@/lib/workspace-zoom'
 import type { Pane, Session, Window } from '@/types'
 
 const ATTACH_TIMEOUT = 5000
+// 同目标 attach 去重窗口：覆盖一次切换里多条 effect 的同步连发，又不挡正常重连重试
+const ATTACH_DEDUPE_MS = 500
 const ATTACH_RETRY_DELAY = 900
 const INPUT_QUEUE_LIMIT = 128
 const INPUT_FLUSH_INTERVAL = 4
@@ -280,6 +282,11 @@ export function PaneGrid({
   const attachTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const attachRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const attachInFlightRef = useRef<string | null>(null)
+  // 一次会话切换会被 mode/ownership/ready/reconnect 多条 effect 同时触发 attach。
+  // 它们各自先清 attachInFlightRef 再调用，单靠 in-flight 去重挡不住，实测一次点击
+  // 连发 3 帧 attach，网关每帧都要重建 view/PTY 并整屏重绘，表现为切换卡顿。
+  // 这里按 attachKey 做短窗去重：同一目标 500ms 内只发一帧。
+  const lastAttachSentRef = useRef<{ key: string; at: number }>({ key: '', at: 0 })
   const lastSessionRef = useRef<string | null>(sessionId || null)
   const inputQueueRef = useRef<string[]>([])
   const [pendingInputCount, setPendingInputCount] = useState(0)
@@ -877,6 +884,8 @@ export function PaneGrid({
     if (!targetSessionName || !isSocketReady || !terminalReadyRef.current) return
     const attachKey = `${activeHostId || 'local'}:${targetSessionName}:${exclusive ? 'exclusive' : 'shared'}:${attachPassive ? 'passive' : 'active'}`
     if (attachInFlightRef.current === attachKey) return
+    if (lastAttachSentRef.current.key === attachKey && Date.now() - lastAttachSentRef.current.at < ATTACH_DEDUPE_MS)
+      return
     const size = sizeState.claimedSize
     clearAttachTimers()
     attachInFlightRef.current = attachKey
@@ -904,6 +913,7 @@ export function PaneGrid({
       attachInFlightRef.current = null
       return
     }
+    lastAttachSentRef.current = { key: attachKey, at: Date.now() }
     attachTimerRef.current = setTimeout(() => {
       attachInFlightRef.current = null
       attachedRef.current = null
