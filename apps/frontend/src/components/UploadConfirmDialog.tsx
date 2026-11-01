@@ -13,6 +13,7 @@ import {
 import { quoteShellPath } from '@/lib/path-drop'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useFileRoots, useSessionSnapshot } from '@/hooks/useApi'
+import { isMobileDevice } from '@/hooks/useMobileKeyboard'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import type { FileUploadTarget, Pane } from '@/types'
@@ -41,6 +42,8 @@ export function UploadConfirmDialog() {
   const [targetPath, setTargetPath] = useState('')
   const [dirPickerOpen, setDirPickerOpen] = useState(false)
   const [insertPaths, setInsertPaths] = useState(false)
+  // 用户手动改过勾选后，窗格可用性变化不再回写默认值（避免抢用户的选择）
+  const [insertTouched, setInsertTouched] = useState(false)
   const [insertPaneId, setInsertPaneId] = useState('')
   const [insertFormat, setInsertFormat] = useState<'inline' | 'lines'>('inline')
   // 终端输入通道只到达当前附着会话的活动 pane——插入目标限定该会话内 pane，
@@ -90,8 +93,9 @@ export function UploadConfirmDialog() {
     }
     if (initializedRequestRef.current === requestKey) return
     initializedRequestRef.current = requestKey
-    // 默认不插入终端：仅调用方显式声明（如终端粘贴流）才预勾选
-    setInsertPaths(uploadRequest?.insertPaths === true)
+    // 勾选默认值交给下方 effect 决定（手机端默认勾、桌面端默认不勾，显式声明优先）；
+    // 新请求重置「用户已手动改过」标记，让默认值重新生效
+    setInsertTouched(false)
     setInsertPaneId(activePaneId || '')
     setInsertFormat('inline')
     setTemporaryTarget(null)
@@ -148,6 +152,17 @@ export function UploadConfirmDialog() {
       cancelled = true
     }
   }, [open, requestKey, uploadRequest, activePaneId, hostId, pushToast, t])
+  // 插入默认值：手机端默认勾选——手机上选完文件/拍完照，下一步几乎总是把路径
+  // 贴进终端交给 agent；桌面端维持不勾（拖拽、粘贴流另有显式声明）。
+  // 显式 insertPaths 永远优先（粘贴流预勾、收件箱转发强制不勾）。
+  // 无可用窗格时保持不勾：勾选框此时是禁用的，勾着只会让上传后空投失败并弹错误。
+  // 窗格快照可能晚于弹窗到达，所以按「可用性」而非挂载时机重算；用户手动改过就不再覆盖
+  const insertAvailable = insertPaneOptions.length > 0
+  useEffect(() => {
+    if (!open || insertTouched) return
+    const preferred = uploadRequest?.insertPaths ?? isMobileDevice()
+    setInsertPaths(preferred && insertAvailable)
+  }, [open, insertTouched, insertAvailable, uploadRequest?.insertPaths])
   useEffect(() => {
     if (!open || uploadRequest?.temporary || targetRootId || !roots.length) return
     setTargetRootId(roots[0].id)
@@ -206,10 +221,12 @@ export function UploadConfirmDialog() {
     setSubmitting(true)
     // 提交瞬间冻结插入选项：弹窗关闭后异步完成回调仍用此刻的目标 pane/格式
     const insertOpts = { paneId: insertPaneId, format: insertFormat }
+    // 勾了但没有可用窗格时不算「要插入」——否则上传成功也只会空投失败
+    const willInsert = insertPaths && insertAvailable
     // 整体失败语义：任一文件失败即整批任务 error，服务端不落盘半成品批，
     // 这里明确告知用户没有任何路径被插入（不回滚已上传文件）
     const notifyInsertSkipped = () => {
-      if (insertPaths) pushToast({ type: 'info', message: t('upload.insertSkipped') })
+      if (willInsert) pushToast({ type: 'info', message: t('upload.insertSkipped') })
     }
     const jobId = `${Date.now()}-${Math.random().toString(16).slice(2)}`
     const totalBytes = uploadRequest.files.reduce((sum, file) => sum + file.size, 0)
@@ -229,7 +246,8 @@ export function UploadConfirmDialog() {
         sourceFiles: uploadRequest.files,
         targetRootId,
         targetPath,
-        insertPaths,
+        // 记录实际生效的选择：无窗格时的假勾选不该被重试继承
+        insertPaths: willInsert,
         loadedBytes: 0,
         totalBytes,
         status: 'queued',
@@ -264,7 +282,7 @@ export function UploadConfirmDialog() {
                   finishedAt: new Date().toISOString(),
                   sourceFiles: undefined,
                 })
-                if (insertPaths && uploadedFiles.length)
+                if (willInsert && uploadedFiles.length)
                   void deliverUploadedPaths(
                     uploadedFiles.map((file) => quoteShellPath(file.absolutePath)),
                     insertOpts,
@@ -300,7 +318,7 @@ export function UploadConfirmDialog() {
         result,
         sourceFiles: undefined,
       })
-      if (insertPaths && result.files.length)
+      if (willInsert && result.files.length)
         void deliverUploadedPaths(
           result.files.map((file) => quoteShellPath(file.absolutePath)),
           insertOpts,
@@ -425,7 +443,10 @@ export function UploadConfirmDialog() {
                 type="checkbox"
                 checked={insertPaths}
                 disabled={!insertPaneOptions.length}
-                onChange={(e) => setInsertPaths(e.target.checked)}
+                onChange={(e) => {
+                  setInsertTouched(true)
+                  setInsertPaths(e.target.checked)
+                }}
                 className="h-4 w-4 accent-[rgb(var(--accent))]"
               />
             </label>

@@ -107,6 +107,11 @@ vi.mock('@/lib/api', () => ({
     },
   },
 }))
+// 移动端判定来自 UA/指针类型；测试里用变量控制，验证「手机端默认预勾选插入」
+let mobileDevice = false
+vi.mock('@/hooks/useMobileKeyboard', () => ({
+  isMobileDevice: () => mobileDevice,
+}))
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({
     t: (key: string, vars?: Record<string, unknown>) => (vars ? `${key} ${JSON.stringify(vars)}` : key),
@@ -144,6 +149,7 @@ const insertCheckbox = () => {
 describe('UploadConfirmDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mobileDevice = false
     storeState.activeHostId = 'local'
     storeState.activePaneId = 'local:pane-a'
     panesData = {
@@ -380,6 +386,45 @@ describe('UploadConfirmDialog', () => {
     expect(pushToast).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'error', message: 'EACCES: permission denied' }),
     )
+  })
+
+  it('pre-checks insert on mobile when a pane is reachable and pastes the path after upload', async () => {
+    mobileDevice = true
+    const pasteEvents: string[] = []
+    const onPaste = (e: Event) => pasteEvents.push((e as CustomEvent).detail?.text || '')
+    window.addEventListener('tmuxgo-request-terminal-paste', onPaste)
+    try {
+      setRequest({ files: [file('photo.png')], preferredRootId: 'root-workspace', preferredPath: '' })
+      render(React.createElement(UploadConfirmDialog))
+      await waitFor(() => expect(insertCheckbox().checked).toBe(true))
+      fireEvent.click(screen.getByRole('button', { name: 'upload.upload' }))
+      await waitFor(() => expect(pasteEvents).toEqual(["'/workspace/downloads/demo.txt'"]))
+    } finally {
+      window.removeEventListener('tmuxgo-request-terminal-paste', onPaste)
+    }
+  })
+
+  it('keeps insert off on mobile when no pane is reachable', async () => {
+    mobileDevice = true
+    storeState.activePaneId = null
+    panesData = { panes: [] }
+    setRequest({ files: [file('a.txt')], preferredRootId: 'root-workspace', preferredPath: '' })
+    render(React.createElement(UploadConfirmDialog))
+    await waitFor(() => expect(insertCheckbox().checked).toBe(false))
+    expect(insertCheckbox().disabled).toBe(true)
+    expect(screen.getByText('upload.insertNoPane')).toBeInTheDocument()
+  })
+
+  it('honours an explicit insertPaths:false on mobile (inbox forward keeps insert off)', async () => {
+    mobileDevice = true
+    setRequest({
+      files: [file('a.txt')],
+      preferredRootId: 'root-workspace',
+      preferredPath: '',
+      insertPaths: false,
+    })
+    render(React.createElement(UploadConfirmDialog))
+    await waitFor(() => expect(insertCheckbox().checked).toBe(false))
   })
 
   it('disables insert with an explanation when no pane is reachable', () => {
