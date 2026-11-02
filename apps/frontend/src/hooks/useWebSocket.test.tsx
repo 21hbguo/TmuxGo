@@ -124,20 +124,24 @@ describe('useWebSocket', () => {
     act(() => {
       socketInstances[0].open()
     })
-    expect(result.current.getLastMirrorSeq()).toBeNull()
+    expect(result.current.getLastMirrorSeq('local', 'dev')).toBeNull()
     act(() => {
       socketInstances[0].message({ type: 'output', data: 'a', hostId: 'local', sessionName: 'dev', mirrorSeq: 7 })
     })
-    expect(result.current.getLastMirrorSeq()).toBe(7)
+    expect(result.current.getLastMirrorSeq('local', 'dev')).toBe(7)
     act(() => {
       socketInstances[0].message({ type: 'output', data: 'b', hostId: 'local', sessionName: 'dev', mirrorSeq: 9 })
     })
-    expect(result.current.getLastMirrorSeq()).toBe(9)
+    expect(result.current.getLastMirrorSeq('local', 'dev')).toBe(9)
+    // 序号按会话归属：切会话 attach 不能上报上一会话环里的序号，
+    // 否则镜像环会回空帧/错位增量，换帧退成现场重绘
+    expect(result.current.getLastMirrorSeq('local', 'other')).toBeNull()
+    expect(result.current.getLastMirrorSeq('remote', 'dev')).toBeNull()
     // 快照是新的基准：旧序号不再可比，必须作废，否则重连会报一个错基准
     act(() => {
       socketInstances[0].message({ type: 'output_resync', data: 'snap', hostId: 'local', sessionName: 'dev' })
     })
-    expect(result.current.getLastMirrorSeq()).toBeNull()
+    expect(result.current.getLastMirrorSeq('local', 'dev')).toBeNull()
     unmount()
   })
 
@@ -154,11 +158,11 @@ describe('useWebSocket', () => {
     })
     // 默认走二进制（caps 已声明 mirrorSeq）：这条路径必须真的记下来，
     // 否则「重连只补增量」永远只是 JSON 路径上的摆设
-    expect(result.current.getLastMirrorSeq()).toBe(42)
+    expect(result.current.getLastMirrorSeq('local', 'dev')).toBe(42)
     act(() => {
       socketInstances[0].binaryMessage(binaryCompactSeqFrame(1, 'b', 43))
     })
-    expect(result.current.getLastMirrorSeq()).toBe(43)
+    expect(result.current.getLastMirrorSeq('local', 'dev')).toBe(43)
     unmount()
   })
 
@@ -173,12 +177,12 @@ describe('useWebSocket', () => {
     act(() => {
       socketInstances[0].binaryMessage(binaryCompactSeqFrame(1, 'a', 42))
     })
-    expect(result.current.getLastMirrorSeq()).toBe(42)
+    expect(result.current.getLastMirrorSeq('local', 'dev')).toBe(42)
     // 老网关不发 v3 头：序号无从得知，继续上报旧值会让服务端补发已渲染的字节
     act(() => {
       socketInstances[0].binaryMessage(binaryOutputFrame('local', 'dev', 'x'))
     })
-    expect(result.current.getLastMirrorSeq()).toBeNull()
+    expect(result.current.getLastMirrorSeq('local', 'dev')).toBeNull()
     unmount()
   })
 

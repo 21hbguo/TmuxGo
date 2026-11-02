@@ -65,8 +65,9 @@ export interface PaneGridSocket {
   send: (data: Record<string, unknown>) => boolean
   isConnected: boolean
   isSocketReady: boolean
-  // 镜像输出序号（可选）：自定义 socket 实现不必提供，缺省就不上报增量
-  getLastMirrorSeq?: () => number | null
+  // 镜像输出序号（可选）：自定义 socket 实现不必提供，缺省就不上报增量。
+  // 序号按 (hostId, sessionName) 归属目标会话的镜像环，跨会话不可比
+  getLastMirrorSeq?: (hostId: string, sessionName: string) => number | null
   subscribeOutput: (
     hostId: string,
     sessionName: string,
@@ -893,9 +894,10 @@ export function PaneGrid({
     isSessionAttachedRef.current = false
     updateConnectionState({ status: 'attaching' })
     // 断线前收到的镜像输出序号：服务端镜像环里还有这段就只补增量。
-    // 拿不到（二进制输出帧/首连/刚收过快照）时一律不发，让服务端走整快照——
-    // 报一个偏旧的值会导致重复渲染
-    const lastSeq = getLastMirrorSeqRef.current?.()
+    // 序号按目标会话的环归属查询——切会话时上一会话的序号与新环不可比，
+    // 上报会换来空帧或错位增量；拿不到（二进制输出帧/首连/刚收过快照/跨会话）时
+    // 一律不发，让服务端走整快照——报一个偏旧的值会导致重复渲染
+    const lastSeq = getLastMirrorSeqRef.current?.(activeHostId || 'local', targetSessionName)
     const sent = send({
       type: 'attach',
       hostId: activeHostId || 'local',

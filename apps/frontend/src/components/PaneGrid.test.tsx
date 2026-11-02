@@ -28,7 +28,7 @@ const subscribeOutputMock = vi.hoisted(() =>
 const socketState = vi.hoisted(() => ({
   isConnected: false,
   isSocketReady: true,
-  lastMirrorSeq: null as number | null,
+  lastMirrorSeq: null as { hostId: string; sessionName: string; seq: number } | null,
 }))
 const retryConnectionMock = vi.hoisted(() => vi.fn())
 const windowsData = vi.hoisted(() => [] as MockWindow[])
@@ -83,7 +83,12 @@ vi.mock('@/hooks/useWebSocket', () => ({
     isSocketReady: socketState.isSocketReady,
     subscribeOutput: subscribeOutputMock,
     retryConnection: retryConnectionMock,
-    getLastMirrorSeq: () => socketState.lastMirrorSeq,
+    getLastMirrorSeq: (hostId: string, sessionName: string) =>
+      socketState.lastMirrorSeq &&
+      socketState.lastMirrorSeq.hostId === hostId &&
+      socketState.lastMirrorSeq.sessionName === sessionName
+        ? socketState.lastMirrorSeq.seq
+        : null,
   }),
 }))
 vi.mock('@/i18n', () => ({
@@ -288,7 +293,7 @@ describe('PaneGrid', () => {
     vi.restoreAllMocks()
   })
   it('reports the mirror sequence on a reconnect attach so the server can replay only the delta', async () => {
-    socketState.lastMirrorSeq = 42
+    socketState.lastMirrorSeq = { hostId: 'local', sessionName: 'dev1', seq: 42 }
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
     await waitFor(() =>
@@ -296,6 +301,15 @@ describe('PaneGrid', () => {
         expect.objectContaining({ type: 'attach', hostId: 'local', sessionName: 'dev1', lastSeq: 42 }),
       ),
     )
+  })
+  it('omits lastSeq when switching to a different session since ring sequence numbers are per-session', async () => {
+    // 序号属于上一会话的镜像环：跨会话上报会让镜像回空帧/错位增量，换帧退成现场重绘
+    socketState.lastMirrorSeq = { hostId: 'local', sessionName: 'dev-old', seq: 42 }
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach' })))
+    const attachPayload = sendMock.mock.calls.map(([message]) => message).find((message) => message?.type === 'attach')
+    expect(attachPayload).not.toHaveProperty('lastSeq')
   })
   it('omits lastSeq on a fresh attach so the server sends a full snapshot', async () => {
     render(<PaneGrid />)

@@ -46,8 +46,11 @@ type WSState = {
   onError: (() => void) | null
   closeExpected: boolean
   // 镜像输出序号：只由 JSON 输出帧携带。二进制帧不解码这个字段，收到就作废——
-  // 报一个偏旧的 seq 会让服务端补发已渲染过的字节，等于花屏
-  lastMirrorSeq: number | null
+  // 报一个偏旧的 seq 会让服务端补发已渲染过的字节，等于花屏。
+  // 序号是每个会话 mirror 环独立计数的，必须连同 (hostId, sessionName) 一起记——
+  // 跨会话上报会把旧环的序号套到新环上：比目标 seq 大时服务端一帧不发（静默 attach），
+  // 比目标 seq 小时补一段不属于当前画面基准的增量，两者都会让换帧退成现场重绘
+  lastMirrorSeq: { hostId: string; sessionName: string; seq: number } | null
   lastInteractionRecoverAt: number
   listenersReady: boolean
   cleanupListeners: (() => void) | null
@@ -165,7 +168,11 @@ export function useWebSocket() {
         case 'output_resync': {
           // 快照是新的基准，之前的序号不再可比；输出帧没带 seq 同样作废（宁可整快照）
           if (data.type === 'output_resync') wsState.lastMirrorSeq = null
-          else wsState.lastMirrorSeq = typeof data.mirrorSeq === 'number' ? data.mirrorSeq : null
+          else
+            wsState.lastMirrorSeq =
+              typeof data.mirrorSeq === 'number'
+                ? { hostId: data.hostId || 'local', sessionName: data.sessionName || '', seq: data.mirrorSeq }
+                : null
           emitOutput({
             // output 帧契约上 data 必有；协议容错起见原样透传，不做补默认值
             data: data.data as string,
@@ -786,7 +793,12 @@ export function useWebSocket() {
     isSocketReady,
     subscribeOutput,
     retryConnection: () => ensureConnection(true),
-    // 重连时上报给服务端，命中镜像增量环就只补断线期间的字节
-    getLastMirrorSeq: () => wsState.lastMirrorSeq,
+    // 重连时上报给服务端，命中镜像增量环就只补断线期间的字节。
+    // 只对同一 (hostId, sessionName) 的 attach 提供序号：序号跨会话不可比，
+    // 切会话时报错域的 seq 会让镜像环回空帧/错位增量，换帧退成现场重绘
+    getLastMirrorSeq: (hostId: string, sessionName: string) => {
+      const last = wsState.lastMirrorSeq
+      return last && last.hostId === hostId && last.sessionName === sessionName ? last.seq : null
+    },
   }
 }
