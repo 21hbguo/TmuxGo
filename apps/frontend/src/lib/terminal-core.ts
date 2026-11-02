@@ -3,6 +3,9 @@ import type { ILink } from '@xterm/xterm'
 interface TerminalCoreOptions {
   container: HTMLElement
   preferences: { cursorBlink: boolean; fontSize: number; fontFamily: string }
+  // 终端区实际字号（preferences.fontSize × terminalScale）。必须显式传入：挂载时字号
+  // effect 因 xterm 实例尚未创建而 early return，之后 deps 不再变化，无人把倍率补回来
+  fontSize?: number
   isMobile: boolean
   scrollback: number
   ensureAppFontLoaded: (fontFamily: string, fontSize: number) => Promise<unknown>
@@ -14,7 +17,8 @@ interface TerminalCoreOptions {
   recordRenderer: (renderer: 'dom' | 'webgl') => void
 }
 export async function createTerminalCore(options: TerminalCoreOptions) {
-  const fontReady = options.ensureAppFontLoaded(options.preferences.fontFamily, options.preferences.fontSize)
+  const fontSize = options.fontSize ?? options.preferences.fontSize
+  const fontReady = options.ensureAppFontLoaded(options.preferences.fontFamily, fontSize)
   const { Terminal } = await import('@xterm/xterm')
   const { WebLinksAddon } = await import('@xterm/addon-web-links')
   const { Unicode11Addon } = await import('@xterm/addon-unicode11')
@@ -33,7 +37,7 @@ export async function createTerminalCore(options: TerminalCoreOptions) {
     cursorBlink: options.preferences.cursorBlink,
     cursorStyle: 'bar',
     allowTransparency: false,
-    fontSize: options.preferences.fontSize,
+    fontSize,
     fontFamily: options.preferences.fontFamily,
     fontWeight: '400',
     fontWeightBold: '700',
