@@ -46,6 +46,8 @@ export interface ViewSessionRecord {
   attached: number
   /** session_activity（epoch 秒）：只用于判断空闲时长 */
   activity: number
+  /** session_group_list：组内当前存活的 session 名。判「view 是否仍挂在当前 base 的组上」用 */
+  groupList: string[]
 }
 
 export interface SweepViewSessionsOptions {
@@ -69,6 +71,7 @@ const VIEW_SESSION_LIST_FORMAT = [
   `#{${VIEW_CLIENT_OPTION}}`,
   '#{session_attached}',
   '#{session_activity}',
+  '#{session_group_list}',
 ].join('\t')
 
 async function runTmux(hostId: string, args: string[]) {
@@ -83,13 +86,14 @@ export async function listViewSessions(hostId: string): Promise<ViewSessionRecor
     .split('\n')
     .filter(Boolean)
     .map((line) => {
-      const [name = '', base = '', client = '', attached = '0', activity = '0'] = line.split('\t')
+      const [name = '', base = '', client = '', attached = '0', activity = '0', groupList = ''] = line.split('\t')
       return {
         name,
         base,
         client,
         attached: Number(attached) || 0,
         activity: Number(activity) || 0,
+        groupList: groupList.split(',').filter(Boolean),
       }
     })
 }
@@ -115,7 +119,15 @@ async function createOrVerifyViewSession(
   if (!sessions.some((session) => session.name === baseSession))
     throw new Error(`Base session not found: ${baseSession}`)
   const existing = sessions.find((session) => session.name === name)
-  if (existing) return assertViewOwnership(existing, baseSession, viewId)
+  if (existing) {
+    const owned = assertViewOwnership(existing, baseSession, viewId)
+    // 归属标记只证明这个 view 曾为同名 base 所建：tmux 的窗口组归组所有，
+    // base 被杀后组仍由 view 持有（pane 进程照跑）；同名 base 重建后归属校验
+    // 依旧通过，attach 会落进僵尸组——用户看到「没杀掉」的旧画面。
+    // 以组内存活成员判定：base 不在其中说明组是旧 base 的遗物，清掉重建
+    if (existing.groupList.includes(baseSession)) return owned
+    await killViewSession(hostId, name, baseSession).catch(() => {})
+  }
 
   // grouped session 的 current window 不继承 base（tmux 3.4 实测：base 停在
   // window 2 时新 view 仍指向窗口表第一项）。创建前记下 base 的活动窗口，
@@ -194,10 +206,12 @@ export async function killViewSession(hostId: string, name: string, expectedBase
 
 /**
  * 保守清扫孤儿 view：只动带 @tmuxgo_view_base 的 session。满足任一条件即删：
- *   1) option 指向的 base 已不存在；
+ *   1) 僵尸：view 的组里没有其 option 指向的 base（base 已死，或同名重建后
+ *      新 base 不在旧组里）——这种 view 只剩旧组的画面，挂着也会让 attach
+ *      落进遗物组；
  *   2) 无人附着（session_attached=0）且空闲超过 ttl。
- * 有附着者的 live view 绝不清。失败（server 不在/list 失败）按无孤儿处理，
- * 启动清扫不应阻塞 gateway。
+ * 组内仍有 base 的 live view 绝不清。失败（server 不在/list 失败）按无孤儿
+ * 处理，启动清扫不应阻塞 gateway。
  */
 export async function sweepViewSessions(hostId: string, opts: SweepViewSessionsOptions = {}): Promise<string[]> {
   const ttlMs =
@@ -208,7 +222,6 @@ export async function sweepViewSessions(hostId: string, opts: SweepViewSessionsO
   } catch {
     return []
   }
-  const names = new Set(sessions.map((session) => session.name))
   const keep = new Set(opts.keepNames ?? [])
   const now = Date.now()
   const killed: string[] = []
@@ -216,10 +229,12 @@ export async function sweepViewSessions(hostId: string, opts: SweepViewSessionsO
     if (!view.base) continue
     if (opts.base && view.base !== opts.base) continue
     if (keep.has(view.name) || view.name === opts.base) continue
-    const baseMissing = !names.has(view.base)
+    // 僵尸判定看组内存活成员而非名字存在性：kill base 只删会话名，窗口组仍由
+    // view 持有；同名重建后新 base 不在旧组里——两种情况 view 都是遗物
+    const stale = !view.groupList.includes(view.base)
     const idleMs = now - view.activity * 1000
     const idle = view.attached <= 0 && idleMs >= ttlMs
-    if (!baseMissing && !idle) continue
+    if (!stale && !idle) continue
     if (await killViewSession(hostId, view.name, view.base).catch(() => false)) killed.push(view.name)
   }
   return killed

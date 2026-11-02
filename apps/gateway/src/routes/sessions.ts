@@ -26,6 +26,7 @@ import {
   runSendKeys,
 } from '../lib/session-layout-apply.js'
 import { getHostAgentPanes, summarizeAgentPanes } from '../lib/agent-state.js'
+import { sweepViewSessions } from '../lib/view-sessions.js'
 import { probeWithCooldown } from '../lib/host-probe-cooldown.js'
 import { agentMonitor } from '../lib/agent-monitor.js'
 import { emitPluginEvent } from '../lib/plugin-manager.js'
@@ -609,6 +610,10 @@ export async function sessionRoutes(fastify: FastifyInstance) {
     for (const session of targets) {
       try {
         await execTmux(hostId, ['kill-session', '-t', exactSessionTarget(session.name)])
+        // 同组 view 一并清：窗口组归组所有，只杀 base 会让组留在孤儿 view
+        // 里继续跑——不重建同名会话都还算小事，重建后 attach 会命中确定性
+        // view 名而落进旧组的画面（「没杀掉」的观感来源）
+        await sweepViewSessions(hostId, { base: session.name }).catch(() => {})
         deleted.push(toBatchDeleteTarget(session))
         emitPluginEvent('session.deleted', {
           hostId,
@@ -738,6 +743,10 @@ export async function sessionRoutes(fastify: FastifyInstance) {
     assertSessionAllowed(sessionName)
     try {
       await execTmux(hostId, ['kill-session', '-t', exactSessionTarget(sessionName)])
+      // 同组 view 一并清：窗口组归组所有，只杀 base 会让组留在孤儿 view
+      // 里继续跑——不重建同名会话都还算小事，重建后 attach 会命中确定性
+      // view 名而落进旧组的画面（「没杀掉」的观感来源）
+      await sweepViewSessions(hostId, { base: sessionName }).catch(() => {})
       emitPluginEvent('session.deleted', { hostId, sessionId: buildSessionId(hostId, sessionName), sessionName })
       return { success: true, sessionId: buildSessionId(hostId, sessionName) }
     } catch (err) {

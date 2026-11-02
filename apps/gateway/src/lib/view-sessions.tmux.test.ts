@@ -184,3 +184,48 @@ test('sweepViewSessions clears orphan views whose base no longer exists', async 
   assert.deepEqual(await sweepViewSessions('local', { base: TEST_TMUX_SESSION, ttlMs: 60 * 60 * 1000 }), [view])
   assert.ok(!(await sessionNames()).includes(view))
 })
+
+test('ensureViewSession rebuilds a zombie view after base is killed and recreated with the same name', async (t) => {
+  t.after(cleanupOwnSessions)
+  await resetBase()
+  const viewId = 'viewzombie01'
+  const view = await ensureViewSession('local', TEST_TMUX_SESSION, viewId)
+  await tmux('new-window', '-t', TEST_TMUX_SESSION, '-n', 'zombie-marker')
+  // 杀 base 只删会话名：窗口组归组所有，view 持组存活成僵尸（实测 tmux 3.4）。
+  // 同名重建新 base 后旧 view 的归属 option 仍然匹配，但它已不挂在新 base 的组上
+  await tmux('kill-session', '-t', TEST_TMUX_SESSION)
+  await tmux('new-session', '-d', '-s', TEST_TMUX_SESSION, '-x', '80', '-y', '24')
+  assert.ok((await sessionNames()).includes(view), 'base 重建前后 view 一直存活成僵尸')
+  assert.deepEqual(await groupMembers(view), [view], '僵尸组里只剩 view 自己')
+
+  const rebuilt = await ensureViewSession('local', TEST_TMUX_SESSION, viewId)
+  assert.equal(rebuilt, view, 'view 名是确定性散列：重建后仍是同一个名字')
+  assert.deepEqual(
+    (await groupMembers(view)).sort(),
+    [TEST_TMUX_SESSION, view].sort(),
+    '必须重建进新 base 的组——直接还旧 view 会把 attach 落进旧组的画面',
+  )
+  assert.ok(!(await windowFingerprint(view)).includes('zombie-marker'), '重建的组里没有旧组遗物窗口')
+})
+
+test('sweepViewSessions kills a zombie view even when a same-name base exists again', async (t) => {
+  t.after(cleanupOwnSessions)
+  await resetBase()
+  const viewId = 'viewsweepz1'
+  const view = await ensureViewSession('local', TEST_TMUX_SESSION, viewId)
+  await tmux('kill-session', '-t', TEST_TMUX_SESSION)
+  await tmux('new-session', '-d', '-s', TEST_TMUX_SESSION, '-x', '80', '-y', '24')
+
+  // base 名字仍在：按名字判「孤儿」会漏掉同名重建场景，必须以组成员判定
+  assert.deepEqual(await sweepViewSessions('local', { base: TEST_TMUX_SESSION, ttlMs: 60 * 60 * 1000 }), [view])
+  assert.ok(!(await sessionNames()).includes(view))
+  assert.ok((await sessionNames()).includes(TEST_TMUX_SESSION), '新 base 不受波及')
+})
+
+async function groupMembers(name: string): Promise<string[]> {
+  const { stdout } = await tmux('display-message', '-p', '-t', name, '#{session_group_list}')
+  return String(stdout)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
