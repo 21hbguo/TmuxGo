@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react'
 import type { LayoutTerminal } from '@/lib/terminal-layout'
 import '@xterm/xterm/css/xterm.css'
 import { usePreferences, ensureAppFontLoaded } from '@/hooks/usePreferences'
@@ -88,6 +88,9 @@ export function TerminalPane({
   const uiScale = useWorkspaceZoom((state) => state.uiScale)
   // 终端区独立字号：最终字号 = 全局 preferences.fontSize × terminalScale，不受编辑区 fontScale 影响
   const terminalFontSize = Math.max(6, Math.round(preferences.fontSize * terminalScale))
+  // xterm 创建时必须拿到缩放字号：下面按字号改 options 的 effect 在 mount 时实例还不存在，
+  // 会 early return 且 deps 不再变化，只能靠创建期参数把 terminalScale 带进实例
+  const terminalFontSizeRef = useRef(terminalFontSize)
   const { t } = useTranslation()
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const pushToast = useConsoleStore((s) => s.pushToast)
@@ -319,20 +322,32 @@ export function TerminalPane({
   const handleTouchMovedChange = useCallback((moved: boolean) => {
     touchMovedRef.current = moved
   }, [])
-  const {
-    handleTouchStart: handlePinchTouchStart,
-    handleTouchMove: handlePinchTouchMove,
-    handleTouchEnd: handlePinchTouchEnd,
-    handleTouchCancel: handlePinchTouchCancel,
-    handleDesktopPinch,
-  } = useTerminalPinch({
+  const pinchApi = useTerminalPinch({
     isMobile: isMobileDevice,
     terminalRef: terminalInstance,
     preferencesRef,
     updatePreferencesRef,
     scheduleLayoutRef,
     touchMovedRef,
+    // 手势改的是视觉字号：commit 写回 preferences 前要除回终端区倍率，否则逐次双重放大
+    fontScale: terminalScale,
   })
+  // pinch 的回调闭包依赖 terminalScale，缩放一次身份就变；直接交给 runtime 会让 effect
+  // deps 变化 → 销毁重建 xterm、丢当前输出与滚动缓冲。这里转发到 latest-ref，保持身份稳定
+  const pinchApiRef = useRef(pinchApi)
+  useEffect(() => {
+    pinchApiRef.current = pinchApi
+  }, [pinchApi])
+  const pinch = useMemo(
+    () => ({
+      handleTouchStart: (event: TouchEvent) => pinchApiRef.current.handleTouchStart(event),
+      handleTouchMove: (event: TouchEvent) => pinchApiRef.current.handleTouchMove(event),
+      handleTouchEnd: (event: TouchEvent) => pinchApiRef.current.handleTouchEnd(event),
+      handleTouchCancel: () => pinchApiRef.current.handleTouchCancel(),
+      handleDesktopPinch: (event: WheelEvent) => pinchApiRef.current.handleDesktopPinch(event),
+    }),
+    [],
+  )
   const zoomPaneById = useCallback(
     (paneId: string | null) => {
       if (!paneId || zoomInFlightRef.current) return
@@ -396,6 +411,10 @@ export function TerminalPane({
   useEffect(() => {
     preferencesRef.current = preferences
   }, [preferences])
+  // 供 runtime 重建（如尺寸协商 controller 换实例）时仍读到最新缩放字号
+  useEffect(() => {
+    terminalFontSizeRef.current = terminalFontSize
+  }, [terminalFontSize])
   useEffect(() => {
     subscribeOutputRef.current = subscribeOutput || subscribeWebSocketOutput
   }, [subscribeOutput, subscribeWebSocketOutput])
@@ -486,6 +505,7 @@ export function TerminalPane({
       onReadyRef,
       sessionNameRef,
       preferencesRef,
+      terminalFontSizeRef,
       resubscribeOutputRef,
       sizeState,
       controlCarryRef,
@@ -510,13 +530,7 @@ export function TerminalPane({
       pasteBridge: pasteBridgeRef.current,
       dropState: dropStateRef.current,
       touchScroll,
-      pinch: {
-        handleTouchStart: handlePinchTouchStart,
-        handleTouchMove: handlePinchTouchMove,
-        handleTouchEnd: handlePinchTouchEnd,
-        handleTouchCancel: handlePinchTouchCancel,
-        handleDesktopPinch,
-      },
+      pinch,
       syncPaneCwd,
       ensureFileRoots,
       ensureAppFontLoaded,
@@ -534,16 +548,13 @@ export function TerminalPane({
       runtime.dispose()
     }
     // pasteBridge/dropState/focusKeyboard/isMobile 经 latest-ref 取本帧最新值，
-    // 不进入 deps：它们随 render/拖拽态重建，进 deps 会让 xterm 实例每 render 重建并丢输出订阅
+    // 不进入 deps：它们随 render/拖拽态重建，进 deps 会让 xterm 实例每 render 重建并丢输出订阅；
+    // pinch 是 useMemo([]) 的稳定转发壳，行为经 pinchApiRef 取最新，同理不进 deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     afterTerminalOutputWrites,
     disposeTerminalOutput,
     ensureFileRoots,
-    handleDesktopPinch,
-    handlePinchTouchCancel,
-    handlePinchTouchEnd,
-    handlePinchTouchMove,
-    handlePinchTouchStart,
     layoutSyncPendingRef,
     openUploadDialog,
     peekFitSizeRef,

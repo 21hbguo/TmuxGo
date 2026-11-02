@@ -67,6 +67,9 @@ interface TerminalRuntimeOptions {
   onReadyRef: { current: (() => void) | undefined }
   sessionNameRef: { current: string | undefined }
   preferencesRef: { current: Preferences }
+  // 终端区缩放后的实际字号（preferences.fontSize × terminalScale）：创建 xterm 时就要用它，
+  // 否则挂载时字号 effect 因实例尚未创建而 early return，倍率永久丢失
+  terminalFontSizeRef: { current: number }
   resubscribeOutputRef: { current: () => void }
   // 尺寸协商 controller：由 PaneGrid 注入时与发送面共享同一实例；
   // 未注入（如独立挂载）则按本端 onResize 消费情况自建
@@ -132,6 +135,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
   const onReadyRef = options.onReadyRef
   const sessionNameRef = options.sessionNameRef
   const preferencesRef = options.preferencesRef
+  const terminalFontSizeRef = options.terminalFontSizeRef
   const resubscribeOutputRef = options.resubscribeOutputRef
   const controlCarryRef = options.controlCarryRef
   const scheduleLayoutRef = options.scheduleLayoutRef
@@ -445,6 +449,8 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     const core = await createTerminalCore({
       container,
       preferences: preferencesRef.current,
+      // 终端区独立倍率：首帧就按缩放字号建实例，字体档位也按缩放字号加载
+      fontSize: terminalFontSizeRef.current,
       isMobile: isMobileDevice,
       scrollback: SCROLLBACK_LIMIT,
       ensureAppFontLoaded: options.ensureAppFontLoaded,
