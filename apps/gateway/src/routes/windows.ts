@@ -479,6 +479,11 @@ export async function windowRoutes(fastify: FastifyInstance) {
       return classifiedErrorReply(reply, err, 'window') ?? { ok: false, error: errorMessage(err) }
     }
   })
+  // kill 最后一个 window 后 tmux 会把整个 session 一起销毁，随后 list-windows 只会报
+  // 「can't find session」，或 server 还在但没有会话时的「no current target」（测试环境
+  // exit-empty off 即此类）与「no server running」——都是 session 消失的形态
+  const SESSION_GONE =
+    /can't find session|no such session|no current (?:target|session)|no server running|error connecting to .*server/i
   fastify.post('/hosts/:hostId/sessions/:sessionId/windows/kill', async (request, reply) => {
     const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
     const { windowId } = request.body as { windowId: string }
@@ -488,8 +493,16 @@ export async function windowRoutes(fastify: FastifyInstance) {
       assertSessionAllowed(sessionName)
       await assertTargetAllowed(hostId, tmuxWindowId, sessionName)
       await execTmux(hostId, ['kill-window', '-t', tmuxWindowId])
-      const windows = await getTmuxWindows(hostId, sessionName)
-      return { ok: true, windows }
+      try {
+        const windows = await getTmuxWindows(hostId, sessionName)
+        return { ok: true, windows }
+      } catch (err) {
+        // 最后一个 window：tmux 连带销毁整个 session（同组 view 一起消失），
+        // 随后的 list-windows 必然找不到目标。kill 已经成功，这是终态而非失败：
+        // 显式回 sessionGone，客户端据此清缓存、离开该 session，而不是弹「关闭失败」
+        if (SESSION_GONE.test(errorMessage(err))) return { ok: true, sessionGone: true, windows: [] }
+        throw err
+      }
     } catch (err) {
       return classifiedErrorReply(reply, err, 'window') ?? { ok: false, error: errorMessage(err) }
     }

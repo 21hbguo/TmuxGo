@@ -18,7 +18,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { parseSessionName } from '@/lib/session-id'
 import { requestTerminalFocus } from '@/lib/terminal-focus-request'
-import { useBatchKillWindows, useCreateWindow, useSessionSnapshot, useWindows } from '@/hooks/useApi'
+import { useBatchKillWindows, useCreateWindow, useKillWindow, useSessionSnapshot, useWindows } from '@/hooks/useApi'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 import { useTranslation } from '@/i18n'
@@ -46,6 +46,7 @@ export function WindowTabs() {
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const { syncAfterWindowChange } = useSessionSnapshotSync()
   const createWindow = useCreateWindow()
+  const killWindow = useKillWindow()
   const batchKillWindows = useBatchKillWindows()
   const { t } = useTranslation()
 
@@ -85,7 +86,8 @@ export function WindowTabs() {
   const windowRollups = new Map(
     summarizeAgentByWindow(snapshotData?.panes || []).map((rollup) => [rollup.windowId, rollup]),
   )
-  // tmux kill 掉最后一个 window 会连带销毁整个 session，故禁止关最后一个
+  // tmux kill 掉最后一个 window 会连带销毁整个 session：允许关，但确认文案必须说明
+  // 会话会一起结束（见 closeLastConfirm）；CloseOthers 没有别的窗口可关，仍按禁用处理
   const isLastWindow = sessionWindows.length <= 1
 
   const handleSelect = async (windowId: string) => {
@@ -106,10 +108,20 @@ export function WindowTabs() {
     }
   }
 
-  const handleCloseWindow = async (window: Pick<Window, 'id'>) => {
-    if (!activeHostId || !activeSessionId || isLastWindow) return
+  const handleCloseWindow = async (window: Pick<Window, 'id' | 'name'>) => {
+    if (!activeHostId || !activeSessionId) return
     try {
-      const result = await api.windows.kill(activeHostId, activeSessionId, window.id)
+      const result = await killWindow.mutateAsync({
+        hostId: activeHostId,
+        sessionId: activeSessionId,
+        windowId: window.id,
+      })
+      if (result?.sessionGone) {
+        // 最后一窗：session 已随之销毁。缓存清理在 useKillWindow 里做，active session
+        // 的兜底交给 ConsoleLayout 的 sessions 对账；这里不能再拉 snapshot（目标已不存在）
+        pushToast({ type: 'info', message: t('window.sessionClosed', { name: window.name }) })
+        return
+      }
       if (result?.windows) {
         setWindows(result.windows)
         await syncAfterWindowChange()
@@ -119,6 +131,15 @@ export function WindowTabs() {
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('window.closeFailed') })
     }
+  }
+
+  // 中键/右键菜单的「关闭」原本即时执行；最后一窗会连带结束会话，统一改走确认弹窗
+  const handleQuickClose = (window: Window) => {
+    if (isLastWindow) {
+      setCloseTarget({ id: window.id, name: window.name })
+      return
+    }
+    void handleCloseWindow(window)
   }
 
   const handleCloseOthers = async (window: Window) => {
@@ -402,7 +423,7 @@ export function WindowTabs() {
                 // 中键直接关（浏览器惯例）；preventDefault 顺带挡掉 Linux 下 middle-click autoscroll/粘贴
                 if (event.button === 1) {
                   event.preventDefault()
-                  void handleCloseWindow(window)
+                  handleQuickClose(window)
                 }
               }}
               onDoubleClick={() => setRenameTarget({ id: window.id, name: window.name })}
@@ -487,8 +508,7 @@ export function WindowTabs() {
               <button
                 type="button"
                 aria-label={t('window.close')}
-                title={isLastWindow ? t('window.lastWindow') : t('window.close')}
-                disabled={isLastWindow}
+                title={t('window.close')}
                 className="tmuxgo-window-tab-close"
                 onClick={(event) => {
                   event.stopPropagation()
@@ -598,10 +618,9 @@ export function WindowTabs() {
           </button>
           <button
             className="tmuxgo-menu-item tmuxgo-menu-item--danger text-xs"
-            disabled={isLastWindow}
             onClick={() => {
               setTabMenu(null)
-              void handleCloseWindow(tabMenuWindow)
+              handleQuickClose(tabMenuWindow)
             }}
           >
             <FiX aria-hidden="true" size={13} />
@@ -643,8 +662,12 @@ export function WindowTabs() {
       />
       <ConfirmDialog
         open={!!closeTarget}
-        title={t('window.closeTitle')}
-        message={t('window.closeConfirm', { name: closeTarget?.name ?? '' })}
+        title={isLastWindow ? t('window.closeLastTitle') : t('window.closeTitle')}
+        message={
+          isLastWindow
+            ? t('window.closeLastConfirm', { name: closeTarget?.name ?? '' })
+            : t('window.closeConfirm', { name: closeTarget?.name ?? '' })
+        }
         confirmLabel={t('window.close')}
         cancelLabel={t('common.cancel')}
         tone="danger"
