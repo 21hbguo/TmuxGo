@@ -35,6 +35,7 @@ export function ZoomSurface({
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [natural, setNatural] = useState({ w: 0, h: 0 })
   const [sized, setSized] = useState(false)
+  const [fitBox, setFitBox] = useState<{ w: number; h: number } | null>(null)
   const scaleRef = useRef(1)
   const offsetRef = useRef({ x: 0, y: 0 })
   const pinchRef = useRef<{ distance: number; scale: number } | null>(null)
@@ -69,6 +70,17 @@ export function ZoomSurface({
     updateScale(1)
     updateOffset({ x: 0, y: 0 })
   }, [resetKey, updateOffset, updateScale])
+  // image 模式的「适配盒」只在打开/换图时量一次并钉死：img 是 max-w-full object-contain，
+  // 若随容器重适配，拖动分栏会改变显示尺寸而缩放率不变——尺寸和缩放率脱节
+  useLayoutEffect(() => {
+    if (!image) return
+    const vp = viewportRef.current
+    if (!vp) return
+    const cs = getComputedStyle(vp)
+    const w = vp.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+    const h = vp.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
+    if (w > 0 && h > 0) setFitBox({ w, h })
+  }, [image, resetKey])
   useEffect(() => {
     const viewport = viewportRef.current
     if (!viewport || !active) return
@@ -223,11 +235,18 @@ export function ZoomSurface({
       onDragStart={(event) => event.preventDefault()}
     >
       {image ? (
-        <div
-          className="flex h-full w-full items-center justify-center"
-          style={{ transform, transformOrigin: 'center center' }}
-        >
-          {children}
+        <div className="flex h-full w-full items-center justify-center">
+          <div
+            className={`flex items-center justify-center${fitBox ? '' : ' h-full w-full'}`}
+            style={{
+              transform,
+              transformOrigin: 'center center',
+              width: fitBox?.w,
+              height: fitBox?.h,
+            }}
+          >
+            {children}
+          </div>
         </div>
       ) : (
         <div style={sized ? { width: natural.w * scale, height: natural.h * scale } : undefined}>
