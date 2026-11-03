@@ -87,6 +87,8 @@ export interface Window {
 export interface WindowsMutationResult {
   ok?: boolean
   windows?: Window[]
+  /** 最后一个 window 被关闭：tmux 连带销毁了 session（windows 必为空数组） */
+  sessionGone?: boolean
   error?: string
 }
 

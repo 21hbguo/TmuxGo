@@ -226,7 +226,7 @@ test('move renumbers windows into the requested order', async (t) => {
   assert.deepEqual(empty.json(), { message: 'orderedWindowIds is required', code: 'INVALID_REQUEST' })
 })
 
-test('kill removes one window and reports the last-window session teardown as a failure', async (t) => {
+test('kill removes one window and reports the last-window session teardown as sessionGone', async (t) => {
   const fastify = await resetWindows(t)
   const windows = await listWindows(fastify)
   const alpha = windowByName(windows, 'alpha')
@@ -256,12 +256,10 @@ test('kill removes one window and reports the last-window session teardown as a 
     url: `/hosts/local/sessions/${sessionId}/windows/kill`,
     payload: { windowId: last.id },
   })
-  // kill 本身成功，但随后的 list-windows 撞上「session 已被销毁」→ 契约归位为 404（含 tmux 原文）
-  assert.equal(lastResponse.statusCode, 404)
-  // tmux 可能报 can't find window 或 can't find session（kill 成功后 store 里已无该 session），
-  // 只要 404 + *_NOT_FOUND 形态成立即可，具体资源名随 tmux 文案
-  assert.match(String(lastResponse.json().code), /_NOT_FOUND$/)
-  assert.match(String(lastResponse.json().message), /can't find session|no server running|no current target/i)
+  // kill 本身成功但 tmux 连带销毁 session：这不是失败，契约用 sessionGone 显式回报终态，
+  // 客户端据此清掉该会话的查询并从会话列表里摘掉它
+  assert.equal(lastResponse.statusCode, 200)
+  assert.deepEqual(lastResponse.json(), { ok: true, sessionGone: true, windows: [] })
   await assert.rejects(tmux(['has-session', '-t', sessionName]))
 })
 

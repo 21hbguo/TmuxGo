@@ -467,12 +467,26 @@ export function useCreateWindow() {
     },
   })
 }
+// 最后一个 window 关闭 = tmux 连带销毁 session：把它从会话列表里摘掉并清空结构查询，
+// 后续「active session 没了怎么办」沿用 useDeleteSession 同一条路——ConsoleLayout 的
+// sessions 对账负责切到其他会话/空态，组件层不再自造全局兜底
+function dropKilledSession(queryClient: ReturnType<typeof useQueryClient>, hostId: string, sessionId: string) {
+  queryClient.setQueryData(['sessions', hostId], (prev: Session[] | undefined) =>
+    removeSessionListItem(prev, sessionId),
+  )
+  clearSessionQueries(queryClient, hostId, sessionId)
+  queryClient.invalidateQueries({ queryKey: ['sessions', hostId] })
+}
 export function useKillWindow() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ hostId, sessionId, windowId }: { hostId: string; sessionId: string; windowId: string }) =>
       api.windows.kill(hostId, sessionId, windowId),
     onSuccess: (result, { hostId, sessionId }) => {
+      if (result?.sessionGone) {
+        dropKilledSession(queryClient, hostId, sessionId)
+        return
+      }
       if (Array.isArray(result?.windows)) {
         queryClient.setQueryData(['windows', hostId, sessionId], result.windows)
       }
@@ -492,18 +506,27 @@ export function useBatchKillWindows() {
       sessionId: string
       windowIds: string[]
     }) => {
-      const results: { id: string; ok: boolean; error?: string }[] = []
+      const results: { id: string; ok: boolean; sessionGone?: boolean; error?: string }[] = []
       for (const windowId of windowIds) {
         try {
           const res = await api.windows.kill(hostId, sessionId, windowId)
-          results.push({ id: windowId, ok: res?.ok !== false })
+          results.push({
+            id: windowId,
+            ok: res?.ok !== false,
+            ...(res?.sessionGone ? { sessionGone: true } : {}),
+          })
         } catch (err) {
           results.push({ id: windowId, ok: false, error: err instanceof Error ? err.message : String(err) })
         }
       }
       return results
     },
-    onSuccess: (_, { hostId, sessionId }) => {
+    onSuccess: (results, { hostId, sessionId }) => {
+      // 批里只要有一次把最后一个窗口关掉，session 就没了：后续请求已无意义，按会话销毁收场
+      if (results.some((item) => item.sessionGone)) {
+        dropKilledSession(queryClient, hostId, sessionId)
+        return
+      }
       queryClient.invalidateQueries({ queryKey: ['windows', hostId, sessionId] })
       queryClient.invalidateQueries({ queryKey: ['session-snapshot', hostId, sessionId] })
     },

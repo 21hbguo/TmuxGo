@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WindowTabs } from './WindowTabs'
 import { api } from '@/lib/api'
@@ -10,6 +10,7 @@ import type { Window } from '@/types'
 const windowsState = vi.hoisted(() => ({ value: [] as Window[] }))
 const setWindowsMock = vi.hoisted(() => vi.fn())
 const syncAfterWindowChangeMock = vi.hoisted(() => vi.fn(async () => null))
+const killWindowMock = vi.hoisted(() => vi.fn())
 const writeClipboardMock = vi.hoisted(() =>
   vi.fn(async (_text: string) => ({ copied: true, source: 'system', unavailable: false, reason: 'ok' })),
 )
@@ -23,6 +24,7 @@ vi.mock('@/hooks/useApi', () => ({
   useWindows: () => ({ data: windowsState.value }),
   useSessionSnapshot: () => ({ data: null }),
   useCreateWindow: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useKillWindow: () => ({ mutateAsync: killWindowMock, isPending: false }),
   useBatchKillWindows: () => ({ mutateAsync: vi.fn() }),
 }))
 vi.mock('@/hooks/useWindowQueryState', () => ({
@@ -205,5 +207,113 @@ describe('WindowTabs 拓扑编辑 / 布局字符串', () => {
     // 失败不关弹窗：用户要能改完再试
     expect(screen.getByTestId('layout-string-input')).toBeInTheDocument()
     expect(syncAfterWindowChangeMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('WindowTabs 关闭窗口（含最后一个窗口）', () => {
+  const tabCloseButton = () => screen.getByRole('button', { name: 'window.close' })
+
+  beforeEach(() => {
+    // tmux 里最后一个 window 的 × 曾经被禁用；这里默认单窗口场景
+    windowsState.value = [{ id: 'local:@1', sessionId: SESSION, index: 0, name: 'solo', active: true }]
+    useConsoleStore.setState({
+      activeHostId: HOST,
+      activeSessionId: SESSION,
+      toasts: [],
+      connection: { status: 'connected', latency: 0, lastPing: new Date().toISOString() },
+    })
+    killWindowMock.mockReset()
+    setWindowsMock.mockClear()
+    syncAfterWindowChangeMock.mockClear()
+  })
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  it('keeps × enabled on the last window and warns that the session ends with it', async () => {
+    render(<WindowTabs />)
+    const close = tabCloseButton()
+    expect(close).toBeEnabled()
+
+    fireEvent.click(close)
+    const dialog = await screen.findByRole('dialog')
+    // 与普通关窗文案区分：标题/正文都点明会话会被结束
+    expect(within(dialog).getByText('window.closeLastTitle')).toBeInTheDocument()
+    expect(within(dialog).getByText('window.closeLastConfirm {"name":"solo"}')).toBeInTheDocument()
+    expect(killWindowMock).not.toHaveBeenCalled()
+  })
+
+  it('closes the last window, reports the session teardown and skips the dead snapshot sync', async () => {
+    killWindowMock.mockResolvedValue({ ok: true, sessionGone: true, windows: [] })
+    render(<WindowTabs />)
+
+    fireEvent.click(tabCloseButton())
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'window.close' }))
+
+    await waitFor(() =>
+      expect(killWindowMock).toHaveBeenCalledWith({ hostId: HOST, sessionId: SESSION, windowId: 'local:@1' }),
+    )
+    await waitFor(() =>
+      expect(lastToast()).toMatchObject({ type: 'info', message: 'window.sessionClosed {"name":"solo"}' }),
+    )
+    // session 已销毁：既不该写回窗口列表，也不该再拉 snapshot
+    expect(setWindowsMock).not.toHaveBeenCalled()
+    expect(syncAfterWindowChangeMock).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  it('keeps the non-last window close flow unchanged', async () => {
+    const remaining: Window = { id: 'local:@1', sessionId: SESSION, index: 0, name: 'editor', active: true }
+    windowsState.value = [remaining, { id: 'local:@2', sessionId: SESSION, index: 1, name: 'logs', active: false }]
+    killWindowMock.mockResolvedValue({ ok: true, windows: [remaining] })
+    render(<WindowTabs />)
+
+    fireEvent.click(within(tabOf('logs')).getByRole('button', { name: 'window.close' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('window.closeTitle')).toBeInTheDocument()
+    expect(within(dialog).getByText('window.closeConfirm {"name":"logs"}')).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'window.close' }))
+
+    await waitFor(() =>
+      expect(killWindowMock).toHaveBeenCalledWith({ hostId: HOST, sessionId: SESSION, windowId: 'local:@2' }),
+    )
+    await waitFor(() => expect(setWindowsMock).toHaveBeenCalledWith([remaining]))
+    await waitFor(() => expect(syncAfterWindowChangeMock).toHaveBeenCalled())
+    expect(lastToast()).toBeUndefined()
+  })
+
+  it('routes middle-click on the last window through the confirmation instead of killing the session instantly', async () => {
+    render(<WindowTabs />)
+    fireEvent.mouseDown(tabOf('solo'), { button: 1 })
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('window.closeLastTitle')).toBeInTheDocument()
+    expect(killWindowMock).not.toHaveBeenCalled()
+  })
+
+  it('routes the tab menu Close on the last window through the confirmation', async () => {
+    render(<WindowTabs />)
+    fireEvent.contextMenu(tabOf('solo'), { clientX: 40, clientY: 30 })
+    fireEvent.click(await screen.findByText('window.close'))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('window.closeLastTitle')).toBeInTheDocument()
+    expect(killWindowMock).not.toHaveBeenCalled()
+  })
+
+  it('still closes a non-last window from middle-click without a confirmation', async () => {
+    const remaining: Window = { id: 'local:@1', sessionId: SESSION, index: 0, name: 'editor', active: true }
+    windowsState.value = [remaining, { id: 'local:@2', sessionId: SESSION, index: 1, name: 'logs', active: false }]
+    killWindowMock.mockResolvedValue({ ok: true, windows: [remaining] })
+    render(<WindowTabs />)
+
+    // 中键关闭非最后窗口保持原语义：即时执行，不弹确认
+    fireEvent.mouseDown(tabOf('logs'), { button: 1 })
+    await waitFor(() =>
+      expect(killWindowMock).toHaveBeenCalledWith({ hostId: HOST, sessionId: SESSION, windowId: 'local:@2' }),
+    )
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })

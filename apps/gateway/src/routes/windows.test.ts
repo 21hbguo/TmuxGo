@@ -140,12 +140,40 @@ test('successful window lifecycle keeps the 200 {ok:true,windows} contract', asy
       payload: { windowId: window.id },
     })
     assert.equal(killed.statusCode, 200)
-    const killedBody = killed.json() as { ok: boolean; windows: { id: string }[] }
+    const killedBody = killed.json() as { ok: boolean; sessionGone?: boolean; windows: { id: string }[] }
     assert.equal(killedBody.ok, true)
+    // 还有别的 window：普通关窗，不带 sessionGone
+    assert.equal(killedBody.sessionGone, undefined)
     assert.equal(
       killedBody.windows.some((item) => item.id === window.id),
       false,
     )
+  } finally {
+    await killTestTmuxSession()
+  }
+})
+
+test('killing the last window reports the session teardown as an explicit success', async (t) => {
+  const app = await buildApp(t)
+  try {
+    await killTestTmuxSession()
+    await execTmuxFile('tmux', ['new-session', '-d', '-s', TEST_TMUX_SESSION, '-n', 'only'])
+    const sessionId = `session-local-${TEST_TMUX_SESSION}`
+    const listed = await app.inject({ method: 'GET', url: `/hosts/local/sessions/${sessionId}/windows` })
+    assert.equal(listed.statusCode, 200)
+    const [only] = listed.json() as { id: string; name: string }[]
+    assert.equal(only.name, 'only')
+
+    const killed = await app.inject({
+      method: 'POST',
+      url: `/hosts/local/sessions/${sessionId}/windows/kill`,
+      payload: { windowId: only.id },
+    })
+    // kill 本身成功；tmux 连带销毁 session 是终态而不是失败：显式 sessionGone + 空列表，
+    // 客户端据此清缓存并离开该 session，而不是弹「关闭窗口失败」
+    assert.equal(killed.statusCode, 200)
+    assert.deepEqual(killed.json(), { ok: true, sessionGone: true, windows: [] })
+    await assert.rejects(execTmuxFile('tmux', ['has-session', '-t', `=${TEST_TMUX_SESSION}`]))
   } finally {
     await killTestTmuxSession()
   }
