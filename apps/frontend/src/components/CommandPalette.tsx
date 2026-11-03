@@ -12,7 +12,7 @@ import { writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
 import { isApplePlatform, isImeKeyEvent } from '@/lib/terminal-platform'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
-import { useHosts, useInvokePluginAction, usePlugins, useWindows } from '@/hooks/useApi'
+import { useHosts, useInvokePluginAction, useKillWindow, usePlugins, useWindows } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import type { Host, Session, Window } from '@/types'
@@ -43,6 +43,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const { data: windows = [] } = useWindows(activeHostId || '', activeSessionId || '')
   const { data: pluginsData } = usePlugins()
   const invokePluginAction = useInvokePluginAction()
+  const killWindow = useKillWindow()
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const { t } = useTranslation()
   const {
@@ -335,20 +336,18 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     ...actionItems,
     // 编辑器命令：工作台挂载时才注入（否则点了没反应），标题/键位与命令表同源
     ...(isEditorCommandAvailable()
-      ? EDITOR_COMMANDS.map(
-          (command): PaletteItem => ({
-            key: `editor-${command.id}`,
-            type: 'action',
-            title: t(command.titleKey),
-            meta: formatKeybinding(command.keybinding, isApplePlatform()) || t('palette.editorCommands'),
-            keywords: [...command.keywords, '编辑器', 'editor'],
-            action: async () => {
-              // 先关面板再把命令投给工作台：命令里的 focus 调用不能被面板卸载抢焦点
-              setCommandPalette(false)
-              dispatchEditorCommand(command.id)
-            },
-          }),
-        )
+      ? EDITOR_COMMANDS.map((command): PaletteItem => ({
+          key: `editor-${command.id}`,
+          type: 'action',
+          title: t(command.titleKey),
+          meta: formatKeybinding(command.keybinding, isApplePlatform()) || t('palette.editorCommands'),
+          keywords: [...command.keywords, '编辑器', 'editor'],
+          action: async () => {
+            // 先关面板再把命令投给工作台：命令里的 focus 调用不能被面板卸载抢焦点
+            setCommandPalette(false)
+            dispatchEditorCommand(command.id)
+          },
+        }))
       : []),
   ]
   // 空查询时按 会话→窗口→动作→主机→插件 排序（最近入口优先）；危险动作
@@ -382,9 +381,20 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   }
   const confirmKillWindow = async () => {
     if (!activeHostId || !activeSessionId || !pendingKillWindow) return
+    const killed = pendingKillWindow
     try {
-      const result = await api.windows.kill(activeHostId, activeSessionId, pendingKillWindow.id)
-      if (result.windows) setWindows(result.windows)
+      // 走 useKillWindow：最后一窗 sessionGone 时由它摘掉 sessions 缓存并清结构查询，
+      // active session 兜底交给 ConsoleLayout 对账（与 WindowTabs 同一条路）
+      const result = await killWindow.mutateAsync({
+        hostId: activeHostId,
+        sessionId: activeSessionId,
+        windowId: killed.id,
+      })
+      if (result?.sessionGone) {
+        pushToast({ type: 'info', message: t('window.sessionClosed', { name: killed.name }) })
+      } else if (result?.windows) {
+        setWindows(result.windows)
+      }
       setPendingKillWindow(null)
       close()
     } catch (err) {
@@ -505,8 +515,12 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
         </div>
         <ConfirmDialog
           open={!!pendingKillWindow}
-          title={t('palette.killWindow')}
-          message={pendingKillWindow?.name || ''}
+          title={windows.length <= 1 ? t('window.closeLastTitle') : t('palette.killWindow')}
+          message={
+            windows.length <= 1
+              ? t('window.closeLastConfirm', { name: pendingKillWindow?.name ?? '' })
+              : pendingKillWindow?.name || ''
+          }
           confirmLabel={t('common.confirm')}
           cancelLabel={t('common.cancel')}
           tone="danger"

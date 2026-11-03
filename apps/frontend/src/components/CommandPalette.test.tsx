@@ -29,6 +29,7 @@ vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
   usePlugins: () => ({ data: { plugins } }),
   useInvokePluginAction: () => ({ mutateAsync: invokePluginAction }),
+  useKillWindow: () => ({ mutateAsync: killWindow }),
   useWindows: () => ({
     data: [
       { id: 'local:@1', sessionId: 'session-dev', index: 0, name: 'Main', active: true },
@@ -154,7 +155,7 @@ describe('CommandPalette', () => {
     fireEvent.click(confirm)
     fireEvent.click(confirm)
     expect(killWindow).toHaveBeenCalledTimes(1)
-    expect(killWindow).toHaveBeenCalledWith('local', 'session-dev', 'local:@1')
+    expect(killWindow).toHaveBeenCalledWith({ hostId: 'local', sessionId: 'session-dev', windowId: 'local:@1' })
     await act(async () => resolveKill({ windows: [] }))
   })
   it('lists and invokes active plugin actions with the current context', async () => {
@@ -241,5 +242,4 @@ describe('CommandPalette', () => {
     expect(screen.getByText('View: Toggle Breadcrumbs')).toBeTruthy()
     dispose()
   })
-
 })
