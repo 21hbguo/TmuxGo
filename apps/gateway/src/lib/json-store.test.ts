@@ -161,7 +161,7 @@ async function runStoreWorker(
   await writeFile(
     helper,
     `const { JsonStore } = await import(${JSON.stringify(storeUrl)})\n` +
-      `const store = new JsonStore(${JSON.stringify(file)}, { key: 'items', normalize: (i) => (Array.isArray(i) ? i : []) })\n` +
+      `const store = new JsonStore(${JSON.stringify(file)}, { key: 'items', normalize: (i) => (Array.isArray(i) ? i : []), ...${JSON.stringify(options)} })\n` +
       `for (let i = 0; i < ${count}; i++) await store.update((items) => ({ items: [...items, { id: '${tag}-' + i }], result: null }))\n`,
   )
   const child = spawn(process.execPath, ['--import', 'tsx', helper], {
