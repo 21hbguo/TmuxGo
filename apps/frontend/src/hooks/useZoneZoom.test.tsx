@@ -15,6 +15,9 @@ function Harness() {
         <div data-testid="terminal" tabIndex={0} />
       </div>
       <div data-testid="ui" tabIndex={0} />
+      <div data-zoom-surface>
+        <div data-testid="surface" tabIndex={0} />
+      </div>
     </>
   )
 }
@@ -71,5 +74,14 @@ describe('useZoneZoom', () => {
     fireEvent.wheel(ui, { ctrlKey: true, deltaY: -8 })
     fireEvent.wheel(ui, { ctrlKey: true, deltaY: -8 })
     expect(useWorkspaceZoom.getState().uiScale).toBe(1.1)
+  })
+
+  it('lets Ctrl+wheel through to surfaces that own their zoom (image preview)', () => {
+    render(<Harness />)
+    const surface = screen.getByTestId('surface')
+    const notPrevented = fireEvent.wheel(surface, { ctrlKey: true, deltaY: -100 })
+    expect(notPrevented).toBe(true) // 路由放行：不 preventDefault、不动任何 zone 缩放
+    expect(useWorkspaceZoom.getState()).toMatchObject({ terminalScale: 1, uiScale: 1 })
+    expect(useEditorViewPrefs.getState().fontScale).toBe(1)
   })
 })

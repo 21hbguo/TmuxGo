@@ -209,9 +209,11 @@ export function ZoomSurface({
   const transform = `translate(${offset.x}px, ${offset.y}px) scale(${scale})`
   return (
     // onDragStart preventDefault：阻止 img 原生 HTML5 拖拽，否则 dragstart 会触发 pointercancel 中断平移
+    // data-zoom-surface：image 模式的缩放是图面自有语义，提示 useZoneZoom 的 Ctrl+wheel 路由放行
     <div
       ref={viewportRef}
       className={`${className} relative`}
+      data-zoom-surface={image ? '' : undefined}
       onScroll={onScroll}
       onDoubleClick={handleDoubleClick}
       onPointerDown={handlePointerDown}

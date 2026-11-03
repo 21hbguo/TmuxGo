@@ -27,6 +27,8 @@ export function useZoneZoom(): void {
     }
     const onWheel = (event: WheelEvent) => {
       if (event.defaultPrevented || !(event.ctrlKey || event.metaKey)) return
+      // 图片预览等自带滚轮缩放的图面优先——否则捕获层拦停后图面永远收不到 wheel
+      if (event.target instanceof Element && event.target.closest('[data-zoom-surface]')) return
       event.preventDefault()
       event.stopPropagation()
       const zone = zoomZoneForTarget(event.target)

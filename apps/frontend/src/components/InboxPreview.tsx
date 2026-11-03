@@ -259,17 +259,23 @@ function ImagePreview({ url, alt }: { url: string; alt: string }) {
   const { t } = useTranslation()
   const [zoom, setZoom] = useState(1)
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
+  const viewportRef = useRef<HTMLDivElement>(null)
   const clamp = (value: number) => Math.min(8, Math.max(0.1, value))
+  // React 根委托的 wheel 是 passive——preventDefault 无效且 useZoneZoom 捕获层会先拦停；
+  // 缩放是图面自有语义，必须用原生非 passive 监听 + data-zoom-surface 让路由放行
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return
+      event.preventDefault()
+      setZoom((value) => clamp(value * (event.deltaY < 0 ? 1.15 : 1 / 1.15)))
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
   return (
-    <div
-      className="relative h-full overflow-auto p-3"
-      onWheel={(event) => {
-        // ctrl/cmd+滚轮缩放（触控板捏合也报 ctrlKey）
-        if (!event.ctrlKey && !event.metaKey) return
-        event.preventDefault()
-        setZoom((value) => clamp(value * (event.deltaY < 0 ? 1.15 : 1 / 1.15)))
-      }}
-    >
+    <div ref={viewportRef} className="relative h-full overflow-auto p-3" data-zoom-surface>
       <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-apple border border-[var(--line)] bg-bg-1/90 px-1 py-0.5">
         <button
           type="button"
