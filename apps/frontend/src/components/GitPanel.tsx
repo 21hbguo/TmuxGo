@@ -570,7 +570,7 @@ function HistoryTab({
         <span className="shrink-0 font-mono text-caption text-text-3">{commits.length}</span>
       </div>
       <div
-        className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain"
+        className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-auto overscroll-contain"
         data-git-history-scroll="1"
       >
         {commits.length === 0 ? (
