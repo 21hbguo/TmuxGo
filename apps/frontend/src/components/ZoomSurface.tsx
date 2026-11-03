@@ -36,6 +36,7 @@ export function ZoomSurface({
   const [natural, setNatural] = useState({ w: 0, h: 0 })
   const [sized, setSized] = useState(false)
   const [fitBox, setFitBox] = useState<{ w: number; h: number } | null>(null)
+  const [viewBox, setViewBox] = useState<{ w: number; h: number } | null>(null)
   const scaleRef = useRef(1)
   const offsetRef = useRef({ x: 0, y: 0 })
   const pinchRef = useRef<{ distance: number; scale: number } | null>(null)
@@ -72,15 +73,34 @@ export function ZoomSurface({
   }, [resetKey, updateOffset, updateScale])
   // image 模式的「适配盒」只在打开/换图时量一次并钉死：img 是 max-w-full object-contain，
   // 若随容器重适配，拖动分栏会改变显示尺寸而缩放率不变——尺寸和缩放率脱节
+  const measureInner = (vp: HTMLDivElement) => {
+    const cs = getComputedStyle(vp)
+    const w = vp.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+    const h = vp.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
+    return w > 0 && h > 0 ? { w, h } : null
+  }
   useLayoutEffect(() => {
     if (!image) return
     const vp = viewportRef.current
     if (!vp) return
-    const cs = getComputedStyle(vp)
-    const w = vp.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
-    const h = vp.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
-    if (w > 0 && h > 0) setFitBox({ w, h })
+    const box = measureInner(vp)
+    if (box) setFitBox(box)
   }, [image, resetKey])
+  // 钉死的 fitBox 只是「放大上限」：面板/窗口随后收窄时旧盒子居中 + overflow-hidden
+  // 会把图裁掉，所以实际适配盒 = min(fitBox, 当前视口)——放大保持像素稳定，收窄重新适配
+  useEffect(() => {
+    if (!image || typeof ResizeObserver === 'undefined') return
+    const vp = viewportRef.current
+    if (!vp) return
+    const observer = new ResizeObserver(() => {
+      const box = measureInner(vp)
+      if (box) setViewBox(box)
+    })
+    observer.observe(vp)
+    return () => observer.disconnect()
+  }, [image, resetKey])
+  const boundBox =
+    fitBox && viewBox ? { w: Math.min(fitBox.w, viewBox.w), h: Math.min(fitBox.h, viewBox.h) } : (viewBox ?? fitBox)
   useEffect(() => {
     const viewport = viewportRef.current
     if (!viewport || !active) return
@@ -237,12 +257,12 @@ export function ZoomSurface({
       {image ? (
         <div className="flex h-full w-full items-center justify-center">
           <div
-            className={`flex items-center justify-center${fitBox ? '' : ' h-full w-full'}`}
+            className={`flex items-center justify-center${boundBox ? '' : ' h-full w-full'}`}
             style={{
               transform,
               transformOrigin: 'center center',
-              width: fitBox?.w,
-              height: fitBox?.h,
+              width: boundBox?.w,
+              height: boundBox?.h,
             }}
           >
             {children}
