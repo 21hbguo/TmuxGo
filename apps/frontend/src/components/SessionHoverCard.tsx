@@ -86,10 +86,12 @@ export function SessionHoverCard({ hostId, sessionId, sessionName, anchorRect, o
       }
       return
     }
-    // 指针离开行：还没弹出就直接取消；已弹出则宽限一段再关
+    // 指针离开行：还没弹出也要 close——onClose 负责清父级 hoverSession；
+    // 少了它划过 <450ms 时 hoverSession 永久残留，会话列表展示序被冻结（新建/删除不刷新）
     clearShowTimer()
     if (open) scheduleHide()
-  }, [anchorRect, open, clearShowTimer, clearHideTimer, scheduleHide])
+    else close()
+  }, [anchorRect, open, clearShowTimer, clearHideTimer, scheduleHide, close])
 
   useEffect(
     () => () => {

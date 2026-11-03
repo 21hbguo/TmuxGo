@@ -136,6 +136,17 @@ describe('SessionHoverCard', () => {
     expect(getSnapshot).not.toHaveBeenCalled()
   })
 
+  it('reports onClose when the pointer leaves before the card ever opened', async () => {
+    getSnapshot.mockResolvedValue(snapshot)
+    const onClose = vi.fn()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const view = renderCardWith(client, { onClose })
+    // 行划过 <450ms：卡片从未弹出，但父级靠 onClose 清 hoverSession（释放展示序冻结）
+    view.rerender(cardElement(client, { anchorRect: null, onClose }))
+    expect(onClose).toHaveBeenCalled()
+    expect(getSnapshot).not.toHaveBeenCalled()
+  })
+
   it('renders loading and error states without a snapshot', async () => {
     getSnapshot.mockReturnValue(new Promise(() => {}))
     const first = renderCard()
