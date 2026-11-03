@@ -118,6 +118,8 @@ test('select switches the active window by id and rejects targets outside the se
   assert.equal(missing.statusCode, 404)
   assert.equal(missing.json().code, 'WINDOW_NOT_FOUND')
   assert.ok(missing.json().message)
+  // select 直接按 window id 寻址后仍必须「找不到就报错」，不许退回当前窗口假装成功
+  assert.equal((await tmux(['display-message', '-p', '-t', sessionName, '#{window_id}'])).trim(), beta.tmuxWindowId)
 })
 
 test('select works for a window at a non-contiguous index (base-index independent)', async (t) => {

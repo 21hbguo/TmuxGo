@@ -136,6 +136,16 @@ async function resetBase() {
   await execTmuxFile('tmux', ['new-session', '-d', '-s', TEST_TMUX_SESSION, '-x', '80', '-y', '24'])
 }
 
+// 轮询隔离 server 上的 session 名：用来观察「view 是否已经建出来」而不等 attach 完成
+async function waitForSession(name: string, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if ((await sessionNames()).includes(name)) return
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  throw new Error(`session did not appear within ${timeoutMs}ms: ${name}`)
+}
+
 async function cleanupOwn() {
   await killTestTmuxSession()
   for (const name of await sessionNames()) {
@@ -151,6 +161,48 @@ test('attach frame schema keeps viewId instead of stripping it', () => {
     viewId: 'abcdefgh',
   })
   assert.equal(parsed.viewId, 'abcdefgh')
+})
+
+// 首帧前的两段前置工作（base 策略 set-option、view 归属校验/创建）互不依赖。
+// 串行实现会让 ensureViewSession 排在 prepareSessionAttach 之后，这里用闸门
+// 把 prepare 按住：view 仍必须在放行前建出来，否则就是又串回去了。
+test('attach creates the view while base session policy is still in flight', async (t) => {
+  setupEnv()
+  setupPtySpawn()
+  await resetBase()
+  t.after(async () => {
+    await cleanupOwn()
+    teardownEnv()
+  })
+  const viewId = 'concurrentview01'
+  const viewName = viewSessionName('local', TEST_TMUX_SESSION, viewId)
+  let releasePrepare!: () => void
+  const prepareGate = new Promise<void>((resolve) => {
+    releasePrepare = resolve
+  })
+  let prepareEntered = false
+  setPrepareSessionAttachForTest(async () => {
+    prepareEntered = true
+    await prepareGate
+  })
+  const socket = createSocket()
+  const session = new StreamSession(socket.socket, null)
+  const attaching = session.attach({
+    hostId: 'local',
+    sessionName: TEST_TMUX_SESSION,
+    viewId,
+    cols: 80,
+    rows: 24,
+  })
+  try {
+    await waitForSession(viewName)
+  } finally {
+    releasePrepare()
+  }
+  await attaching
+  assert.equal(prepareEntered, true, 'prepareSessionAttach 必须已经启动')
+  const attached = socket.sent.find((message) => message.type === 'attached')
+  assert.equal(attached?.sessionName, TEST_TMUX_SESSION, '对外仍只报 base 名')
 })
 
 test('two view ids attach to independent hubs while every message keeps base sessionName', async (t) => {

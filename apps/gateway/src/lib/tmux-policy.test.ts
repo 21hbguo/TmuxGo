@@ -4,8 +4,13 @@ import test from 'node:test'
 
 // allowlist 是模块加载时读 env 的常量：必须先设再动态 import
 process.env.TMUX_WEB_ALLOWED_SESSIONS = 'work'
-const { assertTargetAllowed, ensureGlobalRemainOnExit, setExecTmuxForTest, _resetRemainOnExitForTest } =
-  await import('./tmux-policy.js')
+const {
+  assertTargetAllowed,
+  ensureGlobalRemainOnExit,
+  prepareSessionAttach,
+  setExecTmuxForTest,
+  _resetRemainOnExitForTest,
+} = await import('./tmux-policy.js')
 
 const seen: { hostId: string; args: string[] }[] = []
 function stubSession(sessionName: string) {
@@ -89,4 +94,41 @@ test('ensureGlobalRemainOnExit skips hosts whose tmux rejects failed', async (t)
   await ensureGlobalRemainOnExit('old-tmux-host')
   await ensureGlobalRemainOnExit('old-tmux-host')
   assert.equal(calls, 1) // 老 tmux 探测失败后标记跳过，不随每次 attach 重放
+})
+
+// attach 首屏前的前置往返：三条 set-option 互不依赖，串行会让远端多付 1–2 跳。
+// 用「三条都发出去了才放行」的闸门证明并发：串行实现会永远卡在第一跳上。
+test('prepareSessionAttach issues its policy tmux calls concurrently', async (t) => {
+  t.after(() => {
+    setExecTmuxForTest(null)
+    _resetRemainOnExitForTest()
+  })
+  _resetRemainOnExitForTest()
+  const started: string[][] = []
+  let releaseGate!: () => void
+  const gate = new Promise<void>((resolve) => {
+    releaseGate = resolve
+  })
+  setExecTmuxForTest((async (_hostId: string, args: string[]) => {
+    started.push(args)
+    if (started.length === 3) releaseGate()
+    await gate
+    return { stdout: '', stderr: '', host: null }
+  }) as never)
+
+  const work = prepareSessionAttach('local', 'work')
+  const serialGuard = new Promise<never>((_, reject) => {
+    const timer = setTimeout(() => reject(new Error('policy tmux calls ran serially')), 2000)
+    timer.unref?.()
+  })
+  await Promise.race([work, serialGuard])
+  assert.equal(started.length, 3)
+  assert.deepEqual(
+    started.map((args) => args.join(' ')).sort(),
+    [
+      'set-option -t work -g mouse on',
+      'set-option -t work destroy-unattached off',
+      'set-window-option -g remain-on-exit failed',
+    ].sort(),
+  )
 })

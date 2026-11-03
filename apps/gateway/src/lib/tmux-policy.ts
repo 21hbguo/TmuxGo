@@ -69,9 +69,14 @@ type PrepareSessionAttach = (hostId: string, sessionName: string) => Promise<voi
 // 所有 host 的 session 在 attach 前都拿到 destroy-unattached off + mouse on
 async function defaultPrepareSessionAttach(hostId: string, sessionName: string) {
   assertSessionAllowed(sessionName)
-  await execTmux(hostId, ['set-option', '-t', sessionName, 'destroy-unattached', 'off'])
-  await execTmux(hostId, ['set-option', '-t', sessionName, '-g', 'mouse', 'on'])
-  await ensureGlobalRemainOnExit(hostId)
+  // 三条互不依赖：destroy-unattached 是 session 选项、mouse 是全局窗口选项、
+  // remain-on-exit 也是全局。串行会让每次 attach 在首帧前多付 1–2 个 tmux/ssh
+  // 往返（远端 mux 每跳 10–60ms，直接体现在「切完等画面」上）。
+  await Promise.all([
+    execTmuxImpl(hostId, ['set-option', '-t', sessionName, 'destroy-unattached', 'off']),
+    execTmuxImpl(hostId, ['set-option', '-t', sessionName, '-g', 'mouse', 'on']),
+    ensureGlobalRemainOnExit(hostId),
+  ])
 }
 let prepareSessionAttachImpl: PrepareSessionAttach = defaultPrepareSessionAttach
 // 测试缝：单测 attach 路径不触真实 tmux set-option

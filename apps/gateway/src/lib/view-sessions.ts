@@ -143,20 +143,32 @@ async function createOrVerifyViewSession(
     if (raced) return assertViewOwnership(raced, baseSession, viewId)
     throw err
   }
+  // 两个归属 option 与窗口对齐互不依赖：并行发出去，远端只付一跳 RTT。
+  // 对齐失败不算致命（窗口恰好被关掉时退回窗口表第一项），归属 option 失败
+  // 则必须就地删除半成品——没有标记的 view 永远扫不到，会变成永久孤儿。
+  const alignWork = activeWindow
+    ? runTmux(hostId, ['select-window', '-t', `${name}:${activeWindow}`]).catch((err: unknown) => {
+        // 窗口恰好被关掉：不阻塞 attach，view 退回窗口表第一项即可
+        console.warn('Failed to align view session window', {
+          base: baseSession,
+          view: name,
+          activeWindow,
+          err,
+        })
+      })
+    : Promise.resolve()
   try {
-    await runTmux(hostId, ['set-option', '-t', name, VIEW_BASE_OPTION, baseSession])
-    await runTmux(hostId, ['set-option', '-t', name, VIEW_CLIENT_OPTION, viewId])
+    await Promise.all([
+      runTmux(hostId, ['set-option', '-t', name, VIEW_BASE_OPTION, baseSession]),
+      runTmux(hostId, ['set-option', '-t', name, VIEW_CLIENT_OPTION, viewId]),
+    ])
   } catch (err) {
     // 半成品没有归属标记，sweep 永远看不见：就地删掉，避免永久孤儿。
     // 这里刚由本进程创建完成，直接 kill 不需要 option 校验
     await runTmux(hostId, ['kill-session', '-t', name]).catch(() => {})
     throw err
   }
-  if (activeWindow)
-    await runTmux(hostId, ['select-window', '-t', `${name}:${activeWindow}`]).catch((err: unknown) => {
-      // 窗口恰好被关掉：不阻塞 attach，view 退回窗口表第一项即可
-      console.warn('Failed to align view session window', { base: baseSession, view: name, activeWindow, err })
-    })
+  await alignWork
   return name
 }
 
