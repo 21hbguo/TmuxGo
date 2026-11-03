@@ -4,6 +4,7 @@ import Fastify from 'fastify'
 import test from 'node:test'
 import { execTmuxFile, killTestTmuxSession, TEST_TMUX_SESSION } from '../test-tmux.js'
 import { sessionRoutes } from './sessions.js'
+import { SessionChangeFeed } from '../lib/session-change-feed.js'
 
 // 真实 tmux 用例：只操作隔离 server 上的 test session（test-tmux.ts 约定），
 // 同文件用例串行执行，各自建/删 test
@@ -326,6 +327,114 @@ test('agents=0 omits agent fields while the default response still carries them'
     assert.equal(withoutAgentFields.name, sessionName)
   } finally {
     await fastify.close()
+    await killTestTmuxSession()
+  }
+})
+
+// 变更订阅（长轮询）的协议面：版本号 + changed，不夹带 session 名。
+// 用注入的 feed 保证这些用例不碰 tmux 节拍，只验证 HTTP 语义。
+function testFeed() {
+  return new SessionChangeFeed({
+    listSessions: async () => [],
+    intervalMs: 50,
+    maxIntervalMs: 50,
+    watchGraceMs: 0,
+  })
+}
+test('sessions/changes returns the current revision without a since cursor', async () => {
+  const feed = testFeed()
+  const fastify = Fastify()
+  await fastify.register(sessionRoutes, { changeFeed: feed })
+  try {
+    feed.markChanged('local')
+    const response = await fastify.inject({ method: 'GET', url: '/hosts/local/sessions/changes' })
+    assert.equal(response.statusCode, 200)
+    assert.deepEqual(response.json(), { revision: 1, changed: false })
+    assert.equal(response.headers['cache-control'], 'no-store')
+  } finally {
+    await fastify.close()
+    feed.dispose()
+  }
+})
+test('sessions/changes reports changed=false for the current cursor and true for a stale one', async () => {
+  const feed = testFeed()
+  const fastify = Fastify()
+  await fastify.register(sessionRoutes, { changeFeed: feed })
+  try {
+    const same = await fastify.inject({ method: 'GET', url: '/hosts/local/sessions/changes?since=0&wait=0' })
+    assert.deepEqual(same.json(), { revision: 0, changed: false })
+    // 网关重启后版本号会从 0 重来：小于 since 也算「变了」，不能永远等下去
+    feed.markChanged('local')
+    const moved = await fastify.inject({ method: 'GET', url: '/hosts/local/sessions/changes?since=0&wait=0' })
+    assert.deepEqual(moved.json(), { revision: 1, changed: true })
+    const reset = await fastify.inject({ method: 'GET', url: '/hosts/local/sessions/changes?since=99&wait=0' })
+    assert.deepEqual(reset.json(), { revision: 1, changed: true })
+  } finally {
+    await fastify.close()
+    feed.dispose()
+  }
+})
+test('a pending sessions/changes request wakes up when the probe sees a new session', async () => {
+  const feed = testFeed()
+  const fastify = Fastify()
+  await fastify.register(sessionRoutes, { changeFeed: feed })
+  try {
+    const pending = fastify.inject({ method: 'GET', url: '/hosts/local/sessions/changes?since=0&wait=2000' })
+    // 让等待者先挂上，再模拟外部 tmux 新建 session 被探针发现
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    assert.equal(feed.waiterCount, 1)
+    feed.noteSessions('local', [{ name: 'external', windowCount: 1, attached: false }])
+    const response = await pending
+    assert.deepEqual(response.json(), { revision: 1, changed: true })
+  } finally {
+    await fastify.close()
+    feed.dispose()
+  }
+})
+test('creating or deleting a session bumps the change revision immediately', async () => {
+  const sessionName = TEST_TMUX_SESSION
+  const feed = testFeed()
+  const fastify = Fastify()
+  await fastify.register(sessionRoutes, { changeFeed: feed })
+  try {
+    await killTestTmuxSession()
+    const before = feed.getRevision('local')
+    const created = await fastify.inject({
+      method: 'POST',
+      url: '/hosts/local/sessions',
+      payload: { name: sessionName },
+    })
+    assert.equal(created.statusCode, 200)
+    assert.equal(feed.getRevision('local'), before + 1)
+    const removed = await fastify.inject({
+      method: 'DELETE',
+      url: `/hosts/local/sessions/session-local-${sessionName}`,
+    })
+    assert.equal(removed.statusCode, 200)
+    assert.equal(feed.getRevision('local'), before + 2)
+  } finally {
+    await fastify.close()
+    feed.dispose()
+    await killTestTmuxSession()
+  }
+})
+test('listing sessions recalibrates the change baseline from the same read', async () => {
+  const sessionName = TEST_TMUX_SESSION
+  const feed = testFeed()
+  const fastify = Fastify()
+  await fastify.register(sessionRoutes, { changeFeed: feed })
+  try {
+    await killTestTmuxSession()
+    await execTmuxFile('tmux', ['new-session', '-d', '-s', sessionName])
+    // 基线故意写错：GET /sessions 读到真实列表后应把它纠正成一次变更
+    feed.noteSessions('local', [{ name: 'ghost', windowCount: 1, attached: false }])
+    const revision = feed.getRevision('local')
+    const response = await fastify.inject({ method: 'GET', url: '/hosts/local/sessions?agents=0' })
+    assert.equal(response.statusCode, 200)
+    assert.equal(feed.getRevision('local'), revision + 1)
+  } finally {
+    await fastify.close()
+    feed.dispose()
     await killTestTmuxSession()
   }
 })

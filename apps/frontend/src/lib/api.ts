@@ -851,6 +851,22 @@ export const api = {
     // includeAgents=false：调用方已订阅 WS 推送，REST 省掉 agents/agentSummary
     list: (hostId: string, options: { includeAgents?: boolean } = {}) =>
       fetchApi<Session[]>(`/api/hosts/${hostId}/sessions${options.includeAgents === false ? '?agents=0' : ''}`),
+    // 会话列表变更订阅（长轮询）：since 缺省只回当前版本（首帧对齐），
+    // 给定 since 时挂起最长 wait 毫秒，列表变了就立刻回 changed=true。
+    // 只带版本号、不带 session 名——变更提醒不该顺便泄露会话清单。
+    changes: (
+      hostId: string,
+      since: number | null,
+      waitMs: number,
+      signal?: AbortSignal,
+    ): Promise<{ revision: number; changed: boolean }> => {
+      const params = new URLSearchParams({ wait: String(waitMs) })
+      if (since !== null) params.set('since', String(since))
+      return fetchApi<{ revision: number; changed: boolean }>(
+        `/api/hosts/${encodeURIComponent(hostId)}/sessions/changes?${params.toString()}`,
+        { signal, cache: 'no-store' },
+      )
+    },
     create: async (
       hostId: string,
       name: string,

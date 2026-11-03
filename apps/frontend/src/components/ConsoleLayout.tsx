@@ -160,7 +160,11 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   const { prompt, PromptElement } = usePrompt()
   useGitPreferencesSync()
   const { data: hostsData = [] } = useHosts()
-  const { data: sessionsData = [], isFetched: sessionsFetched } = useOrderedSessions(activeHostId || '')
+  const {
+    data: sessionsData = [],
+    isFetched: sessionsFetched,
+    isPlaceholderData: sessionsPlaceholder,
+  } = useOrderedSessions(activeHostId || '')
   const { data: snapshotData } = useSessionSnapshot(activeHostId || '', activeSessionId || '')
   const renameSession = useRenameSession()
   const deleteSession = useDeleteSession()
@@ -721,6 +725,9 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
 
   useEffect(() => {
     if (!sessionsFetched) return
+    // 切 host 的首取窗口里 sessionsData 是上一个 host 的占位缓存：
+    // 拿它做「当前会话还在不在/该选哪一个」的判定，会选出一个不属于本 host 的 id
+    if (sessionsPlaceholder) return
     if (sessionsData.length === 0) {
       if (activeSessionId) setActiveSession('')
       return
@@ -750,7 +757,15 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
             : fallback,
       )
     }
-  }, [sessionsData, sessionsFetched, activeSessionId, activeHostId, setActiveSession, sessionContinuity])
+  }, [
+    sessionsData,
+    sessionsFetched,
+    sessionsPlaceholder,
+    activeSessionId,
+    activeHostId,
+    setActiveSession,
+    sessionContinuity,
+  ])
   useEffect(() => {
     if (!activeHostId || !activeSessionId || !snapshotData) return
     const paneId = snapshotData.activePaneId || snapshotData.panes?.find?.((pane: Pane) => pane.active)?.id || null
@@ -954,7 +969,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   }, [activeHostId])
   useEffect(() => () => clearMobileSessionLongPress(), [clearMobileSessionLongPress])
   useEffect(() => {
-    if (!activeHostId) return
+    if (!activeHostId || sessionsPlaceholder) return
     const validIds = new Set(sessionsData.map((session: Session) => session.id))
     setMobileRecentSessionIds((prev) => {
       const next = prev.filter((id) => validIds.has(id))
@@ -966,16 +981,16 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
       if (next.length !== prev.length) writeMobileRecentSessions(activeHostId, next)
       return next
     })
-  }, [activeHostId, activeSessionId, sessionsData])
+  }, [activeHostId, activeSessionId, sessionsData, sessionsPlaceholder])
   useEffect(() => {
-    if (!activeHostId) return
+    if (!activeHostId || sessionsPlaceholder) return
     const validIds = new Set(sessionsData.map((session: Session) => session.id))
     setMobilePinnedSessionIds((prev) => {
       const next = prev.filter((id) => validIds.has(id))
       if (next.length !== prev.length) writeMobilePinnedSessions(activeHostId, next)
       return next
     })
-  }, [activeHostId, sessionsData])
+  }, [activeHostId, sessionsData, sessionsPlaceholder])
   useEffect(() => {
     const handleNewSession = () => {
       if (isMobile) {

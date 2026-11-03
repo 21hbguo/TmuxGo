@@ -153,7 +153,14 @@ export function SessionPanel() {
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const pushToast = useConsoleStore((state) => state.pushToast)
   const queryClient = useOptionalQueryClient()
-  const { data: sessions = [], moveSession, isError, error, refetch } = useOrderedSessions(activeHostId || '')
+  const {
+    data: sessions = [],
+    moveSession,
+    isError,
+    error,
+    refetch,
+    isPlaceholderData: sessionsPlaceholder,
+  } = useOrderedSessions(activeHostId || '')
   const createSession = useCreateSession()
   const deleteSession = useDeleteSession()
   const batchDeleteSessions = useBatchDeleteSessions()
@@ -1115,7 +1122,11 @@ export function SessionPanel() {
             </div>
           </div>
         </div>
-        <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+        <div
+          className={`tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto${sessionsPlaceholder ? ' opacity-60' : ''}`}
+          aria-busy={sessionsPlaceholder || undefined}
+        >
+          {/* 切 host 首取期间展示上一个 host 的占位列表（避免闪空），压暗表示「正在换血」 */}
           {isError && !sessions.length ? (
             <div className="p-3 text-xs text-danger">
               <div className="break-words">{error instanceof Error ? error.message : t('session.loadFailed')}</div>
