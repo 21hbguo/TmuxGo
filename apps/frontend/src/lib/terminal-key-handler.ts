@@ -41,7 +41,9 @@ export function createTerminalKeyEventHandler(options: TerminalKeyHandlerOptions
       if (consumeRecentDragGuard()) return false
       return true
     }
-    if (isPasteShortcut(e)) {
+    // xterm 对 keyup 同样回调本 handler：'v' 弹起时 ctrlKey 仍置位会再命中粘贴快捷键，
+    // 布防的兜底计时器没有第二个 paste 事件可清，160ms 后空触发二次粘贴确认——只对 keydown 布防
+    if (e.type === 'keydown' && isPasteShortcut(e)) {
       if (e.repeat) return false
       options.scheduleKeyboardPasteFallback()
       return false

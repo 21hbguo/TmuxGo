@@ -18,6 +18,10 @@ function ctrlC() {
   return new KeyboardEvent('keydown', { key: 'c', ctrlKey: true })
 }
 
+function ctrlV(type: 'keydown' | 'keyup') {
+  return new KeyboardEvent(type, { key: 'v', ctrlKey: true })
+}
+
 describe('createTerminalKeyEventHandler', () => {
   it('lets a plain Ctrl+C through to the terminal when idle', () => {
     const { handler } = makeHandler()
@@ -35,5 +39,17 @@ describe('createTerminalKeyEventHandler', () => {
     window.dispatchEvent(new Event('dragend'))
     expect(handler(ctrlC())).toBe(false)
     expect(options.runCopySelection).toHaveBeenCalledWith('sel', true, true, options.focusTerminalInput)
+  })
+  it('arms the paste fallback only on the Ctrl+V keydown', () => {
+    const { handler, options } = makeHandler()
+    expect(handler(ctrlV('keydown'))).toBe(false)
+    expect(options.scheduleKeyboardPasteFallback).toHaveBeenCalledTimes(1)
+  })
+  it('does not re-arm the paste fallback on the Ctrl+V keyup', () => {
+    const { handler, options } = makeHandler()
+    handler(ctrlV('keydown'))
+    // xterm 对 keyup 也回调本 handler；'v' 弹起时 ctrlKey 仍为 true
+    expect(handler(ctrlV('keyup'))).toBe(true)
+    expect(options.scheduleKeyboardPasteFallback).toHaveBeenCalledTimes(1)
   })
 })

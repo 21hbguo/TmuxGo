@@ -3,6 +3,7 @@ import { useCallback, useMemo, useRef } from 'react'
 import { extractClipboardImageFiles } from '@/lib/clipboard-files'
 import { extractClipboardText } from '@/lib/clipboard-text'
 import { armImeDiagnostics, recordImeDiagnostic } from '@/lib/ime-diagnostics'
+import { hasModalLayerOpen } from '@/lib/modal-layers'
 
 const KEYBOARD_PASTE_FALLBACK_DELAY = 160
 function recordImeDebug(event: string, data?: Record<string, unknown>) {
@@ -33,7 +34,10 @@ export function useTerminalPasteBridge(onPasteFiles?: (files: File[]) => void) {
     lastPasteTextRef.current = text
     lastPasteAtRef.current = Date.now()
   }, [])
-  const shouldSkipDuplicatePaste = useCallback((text: string) => Date.now() - lastPasteAtRef.current < 160 && text === lastPasteTextRef.current, [])
+  const shouldSkipDuplicatePaste = useCallback(
+    (text: string) => Date.now() - lastPasteAtRef.current < 160 && text === lastPasteTextRef.current,
+    [],
+  )
   const scheduleKeyboardPasteFallback = useCallback(() => {
     clearKeyboardPasteTimer()
     keyboardPastePendingRef.current = true
@@ -42,67 +46,89 @@ export function useTerminalPasteBridge(onPasteFiles?: (files: File[]) => void) {
     keyboardPasteTimerRef.current = setTimeout(() => {
       keyboardPasteTimerRef.current = null
       keyboardPastePendingRef.current = false
+      // 弹窗已开时的补发只会顶掉 pendingPaste（含用户编辑）或在确认后重开弹窗——丢弃
+      if (hasModalLayerOpen()) {
+        recordImeDebug('keyboard-paste-fallback-skip-modal')
+        return
+      }
       recordImeDebug('keyboard-paste-fallback-fire')
       requestTerminalPaste()
     }, KEYBOARD_PASTE_FALLBACK_DELAY)
   }, [clearKeyboardPasteTimer, requestTerminalPaste])
-  const handlePaste = useCallback((e: ClipboardEvent) => {
-    const files = extractClipboardImageFiles(e.clipboardData)
-    armImeDiagnostics('native-paste')
-    recordImeDebug('paste', { hasFiles: files.length > 0, textLength: extractClipboardText(e.clipboardData).length, target: e.target instanceof HTMLElement ? `${e.target.tagName}.${e.target.className}` : '' })
-    if (files.length) {
+  const handlePaste = useCallback(
+    (e: ClipboardEvent) => {
+      const files = extractClipboardImageFiles(e.clipboardData)
+      armImeDiagnostics('native-paste')
+      recordImeDebug('paste', {
+        hasFiles: files.length > 0,
+        textLength: extractClipboardText(e.clipboardData).length,
+        target: e.target instanceof HTMLElement ? `${e.target.tagName}.${e.target.className}` : '',
+      })
+      if (files.length) {
+        keyboardPastePendingRef.current = false
+        clearKeyboardPasteTimer()
+        e.preventDefault()
+        e.stopPropagation()
+        e.stopImmediatePropagation()
+        clearTextareaTarget(e.target)
+        onPasteFiles?.(files)
+        return
+      }
+      const text = extractClipboardText(e.clipboardData)
+      const target = e.target
+      keyboardPastePendingRef.current = false
+      if (!text) {
+        recordImeDebug('paste-empty')
+        clearKeyboardPasteTimer()
+        e.preventDefault()
+        e.stopPropagation()
+        e.stopImmediatePropagation()
+        clearTextareaTarget(target)
+        requestTerminalPaste()
+        return
+      }
+      if (shouldSkipDuplicatePaste(text)) {
+        recordImeDebug('paste-skip-duplicate', { textLength: text.length })
+        clearKeyboardPasteTimer()
+        e.preventDefault()
+        e.stopPropagation()
+        e.stopImmediatePropagation()
+        return
+      }
+      clearKeyboardPasteTimer()
+      e.preventDefault()
+      e.stopPropagation()
+      e.stopImmediatePropagation()
+      recordImeDebug('paste-forward', { textLength: text.length })
+      markPasteForwarded(text)
+      requestTerminalPaste(text)
+    },
+    [clearKeyboardPasteTimer, markPasteForwarded, onPasteFiles, requestTerminalPaste, shouldSkipDuplicatePaste],
+  )
+  const handlePasteInput = useCallback(
+    (e: InputEvent) => {
+      const isPasteInput = e.inputType === 'insertFromPaste'
+      recordImeDebug('paste-input', {
+        inputType: e.inputType || '',
+        data: e.data || '',
+        pending: keyboardPastePendingRef.current,
+      })
+      if (!isPasteInput && keyboardPastePendingRef.current) {
+        keyboardPastePendingRef.current = false
+        clearKeyboardPasteTimer()
+      }
+      if (!isPasteInput) return
       keyboardPastePendingRef.current = false
       clearKeyboardPasteTimer()
-      e.preventDefault()
-      e.stopPropagation()
-      e.stopImmediatePropagation()
-      clearTextareaTarget(e.target)
-      onPasteFiles?.(files)
-      return
-    }
-    const text = extractClipboardText(e.clipboardData)
-    const target = e.target
-    keyboardPastePendingRef.current = false
-    if (!text) {
-      recordImeDebug('paste-empty')
-      clearKeyboardPasteTimer()
-      e.preventDefault()
-      e.stopPropagation()
-      e.stopImmediatePropagation()
-      clearTextareaTarget(target)
-      requestTerminalPaste()
-      return
-    }
-    if (shouldSkipDuplicatePaste(text)) {
-      recordImeDebug('paste-skip-duplicate', { textLength: text.length })
-      clearKeyboardPasteTimer()
-      e.preventDefault()
-      e.stopPropagation()
-      e.stopImmediatePropagation()
-      return
-    }
-    clearKeyboardPasteTimer()
-    e.preventDefault()
-    e.stopPropagation()
-    e.stopImmediatePropagation()
-    recordImeDebug('paste-forward', { textLength: text.length })
-    markPasteForwarded(text)
-    requestTerminalPaste(text)
-  }, [clearKeyboardPasteTimer, markPasteForwarded, onPasteFiles, requestTerminalPaste, shouldSkipDuplicatePaste])
-  const handlePasteInput = useCallback((e: InputEvent) => {
-    const isPasteInput = e.inputType === 'insertFromPaste'
-    recordImeDebug('paste-input', { inputType: e.inputType || '', data: e.data || '', pending: keyboardPastePendingRef.current })
-    if (!isPasteInput && keyboardPastePendingRef.current) {
-      keyboardPastePendingRef.current = false
-      clearKeyboardPasteTimer()
-    }
-    if (!isPasteInput) return
-    keyboardPastePendingRef.current = false
-    clearKeyboardPasteTimer()
-  }, [clearKeyboardPasteTimer])
+    },
+    [clearKeyboardPasteTimer],
+  )
   const dispose = useCallback(() => {
     clearKeyboardPasteTimer()
     keyboardPastePendingRef.current = false
   }, [clearKeyboardPasteTimer])
-  return useMemo(() => ({ scheduleKeyboardPasteFallback, handlePaste, handlePasteInput, dispose }), [scheduleKeyboardPasteFallback, handlePaste, handlePasteInput, dispose])
+  return useMemo(
+    () => ({ scheduleKeyboardPasteFallback, handlePaste, handlePasteInput, dispose }),
+    [scheduleKeyboardPasteFallback, handlePaste, handlePasteInput, dispose],
+  )
 }
