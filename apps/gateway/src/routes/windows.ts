@@ -127,17 +127,6 @@ async function getTmuxWindows(hostId: string, baseName: string, queryName: strin
       }
     })
 }
-// grouped session 下裸 `select-window -t @n` 归属有歧义（tmux 可能落到 view 上）。
-// 先按 base 列出真实 window（`base:@n` 这种限定 target 在 @n 不存在时会退回当前窗口，
-// 不能用来验归属），拿到 index 后再 `<session>:<index>` 精确切。
-async function getTmuxWindowIndex(hostId: string, baseName: string, tmuxWindowId: string) {
-  const { stdout } = await execTmux(hostId, ['list-windows', '-t', baseName, '-F', '#{window_id}\t#{window_index}'])
-  for (const line of stdout.split(/\r?\n/)) {
-    const [id, index] = line.split('\t')
-    if (id === tmuxWindowId && /^\d+$/.test(index)) return index
-  }
-  throw new Error(`Can't find window: ${tmuxWindowId}`)
-}
 async function normalizeWindowOrder(hostId: string, sessionName: string, orderedWindowIds: string[]) {
   assertSessionAllowed(sessionName)
   const tmuxOrderedIds = orderedWindowIds.map((item) => {
@@ -430,16 +419,28 @@ export async function windowRoutes(fastify: FastifyInstance) {
       // select 带 viewId 时不能像读路径一样回退 base：attach 建 view 与用户首点
       // 存在竞态，回退会把 base 的窗口切走、而 view 仍停在旧窗口。这里直接
       // ensure（幂等）把 view 建出来再切，attach 随后复用，current 不会丢。
-      let viewName = await resolveViewSession(hostId, sessionName, viewId)
-      if (!viewName && viewsEnabled() && viewId !== undefined && viewId !== null) {
-        const normalized = normalizeViewId(viewId)
-        if (normalized) viewName = await ensureViewSession(hostId, sessionName, normalized)
-      }
+      // view 解析与窗口归属校验互不依赖（前者读 view 名/归属，后者按 base 限定
+      // target 验归属），并行发出去少付一跳 RTT——这一跳在 select-window 之前，
+      // 直接加在「点 tab 到画面变」的体感延迟上。
+      const viewWork = (async () => {
+        const resolved = await resolveViewSession(hostId, sessionName, viewId)
+        if (resolved) return resolved
+        if (viewsEnabled() && viewId !== undefined && viewId !== null) {
+          const normalized = normalizeViewId(viewId)
+          if (normalized) return ensureViewSession(hostId, sessionName, normalized)
+        }
+        return null
+      })()
       // 用 base 限定的 target 校验归属：裸 @n 在 grouped session 下可能解析到 view。
-      await assertTargetAllowed(hostId, `${sessionName}:${tmuxWindowId}`, sessionName)
-      const windowIndex = await getTmuxWindowIndex(hostId, sessionName, tmuxWindowId)
+      const [, viewName] = await Promise.all([
+        assertTargetAllowed(hostId, `${sessionName}:${tmuxWindowId}`, sessionName),
+        viewWork,
+      ])
       const targetSession = viewName || sessionName
-      await execTmux(hostId, ['select-window', '-t', `${targetSession}:${windowIndex}`])
+      // 直接用 window id 寻址：window id 是全 server 唯一且组内共享，`<session>:@id`
+      // 精确切到目标（实测缺失时报 can't find window，不会退回当前窗口），
+      // 省掉「先 list-windows 查 index 再按 index 切」的那一跳 RTT 与 index 漂移竞态。
+      await execTmux(hostId, ['select-window', '-t', `${targetSession}:${tmuxWindowId}`])
       // 各 window 尺寸独立：切换当前 window 后附着的 client 视图可能与
       // window 尺寸发散，调度一次同 session 仲裁把所有附着同步过去。
       // view 的 current window 属于 view session，同步键也必须用 view。

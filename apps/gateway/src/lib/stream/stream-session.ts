@@ -1187,8 +1187,13 @@ export class StreamSession {
       throw new Error('Access scope does not allow this session')
     // 开关在请求时读取：TMUXGO_VIEWS=0 时连 viewId 合法性都不看，完全走旧行为
     const requestedViewId = viewsEnabled() ? parseViewId(attach.viewId) : null
-    await prepareSessionAttach(hostId, sessionName)
-    const viewName = requestedViewId ? await this.openViewSession(hostId, sessionName, requestedViewId) : null
+    // base 侧策略与 view 归属校验互不依赖（前者只碰 base session 的选项，后者
+    // 只碰 view 名/归属 option）。串行等于在首帧前白白多等一个 tmux/ssh 往返，
+    // 切换会话的主要体感延迟就来自这些前置往返的叠加。
+    const viewWork = requestedViewId
+      ? this.openViewSession(hostId, sessionName, requestedViewId)
+      : Promise.resolve(null)
+    const [, viewName] = await Promise.all([prepareSessionAttach(hostId, sessionName), viewWork])
     // 所有 PTY/hub/capture/refresh 寻址用 targetName（view）；消息字段继续 base
     const targetName = viewName ?? sessionName
     const requestedCols = attach.cols || 80
