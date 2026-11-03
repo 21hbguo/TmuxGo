@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { parseUserSessionNames, parseUserSessions, parseViewSessionNames } from './session-list.js'
+import {
+  isEmptyTmuxServerError,
+  parseUserSessionNames,
+  parseUserSessions,
+  parseViewSessionNames,
+} from './session-list.js'
 
 // 解析层单测：不碰 tmux，专测「按 tab 而不是空格/竖线切」与「只认 option 不认前缀」
 test('parseUserSessions drops view-backed rows and keeps same-prefix user sessions', () => {
@@ -47,4 +52,21 @@ test('parseUserSessionNames keeps base and drops view rows (snapshot restore exi
   )
   // 恢复快照判断「已存在」只能用用户会话名；view 名当成已存在会覆盖 base
   assert.deepEqual(names, ['work', 'tmuxgo-view-user-owned'])
+})
+
+// 「没有 server / 没有 session」是空列表，不是故障：变更订阅的探针靠这条判定
+// 决定「记一次空签名」还是「进失败退避」，判定错会让 server 冷启动晚十几秒才被发现
+test('isEmptyTmuxServerError recognises empty-server errors and nothing else', () => {
+  assert.equal(isEmptyTmuxServerError(new Error('no server running on /tmp/tmux-501/default')), true)
+  assert.equal(isEmptyTmuxServerError(new Error('failed to connect to server')), true)
+  assert.equal(isEmptyTmuxServerError(new Error('no sessions')), true)
+  // server 刚 exit-empty 时 socket 已被删：路径不固定，只能按错误语义判
+  assert.equal(
+    isEmptyTmuxServerError(new Error('error connecting to /tmp/tmux-1000/default (No such file or directory)')),
+    true,
+  )
+  assert.equal(isEmptyTmuxServerError(new Error('Permission denied (publickey)')), false)
+  assert.equal(isEmptyTmuxServerError(new Error('Connection timed out')), false)
+  assert.equal(isEmptyTmuxServerError('no sessions'), true)
+  assert.equal(isEmptyTmuxServerError(null), false)
 })

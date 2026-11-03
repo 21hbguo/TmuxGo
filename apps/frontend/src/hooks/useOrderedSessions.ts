@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SessionOrderPreference } from '@/types'
 import { api } from '@/lib/api'
 import { useSessions } from './useApi'
+import { useSessionChangeFeed } from './useSessionChangeFeed'
 import { orderSessions } from '@/lib/session-order'
 
 const SESSION_ORDER_KEY_PREFIX = 'tmuxgo-session-order:'
@@ -65,8 +66,14 @@ function mergeRemoteSessionOrders(
 }
 
 export function useOrderedSessions(hostId: string) {
-  const query = useSessions(hostId)
+  const query = useSessions(hostId, { keepPrevious: true })
+  // 会话区的主观察者在这里挂变更订阅：列表被网关推脏时重取，不用等兜底轮询。
+  // 占位数据阶段（刚切 host）先不订阅——那段时间会话列表显示的是上一个 host 的缓存。
+  useSessionChangeFeed(hostId, !query.isPlaceholderData)
   const sessions = query.data ?? EMPTY_SESSIONS
+  // 占位数据属于别的 host：下面所有「按 host 落盘/对齐远端顺序」的动作都必须跳过，
+  // 否则会把上一个 host 的 session id 写成这个 host 的排序偏好
+  const isPlaceholderData = query.isPlaceholderData === true
   const [sessionOrder, setSessionOrder] = useState<string[]>([])
   const syncHostRef = useRef('')
   const hydratedHostRef = useRef('')
@@ -98,16 +105,16 @@ export function useOrderedSessions(hostId: string) {
   const orderedSessions = useMemo(() => orderSessions(sessions, sessionOrder), [sessionOrder, sessions])
   const normalizedOrder = useMemo(() => orderedSessions.map((session) => session.id), [orderedSessions])
   useEffect(() => {
-    if (!hostId) return
+    if (!hostId || isPlaceholderData) return
     if (arraysEqual(sessionOrder, normalizedOrder)) return
     const nextUpdatedAt = new Date().toISOString()
     setSessionOrder(normalizedOrder)
     writeSessionOrder(hostId, normalizedOrder, nextUpdatedAt)
     if (syncHostRef.current === hostId && hydratedHostRef.current === hostId)
       persistRemoteOrder(normalizedOrder, nextUpdatedAt)
-  }, [hostId, normalizedOrder, persistRemoteOrder, sessionOrder])
+  }, [hostId, isPlaceholderData, normalizedOrder, persistRemoteOrder, sessionOrder])
   useEffect(() => {
-    if (!hostId || !sessions.length || syncHostRef.current === hostId) return
+    if (!hostId || isPlaceholderData || !sessions.length || syncHostRef.current === hostId) return
     const localOrder = sanitizeSessionOrder(readSessionOrder(hostId), sessions)
     const localUpdatedAt = readSessionOrderUpdatedAt(hostId)
     void (async () => {
@@ -146,7 +153,7 @@ export function useOrderedSessions(hostId: string) {
         setSessionOrder(localOrder)
       }
     })()
-  }, [hostId, persistRemoteOrder, sessions])
+  }, [hostId, isPlaceholderData, persistRemoteOrder, sessions])
   const moveSession = (orderedSessionIds: string[]) => {
     const nextOrder = sanitizeSessionOrder(orderedSessionIds, sessions)
     if (arraysEqual(nextOrder, normalizedOrder)) return

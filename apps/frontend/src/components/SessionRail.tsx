@@ -24,7 +24,13 @@ export function SessionRail() {
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const pushToast = useConsoleStore((state) => state.pushToast)
   const setSessionPanelExpanded = useConsoleStore((state) => state.setSessionPanelExpanded)
-  const { data: sessions = [], moveSession, isError, refetch } = useOrderedSessions(activeHostId || '')
+  const {
+    data: sessions = [],
+    moveSession,
+    isError,
+    refetch,
+    isPlaceholderData: sessionsPlaceholder,
+  } = useOrderedSessions(activeHostId || '')
   const createSession = useCreateSession()
   const deleteSession = useDeleteSession()
   const renameSession = useRenameSession()
@@ -102,7 +108,10 @@ export function SessionRail() {
           <FiChevronRight aria-hidden="true" className="shrink-0" />
           <span className="min-w-0 truncate">{t('sidebar.sessions')}</span>
         </button>
-        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 py-2 scrollbar-none">
+        <div
+          className={`min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 py-2 scrollbar-none${sessionsPlaceholder ? ' opacity-60' : ''}`}
+          aria-busy={sessionsPlaceholder || undefined}
+        >
           {isError && !sessions.length ? (
             <Button
               variant="danger"

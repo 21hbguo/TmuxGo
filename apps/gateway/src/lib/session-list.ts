@@ -63,6 +63,17 @@ export function parseUserSessions(hostId: string, stdout: string): UserTmuxSessi
   return sessions
 }
 
+// 「server 不存在/没有 session」不是故障，是空列表：调用方（会话列表、变更订阅）
+// 应该把它当 [] 而不是进入失败退避。判定按错误语义而不是 socket 路径——
+// 隔离测试用自定义 TMUX_TMPDIR，路径不固定。
+const emptySessionErrorMarkers = ['no server running', 'failed to connect to server', 'no sessions']
+export function isEmptyTmuxServerError(error: unknown): boolean {
+  const message = (error instanceof Error ? error.message : String(error ?? '')).toLowerCase()
+  if (!message) return false
+  if (emptySessionErrorMarkers.some((marker) => message.includes(marker))) return true
+  return message.includes('error connecting to') && message.includes('no such file or directory')
+}
+
 /** 一次 list-sessions 拿下所有 view session 名；空 socket 等失败按「没有 view」处理 */
 export async function listUserSessions(hostId: string): Promise<UserTmuxSession[]> {
   const { stdout } = await execTmux(hostId, ['list-sessions', '-F', USER_SESSION_LIST_FORMAT])

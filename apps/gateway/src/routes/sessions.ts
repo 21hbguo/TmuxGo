@@ -15,7 +15,8 @@ import {
 } from '../lib/tmux-policy.js'
 import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
 import { execTmux, execHostShell } from '../lib/tmux-executor.js'
-import { listUserSessions } from '../lib/session-list.js'
+import { isEmptyTmuxServerError, listUserSessions } from '../lib/session-list.js'
+import { sessionChangeFeed, type SessionChangeFeed } from '../lib/session-change-feed.js'
 import {
   applyTemplateLayout,
   buildSessionCreateArgs,
@@ -56,7 +57,6 @@ const exactSessionTarget = (sessionName: string) => `=${sessionName}`
 const batchDeleteLimitDefault = 1000
 const batchDeleteLimitMax = 5000
 const thumbnailCaptureConcurrency = 3
-const emptySessionErrorMarkers = ['no server running', 'failed to connect to server', 'no sessions']
 type BatchDeleteMode = 'preview' | 'execute'
 interface HostTmuxSession {
   id: string
@@ -159,15 +159,9 @@ async function listHostTmuxSessions(hostId: string): Promise<HostTmuxSession[]> 
       }
     })
   } catch (err) {
-    const message = errorMessage(err).toLowerCase()
-    if (
-      // socket 文件已删（server 刚 exit-empty）时报 "error connecting to
-      // <socket> (No such file or directory)"，socket 路径不固定（隔离测试
-      // 用自定义 TMUX_TMPDIR），只按错误语义判定不等具体路径
-      emptySessionErrorMarkers.some((marker) => message.includes(marker)) ||
-      (message.includes('error connecting to') && message.includes('no such file or directory'))
-    )
-      return []
+    // socket 文件已删（server 刚 exit-empty）/ 从没起过 server 都算空列表；
+    // 判定收在 session-list 里，变更订阅探针用的是同一份语义
+    if (isEmptyTmuxServerError(err)) return []
     console.error('Failed to list tmux sessions:', err)
     throw err
   }
@@ -462,7 +456,48 @@ async function countWindowPanes(hostId: string, windowId: string) {
   return stdout.trim().split('\n').filter(Boolean).length
 }
 
-export async function sessionRoutes(fastify: FastifyInstance) {
+export interface SessionRoutesOptions {
+  /** 变更订阅实现：缺省用进程内单例，测试可注入假探针 */
+  changeFeed?: SessionChangeFeed
+}
+
+const sessionChangeWaitDefaultMs = 20000
+const sessionChangeWaitMaxMs = 25000
+
+export async function sessionRoutes(fastify: FastifyInstance, options: SessionRoutesOptions = {}) {
+  const changeFeed = options.changeFeed || sessionChangeFeed
+  // 关服时先放行挂着的长轮询：否则 fastify.close() 要等满 20s 等待窗
+  fastify.addHook('onClose', async () => {
+    changeFeed.drain()
+  })
+
+  // 会话列表变更订阅（长轮询）。协议只有「版本号」一件事：
+  //   since 缺省 → 立刻回当前版本，给客户端对齐首帧（不做变更判定）；
+  //   since 给定 → 挂起到版本号变化或超时，回 {revision, changed}。
+  // changed 用「不等于」而不是「大于」：网关重启后版本号从 0 重来，大于判定会永远等下去。
+  // 不泄露 session 名，只暴露一台 host 的列表版本；host 维度仍走 access scope 的 host 校验。
+  fastify.get('/hosts/:hostId/sessions/changes', async (request, reply) => {
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const query = (request.query || {}) as { since?: unknown; wait?: unknown }
+    const sinceRaw = Number(query.since)
+    const since = typeof query.since === 'string' && Number.isFinite(sinceRaw) ? Math.trunc(sinceRaw) : null
+    const waitRaw = Number(query.wait)
+    const waitMs = Number.isFinite(waitRaw)
+      ? Math.max(0, Math.min(Math.trunc(waitRaw), sessionChangeWaitMaxMs))
+      : sessionChangeWaitDefaultMs
+    reply.header('cache-control', 'no-store')
+    if (since === null) return { revision: changeFeed.getRevision(hostId), changed: false }
+    // 客户端断开（切 host/关标签）就别再占着等待位；AbortSignal 让 waiter 立刻结清
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    request.raw.once('close', abort)
+    try {
+      return await changeFeed.waitForChange(hostId, since, waitMs, controller.signal)
+    } finally {
+      request.raw.off('close', abort)
+    }
+  })
+
   fastify.get('/hosts/:hostId/sessions', async (request) => {
     const { hostId } = request.params as { hostId: string }
     // agents=0：客户端已订阅 WS 推送（agent_state 帧会写同一个缓存），REST 不必再算一遍
@@ -470,6 +505,9 @@ export async function sessionRoutes(fastify: FastifyInstance) {
     // 缺省（含老客户端）行为完全不变：照旧返回 agents 与 agentSummary
     const includeAgents = (request.query as { agents?: string } | undefined)?.agents !== '0'
     const sessions = await getHostTmuxSessions(hostId)
+    // 任何一次列表读取都顺带校准变更基线：别的客户端刚拉过列表时，
+    // 订阅端不用等下一轮探针就能知道「确实有变化」，也让新订阅首帧对得上
+    changeFeed.noteSessions(hostId, sessions)
     if (!sessions.length) return []
     if (!includeAgents) return sessions
     const agentPanes =
@@ -529,6 +567,8 @@ export async function sessionRoutes(fastify: FastifyInstance) {
         }
       }
       await prepareSessionAttach(hostId, name)
+      // 列表已经真的多了这个 session：先抬版本，别的客户端不用等探针节拍
+      changeFeed.markChanged(hostId)
       const sessions = await getHostTmuxSessions(hostId)
       const created = sessions.find((s) => s.name === name) || {
         id: buildSessionId(hostId, name),
@@ -560,6 +600,8 @@ export async function sessionRoutes(fastify: FastifyInstance) {
     try {
       await execTmux(hostId, ['rename-session', '-t', sessionName, name])
       await prepareSessionAttach(hostId, name)
+      // 改名在会话区是「原来的没了 + 新的出现」，必须让订阅端立刻重建列表
+      changeFeed.markChanged(hostId)
       const sessions = await getHostTmuxSessions(hostId)
       const renamed = sessions.find((session) => session.name === name) || {
         id: buildSessionId(hostId, name),
@@ -625,6 +667,8 @@ export async function sessionRoutes(fastify: FastifyInstance) {
         failed.push({ sessionId: session.id, name: session.name, reason: errorMessage(err, 'delete_failed') })
       }
     }
+    // 一次批量删除只抬一次版本：订阅端要的是「列表变了」，不是逐条事件
+    if (deleted.length) changeFeed.markChanged(hostId)
     return {
       mode,
       limit,
@@ -709,6 +753,8 @@ export async function sessionRoutes(fastify: FastifyInstance) {
     if (mode === 'append') {
       if (!existing) throw new Error(`Session not found: ${sessionName}`)
       await applySessionLayoutAppend(hostId, sessionName, layout)
+      // 追加窗口会改 windowCount，会话区要跟着变（窗口数在列表里可见）
+      changeFeed.markChanged(hostId)
       return { session: existing, mode, appendedWindows: layout.windows.length }
     }
     if (existing && body.replace !== true)
@@ -725,6 +771,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       throw new Error(errorMessage(err, 'Layout apply failed'), { cause: err })
     }
     await prepareSessionAttach(hostId, sessionName)
+    changeFeed.markChanged(hostId)
     const created = (await getHostTmuxSessions(hostId)).find((session) => session.name === sessionName) || {
       id: buildSessionId(hostId, sessionName),
       hostId,
@@ -748,6 +795,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       // view 名而落进旧组的画面（「没杀掉」的观感来源）
       await sweepViewSessions(hostId, { base: sessionName }).catch(() => {})
       emitPluginEvent('session.deleted', { hostId, sessionId: buildSessionId(hostId, sessionName), sessionName })
+      changeFeed.markChanged(hostId)
       return { success: true, sessionId: buildSessionId(hostId, sessionName) }
     } catch (err) {
       throw new Error(errorMessage(err), { cause: err })

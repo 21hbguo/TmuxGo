@@ -342,12 +342,19 @@ export function sessionsQueryOptions(hostId: string, queryClient: QueryClient) {
     staleTime: 4000,
   }
 }
-export function useSessions(hostId: string) {
+export function useSessions(hostId: string, options: { keepPrevious?: boolean } = {}) {
   const queryClient = useQueryClient()
   return useQuery({
     ...sessionsQueryOptions(hostId, queryClient),
+    // 实时性由变更订阅（useSessionChangeFeed → /sessions/changes 长轮询）负责，
+    // 这条定时器只兜底「订阅不可用/断链」的场景。节拍刻意保持原样（不靠调快轮询
+    // 换体感）：订阅失效时体验不该比改动前更差，订阅正常时它只是每 10s 白跑一次。
     refetchInterval: 10000,
     refetchIntervalInBackground: false,
+    // 切 host 首取期间保留上一份列表，会话区不闪空。占位数据是**别的 host 的**，
+    // 所以只给明确知道怎么处理的消费方（useOrderedSessions）开：
+    // SshPanel/TopBar 这类会拿列表做跳转决策的地方仍拿 undefined，避免点错 host。
+    ...(options.keepPrevious ? { placeholderData: keepPreviousData } : {}),
   })
 }
 export function usePaneCwd(paneId: string | null, enabled: boolean) {
