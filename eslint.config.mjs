@@ -19,6 +19,10 @@ export default tseslint.config(
       '**/*.cjs',
       '.dbg/**',
       'notes/**',
+      // 仓内 git worktree（本地并行开发副本），lint 会重复扫描且嵌套 tsconfig 触发 tsconfigRootDir 解析错误
+      'TmuxGo.worktrees/**',
+      'TmuxEmil/**',
+      'progress/**',
     ],
   },
   js.configs.recommended,
