@@ -24,7 +24,7 @@
     "@fastify/cors": "11.3.0",
     "@fastify/multipart": "10.1.2",
     "@fastify/static": "10.1.5",
-    "@fastify/websocket": "11.3.3",
+    "@fastify/websocket": "11.3.4",
     "fastify": "5.12.5",
     "node-pty": "1.1.0",
     "web-push": "3.6.7",
